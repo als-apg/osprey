@@ -235,10 +235,10 @@ ENV DISABLE_AUTOUPDATER=1
 # dependency list is installed with every third-party package held to the
 # version the lock holds, and the file is kept at
 # /opt/osprey/lock-constraints.txt for the wheel layer below. The lock's lines
-# are appended to the setuptools constraint file rather than replacing it, so
-# they also bound the profile's dependencies (installed under that file) and
-# uv's build environments, and a lock that pins setuptools>=84 fails the layer
-# loudly. With nothing primed from a release there is no mismatch to excuse,
+# are appended to the setuptools_dso constraint file rather than replacing it,
+# so they also bound the profile's dependencies (installed under that file) and
+# uv's build environments, and a lock that pins setuptools_dso below 2.12.4
+# fails the layer loudly. With nothing primed from a release there is no mismatch to excuse,
 # so `pip check` runs on this path whatever OSPREY_DEV says. With no file
 # staged (a release build) the layer is exactly what it was.
 COPY .dockerignore osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
@@ -249,13 +249,12 @@ COPY {{ deployment_packages_dir }}/ /tmp/deps-ctx/{{ deployment_packages_dir }}/
 {%- set ns.packages = ns.packages ~ ' --refresh-package ' ~ package.name ~ ' "' ~ package.name ~ ' @ file:///tmp/deps-ctx/' ~ deployment_packages_dir ~ '/' ~ package.wheel ~ '"' %}
 {%- endfor %}
 {%- endif %}
-# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
-# (CompileError escapes uncaught), which fails any source build of the EPICS
-# toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
-# wheel — notably linux/arm64 images built on Apple Silicon. PIP_CONSTRAINT
-# reaches pip's isolated build environments, where a plain requirement pin
-# would not. Drop the constraint once a fixed setuptools or setuptools_dso
-# release is out.
+# Under setuptools 84, setuptools_dso before 2.12.4 lets the CompileError of a
+# failed compile probe escape uncaught, which fails any source build of the
+# EPICS toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
+# wheel — notably linux/arm64 images built on Apple Silicon. The constraint
+# holds setuptools_dso at that fix or later; PIP_CONSTRAINT reaches pip's
+# isolated build environments, where a plain requirement pin would not.
 #
 # The two index ARGs need no plumbing of their own: Docker hands every declared
 # ARG to this RUN as an environment variable, and PIP_INDEX_URL /
@@ -286,7 +285,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
-    printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    printf 'setuptools-dso>=2.12.4\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
