@@ -1,6 +1,6 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7427-g77d9b29331",
+  "reviewed_against": "2026.9.0b3-7454-g6f6c54355f",
   "files": {
     "apps/manifest.py": "945ca922ecc45ccc1ba049e0506bbd2ed52abfe436615af961b76743f134eeab",
     "apps/rules.py": "52b7da64976d3278a913ea7585f04b9cc5f42ef8c3a115c84c8bdb78d7802d34",
@@ -11,7 +11,7 @@
     "cli/app_cmd.py": "ec43a824edd02cb6814bef2de2b914af5b2cc03226d667e5996d2ce17598bf49",
     "apps/scaffold-app/app.yml": "6282af731470680bec753cccc971bf37b57f5336c7264e3b41564582b46f4765",
     "apps/scaffold-app/panel/index.html": "224d908cc43706a4af968173e92d21a6bd8e0124abf88faf4405f5da02b60e04",
-    "apps/scaffold-app/panel/panel.css": "a5e3bd9dcb46a407ab706665db945172a7afbd804e4d94f658395e8fd2ab693c",
+    "apps/scaffold-app/panel/panel.css": "dc035b2150f5c731d299a3656826afb394beadd06f207d9c0dc7bdf02b2d6229",
     "apps/scaffold-app/panel/panel.js": "e4ad77d79d4fdf3582bcca23fecf5d0e21abb25bdadfdfe7523c03022558f378",
     "apps/scaffold-app/pyproject.toml": "f1834724374bc101fbb5f614798acde0666b8010941ee5915938c868dd1eaade",
     "apps/scaffold-app/scaffold_app/__init__.py": "4e029b619ee610aaee8d84a38f95d436bab95680d937aa435e9611b296fe694f",
