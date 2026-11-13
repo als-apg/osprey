@@ -69,6 +69,21 @@ REFUSED = PACKAGE_DIR / "refused"
 #: The built-in kinds, sorted by name: the order the registry keeps them in.
 BUILT_INS = ("chromaticity_monitor", "crm", "dispersion", "orm", "trm")
 
+#: Where a mounting deployment keeps its machine root, relative to the repo.
+MACHINE_DIR = "machine"
+
+#: The line of a listed kind nobody registers, where it stops the build.
+UNREGISTERED = (
+    f"kind {KIND} is not registered under osprey.facility.kinds by any installed package; "
+    f"fix: install the kind's package, or remove {KIND} from `kinds`"
+)
+
+#: The notice of a listed kind nobody registers, where its block is judged elsewhere.
+DEFERRED = (
+    f"facility: kind-deferred: measurement SR — kind {KIND} is registered by no installed "
+    "package; its roles and `kind_blocks` entry are judged where its app is mounted"
+)
+
 #: What the kind's settings transform asks of the engine: the trigger sample plus its window.
 PATCHED = {ENGINE: {"turns": 12 + 64}}
 
@@ -118,8 +133,9 @@ Deploy = Callable[..., tuple["BuiltProject", Result]]
 def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     """``osprey build`` of a repo holding a tree and the package's source under ``kinds/``.
 
-    The returned callable takes the tree and the profile's ``dependencies``
-    (the package's local path when omitted).
+    The returned callable takes the tree, the profile's ``dependencies`` (the
+    package's local path when omitted) and ``mounted``, which moves the machine
+    facts into a machine root the profile mounts.
     """
     from osprey.deployment import wheel_build
     from tests._builds import BuiltProject, init_project, run_build
@@ -128,12 +144,14 @@ def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     monkeypatch.setattr(wheel_build, "_build_wheel", fake_wheel)
 
     def build(
-        tree: dict[str, Any], dependencies: list[str] | None = None
+        tree: dict[str, Any], dependencies: list[str] | None = None, *, mounted: bool = False
     ) -> tuple[BuiltProject, Result]:
         repo = init_project(tmp_path, "hello-world", "demo")
         facility = repo / "data" / "facility"
         shutil.rmtree(facility)
-        write_tree(facility, copy.deepcopy(tree))
+        write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
+        if mounted:
+            (repo / MACHINE_DIR / "identity.yaml").write_text("code: fixture\n", encoding="utf-8")
         source = repo / SOURCE
         shutil.copytree(
             PACKAGE_DIR / "fixture_kind_deployment",
@@ -144,6 +162,8 @@ def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
         profile = repo / "profile.yml"
         document = yaml.safe_load(profile.read_text(encoding="utf-8"))
         document["dependencies"] = [SOURCE] if dependencies is None else dependencies
+        if mounted:
+            document["machine"] = MACHINE_DIR
         profile.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
         return BuiltProject(repo), run_build(repo)
 
@@ -407,22 +427,13 @@ def test_a_kind_named_like_another_packages_kind_stops_the_build(
     assert message.endswith("fix: give the deployment's kind a name no other kind has")
 
 
-def test_a_measurement_file_naming_a_kind_no_package_registers_stops_the_build(
-    deploy: Deploy,
-) -> None:
+def _unregistered_tree() -> dict[str, Any]:
+    """The fixture tree on an engine OSPREY ships, so only the kind is the deployment's."""
     tree = fixture_tree()
     sr = _sr(tree)
     sr["engine"] = "pyat"
     sr["wiring"] = [w for w in sr["wiring"] if w["address"] != "INJ:REQ"]
-
-    _project, result = deploy(tree, dependencies=[])
-
-    assert result.exit_code != 0
-    output = " ".join(result.output.split())
-    assert (
-        f"kind {KIND} is not registered under osprey.facility.kinds by any installed package; "
-        f"fix: install the kind's package, or remove {KIND} from `kinds`"
-    ) in output
+    return tree
 
 
 def _validate(repo: Path) -> Result:
@@ -431,6 +442,72 @@ def _validate(repo: Path) -> Result:
     from osprey.cli.main import cli
 
     return CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+
+def test_a_machine_tree_alone_defers_a_kind_no_package_registers(deploy: Deploy) -> None:
+    project, result = deploy(_unregistered_tree(), dependencies=[])
+
+    assert result.exit_code == 0, result.output
+    assert DEFERRED in " ".join(result.output.split())
+    facts = _facts(project)
+    assert set(facts["measurement_models"]["SR"]["kinds"]) == {"trm"}
+    assert KIND not in facts["measurement_kinds"]
+
+    validated = _validate(project.repo)
+
+    assert validated.exit_code == 0, validated.output
+    assert (
+        f"{DEFERRED}; fix: validate the deployment that mounts this machine and lists the "
+        "kind's package"
+    ) in " ".join(validated.stderr.split())
+
+
+def test_a_deferred_kind_leaves_every_other_kind_judged(deploy: Deploy) -> None:
+    tree = _unregistered_tree()
+    del tree["measurement/SR.yaml"]["groups"]["quad"]
+
+    _project, result = deploy(tree, dependencies=[])
+
+    assert result.exit_code != 0
+    assert "kind trm needs `groups.quad`" in " ".join(result.output.split())
+
+
+def test_a_mounting_deployment_stops_on_a_kind_no_package_registers(deploy: Deploy) -> None:
+    project, result = deploy(_unregistered_tree(), dependencies=[], mounted=True)
+
+    assert result.exit_code != 0
+    assert UNREGISTERED in " ".join(result.output.split())
+
+    validated = _validate(project.repo)
+
+    assert validated.exit_code == 1
+    assert UNREGISTERED in " ".join(validated.stderr.split())
+    assert "kind-deferred" not in validated.stderr
+
+
+def test_a_single_tree_listing_a_package_stops_on_a_kind_no_package_registers(
+    deploy: Deploy,
+) -> None:
+    project, result = deploy(_unregistered_tree())
+
+    assert result.exit_code != 0
+    assert UNREGISTERED in " ".join(result.output.split())
+    assert "kind-deferred" not in result.output
+
+    validated = _validate(project.repo)
+
+    assert validated.exit_code == 1
+    assert UNREGISTERED in " ".join(validated.stderr.split())
+
+
+@pytest.mark.parametrize(
+    ("mounted", "lists_packages", "judged"),
+    [(False, False, False), (False, True, True), (True, False, True), (True, True, True)],
+)
+def test_only_a_tree_that_mounts_nothing_and_lists_nothing_defers_its_kinds(
+    mounted: bool, lists_packages: bool, judged: bool
+) -> None:
+    assert kinds.judged_here(mounted=mounted, lists_packages=lists_packages) is judged
 
 
 def test_validate_finds_the_kind_in_the_listed_packages_project_file(

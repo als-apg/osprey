@@ -513,6 +513,17 @@ def registered() -> dict[str, KindDeclaration]:
     return found
 
 
+def judged_here(*, mounted: bool, lists_packages: bool) -> bool:
+    """Whether a tree is where its listed measurement kinds are judged.
+
+    A tree that mounts a machine root, or lists an application or a dependency,
+    is a deployment: a listed kind no installed package registers stops it. A
+    tree doing neither is a machine tree on its own, whose kinds are judged
+    where the application is mounted.
+    """
+    return mounted or lists_packages
+
+
 def listed_kinds(pyprojects: Iterable[Path]) -> dict[str, str]:
     """The kinds a deployment's listed packages declare, read from their project files.
 

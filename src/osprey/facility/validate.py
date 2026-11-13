@@ -159,6 +159,8 @@ class Validated:
         content_dir: The content root, where the deployment's ``knowledge/``,
             ``ariel/`` and ``benchmarks/`` are read; ``None`` means
             ``facility_dir``, a single tree.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
     """
 
     facility_dir: Path
@@ -168,6 +170,7 @@ class Validated:
     document: dict[str, Any] | None = None
     warnings: list[FacilityBuildWarning] = field(default_factory=list)
     content_dir: Path | None = None
+    judges_kinds: bool = True
 
     @property
     def content_root(self) -> Path:
@@ -229,6 +232,7 @@ def run_stages(
     project_name: str,
     later: Sequence[tuple[str, Stage]] = (),
     content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> StageReport:
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
@@ -240,11 +244,15 @@ def run_stages(
         later: ``(stage name, check)`` for the stages after S5, in order.
         content_dir: The content root when mounted; ``None`` means
             ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
     """
-    validated = Validated(facility_dir, project_name, content_dir=content_dir)
+    validated = Validated(
+        facility_dir, project_name, content_dir=content_dir, judges_kinds=judges_kinds
+    )
     loaded = load_sources(facility_dir)
     validated.sources = loaded.sources
     if loaded.errors:
@@ -2207,6 +2215,12 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     ``measurement_schema``, and only a block it admits is handed, with the
     document, to the kind's ``build_stops`` hook.
 
+    A listed kind no installed package registers stops a tree where kinds are
+    judged (:func:`osprey.facility.kinds.judged_here`). In a machine tree on
+    its own the kind is deferred with a ``kind-deferred`` warning, and its
+    block and the roles nobody here declares are left to the deployment that
+    mounts the tree.
+
     Args:
         validated: What the earlier stages produced.
 
@@ -2219,7 +2233,12 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
         it takes none of, or the two group roles that name one group.
     """
     document: dict[str, Any] = need(validated.document)
-    return list(_measurement_stops(document))
+    if validated.judges_kinds:
+        return list(_measurement_stops(document))
+    deferred: list[FacilityBuildWarning] = []
+    stops = list(_measurement_stops(document, deferred))
+    validated.warnings.extend(deferred)
+    return stops
 
 
 def _groups_text(value: Any) -> str:
@@ -2230,7 +2249,10 @@ def _groups_text(value: Any) -> str:
     return f"groups {', '.join(families)}"
 
 
-def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
+def _measurement_stops(
+    document: dict[str, Any],
+    deferred: list[FacilityBuildWarning] | None = None,
+) -> Iterator[FacilityBuildError]:
     from osprey.facility.kinds import (
         ENTRY_POINT_GROUP,
         KindRegistryError,
@@ -2291,7 +2313,28 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         sorts = member_sorts(
             declared[str(kind)] for kind in measurement.get("kinds") or [] if str(kind) in declared
         )
-        yield from _unsorted_roles(name, files, groups_named, instruments, sorts)
+        # A machine tree on its own: the kind's package is the mounting
+        # deployment's, so the kind is judged there.
+        unjudged = sorted(
+            str(kind)
+            for kind in measurement.get("kinds") or []
+            if deferred is not None and str(kind) not in declared
+        )
+        if deferred is not None:
+            deferred.extend(
+                FacilityBuildWarning(
+                    "kind-deferred",
+                    "measurement",
+                    name,
+                    f"kind {kind} is registered by no installed package; its roles and "
+                    "`kind_blocks` entry are judged where its app is mounted",
+                    "validate the deployment that mounts this machine and lists the kind's package",
+                )
+                for kind in unjudged
+            )
+        yield from _unsorted_roles(
+            name, files, groups_named, instruments, sorts, undeclared=not unjudged
+        )
         grouped = measurement_groups(records, name, sorts)
         blocks = measurement.get("kind_blocks") or {}
         listed = {str(kind) for kind in measurement.get("kinds") or []}
@@ -2307,6 +2350,8 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         for kind in measurement.get("kinds") or []:
             declaration = declared.get(str(kind))
             if declaration is None:
+                if str(kind) in unjudged:
+                    continue
                 yield _measurement_missing(
                     name,
                     f"kind {kind} is not registered under {ENTRY_POINT_GROUP} by any installed "
@@ -2477,8 +2522,14 @@ def _unsorted_roles(
     groups_named: Mapping[str, Any],
     instruments: Mapping[str, Any],
     sorts: Mapping[str, str],
+    *,
+    undeclared: bool,
 ) -> Iterator[FacilityBuildError]:
-    """A role neither the pyAML view nor a listed kind declares, or named in the other map."""
+    """A role neither the pyAML view nor a listed kind declares, or named in the other map.
+
+    ``undeclared`` is off for a file listing a deferred kind, whose roles
+    nobody here can tell from a role no kind declares.
+    """
     for slot, named, other in (
         ("groups", groups_named, "instruments"),
         ("instruments", instruments, "groups"),
@@ -2486,6 +2537,8 @@ def _unsorted_roles(
         for role in sorted(named, key=str):
             sort = sorts.get(str(role))
             if sort is None:
+                if not undeclared:
+                    continue
                 yield FacilityBuildError(
                     "value-invalid",
                     model,

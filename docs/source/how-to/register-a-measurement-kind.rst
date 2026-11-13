@@ -136,7 +136,9 @@ Each stops ``osprey build``, which prints the line and how to fix it.
    * - ``kind fixture_kind is not registered under osprey.facility.kinds by any
        installed package``
      - A measurement file lists the kind, and no package installed where
-       ``osprey build`` runs declares it.
+       ``osprey build`` runs declares it. A tree that mounts no machine root
+       and lists no application and no dependency is a machine tree on its own
+       and prints a ``kind-deferred`` warning instead (below).
    * - ``measurement kind 'fixture_kind' (package fixture-kind-deployment): the
        kind's package is not among the packages the project image installs``
      - The package is installed where the build runs but not in the profile's
@@ -162,3 +164,12 @@ Each stops ``osprey build``, which prints the line and how to fix it.
        channel.
    * - ``kind <kind>'s facts writer fails on this file's block``
      - The ``facts_writer`` raised on a block the schema admits.
+
+A machine repository checked on its own cannot judge a kind whose package the
+mounting deployment brings. With no ``machine:`` root, no ``apps:`` entry and
+no ``dependencies`` entry in its profile, ``osprey build`` and ``osprey
+facility validate`` print ``facility: kind-deferred: measurement <model> —
+kind <kind> is registered by no installed package; its roles and `kind_blocks`
+entry are judged where its app is mounted``, write nothing for the kind, and
+leave the exit code unchanged. The deployment that mounts the machine and lists
+the kind's package judges the block.
