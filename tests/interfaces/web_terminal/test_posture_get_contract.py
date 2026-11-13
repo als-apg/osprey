@@ -918,6 +918,27 @@ class TestLastSwitchAndRealign:
         assert payload["last_switch"]["status"] == "applied"
         assert 8 <= payload["last_switch"]["age_s"] <= 25
 
+    def test_a_terminus_stamped_only_by_its_request_is_aged_from_it(
+        self, make_client, agent_data_root
+    ):
+        # control_context.terminus copies the request's `requested_at` and
+        # writes no `at`. Unaged, the popover kept the outcome up for good.
+        with make_client() as client:
+            write_control_context(
+                agent_data_root,
+                target="live",
+                generation=4,
+                last_switch={
+                    "request_id": "req-1",
+                    "target": "live",
+                    "requested_at": stamp(age_s=90),
+                    "status": "refused",
+                    "reason": "unreachable",
+                },
+            )
+            payload = get_posture(client)
+        assert 85 <= payload["last_switch"]["age_s"] <= 105
+
     def test_a_record_with_no_terminus_answers_null(self, client):
         assert get_posture(client)["last_switch"] is None
 

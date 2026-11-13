@@ -1546,7 +1546,7 @@ describe('switching', () => {
     await chipModule.refetch();
     await flush();
     expect(chipModule.isPending()).toBe(false);
-    expect(outcomes('va')).toContain('✓ switched');
+    expect(outcomes('va')).toHaveLength(0);
     expect(document.querySelector('.ctc-progress-line')).toBeNull();
   });
 
@@ -1630,13 +1630,10 @@ describe('switching', () => {
     await flush();
 
     expect(chipModule.isPending()).toBe(false);
-    // The outcome, with no counter: the age decides whether the line renders,
-    // never what it says.
-    expect(outcomes('va')).toContain('✓ switched');
-    expect(outcomes('va').join(' ')).not.toMatch(/s ago/);
+    expect(outcomes('va')).toHaveLength(0);
   });
 
-  test('the record’s word for an accepted switch is applied, and it reads ✓ switched', async () => {
+  test('a switch that landed leaves no line: the card names the machine', async () => {
     // The record writes `applied` (control_context.SWITCH_APPLIED); nothing on
     // this path has ever published `success`. Matching the wrong word sent
     // every landed switch to the refusal branch, where it read `✗ applied`.
@@ -1652,11 +1649,7 @@ describe('switching', () => {
         },
       })
     );
-    expect(outcomes('va')).toContain('✓ switched');
-    // `data-status` is the stylesheet's vocabulary, not the record's — the same
-    // split kindAttr makes between the route's words and the CSS values.
-    const line = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-outcome'));
-    expect(line.dataset.status).toBe('success');
+    expect(outcomes('va')).toHaveLength(0);
   });
 
   test('a refusal renders the gate word, not the status', async () => {
@@ -1715,7 +1708,7 @@ describe('switching', () => {
         last_switch: {
           request_id: 'req-9',
           target: 'va',
-          status: 'applied',
+          status: 'refused',
           reason: null,
           age_s: OUTCOME_MAX_AGE_S + 1,
         },

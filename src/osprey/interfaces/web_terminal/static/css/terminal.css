@@ -1396,8 +1396,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
    "Where am I" is the first thing read, so it is not the middle row of an
    equal list: it is a card under the popover's "The agent is on" title, with
-   the name, the consequence line, and the writes switch. The accent tint is
-   quiet, not a warning. */
+   the name and the writes switch on one line and any note under them. The
+   accent tint is quiet, not a warning. */
 .ctc-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1428,10 +1428,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .ctc-card .ctc-switchwrap {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
 }
 
-.ctc-card > .ctc-outcome {
+/* The notes under the name line (a held write phrase, an outcome) run the
+   card's whole width. */
+.ctc-card > :not(.ctc-card-title, .ctc-switchwrap) {
   grid-column: 1 / -1;
 }
 
@@ -1686,10 +1688,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 .ctc-outcome[data-status="pending"] {
   color: var(--text-secondary);
   font-style: italic;
-}
-
-.ctc-outcome[data-status="success"] {
-  color: var(--color-success);
 }
 
 .ctc-outcome[data-status="refused"],
