@@ -2511,7 +2511,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
-            "middle_layer and no device of the facility is in a group or has a class; fix: add "
+            "middle_layer and no device with a channel is in a group or has a class; fix: add "
             "a group or give the devices a class, or select another channel_finder_mode"
         ),
     ),

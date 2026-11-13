@@ -281,6 +281,15 @@ class TestGraphVocabulary:
         assert synonyms["type"] == "list"
         assert synonyms["match"].startswith("ANY(")
 
+    def test_synonyms_match_loosely_over_the_entries(self, payload):
+        """A class synonym is a phrase: the rule every agent surface gives is CONTAINS."""
+        synonyms = payload["synonyms"]
+
+        assert synonyms["match"] == (
+            "ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))"
+        )
+        assert "whole synonym" not in " ".join(synonyms["notes"])
+
     def test_record_names_carry_the_record_name_rule_verbatim(self, payload):
         names = payload["record_names"]
 

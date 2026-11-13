@@ -14,7 +14,7 @@ them (CF-8).
 Several rows for one flat name follow the chain rule: when their parents lie
 on one chain (each an ancestor of the deepest) the place is one record under
 the deepest parent carrying every row's citation; otherwise it is one record
-per parent, and the build reports ``place-parents-disagree``. A row with no
+per parent, each keeping its parent path. A row with no
 ``within`` places nothing: it is top-level when nothing else places the name,
 cited when it carries a citation, and without ``citations`` otherwise (the
 build reports ``place-unplaced``). ``basis`` and ``rule`` are checked, not

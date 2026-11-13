@@ -236,6 +236,18 @@ def test_altlabel_is_matched_as_a_list(query: ExampleQuery) -> None:
     )
 
 
+_SYNONYM_MATCH = "ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))"
+
+
+@pytest.mark.parametrize(
+    "query", [q for q in EXAMPLE_QUERIES if "synonym" in q.parameters], ids=lambda q: q.key
+)
+def test_a_class_synonym_is_matched_loosely(query: ExampleQuery) -> None:
+    """A synonym is a phrase, matched with CONTAINS over the entries; a name is not."""
+    assert _SYNONYM_MATCH in query.cypher
+    assert "exact match" not in query.description
+
+
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
 def test_no_query_asks_for_a_device_label(query: ExampleQuery) -> None:
     """There is no ``:Device`` label in the projection — devices are ``:Resource``."""

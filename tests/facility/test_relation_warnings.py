@@ -111,6 +111,16 @@ class TestAliasShared:
         )
         assert _lines(_run(tmp_path, files), "alias-shared") == []
 
+    def test_a_name_another_layer_adds_is_seen(self, tmp_path: Path) -> None:
+        files = _tree(
+            [_device("QF1", scheme_names=[_alias("Q1")]), _device("QF2")],
+            **{"imported/cables/devices.yaml": [{"id": "QF2", "scheme_names": [_alias("Q1")]}]},
+        )
+        assert _lines(_run(tmp_path, files), "alias-shared") == [
+            "facility: alias-shared: scheme legacy Q1 — devices QF1, QF2 carry the name; "
+            "fix: give each record its own name in the scheme if the scheme is one-to-one"
+        ]
+
 
 def _layer_devices(*ids: str, cls: str = "Quadrupole") -> list[dict[str, Any]]:
     return [_device(rid, cls) for rid in ids]
@@ -285,7 +295,6 @@ class TestLayerPermutation:
 #: The file the relations importer always copies into its layer, marking it a relations layer.
 _MARK = "relations.csv"
 
-_DISAGREE_FIX = "place it under one parent, or give each place its own name"
 _UNPLACED_FIX = "give it a parent or a citation in the layer's places table"
 
 
@@ -307,66 +316,32 @@ def _relations_layer(layer: str, places: list[dict[str, Any]]) -> dict[str, Any]
 
 
 def _place_lines(report: StageReport) -> list[str]:
-    return [*_lines(report, "place-parents-disagree"), *_lines(report, "place-unplaced")]
+    return [w.line for w in report.validated.warnings if w.kind.startswith("place-")]
 
 
-class TestPlaceParentsDisagree:
+class TestRepeatedPlaceNames:
+    """A last path segment repeated under stated parents is ordinary naming."""
+
     def test_one_layer_placing_one_name_under_two_parents(self, tmp_path: Path) -> None:
         files = _place_tree(
             **_relations_layer("cab", [{"id": "SR/S01/RACK"}, {"id": "SR/S02/RACK"}])
         )
-        assert _lines(_run(tmp_path, files), "place-parents-disagree") == [
-            "facility: place-parents-disagree: place RACK — relations layers create it under "
-            f"2 parents: SR/S01/RACK, SR/S02/RACK; fix: {_DISAGREE_FIX}",
-        ]
+        report = _run(tmp_path, files)
+        assert _place_lines(report) == []
+        ids = {place["id"] for place in report.validated.document["places"]}
+        assert {"SR/S01/RACK", "SR/S02/RACK"} <= ids
 
     def test_two_layers_placing_one_name_under_two_parents(self, tmp_path: Path) -> None:
         files = _place_tree(
             **_relations_layer("cab", [{"id": "SR/S01/RACK"}]),
             **_relations_layer("net", [{"id": "SR/S02/RACK"}]),
         )
-        assert _lines(_run(tmp_path, files), "place-parents-disagree") == [
-            "facility: place-parents-disagree: place RACK — relations layers create it under "
-            f"2 parents: SR/S01/RACK, SR/S02/RACK; fix: {_DISAGREE_FIX}",
-        ]
-
-    def test_two_layers_on_one_parent_agree(self, tmp_path: Path) -> None:
-        files = _place_tree(
-            **_relations_layer("cab", [{"id": "SR/S01/RACK"}]),
-            **_relations_layer("net", [{"id": "SR/S01/RACK"}]),
-        )
         assert _place_lines(_run(tmp_path, files)) == []
 
-    def test_a_top_level_place_disagrees_with_nothing(self, tmp_path: Path) -> None:
-        files = _place_tree(
-            **_relations_layer("cab", [{"id": "SR/S01/RACK"}]),
-            **_relations_layer("net", [{"id": "RACK", "citations": [{"document": "dwg-1"}]}]),
-        )
-        assert _place_lines(_run(tmp_path, files)) == []
+    def test_the_kind_is_not_registered(self) -> None:
+        from osprey.facility.errors import WARNING_KINDS
 
-    def test_repeated_authored_and_mml_leaf_names_raise_nothing(self, tmp_path: Path) -> None:
-        files = _place_tree(
-            **{
-                "records/places.yaml": [
-                    {"id": "SR"},
-                    {"id": "SR/S01"},
-                    {"id": "SR/S02"},
-                    {"id": "SR/S01/RACK"},
-                    {"id": "SR/S02/RACK"},
-                ],
-                "imported/mml/places.yaml": [{"id": "SR/S01/BPM"}, {"id": "SR/S02/BPM"}],
-            }
-        )
-        assert _place_lines(_run(tmp_path, files)) == []
-
-    def test_a_place_another_format_also_states_is_not_the_relations_layers(
-        self, tmp_path: Path
-    ) -> None:
-        files = _place_tree(
-            **_relations_layer("cab", [{"id": "SR/S01/RACK"}, {"id": "SR/S02/RACK"}]),
-            **{"imported/mml/places.yaml": [{"id": "SR/S02/RACK"}]},
-        )
-        assert _place_lines(_run(tmp_path, files)) == []
+        assert "place-parents-disagree" not in WARNING_KINDS
 
 
 class TestPlaceUnplaced:
@@ -454,7 +429,6 @@ def test_the_relations_layers_are_the_marked_ones(tmp_path: Path) -> None:
         "identity-ambiguous",
         "part-cycle",
         "relation-stub",
-        "place-parents-disagree",
         "place-unplaced",
     ],
 )

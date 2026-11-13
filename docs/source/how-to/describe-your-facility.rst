@@ -252,7 +252,13 @@ the fields its source states.
 The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
 field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
-settles it (see `Fixes`_).
+settles it (see `Fixes`_). A group's ``members`` are the exception: the group
+carries every member any layer states, and layers that state different members
+get a ``members-disagree`` warning naming which source states which member,
+until they agree or a ``set`` fix names ``members``. A place's or device's
+``scheme_names`` are joined too, so a layer can add a name to a record another
+layer states; one name in one scheme that two layers state with different
+content is still a ``layer-conflict``.
 
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
@@ -419,15 +425,15 @@ replaced. The rules:
 * **Places.** ``within`` names an authored place or one the places table
   creates, never one another imported layer creates, so where a layer puts a
   place does not depend on import order. A place's id is its path,
-  ``BR/RK01`` above. The build reports a place name that relations layers put
-  under two parents with ``place-parents-disagree``, and a place created
-  top-level with no citation with ``place-unplaced``.
+  ``BR/RK01`` above, so one name may repeat under several parents. The build
+  reports a place created top-level with no citation with ``place-unplaced``.
 * **Members.** The members table creates a group no other source has. A row
-  for another source's group is accepted only when that group already holds
-  the member, and changes nothing.
-* **Names.** The names table names only the stub devices and the places this
-  layer creates. A name for a record the authored file or another layer
-  states, or for a group, is refused.
+  naming a member another source's group lacks adds it: the layer then states
+  that group too, with every member its rows name.
+* **Names.** The names table names any device or place. For one the authored
+  file or another layer states, the layer writes a record carrying only the
+  id and the names, and the build joins them with the names the other sources
+  state. A name for a group is refused: a group has no ``scheme_names``.
 * **Ids.** A claim's id is ``<NAME>/<type>/<hash>``. The hash covers the type,
   both ends (in either order for a symmetric type), the ports, the type's key
   attribute and the cited document, never its version, locator or

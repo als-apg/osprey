@@ -75,9 +75,11 @@ The middle-layer index is written to
       }
     }
 
-A Family is a group: every group is filed under the System of each member,
-the top place of the member's place (``-`` for a member with no place), and
-named by its id less a leading ``<System>/``. A classed device that no
+Only a device with a channel is a member: a rack, a supply or a host that has
+none is in no Family, and a System or Family left with no member is not
+written. A Family is a group: every group is filed under the System of each
+member, the top place of the member's place (``-`` for a member with no place),
+and named by its id less a leading ``<System>/``. A classed device that no
 single-class group holds under its System files into a Family named by its
 class under that System, described by the class; a group whose short name is
 such a class name keeps its id. A channel belongs to its ``on`` device and to
@@ -102,7 +104,8 @@ description, else its label. A channel of no family is left out; the build
 names how many channels it left out and how many it keyed by address in one
 note. ``count`` is the number of distinct addresses the Fields list; a channel
 of no family is not counted. A render carries the index when its
-``channel_finder.pipeline_mode`` is ``middle_layer``; a facility with no device in a group or with a class stops
+``channel_finder.pipeline_mode`` is ``middle_layer``; a facility with no channel-holding device in a group or
+with a class stops
 the build with ``view-unsupported``, as does a host where DuckDB cannot load
 its full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
@@ -717,7 +720,8 @@ def _system_of(device: Mapping[str, Any]) -> str:
 def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     """Each System's Families: its groups, then its derived (System, class) Families.
 
-    A group is filed under the System of each member, the top place of the
+    Only a device with a channel is a member, so a group or class whose devices
+    under a System have none makes no Family there. A group is filed under the System of each member, the top place of the
     member's place (``-`` for a member with no place). A classed device that no
     single-class group holds under its System (a group whose members filed
     there all carry one class) files into the derived Family of its System and
@@ -729,7 +733,7 @@ def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
             device = records.record("device", str(member_id))
-            if device is not None:
+            if device is not None and records.channels_on(str(member_id)):
                 by_system[_system_of(device)].append(device)
         for system, members in by_system.items():
             split[system].append((group, sorted(members, key=_member_order)))
@@ -739,6 +743,8 @@ def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     derived: dict[str, dict[str, list[Mapping[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for device in records.of_kind("device"):
         system = _system_of(device)
+        if not records.channels_on(str(device["id"])):
+            continue
         if device.get("class") and str(device["id"]) not in covered[system]:
             derived[system][str(device["class"])].append(device)
 
@@ -1088,7 +1094,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written: the index and its database.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when no device of the facility
+        FacilityBuildError: ``view-unsupported`` when no device with a channel
             is in a group or has a class, or when DuckDB cannot write the database (its
             full-text-search extension is neither installed nor reachable).
     """
@@ -1098,7 +1104,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     document, left_out, by_address = middle_layer_document(inputs.records)
     if not document.keys() - DOCUMENT_KEYS:
         raise _mode_unsupported(
-            f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "
+            f"selects {MIDDLE_LAYER_MODE} and no device with a channel is in a group "
             "or has a class",
             "add a group or give the devices a class, or select another channel_finder_mode",
         )

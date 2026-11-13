@@ -338,24 +338,75 @@ class TestFixes:
         assert [e.format_message() for e in result.errors] == []
 
 
+#: One group stated by two layers that disagree on its members.
+_TWO_STATEMENTS: dict[str, Any] = {
+    "records/places.yaml": [{"id": "SR"}, {"id": "SR/S01"}],
+    "imported/mml/devices.yaml": [
+        {"id": "Q1", "class": "Quadrupole", "place": "SR/S01"},
+        {"id": "Q2", "class": "Quadrupole", "place": "SR/S01"},
+        {"id": "Q3", "class": "Quadrupole", "place": "SR/S01"},
+    ],
+    "imported/mml/groups.yaml": [{"id": "SR/QUAD", "members": ["Q1", "Q3"]}],
+    "imported/csv/groups.yaml": [{"id": "SR/QUAD", "members": ["Q2", "Q1"]}],
+}
+
+
 class TestGroupMembership:
-    def test_two_layers_with_different_members_stop_with_layer_conflict(
-        self, tmp_path: Path
-    ) -> None:
-        # p3-r2: membership is not a claim kind; one group stated twice with
-        # different members is a layer conflict, never a union.
+    def test_two_layers_with_different_members_build_the_union(self, tmp_path: Path) -> None:
+        result = _build(tmp_path, _TWO_STATEMENTS)
+        assert [e.format_message() for e in result.errors] == []
+        (group,) = result.document["groups"]
+        assert group["members"] == ["Q1", "Q2", "Q3"]
+        assert [s["layer"] for s in group["provenance"]["sources"]] == ["csv", "mml"]
+
+    def test_the_warning_names_the_group_and_who_states_what(self, tmp_path: Path) -> None:
+        result = _build(tmp_path, _TWO_STATEMENTS)
+        assert [w.line for w in result.warnings] == [
+            "facility: members-disagree: group SR/QUAD — sources state different `members`: "
+            "Q2 in imported/csv/groups.yaml, not in imported/mml/groups.yaml; "
+            "Q3 in imported/mml/groups.yaml, not in imported/csv/groups.yaml; "
+            "the group carries all 3; fix: state the same members in each source, or add a "
+            "`set` fix for `members` to fixes.yaml"
+        ]
+
+    def test_three_sources_are_each_named(self, tmp_path: Path) -> None:
+        tree = {**_TWO_STATEMENTS, "records/groups.yaml": [{"id": "SR/QUAD", "members": ["Q2"]}]}
+        (warning,) = _build(tmp_path, tree).warnings
+        assert warning.detail == (
+            "sources state different `members`: "
+            "Q1 in imported/csv/groups.yaml, imported/mml/groups.yaml, not in records/groups.yaml; "
+            "Q2 in imported/csv/groups.yaml, records/groups.yaml, not in imported/mml/groups.yaml; "
+            "Q3 in imported/mml/groups.yaml, not in imported/csv/groups.yaml, records/groups.yaml; "
+            "the group carries all 3"
+        )
+
+    def test_equal_members_in_any_order_raise_nothing(self, tmp_path: Path) -> None:
         tree = {
-            **_TREE,
-            "imported/mml/devices.yaml": [
-                {"id": "Q1", "class": "Quad", "place": "SR/S01"},
-                {"id": "Q2", "class": "Quad", "place": "SR/S01"},
-            ],
-            "imported/csv/groups.yaml": [{"id": "SR/QUAD", "members": ["Q1", "Q2"]}],
+            **_TWO_STATEMENTS,
+            "imported/csv/groups.yaml": [{"id": "SR/QUAD", "members": ["Q3", "Q1"]}],
         }
         result = _build(tmp_path, tree)
-        err = _one(result.errors)
-        assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "group", "SR/QUAD")
-        assert "members" in err.format_message()
+        assert result.errors == [] and result.warnings == []
+        assert result.document["groups"][0]["members"] == ["Q1", "Q3"]
+
+    def test_a_fix_naming_members_decides_and_silences(self, tmp_path: Path) -> None:
+        fix = {
+            "op": "set",
+            "kind": "group",
+            "id": "SR/QUAD",
+            "fields": {"members": ["Q1", "Q3"]},
+            "was": {"members": {"mml": ["Q1", "Q3"], "csv": ["Q1", "Q2"]}},
+            "why": "Q2 left the family.",
+        }
+        result = _build(tmp_path, {**_TWO_STATEMENTS, "fixes.yaml": _fixes(fix)})
+        assert [e.format_message() for e in result.errors] == []
+        assert result.warnings == []
+        assert result.document["groups"][0]["members"] == ["Q1", "Q3"]
+
+    def test_the_warning_reaches_the_stage_report(self, tmp_path: Path) -> None:
+        report = run_stages(_write(tmp_path, _TWO_STATEMENTS), project_name="p")
+        assert report.failed is None, [e.format_message() for e in report.errors]
+        assert [w.kind for w in report.validated.warnings] == ["members-disagree"]
 
 
 class TestThroughTheStages:

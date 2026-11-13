@@ -153,16 +153,16 @@ _SYNONYMS: dict[str, object] = {
     "property": "altLabel",
     "node_label": "Class",
     "type": "list",
-    "match": "ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))",
+    "match": "ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))",
     "notes": [
         "The store is seeded with handleMultival: ARRAY for skos:altLabel, so "
         "the property is a list on every class even when it holds one entry. A "
-        "scalar comparison or CONTAINS against altLabel matches nothing — that "
-        "is a bug, not a shortcut.",
-        "The comparison is on the whole synonym rather than a substring, which "
-        "is what keeps 'pm' from matching 'pump'. Walk (sub:Class)-[:SUBCLASSOF*0..]->(cls) "
-        "down from the class you matched so a broad word also finds every kind "
-        "beneath it.",
+        "scalar comparison or CONTAINS against altLabel itself matches nothing — "
+        "that is a bug, not a shortcut; CONTAINS goes on each entry.",
+        "A synonym is a phrase, so the comparison is loose: the word is looked "
+        "for inside each entry, case-insensitively, and 'quad' finds "
+        "'quadrupole'. Walk (sub:Class)-[:SUBCLASSOF*0..]->(cls) down from the "
+        "class you matched so a broad word also finds every kind beneath it.",
     ],
 }
 
