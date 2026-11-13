@@ -99,11 +99,17 @@ Hierarchical Pipeline
 =====================
 
 Navigates a tree level by level, with LLM-guided selection at each level. The
-tree the build generates has the facility's place levels, then ``class``,
-``device``, and a leaf per channel keyed by its signal; the leaf holds the
-address. Two channels of one device that the tree would key alike, because one
-channel's address is another's signal, stop the build with
-``view-unsupported``.
+tree the build generates has the place levels, then ``class``, ``device``, and
+a leaf per channel keyed by its signal; the leaf holds the address. The place
+levels are the level words of the places that hold a channel or are an
+ancestor of one, by the depth at which each first appears; a place tree with no
+channel, such as a rack tree beside the ring, adds no level. The build stops
+with ``view-unsupported`` when two of those level words first appear at one
+depth, or one branch orders two against their depths; the stop names the trees
+and the words. Use one level word per depth across them, keep channels out of
+one tree, or select another ``channel_finder_mode``. Two channels of one device
+that the tree would key alike, because one channel's address is another's
+signal, also stop the build with ``view-unsupported``.
 
 The database declares the levels the pipeline navigates --- see
 :doc:`/reference/contracts/channel-finder` for the schema.

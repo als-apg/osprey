@@ -1200,7 +1200,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    on stderr; the exit code is unchanged.
    Each link of a knowledge page under ``data/facility/knowledge`` that the
    facility file does not hold, a ``device_id`` that is no device id or a
-   ``facility:`` link in the body that names no channel or device, prints one
+   ``facility:`` link in the body that names no channel or device (or, as
+   ``facility:place/<id>``, no place), prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
    Relation claims print, in both commands and with the exit code unchanged,
@@ -1213,7 +1214,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``Unidentified`` devices that claims name, one ``place-parents-disagree``
    per place name that relations layers create under two or more parents, and
    one ``place-unplaced`` per place a relations layer creates top-level with no
-   citation.
+   citation. This command alone then closes stderr with one summary line,
+   ``relations: <n> claims (<s> stated, <i> inferred); <a> accepted, <c> contested``,
+   followed by ``, <x> superseded`` when any are; a claim without ``basis``
+   counts as stated, and a file with no claims prints no line.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
@@ -1227,29 +1231,39 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    deployment repo; without it, the nearest ``profile.yml`` at or above the
    current directory is used.
 
-``osprey facility show [--json] [ID] [--repo DIRECTORY]``
+``osprey facility show [--json] [TEXT] [--repo DIRECTORY]``
    Build the facility in memory as ``osprey facility validate`` does, and exit
-   1 like it, with its lines on stderr, when the build stops. Without ``ID`` it
+   1 like it, with its lines on stderr, when the build stops. Without ``TEXT`` it
    prints the identity, the record count per kind (places, devices, channels,
-   groups) and the wiring record count per model, each model with its engine,
+   groups), the relation claim count and the wiring record count per model,
+   each model with its engine,
    whether the main render serves it and its solve setting, and each view with
    its path under the render and whether it is written. The views are those of
    the main render, ``build/config.yml``; a login's selection does not change
    them. A view that is not written names the config key or model fact that
-   left it out. With ``ID`` it prints every place, device, channel, group or
-   model of that id, each under its kind, with its provenance (the layer and
-   file each field came from, the fields the build filled) and the fixes
-   applied to it. An id that names no record prints
-   ``facility show: no record <id>`` on stderr and exits 1. ``--json`` prints
+   left it out. With ``TEXT`` it prints every place, device, channel, group or
+   model of that id; when there is none, the relation claim of that id; when
+   there is none, the places and devices ``TEXT`` names by a ``names`` or
+   ``scheme_names`` name, or, for a place, by the last segment of its id
+   (``S01`` finds ``SR/S01``, never ``SR/XS01``). Each record prints under its
+   kind with its provenance (the layer and file each field came from, the
+   fields the build filled) and the fixes applied to it; a header
+   ``<kind> <id> (match: <match>)`` marks a record ``TEXT`` did not name by id.
+   A place or device lists the claims it is an end of, one line each: id,
+   type, other end, standing, and the unit when the claim gives one. A
+   ``TEXT`` that matches nothing prints
+   ``facility show: no record <text>`` on stderr and exits 1. ``--json`` prints
    one JSON document on stdout and every other line, view notes included, on
    stderr; on an error stdout is empty. The facility
    document's keys are ``identity``, ``counts`` (``places``, ``devices``,
-   ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
+   ``channels``, ``groups``, ``relations``, and ``wiring`` keyed by model), ``models``
    (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
    ``path``, ``written``, and ``reason`` only on a view that is not written);
    the record document is ``records``, one entry per record with ``record``,
-   ``kind``, ``provenance`` and ``fixes_applied``, in place, device, channel,
-   group, model order.
+   ``kind``, ``match`` (``id``, ``claim``, ``name`` or ``segment``),
+   ``provenance`` and ``fixes_applied``, and ``claims`` on a place or device
+   (``id``, ``type``, ``other``, ``standing``, ``unit`` when given), in place,
+   device, channel, group, model order.
 
 ``osprey facility import``
    Group for the importers that write an export as sources under

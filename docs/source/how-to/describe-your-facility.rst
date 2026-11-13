@@ -103,7 +103,10 @@ place, unless the device states its own ``place`` in an authored record or a
 fix. A place only an importing layer states (``place_from: imported``) yields
 to a span that is that place or lies inside it, and stands under a span that
 holds it or where none holds the device; any other span holding the device
-contradicts it, and the build stops ``place-conflict``.
+contradicts it, and the build stops ``place-conflict``. A device still without
+a place takes the one its ``located_in`` claims name (``place_from:
+relation``) when no claim on its key is ``contested`` and the accepted claims
+that are not coarse all name one place; the claim's unit is not copied.
 
 .. code-block:: yaml
 
