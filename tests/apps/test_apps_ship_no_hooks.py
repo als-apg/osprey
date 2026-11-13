@@ -276,3 +276,33 @@ def test_a_listed_skill_with_well_formed_frontmatter_loads(
     _write(app_dir / "skills" / "knob" / "SKILL.md", text)
 
     check_deployment(lifecycle_repo)
+
+
+def test_hooks_after_leading_blank_lines_are_refused(
+    lifecycle_repo: Path,  # noqa: F811
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    _write(
+        app_dir / "skills" / "knob" / "SKILL.md",
+        "\n\n---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n",
+    )
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
+
+
+def test_hooks_behind_a_line_separator_in_the_block_are_refused(
+    lifecycle_repo: Path,  # noqa: F811
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    _write(
+        app_dir / "skills" / "knob" / "SKILL.md",
+        "---\nname: knob\ndescription: d hooks:\n  PreToolUse: []\n---\nbody\n",
+    )
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]

@@ -326,3 +326,37 @@ def test_an_agent_file_with_unreadable_frontmatter_is_reported(tmp_path):
 
     assert len(errors) == 1, errors
     assert "specialist.md" in errors[0] and "does not parse as a YAML mapping" in errors[0]
+
+
+@pytest.mark.parametrize(
+    "lead",
+    ["\n", "\n\n", " \n", " \n", "﻿\n", "\t\n  "],
+    ids=["blank-line", "two-blank-lines", "spaces", "no-break-space", "byte-order-mark", "mixed"],
+)
+def test_a_block_a_stripping_reader_opens_is_unreadable(lead):
+    """A reader that strips the file first opens a block after leading blank lines."""
+    text = f"{lead}---\nname: a\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "char",
+    ["\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", " ", " "],
+    ids=["vt", "ff", "fs", "gs", "rs", "nel", "line-separator", "paragraph-separator"],
+)
+def test_a_line_break_other_than_newline_in_the_block_is_unreadable(char):
+    """A reader that splits on every line break sees other lines than this one does."""
+    text = f"---\nname: a{char}hooks: 1\n---\nbody\n"
+    assert _unreadable_frontmatter(text)
+
+
+def test_a_line_break_other_than_newline_in_the_body_is_readable():
+    text = "---\nname: a\n---\nbody more\fend\n"
+    assert _parse_frontmatter(text) == {"name": "a"}
+    assert not _unreadable_frontmatter(text)
+
+
+def test_a_markdown_rule_after_text_stays_readable():
+    text = "# title\n\nbody\n\n---\n\nmore\n"
+    assert not _unreadable_frontmatter(text)
