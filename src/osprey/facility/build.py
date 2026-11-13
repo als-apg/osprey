@@ -2,6 +2,7 @@
 
 ``build_facility`` runs S1 to S5 and the stages after them, in order::
 
+    relations    standing, contests, relation warnings        (relations.py)
     wiring       the computed slots of every wiring record    (wiring.py)
     compute      positions, places, ordinals, deck checks     (compute.py)
     measurement  each measurement file against its model      (validate.py)
@@ -20,6 +21,7 @@ from typing import Any, TypeAlias
 from osprey.facility.compute import check_compute
 from osprey.facility.errors import FacilityBuildWarning
 from osprey.facility.knowledge_links import check_knowledge_links
+from osprey.facility.relations import fill_relation_slots
 from osprey.facility.validate import Stage, check_measurement, run_stages
 from osprey.facility.wiring import fill_wiring_slots
 
@@ -30,6 +32,7 @@ FacilityDocument: TypeAlias = dict[str, Any]
 
 #: The stages after S5, in the order they run.
 LATER_STAGES: tuple[tuple[str, Stage], ...] = (
+    ("relations", fill_relation_slots),
     ("wiring", fill_wiring_slots),
     ("compute", check_compute),
     ("measurement", check_measurement),

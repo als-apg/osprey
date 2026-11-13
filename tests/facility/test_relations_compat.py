@@ -10,7 +10,11 @@ the two renders, except a DuckDB database, which DuckDB does not write
 byte-reproducibly even for one document twice and which stamps its rows with
 the time of import: it is compared row by row, every table of every schema,
 every column but a timestamp; ``facility.json`` and the facts view legitimately differ and
-are not compared. The new-class devices are ordinary devices of the build and
+are not compared. The base facility, which has no relation, document or policy
+file, also builds and renders byte-identically to the same tree built with the
+``relations`` stage removed from the build's later stages, every rendered file
+and ``facility.json`` included, and raises no warning: its authored
+``Unidentified`` device is no stub. The new-class devices are ordinary devices of the build and
 of the facts view, and a facility that declares its own ``PowerSupply`` class
 still builds.
 """
@@ -24,8 +28,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
+from osprey.facility.render import facility_bytes, render_facility_outputs
+from osprey.facility.validate import run_stages
 from osprey.facility.views.facts import FACTS_FILE
 from tests.facility._synthetic_trees import deck_tree, write_tree
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
@@ -101,7 +106,7 @@ def _render(root: Path, document: dict[str, Any], facility_dir: Path, mode: str)
     config = copy.deepcopy(dict(IN_PROCESS_RENDER_CONFIG))
     config["channel_finder"] = {"pipeline_mode": mode}
     render_dir = root / f"render-{mode}"
-    render_dir.mkdir()
+    render_dir.mkdir(parents=True)
     render_facility_outputs(render_dir, document, config, facility_dir, omitted_reported=set())
     return render_dir
 
@@ -134,6 +139,16 @@ def _database_rows(path: Path) -> bytes:
     finally:
         connection.close()
     return json.dumps(dump, sort_keys=True).encode()
+
+
+def _every_file(render_dir: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(render_dir).as_posix(): (
+            _database_rows(path) if path.suffix == ".duckdb" else path.read_bytes()
+        )
+        for path in sorted(render_dir.rglob("*"))
+        if path.is_file()
+    }
 
 
 def _compared(render_dir: Path) -> dict[str, bytes]:
@@ -191,6 +206,52 @@ def test_machine_views_are_byte_identical(builds: dict[str, Any], mode: str) -> 
     assert "data/channel_limits.json" in base
     assert sorted(base) == sorted(full)
     assert [path for path in sorted(base) if base[path] != full[path]] == []
+
+
+@pytest.fixture(scope="module")
+def without_relations_stage(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Path, dict[str, Any], Path]:
+    """The base tree built with the ``relations`` stage left out: the reference."""
+    root = tmp_path_factory.mktemp("no-relations-stage")
+    facility_dir = write_tree(root / "facility", _base_tree())
+    later = [stage for stage in LATER_STAGES if stage[0] != "relations"]
+    report = run_stages(facility_dir, project_name="compat", later=later)
+    assert report.failed is None, report.errors
+    assert report.validated.document is not None
+    return root, report.validated.document, facility_dir
+
+
+def test_no_relation_files_build_byte_identical_and_warn_nothing(
+    builds: dict[str, Any], without_relations_stage: tuple[Path, dict[str, Any], Path]
+) -> None:
+    _, base, facility_dir = builds["base"]
+    _, reference, _ = without_relations_stage
+    assert facility_bytes(base) == facility_bytes(reference)
+
+    document, warnings = build_facility_with_warnings(facility_dir, project_name="compat")
+    assert [warning.line for warning in warnings] == []
+    assert facility_bytes(document) == facility_bytes(reference)
+    [unidentified] = [d for d in document["devices"] if d["id"] == "SR/U1"]
+    assert unidentified["class"] == "Unidentified"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_no_relation_files_render_byte_identical(
+    builds: dict[str, Any],
+    without_relations_stage: tuple[Path, dict[str, Any], Path],
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    _, base, facility_dir = builds["base"]
+    _, reference, reference_dir = without_relations_stage
+    with_stage = _every_file(_render(tmp_path / "with", base, facility_dir, mode))
+    without = _every_file(_render(tmp_path / "without", reference, reference_dir, mode))
+
+    assert "facility.json" in with_stage
+    assert any(path.startswith("data/channel_finder/") for path in with_stage)
+    assert sorted(with_stage) == sorted(without)
+    assert [path for path in sorted(with_stage) if with_stage[path] != without[path]] == []
 
 
 @pytest.mark.parametrize("name", ["base", "full"])

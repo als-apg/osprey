@@ -61,7 +61,7 @@ def _fixes(*entries: dict[str, Any]) -> dict[str, Any]:
 _TREE: dict[str, Any] = {
     "records/places.yaml": [{"id": "SR"}, {"id": "SR/S01"}],
     "records/devices.yaml": [{"id": "Q1-PS", "class": "PowerSupply"}],
-    "imported/mml/devices.yaml": [{"id": "Q1", "class": "Quad", "place": "SR/S01"}],
+    "imported/mml/devices.yaml": [{"id": "Q1", "class": "Quadrupole", "place": "SR/S01"}],
     "imported/mml/groups.yaml": [{"id": "SR/QUAD", "members": ["Q1"]}],
     "imported/mml/relations.yaml": [
         _claim("q1-power"),
@@ -249,6 +249,28 @@ class TestFixes:
         assert claim["object"] == {"device": "Q1-PS", "port": "OUT2"}
         assert claim["provenance"]["fixes"]
 
+    def test_add_of_kind_relation_adds_a_claim(self, tmp_path: Path) -> None:
+        fix = {
+            "op": "add",
+            "kind": "relation",
+            "id": "q1-power-spare",
+            "record": {
+                "type": "powered_by",
+                "subject": {"device": "Q1"},
+                "object": {"device": "Q1-PS", "port": "OUT2"},
+            },
+            "why": "The export omits the spare feed.",
+        }
+        result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
+        assert [e.format_message() for e in result.errors] == []
+        claim = _relation(result, "q1-power-spare")
+        assert (claim["type"], claim["subject"], claim["object"]) == (
+            "powered_by",
+            {"device": "Q1"},
+            {"device": "Q1-PS", "port": "OUT2"},
+        )
+        assert claim["provenance"]["fixes"]
+
     def test_drop_addresses_a_claim_by_id(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "relation", "id": "q1-power", "why": "Not wired."}
         result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
@@ -314,3 +336,43 @@ class TestFixes:
         )
         result = _build(tmp_path, {**_TREE, "fixes.yaml": fixes})
         assert [e.format_message() for e in result.errors] == []
+
+
+class TestGroupMembership:
+    def test_two_layers_with_different_members_stop_with_layer_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        # p3-r2: membership is not a claim kind; one group stated twice with
+        # different members is a layer conflict, never a union.
+        tree = {
+            **_TREE,
+            "imported/mml/devices.yaml": [
+                {"id": "Q1", "class": "Quad", "place": "SR/S01"},
+                {"id": "Q2", "class": "Quad", "place": "SR/S01"},
+            ],
+            "imported/csv/groups.yaml": [{"id": "SR/QUAD", "members": ["Q1", "Q2"]}],
+        }
+        result = _build(tmp_path, tree)
+        err = _one(result.errors)
+        assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "group", "SR/QUAD")
+        assert "members" in err.format_message()
+
+
+class TestThroughTheStages:
+    def test_a_group_subject_on_powered_by_stops_at_records(self, tmp_path: Path) -> None:
+        # B-8: powered_by allows a device or place subject, so `quads-power`
+        # resolves at S4 and stops at S5 with relation-invalid.
+        report = run_stages(_write(tmp_path, _TREE), project_name="p")
+        assert report.failed == "records", [e.format_message() for e in report.errors]
+        err = _one(report.errors)
+        assert (err.kind, err.record_kind, err.record_id) == (
+            "relation-invalid",
+            "relation",
+            "quads-power",
+        )
+        assert err.sources == ("imported/mml/relations.yaml",)
+        assert err.format_message() == (
+            "facility: relation-invalid: relation quads-power — `subject` names a group; "
+            "powered_by allows device or place there; fix: name a device or place as the "
+            "subject of powered_by"
+        )

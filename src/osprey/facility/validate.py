@@ -9,8 +9,9 @@ A stage runs only when every earlier stage is clean::
     S4 references  every id a record names exists; device classes and
                    signal roles are known
     S5 records     pair (stated, or derived by the build), value, limits
-                   and seed rules
-    S6 compute     spans, places, wiring, engines          (later stages)
+                   and seed rules; relation claim shape
+    S6 compute     relation standing, spans, places, wiring,
+                   engines                                 (later stages)
     S7 views       the views the profile asks for          (later stages)
 
 ``validate`` prints every error of the first failing stage, sorted by (table
@@ -49,6 +50,7 @@ from osprey.facility.errors import (
     quoted_slots,
 )
 from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
@@ -110,6 +112,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
         "fix-referenced",
     ),
     ("reference-missing",),
+    ("relation-invalid",),
     ("class-unknown",),
     ("pair-invalid",),
     ("value-invalid",),
@@ -631,6 +634,8 @@ class _Index:
         self.channels = _by_key(document.get("channels"), "id")
         self.groups = _by_key(document.get("groups"), "id")
         self.models = _by_key(document.get("models"), "name")
+        self.relations = _by_key(document.get("relations"), "id")
+        self.documents = _by_key(document.get("documents"), "id")
         self.wiring: list[tuple[str, dict[str, Any]]] = []
         self.wired: dict[str, set[str]] = {}
         for name, model in sorted(self.models.items()):
@@ -665,7 +670,10 @@ def check_references(sources: Sources, combined: CombineResult) -> list[Facility
 
     Every referencing slot of the file is checked, plus the entries the combine
     attaches by address or model name without checking them (``seeds.yaml``,
-    measurement files). A missing id is ``reference-missing``, naming the file
+    measurement files). Each id a relation claim's ends state resolves to its
+    kind; when ``documents.yaml`` declares documents, each claim's
+    ``source.document`` and each device and place citation and scheme-name
+    source names a declared one. A missing id is ``reference-missing``, naming the file
     and field, and the new address when the id is a channel's former address or
     the fix when a ``drop`` removed it. A device class or a channel signal the
     vocabulary does not know is ``class-unknown``.
@@ -697,6 +705,8 @@ class _References:
         yield from self._limits()
         yield from self._scenarios()
         yield from self._measurement()
+        yield from self._relations()
+        yield from self._citations()
 
     def _exists(self, kind: str, rid: str) -> bool:
         table = {
@@ -705,6 +715,7 @@ class _References:
             "channel": self.index.channels,
             "group": self.index.groups,
             "model": self.index.models,
+            "document": self.index.documents,
         }[kind]
         return rid in table
 
@@ -964,6 +975,67 @@ class _References:
                     "measurement", model, files, f"instruments.{role}", "channel", address
                 )
 
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """Each stated end id of a claim, and its source document, exists."""
+        for rid, claim in sorted(self.index.relations.items()):
+            for end in ("subject", "object"):
+                stated = claim.get(end)
+                if not isinstance(stated, dict):
+                    continue
+                files = stating_files(claim, end)
+                for kind in ("device", "place", "group"):
+                    if kind in stated:
+                        yield from self._missing(
+                            "relation", rid, files, f"{end}.{kind}", kind, stated[kind]
+                        )
+            if self.index.documents:
+                yield from self._cited(
+                    "relation", rid, claim, "source", "source.document", [claim.get("source")]
+                )
+
+    def _citations(self) -> Iterator[FacilityBuildError]:
+        """Each device and place citation and scheme-name source names a document.
+
+        Checked only when ``documents.yaml`` declares documents.
+        """
+        if not self.index.documents:
+            return
+        for record_kind, records in (("device", self.index.devices), ("place", self.index.places)):
+            for rid, record in sorted(records.items()):
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "citations",
+                    "citations.document",
+                    record.get("citations") or [],
+                )
+                aliases = record.get("scheme_names") or []
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "scheme_names",
+                    "scheme_names.source.document",
+                    [a.get("source") for a in aliases if isinstance(a, dict)],
+                )
+
+    def _cited(
+        self,
+        record_kind: str,
+        record_id: str,
+        record: Mapping[str, Any],
+        top: str,
+        slot: str,
+        citations: Any,
+    ) -> Iterator[FacilityBuildError]:
+        files = stating_files(record, top)
+        for citation in citations:
+            if isinstance(citation, dict) and "document" in citation:
+                yield from self._missing(
+                    record_kind, record_id, files, slot, "document", citation["document"]
+                )
+
 
 def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
     provenance = record.get("provenance")
@@ -974,6 +1046,18 @@ def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
 # --- S5: record rules ----------------------------------------------------------------
 
 
+def _relation_slot(detail: str) -> str | None:
+    """The claim slot a ``relation-invalid`` detail is about, or ``None`` for the claim."""
+    if detail.startswith("`subject` and `object`"):
+        return None
+    for slot in ("subject", "object", "basis"):
+        if detail.startswith(f"`{slot}`"):
+            return slot
+    if "`attributes." in detail:
+        return "attributes"
+    return None
+
+
 def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check the pair, value, limits and seed rules (stage S5).
 
@@ -981,7 +1065,8 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
 
     Runs only on a file whose references resolve. The stops are
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
-    (all but the nominal band, which needs the computed operating point).
+    (all but the nominal band, which needs the computed operating point), and
+    ``relation-invalid`` for a relation claim whose shape breaks a rule.
 
     Args:
         document: The document S3 validated.
@@ -1018,6 +1103,7 @@ class _Records:
         yield from self._wiring()
         yield from self._limits()
         yield from self._scenarios()
+        yield from self._relations()
 
     # --- helpers -------------------------------------------------------------------
 
@@ -1055,6 +1141,27 @@ class _Records:
 
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
         return stating_files(channel, "simulation")
+
+    # --- relation claims -------------------------------------------------------------
+
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """One ``relation-invalid`` per shape rule a claim breaks.
+
+        Each line names the files that state the slot at fault: the end for an
+        end problem, ``basis`` for an inferred claim without a rule,
+        ``attributes`` for a required attribute, the whole claim otherwise.
+        """
+        types = relation_types()
+        for rid, claim in sorted(self.index.relations.items()):
+            for detail, remedy in shape_problems(claim, types):
+                yield self._error(
+                    "relation-invalid",
+                    "relation",
+                    rid,
+                    stating_files(claim, _relation_slot(detail)),
+                    detail,
+                    remedy,
+                )
 
     # --- value type, options, shape ------------------------------------------------
 

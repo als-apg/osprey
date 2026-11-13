@@ -186,3 +186,51 @@ class TestFold:
         assert PN_LOCAL.fullmatch("demo_1")
         assert not PN_LOCAL.fullmatch("1demo")
         assert not PN_LOCAL.fullmatch("de-mo")
+
+
+class TestRelationKinds:
+    def test_relation_invalid_is_a_stop_kind(self) -> None:
+        assert "relation-invalid" in KINDS
+        assert "relation-invalid" not in WARNING_KINDS
+
+    def test_relation_invalid_prints_directly_after_reference_missing(self) -> None:
+        from osprey.facility.validate import _ROW, _TABLE_ROWS
+
+        row = _ROW["relation-invalid"]
+        assert _TABLE_ROWS[row] == ("relation-invalid",)
+        assert row == _ROW["reference-missing"] + 1
+        assert _ROW["class-unknown"] == row + 1
+
+    def test_the_six_build_warnings_are_registered(self) -> None:
+        assert set(WARNING_KINDS) >= {
+            "relation-contested",
+            "relation-coarse",
+            "alias-shared",
+            "identity-ambiguous",
+            "part-cycle",
+            "relation-stub",
+        }
+
+    def test_the_place_warnings_wait_for_the_importer(self) -> None:
+        assert "place-parents-disagree" not in WARNING_KINDS
+        assert "place-unplaced" not in WARNING_KINDS
+
+    def test_warning_kinds_are_unique(self) -> None:
+        assert len(WARNING_KINDS) == len(set(WARNING_KINDS))
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "relation-contested",
+            "relation-coarse",
+            "alias-shared",
+            "identity-ambiguous",
+            "part-cycle",
+            "relation-stub",
+        ],
+    )
+    def test_each_warning_kind_constructs(self, kind: str) -> None:
+        assert _warning(kind=kind).kind == kind
+
+    def test_relation_invalid_constructs_an_error(self) -> None:
+        assert _error(kind="relation-invalid").kind == "relation-invalid"
