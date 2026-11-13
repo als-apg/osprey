@@ -99,19 +99,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="claude-md-logbook",
             template_path="CLAUDE.logbook.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (logbook research app)",
+            description="CLAUDE.md project instructions (logbook research)",
         ),
         BuildArtifact(
             canonical_name="claude-md-knowledge",
             template_path="CLAUDE.knowledge.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (facility knowledge app)",
+            description="CLAUDE.md project instructions (facility knowledge)",
         ),
         BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (channel-finder app)",
+            description="CLAUDE.md project instructions (channel finder)",
         ),
         BuildArtifact(
             canonical_name="mcp-json",
