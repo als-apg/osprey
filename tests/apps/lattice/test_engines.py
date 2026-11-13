@@ -158,9 +158,10 @@ def test_the_elegant_command_file_carries_the_analysis_settings() -> None:
         "da", settings={"nturns": 128, "n_angles": 9, "amp_max_mm": 20, "n_bisect": 8}
     )
 
-    text = elegant.command_file(job)
+    text = elegant.command_file(job, Path("/scratch"))
 
-    assert 'lattice = "deck.lte",' in text
+    assert 'lattice = "/decks/sr.lte",' in text
+    assert 'output = "/scratch/out.aper",' in text
     assert "p_central_mev = 5999.99997" in text
     assert "n_passes = 128," in text
     assert "n_lines = 9," in text
@@ -175,7 +176,7 @@ def test_the_facility_adds_to_and_replaces_namelist_entries() -> None:
         "setup": "&load_parameters filename=errors.param &end\n",
     }
 
-    text = elegant.command_file(_elegant_job("optics", engine_settings=settings))
+    text = elegant.command_file(_elegant_job("optics", engine_settings=settings), Path("/s"))
 
     assert 'use_beamline = "RING",' in text
     assert "radiation_integrals = 0," in text
@@ -185,12 +186,13 @@ def test_the_facility_adds_to_and_replaces_namelist_entries() -> None:
 
 def test_elegant_needs_an_energy() -> None:
     with pytest.raises(ValueError, match="names no energy"):
-        elegant.command_file(_elegant_job("optics", energy_gev=None))
+        elegant.command_file(_elegant_job("optics", energy_gev=None), Path("/s"))
     assert "p_central_mev = 880" in elegant.command_file(
-        _elegant_job("optics", energy_gev=None, engine_settings={"p_central_mev": 880})
+        _elegant_job("optics", energy_gev=None, engine_settings={"p_central_mev": 880}),
+        Path("/s"),
     )
     with pytest.raises(ValueError, match="does not compute footprint"):
-        elegant.command_file(_elegant_job("footprint"))
+        elegant.command_file(_elegant_job("footprint"), Path("/s"))
 
 
 def _program(path: Path, body: str) -> str:
@@ -199,18 +201,26 @@ def _program(path: Path, body: str) -> str:
     return str(path)
 
 
-def test_elegant_runs_in_a_scratch_directory_and_its_output_is_read(tmp_path: Path) -> None:
-    deck = tmp_path / "sr.lte"
+def test_elegant_runs_where_the_deck_lives_and_writes_only_to_scratch(tmp_path: Path) -> None:
+    decks = tmp_path / "decks"
+    decks.mkdir()
+    deck = decks / "sr.lte"
     deck.write_text("ring: line=(q)\n")
+    # A file an element of the deck names by a relative path.
+    (decks / "kickmap.sdds").write_text("")
     seen = tmp_path / "seen.ele"
     # Stand-ins: the real programs are the facility's and are not on a test machine.
     fake_elegant = _program(
         tmp_path / "elegant",
-        "import pathlib, sys\n"
-        f"pathlib.Path({str(seen)!r}).write_text(pathlib.Path(sys.argv[1]).read_text())\n"
-        "assert pathlib.Path('deck.lte').read_text().startswith('ring')\n"
-        "for name in ('count.twi', 'out0.mmap', 'out1.mmap'):\n"
-        "    pathlib.Path(name).write_text('')\n",
+        "import pathlib, re, sys\n"
+        "commands = pathlib.Path(sys.argv[1]).read_text()\n"
+        f"pathlib.Path({str(seen)!r}).write_text(commands)\n"
+        "assert pathlib.Path('kickmap.sdds').exists()\n"
+        "lattice = re.search(r'lattice = \"(.*)\"', commands).group(1)\n"
+        "assert pathlib.Path(lattice).read_text().startswith('ring')\n"
+        "for file in re.findall(r'(?:filename|output) = \"(.*)\"', commands):\n"
+        "    assert pathlib.Path(file).is_absolute()\n"
+        "    pathlib.Path(file).write_text('')\n",
     )
     # The beamline has eleven elements after its start, so two places are its first and last.
     fake_sdds2stream = _program(
@@ -230,6 +240,7 @@ def test_elegant_runs_in_a_scratch_directory_and_its_output_is_read(tmp_path: Pa
     result = normalize_result(ANALYSES["lma"], elegant.compute(job))
 
     commands = seen.read_text()
+    assert f'lattice = "{deck}",' in commands
     assert commands.count("&momentum_aperture") == 2
     assert "skip_elements = 10," in commands and "soft_failure = 1," in commands
     assert result["tables"]["aperture"]["columns"] == {
@@ -238,7 +249,7 @@ def test_elegant_runs_in_a_scratch_directory_and_its_output_is_read(tmp_path: Pa
         "dp_minus_pct": pytest.approx([-2.8, -3.0]),
     }
     assert result["scalars"]["dp_plus_min_pct"] == pytest.approx(2.5)
-    assert list(tmp_path.glob("out.*")) == []
+    assert sorted(path.name for path in decks.iterdir()) == ["kickmap.sdds", "sr.lte"]
 
 
 def test_the_momentum_aperture_is_searched_at_places_spread_over_the_beamline() -> None:

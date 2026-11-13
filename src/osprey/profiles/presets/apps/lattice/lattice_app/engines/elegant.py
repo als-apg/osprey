@@ -1,7 +1,8 @@
 """The elegant engine: optics, dynamic aperture and momentum aperture from an elegant run.
 
-It writes a command file beside a link to the deck, runs ``elegant`` on it, and reads the
-SDDS output with ``sdds2stream``. Both programs are the facility's: they are not in the
+It runs ``elegant`` in the deck's own directory, so the files the deck's elements name by a
+relative path are found, on a command file in a scratch directory that every output is
+written to, and reads the SDDS output with ``sdds2stream``. Both programs are the facility's: they are not in the
 OSPREY image. A facility with its own elegant routines registers them as an engine of
 their own (``engines:`` in the application's config) rather than bending this one.
 
@@ -15,7 +16,8 @@ The model's ``engine_settings``:
     The central momentum, for a model with no energy selected.
 ``run_setup``, ``twiss_output``, ``run_control``, ``find_aperture``, ``momentum_aperture``
     Entries added to, or replacing, those this engine writes in that namelist, e.g.
-    ``find_aperture: {n_splits: 3}``.
+    ``find_aperture: {n_splits: 3}``, or ``run_setup: {search_path: "/lattices/kickmaps"}``
+    for input files kept away from the deck.
 ``setup``
     Raw command-file text placed after ``run_setup``, e.g. ``&load_parameters``.
 
@@ -25,7 +27,6 @@ Run as ``python -m lattice_app.engines.elegant <job.json> <out.json>``.
 from __future__ import annotations
 
 import math
-import os
 import subprocess
 import sys
 import tempfile
@@ -77,7 +78,7 @@ def run_setup(job: Job) -> str:
             "the model names no energy: set energies_gev, or engine_settings.p_central_mev"
         )
     entries = {
-        "lattice": "deck.lte",
+        "lattice": str(job["deck"]),
         "use_beamline": settings.get("use_beamline"),
         "p_central_mev": momentum,
     }
@@ -93,11 +94,14 @@ def lma_places(elements: int, wanted: int) -> list[int]:
     return sorted({round(index * (elements - 1) / (wanted - 1)) for index in range(wanted)})
 
 
-def command_file(job: Job, places: Sequence[int] = (0,)) -> str:
-    """The command file of the job's analysis; ``places`` are the elements of ``lma``."""
+def command_file(job: Job, scratch: Path, places: Sequence[int] = (0,)) -> str:
+    """The command file of the job's analysis, its output written into ``scratch``.
+
+    ``places`` are the elements of ``lma``.
+    """
     analysis, settings = job["analysis"], job.get("settings") or {}
     if analysis == "optics":
-        twiss = {"filename": "out.twi", "matched": 1, "radiation_integrals": 1}
+        twiss = {"filename": str(scratch / "out.twi"), "matched": 1, "radiation_integrals": 1}
         return run_setup(job) + _merged(job, "twiss_output", twiss)
     if analysis not in _READERS:
         raise ValueError(f"the elegant engine does not compute {analysis}")
@@ -105,7 +109,7 @@ def command_file(job: Job, places: Sequence[int] = (0,)) -> str:
     if analysis == "da":
         reach = float(settings["amp_max_mm"]) * 1.0e-3
         aperture = {
-            "output": "out.aper",
+            "output": str(scratch / "out.aper"),
             "mode": "n-lines",
             "n_lines": int(settings["n_angles"]),
             "xmax": reach,
@@ -137,7 +141,12 @@ def command_file(job: Job, places: Sequence[int] = (0,)) -> str:
         + _merged(
             job,
             "momentum_aperture",
-            {"output": f"out{index}.mmap", "skip_elements": place, "process_elements": 1} | search,
+            {
+                "output": str(scratch / f"out{index}.mmap"),
+                "skip_elements": place,
+                "process_elements": 1,
+            }
+            | search,
         )
         for index, place in enumerate(places)
     )
@@ -289,19 +298,22 @@ def compute(job: Job) -> dict[str, Any]:
     """Run elegant on the job's deck and read the analysis's result."""
     with tempfile.TemporaryDirectory(prefix="lattice-elegant-") as scratch:
         workdir = Path(scratch)
-        # The run happens in a scratch directory, so its output never lands beside the deck.
-        os.symlink(job["deck"], workdir / "deck.lte")
+        # elegant runs where the deck lives, as it does by hand there; every file it writes
+        # is named into the scratch directory, so nothing lands beside the deck.
+        where = Path(job["deck"]).parent
         program = str(_settings(job).get("elegant") or "elegant")
         places: list[int] = []
         if job["analysis"] == "lma":
             # The beamline's length in elements is elegant's to say: the deck is not parsed here.
-            count = run_setup(job) + namelist("twiss_output", {"filename": "count.twi"})
+            count = run_setup(job) + namelist(
+                "twiss_output", {"filename": str(workdir / "count.twi")}
+            )
             (workdir / "count.ele").write_text(count, encoding="utf-8")
-            _run([program, "count.ele"], workdir)
+            _run([program, str(workdir / "count.ele")], where)
             elements = len(read_columns(job, workdir / "count.twi", ["s"])["s"]) - 1
             places = lma_places(elements, int((job.get("settings") or {})["n_refpts"]))
-        (workdir / "run.ele").write_text(command_file(job, places), encoding="utf-8")
-        _run([program, "run.ele"], workdir)
+        (workdir / "run.ele").write_text(command_file(job, workdir, places), encoding="utf-8")
+        _run([program, str(workdir / "run.ele")], where)
         return _READERS[job["analysis"]](job, workdir)
 
 
