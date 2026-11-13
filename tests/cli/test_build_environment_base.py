@@ -286,9 +286,10 @@ class TestPlanJudgesBeforeAnythingIsWritten:
 
     @pytest.mark.usefixtures("with_uv", "unreleased_wheel_install")
     def test_an_installing_plan_refuses_to_pin_an_unreleased_osprey(self, calls):
-        with pytest.raises(BuildProfileError, match="not a released version"):
+        with pytest.raises(BuildProfileError, match="not a released version") as refused:
             _plan_project_venv(_profile(osprey_install="local"), install=True)
 
+        assert "`pip install -e <clone>`" in str(refused.value)
         assert calls == []
 
     def test_a_venv_is_never_written_from_a_plan_that_installs_nothing(self, calls, tmp_path):
