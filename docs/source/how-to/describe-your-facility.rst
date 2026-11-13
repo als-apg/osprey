@@ -191,7 +191,16 @@ together; what a channel means stays on the channel.
 
 **Relations** are claims, one per source, that two records are related: a
 ``type``, a ``subject`` and an ``object``, each naming one device, place or
-group.
+group. The build writes each claim's ``standing``: ``accepted``, ``contested``
+when claims state different objects and none ranks first, or ``superseded``;
+and ``contests``, the ids of the claims it disagrees with, when there are any.
+A claim whose ends the type does not allow, an inferred claim without its rule,
+or one missing a required attribute stops the build with ``relation-invalid``,
+naming the claim. ``policy.yaml`` ranks competing claims by the kind of
+document they cite, as declared in ``documents.yaml``: ``relations.precedence``
+lists kinds per relation type or as ``default``, and a stated claim ranks
+before an inferred one unless ``stated_over_inferred: false``. Without it,
+competing claims stay ``contested``.
 
 ``classes.yaml`` adds device classes the shared vocabulary lacks, each as the
 child of an existing class:

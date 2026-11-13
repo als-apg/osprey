@@ -1196,6 +1196,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility:`` link in the body that names no channel or device, prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   Relation claims print, in both commands and with the exit code unchanged,
+   one ``relation-contested`` warning per key a dispute leaves unsettled, one
+   ``relation-coarse`` per relation type with coarse claims, one
+   ``alias-shared`` per scheme name two records carry, one
+   ``identity-ambiguous`` per imported layer holding two devices one
+   ``same_as`` chain joins, one ``part-cycle`` per loop of ``part_of`` and
+   ``runs_on`` claims and one ``relation-stub`` per imported layer with
+   ``Unidentified`` devices that claims name.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
