@@ -1,4 +1,9 @@
 {
+  "activity_safety": {
+    "captured_utc": "2026-11-13T06:15:07.339417+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post7201+geca9892f3.d20261113"
+  },
   "agent_record": {
     "captured_utc": "2026-11-11T16:54:18.090589+00:00",
     "kind": "static",
