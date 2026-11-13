@@ -276,12 +276,15 @@ describe('switchTo', () => {
       expect(pointer.getPointer()).toBe(K1);
     });
 
-    test('New session asks too', async () => {
+    test('New session asks too, and a cancel tells nobody `new`', async () => {
       await boot();
+      const seen = vi.fn();
+      model.subscribe(seen);
       mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
       expect(await model.switchTo({ new: true }, { reason: 'gesture' })).toBe(false);
       expect(mocks.showConfirm).toHaveBeenCalledOnce();
       expect(mocks.newConversation).not.toHaveBeenCalled();
+      expect(seen).not.toHaveBeenCalledWith({ reason: 'new' });
     });
   });
 
@@ -311,6 +314,35 @@ describe('switchTo', () => {
     mocks.terminal = true;
     expect(await model.switchTo({ new: true }, { reason: 'gesture' })).toBe(true);
     expect(mocks.startNewSession).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    ['chat', false],
+    ['terminal', true],
+  ])(
+    'New session on the %s tells listeners `new` once started, then `switched`',
+    async (_, terminal) => {
+      await boot();
+      mocks.terminal = terminal;
+      const start = terminal ? mocks.startNewSession : mocks.newConversation;
+      /** @type {string[]} */
+      const seen = [];
+      model.subscribe(({ reason }) => {
+        if (reason === 'new' || reason === 'switched')
+          seen.push(`${reason}:${start.mock.calls.length}`);
+      });
+      expect(await model.switchTo({ new: true }, { reason: 'gesture' })).toBe(true);
+      expect(seen).toEqual(['new:1', 'switched:1']);
+    }
+  );
+
+  test('a switch to a listed session is not `new`', async () => {
+    await boot();
+    const seen = vi.fn();
+    model.subscribe(seen);
+    expect(await model.switchTo(model.rows()[1], { reason: 'gesture' })).toBe(true);
+    expect(seen).toHaveBeenCalledWith({ reason: 'switched' });
+    expect(seen).not.toHaveBeenCalledWith({ reason: 'new' });
   });
 });
 

@@ -1299,12 +1299,10 @@ describe('the session rows: accent, breathing, peek and "+"', () => {
     expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
   });
 
-  test('"+" starts a new session through the session model, opening the Agent pane first', async () => {
+  test('"+" starts a new session through the session model', async () => {
     await boot();
-    mocks.isTerminalPanelOpen.mockReturnValue(false);
     click(/** @type {Element} */ (document.getElementById('sidebar-new-session')));
     await settle();
-    expect(mocks.openTerminalPanel).toHaveBeenCalledOnce();
     expect(mocks.newConversation).toHaveBeenCalledOnce();
   });
 

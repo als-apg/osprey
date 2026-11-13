@@ -23,6 +23,12 @@
  * The pick is the artifact the tab shows for the session it is on: one value,
  * cleared on every key change, set by {@link switchTo} (`artifactId`, else the
  * row's `last_artifact_id`) and by the sidebar.
+ *
+ * Every way to start a new session (the Agent bar's `+` on either surface, the
+ * chat's ⋯ New session, the switcher's "+ New session", the sidebar's
+ * Sessions `+` and its Agent row menu) is `switchTo({new: true})`, which tells
+ * listeners `new` once the session is started: session-layout.js gives it a
+ * workspace of its own.
  */
 
 import { apiRequest, createEventSource, fetchJSON, pageEventsUrl } from './api.js';
@@ -325,7 +331,10 @@ export function recordState() {
 }
 
 /**
- * Listen for model changes (`pointer`, `rows`, `named`, `pick`, `switched`).
+ * Listen for model changes (`pointer`, `rows`, `named`, `pick`, `new`,
+ * `switched`). `new` comes once per new session the operator starts, after the
+ * start and before its `switched`; on the terminal the pointer moves later, when
+ * the socket confirms the session.
  * @param {(change: {reason: string}) => void} fn
  * @returns {() => void}
  */
@@ -628,7 +637,8 @@ function guardStreaming(name) {
  * A no-op for the active row (an `artifactId` still becomes the pick). While
  * the chat streams it asks first. A row current for its key moves the pointer
  * to that key; any other transcript is entered (`POST …/enter`) and the
- * pointer moves to the minted key. `{new: true}` starts a new conversation.
+ * pointer moves to the minted key. `{new: true}` starts a new conversation and
+ * tells listeners `new`.
  * @param {SessionRow | {new: true}} target
  * @param {{artifactId?: string|null, reason?: string}} [options]
  * @returns {Promise<boolean>} whether the tab moved
@@ -638,6 +648,7 @@ export async function switchTo(target, { artifactId = null } = {}) {
     if (!(await guardStreaming(NEW_SESSION_TITLE))) return false;
     if (isTerminalSurface()) await startNewSession();
     else newConversation();
+    notify('new');
     notify('switched');
     return true;
   }

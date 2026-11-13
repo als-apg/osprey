@@ -621,13 +621,21 @@ opens on its proposed code. **More sessions** loads older ones.
 
 - Click a session name to switch to it: its layout comes back as you left it
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
-  can read it), with the artifact last open there (its newest if none). A new
-  or older session keeps the layout on screen. The sidebar stays as it is.
+  can read it), with the artifact last open there (its newest if none). An
+  older session with no stored layout keeps the layout on screen. The sidebar
+  stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
   ⌥-click (Alt+click) a session or **Sessions** to expand every session, or
   collapse them all if all are open. The session the agent works in has a
   breathing accent bar.
+- A new session starts with only the Agent pane. All the other tiles close,
+  and a panel in a window of its own closes with its window. The panels keep
+  their sidebar rows, so you can open them again. The session that you leave
+  keeps its layout. Each way to start a session does this: the **+** in the
+  Agent pane header, **+ New session** in the switcher, the **+** of
+  **Sessions**, and **New session** in a menu. ``/clear`` and **Restart
+  terminal** do not close tiles.
 - Hover a folded session to see its artifacts; click one to show it.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions

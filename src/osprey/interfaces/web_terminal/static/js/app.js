@@ -22,7 +22,7 @@ import { wireAgentLinks } from './agent-links.js';
 import { wireArtifactLinks } from './artifact-links.js';
 import { fetchJSON, withPrefix } from './api.js';
 import { getPointer, setPointer } from './session-pointer.js';
-import { subscribe as subscribeToSessions } from './session-model.js';
+import { subscribe as subscribeToSessions, switchTo } from './session-model.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -30,7 +30,6 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSafetySwitches } from './safety-switches.js';
 import { initCodeReviewTab } from './code-review-tab.js';
-import { startNewSession } from './sessions.js';
 import { attachSessionSwitcher } from './session-switcher.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
@@ -278,7 +277,11 @@ function initControlSystemBlock() {
 
 /* ---- New Session Button ---- */
 
-function initNewSessionButton() {
+/**
+ * The terminal's Agent bar `+`: a new session, the way every other `+` starts
+ * one. Exported for testability: the DOMContentLoaded bootstrap calls it.
+ */
+export function initNewSessionButton() {
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
   // Its `+` is a placeholder svg; the dock may hold the bar off the page when
@@ -288,7 +291,7 @@ function initNewSessionButton() {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      await startNewSession();
+      await switchTo({ new: true });
     } catch (err) {
       console.error('Failed to start new session:', err);
     } finally {
