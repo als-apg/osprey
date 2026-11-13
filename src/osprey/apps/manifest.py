@@ -163,12 +163,26 @@ class Panel(_Strict):
 
     id: Slug
     label: NonEmpty
+    icon: NonEmpty | None = None
     container: NonEmpty
     entry: BackendPath = "/"
     launch_token: StrictBool = False
     read_timeout_s: Annotated[StrictInt, Field(gt=0)] | None = None
     agent_routes: list[AgentRoute] = Field(default_factory=list)
     roster_grant: RosterGrant | None = None
+
+    @field_validator("icon", mode="after")
+    @classmethod
+    def _icon_is_drawn(cls, value: str | None) -> str | None:
+        from osprey.interfaces.design_system.icons import icon_names
+
+        if value is not None and value not in icon_names():
+            raise PydanticCustomError(
+                "panel_icon",
+                "{icon} is not a design-system icon; the names are: {names}",
+                {"icon": value, "names": ", ".join(sorted(icon_names()))},
+            )
+        return value
 
 
 class StateField(_Strict):

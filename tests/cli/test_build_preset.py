@@ -795,7 +795,7 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     events = _config_yaml(_project(tmp_path, "pathpin"))["web"]["panels"]["events"]
     assert events["path"] == "/custom-route"
     assert events["url"].startswith("http://localhost:")
-    assert events["label"] == "EVENTS"
+    assert events["label"] == "Events"
     assert events["health_endpoint"] == "/health"
     # The deployment itself does not select the tab (its write-armed renders
     # do), so its own render carries the complete entry switched off.

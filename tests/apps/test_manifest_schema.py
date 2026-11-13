@@ -162,6 +162,21 @@ def test_panel_id_defaults_to_the_name_and_entry_to_root() -> None:
     assert m.panel.launch_token is False
 
 
+def test_a_panel_names_its_icon_from_the_design_system() -> None:
+    base = {
+        "name": "tiny",
+        "containers": {"tiny": {"runtime": "osprey"}},
+        "panel": {"label": "TINY", "container": "tiny"},
+    }
+    unset = parse_manifest(base, app="tiny")
+    assert unset.panel is not None and unset.panel.icon is None
+    named = parse_manifest(_with("panel.icon", "chart-column", base), app="tiny")
+    assert named.panel is not None and named.panel.icon == "chart-column"
+    with pytest.raises(AppManifestError) as refused:
+        parse_manifest(_with("panel.icon", "chart-colum", base), app="tiny")
+    assert "not a design-system icon" in str(refused.value)
+
+
 def test_read_timeout_unset_is_distinguishable_from_explicit_null() -> None:
     base = {
         "name": "tiny",

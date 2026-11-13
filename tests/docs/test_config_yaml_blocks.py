@@ -187,6 +187,9 @@ _UNDECLARED: dict[tuple[str, str], str] = {
     ("how-to/web-terminal/panels.rst", "web.panels.pvinfo.rewrite_prefixes"): _EXAMPLE_NAME,
     ("how-to/web-terminal/panels.rst", "web.panels.optics.url"): _EXAMPLE_NAME,
     ("how-to/web-terminal/panels.rst", "web.panels.optics.read_timeout_s"): _EXAMPLE_NAME,
+    ("how-to/web-terminal/panels.rst", "web.panels.grafana.label"): _EXAMPLE_NAME,
+    ("how-to/web-terminal/panels.rst", "web.panels.grafana.url"): _EXAMPLE_NAME,
+    ("how-to/web-terminal/panels.rst", "web.panels.grafana.icon"): _EXAMPLE_NAME,
     (
         "reference/configuration/profile.rst",
         "control_system.connector.mypkg.SiteConnector.limits_checking.enabled",

@@ -106,3 +106,11 @@ def test_a_write_under_an_unwritable_root_does_not_raise(tmp_path):
     write_status(blocker, "jupyter", SidecarStatus.starting())
 
     assert read_status(blocker, "jupyter") is None
+
+
+def test_the_sentence_uses_the_deployments_label_when_given_one():
+    failed = SidecarStatus.failed("boom")
+
+    assert status_message("jupyter", failed, label="Notes") == "Notes failed to start: boom"
+    assert status_message("jupyter", SidecarStatus.starting(), label="Notes") == "Notes is starting"
+    assert status_message("jupyter", failed, label=None) == "JUPYTER failed to start: boom"

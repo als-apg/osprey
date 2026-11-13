@@ -141,9 +141,10 @@ def _panel_labels(
     The union across the host profile and the layers, in declaration
     order — panel sets are per-render (the write tier adds its own), and the
     card summarizes the deployment. Labels come from the same sources the web
-    terminal reads: :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS`
-    for built-ins, ``web.panels.<id>.label`` for URL-backed custom panels, and
-    the id itself, uppercased, when neither says.
+    terminal reads: ``web.panels.<id>.label`` where a layer writes one (the
+    name of a URL-backed custom panel, or the deployment's own name for a
+    built-in), :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS` for a
+    built-in nobody renamed, and the id itself, uppercased, when neither says.
     """
     from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
@@ -157,14 +158,14 @@ def _panel_labels(
                 ids.append(panel_id)
 
     return [
-        BUILTIN_PANEL_LABELS.get(panel_id)
-        or _custom_panel_label(profile, layer_deltas, panel_id)
+        _authored_panel_label(profile, layer_deltas, panel_id)
+        or BUILTIN_PANEL_LABELS.get(panel_id)
         or panel_id.upper()
         for panel_id in ids
     ]
 
 
-def _custom_panel_label(
+def _authored_panel_label(
     profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], panel_id: str
 ) -> str | None:
     """The ``web.panels.<id>.label`` any layer of this deployment declares."""

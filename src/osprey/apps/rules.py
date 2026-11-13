@@ -79,9 +79,16 @@ APPROVED_TARGET = "approved_target"
 
 @dataclass(frozen=True)
 class AppSelection:
-    """One login's choice for one application: whether it is shown."""
+    """One login's choice for one application.
+
+    Attributes:
+        shown: Whether the card shows the application.
+        panel_hidden: Whether its panel stays off the sidebar until someone
+            adds it.
+    """
 
     shown: bool
+    panel_hidden: bool = False
 
 
 @dataclass(frozen=True)

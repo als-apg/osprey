@@ -61,7 +61,7 @@ web:
     events:
       url: http://localhost:10010
       path: /dashboard
-      label: EVENTS
+      label: Events
       health_endpoint: /health
 """
 

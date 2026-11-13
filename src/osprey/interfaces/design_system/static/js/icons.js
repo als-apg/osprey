@@ -310,6 +310,43 @@ const SHAPES = Object.freeze({
     'M12 9v4',
     'M12 17h.01',
   ],
+  // Glyphs for a deployment's own panels (`web.panels.<id>.icon`): an operator
+  // screen, a camera view, a report, a meeting, a radiation survey, a fleet of
+  // controllers.
+  monitor: [
+    ['rect', { width: '20', height: '14', x: '2', y: '3', rx: '2' }],
+    'M8 21h8',
+    'M12 17v4',
+  ],
+  camera: [
+    'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z',
+    ['circle', { cx: '12', cy: '13', r: '3' }],
+  ],
+  'chart-column': ['M3 3v16a2 2 0 0 0 2 2h16', 'M18 17V9', 'M13 17V5', 'M8 17v-3'],
+  users: [
+    'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2',
+    ['circle', { cx: '9', cy: '7', r: '4' }],
+    'M22 21v-2a4 4 0 0 0-3-3.87',
+    'M16 3.13a4 4 0 0 1 0 7.75',
+  ],
+  radiation: [
+    'M12 12h.01',
+    'M7.5 4.2c-.3-.5-.9-.7-1.3-.4C3.9 5.5 2.3 8.1 2 11c-.1.5.4 1 1 1h5c0-1.5.8-2.8 2-3.4-1.1-1.9-2-3.5-2.5-4.4z',
+    'M21 12c.6 0 1-.4 1-1-.3-2.9-1.8-5.5-4.1-7.1-.4-.3-1.1-.2-1.3.3-.6.9-1.5 2.5-2.6 4.3 1.2.7 2 2 2 3.5h5z',
+    'M7.5 19.8c-.3.5-.1 1.1.4 1.3 2.6 1.2 5.6 1.2 8.2 0 .5-.2.7-.8.4-1.3-.5-.9-1.4-2.5-2.5-4.3-1.2.7-2.8.7-4 0-1.1 1.8-2 3.4-2.5 4.3z',
+  ],
+  cpu: [
+    ['rect', { width: '16', height: '16', x: '4', y: '4', rx: '2' }],
+    ['rect', { width: '6', height: '6', x: '9', y: '9', rx: '1' }],
+    'M15 2v2',
+    'M15 20v2',
+    'M2 15h2',
+    'M2 9h2',
+    'M20 15h2',
+    'M20 9h2',
+    'M9 2v2',
+    'M9 20v2',
+  ],
   // A session pin (the sidebar's pinned sessions).
   pin: [
     'M12 17v5',

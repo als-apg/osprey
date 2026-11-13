@@ -182,7 +182,12 @@ def _login_selection(
     cards = tuple(shared_cards)
     return LoginSelection(
         audience="shared" if cards else "person",
-        apps={m.name: AppSelection(shown=profile.app_shown(m.name)) for m in manifests},
+        apps={
+            m.name: AppSelection(
+                shown=profile.app_shown(m.name), panel_hidden=profile.app_panel_hidden(m.name)
+            )
+            for m in manifests
+        },
         tier=tier_writes(_rendered_control_system(profile.config)),
         shared_cards=cards,
     )

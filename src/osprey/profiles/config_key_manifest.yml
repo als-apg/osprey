@@ -1039,16 +1039,16 @@ keys:
   web.panels.events: {covered-by: web.panels, default: n/a}
   web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
   web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}
-  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: EVENTS}
+  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: Events}
   web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health}
   web.panels.bluesky: {covered-by: web.panels, default: n/a}
   web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
   web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
-  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
+  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: Bluesky}
   web.panels.optimizer: {rendered: false, covered-by: web.panels, default: n/a}
   web.panels.optimizer.url: {rendered: false, covered-by: web.panels.events.url, default: derived, default_note: "the optimizer-web sidecar's loopback URL, written by the optimizer-web injector"}
   web.panels.optimizer.path: {rendered: false, covered-by: web.panels.events.path, default: /optimizer/}
-  web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: OPTIMIZER}
+  web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: Optimizer}
   web.panels.optimizer.read_timeout_s: {rendered: false, covered-by: web.panels.<app-panel>.read_timeout_s, default: derived, default_note: "the optimizer client's 80 s budget plus a 10 s margin (OPTIMIZER_PANEL_READ_TIMEOUT_S), written by the optimizer-web injector; the host's setting, projected into attached renders (an explicit null included), which may not set their own"}
 
   # ── Projected from a deployment's applications (notes.application_families) ──
@@ -1090,6 +1090,7 @@ keys:
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
@@ -3462,6 +3463,28 @@ keys:
       panel" menu and the command palette open it) but is not a sidebar member
       until someone adds it. The same per-panel key works for every panel.
     default: false
+  web.panels.system-health.label:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "label"\)'
+    note: >-
+      Renames a built-in panel for this deployment: the sidebar row, the tile,
+      the "+ Add panel" menu, the health row and the profile card all show it
+      in place of the framework's wording. The same per-panel key works for
+      every built-in panel; a panel declared here has always been named by it.
+    default: Health
+  web.panels.system-health.icon:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "icon"\)'
+    note: >-
+      The design-system icon (a name interfaces/design_system/static/js/icons.js
+      draws) of the panel's sidebar row. The same per-panel key works for every
+      panel, built-in or declared here; the build refuses a name that is not
+      drawn. An application's panel sets it as panel.icon in its app.yml.
+    default: derived
+    default_note: the panel's own glyph; a panel declared in config wears the generic one
+  web.panels.ariel.label: {rendered: false, covered-by: web.panels.system-health.label, default: LOGBOOK}
+  web.panels.canopy.label: {rendered: false, covered-by: web.panels.system-health.label, default: CANOPY}
+  web.panels.canopy.icon: {rendered: false, covered-by: web.panels.system-health.icon, default: derived, default_note: "the panel's own glyph"}
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
     evidence: 'spec\.get\("rewrite_prefixes"\)'
