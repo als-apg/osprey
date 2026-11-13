@@ -1436,7 +1436,8 @@ _HEADER_DRAG_PROBE_JS = r"""async ({ source, target }) => {
         return { hit, ...(await hold(hit, x, y)) };
     };
     const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
-    // The artifacts tile hides its title behind the shell's breadcrumb root.
+    // With an artifact shown, the artifacts tile hides its name behind the
+    // shell's breadcrumb root; the visible one of the two is the title.
     const titleEl = [...dst.querySelectorAll('.osprey-crumb-root, .tile-tab-title')]
         .find((el) => el.getClientRects().length > 0);
     const title = await at(titleEl);
@@ -2261,8 +2262,9 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
         ), "tile content shifted on hover"
 
         # A service tile carries the unified bar: visible title + pop out +
-        # close, no grip badge. The artifacts tile's visible title is its
-        # breadcrumb root while the crumb shows.
+        # close, no grip badge. No artifact is shown here, so the artifacts
+        # tile keeps its own name as its visible title (with an artifact shown,
+        # the bar's breadcrumb "Artifact › <title>" takes the name's place).
         ws = _service_tab(page, "Artifacts")
         expect(ws.locator(".tile-tab-grip")).to_have_count(0)
         expect(
@@ -3380,6 +3382,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         assert labels[2].startswith("Desktop notifications"), labels
         assert labels[3:] == [
             "Maximize",
+            "Zoom",
             "Open in new window",
             "Reveal in sidebar",
             "Close Agent pane",
@@ -3391,7 +3394,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         _open_rail_menu(page, "terminal")
         assert _menu_labels(page) == [
             "New session",
-            "Group by",
+            "Artifacts by",
             "Show pinned sessions",
             "Collapse all",
         ], _menu_labels(page)
@@ -3425,8 +3428,9 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
 
         _open_agent_header_menu(page)
         # The pane's "This panel" rows come first; the Tile rows close the menu.
-        assert _menu_labels(page)[-5:] == [
+        assert _menu_labels(page)[-6:] == [
             "Maximize",
+            "Zoom",
             "Open in new window",
             "Reveal in sidebar",
             "Close Agent pane",
@@ -3518,6 +3522,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
                 "Refresh",
                 "Open panel",
                 "Maximize",
+                "Zoom",
                 "Open in new window",
                 "Reload",
                 "Reveal in sidebar",
