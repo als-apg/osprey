@@ -1290,6 +1290,27 @@ class TestCoverageInToolResponse:
         assert cov["verdict"] == "coverage_unknown"
         assert "store went away" in cov["channels"]["SR:OLD:RB"]["note"]
 
+    async def test_an_archiver_not_connected_reports_unknown_with_the_reason(
+        self, archiver_read_tool
+    ):
+        """A refused availability probe still says why the coverage is unknown."""
+        from osprey_connectors.archiver._base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.side_effect = RuntimeError("Archiver not connected")
+        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
+            channel=ch, is_archived=None
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["verdict"] == "coverage_unknown"
+        assert entry["note"] == "availability probe failed: Archiver not connected"
+
 
 # --- Waveform channels -------------------------------------------------------
 

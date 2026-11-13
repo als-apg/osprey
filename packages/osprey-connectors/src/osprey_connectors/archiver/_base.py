@@ -176,6 +176,10 @@ class ArchiverConnector(ABC):
         Returns:
             Dictionary mapping channel address to availability status; ``None``
             where this archiver cannot say.
+
+        Raises:
+            RuntimeError: If the archiver is not connected; a disconnected
+                archiver has no store to ask, so it answers nothing.
         """
 
     async def store_extent(self) -> ArchiveExtent:

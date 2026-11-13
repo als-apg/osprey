@@ -220,13 +220,17 @@ def _coverage_message(
 async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _CoverageProbe]:
     """Ask the connector about each empty channel; a failed probe is a note.
 
-    Failures degrade to ``coverage_unknown`` downstream rather than raising:
+    A refused availability probe (an archiver that is not connected refuses
+    it) is the note of a channel whose metadata answered. Failures degrade to
+    ``coverage_unknown`` downstream rather than raising:
     the data that DID come back must never be lost to its own explanation.
     """
+    refused: str | None = None
     try:
         availability = await connector.check_availability(channels)
-    except Exception:  # any probe failure degrades, none propagate
+    except Exception as exc:  # any probe failure degrades, none propagate
         availability = {}
+        refused = f"availability probe failed: {exc}"
     probes: dict[str, _CoverageProbe] = {}
     for ch in channels:
         try:
@@ -236,7 +240,7 @@ async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _Cov
                 available=availability.get(ch), metadata=None, note=f"metadata probe failed: {exc}"
             )
         else:
-            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=None)
+            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=refused)
     return probes
 
 

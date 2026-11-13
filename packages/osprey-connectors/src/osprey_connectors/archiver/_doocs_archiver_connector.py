@@ -204,9 +204,12 @@ class DOOCSArchiverConnector(ArchiverConnector):
         """Check availability based on .HIST property name extension.
 
         A lookup that raises answers ``None``: the archiver could not say.
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
         """
         if not self._connected or self._doocs4py is None:
-            return dict.fromkeys(channels, False)
+            raise RuntimeError("DOOCS archiver not connected")
 
         avail: dict[str, bool | None] = {}
         for add in channels:
