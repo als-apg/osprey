@@ -123,7 +123,6 @@
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "assign:DEMO_GROUPS",
       "value": {
-        "-": [],
         "BR": [
           "BPM",
           "DIAG",
@@ -162,7 +161,6 @@
           "TV",
           "VCM"
         ],
-        "HALL": [],
         "LINE": [
           "BPM",
           "HCM",
@@ -224,25 +222,11 @@
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "assign:DEMO_DERIVED",
       "value": {
-        "-": [
-          "Circuit",
-          "ControlApplication",
-          "ElectronicsChassis",
-          "Host",
-          "NetworkSwitch",
-          "Quadrupole",
-          "TimingChannel",
-          "UtilityLoop"
-        ],
         "BR": [
           "BeamCurrentMonitor"
         ],
         "BTS": [],
         "GTL": [],
-        "HALL": [
-          "ElectronicsChassis",
-          "PowerSupply"
-        ],
         "LINE": [],
         "LN": [],
         "LTB": [],
@@ -262,17 +246,17 @@
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert sum(len(families) for families in _families(document).values()) == {value}",
-      "value": 99
+      "value": 89
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert len(fields) == {value}",
-      "value": 2473
+      "value": 2453
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert by_address == {value}",
-      "value": 2163
+      "value": 2143
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",

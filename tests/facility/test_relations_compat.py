@@ -482,27 +482,17 @@ def test_example_additions_leave_the_other_views_unmoved(
     shipped = _view_files(example_renders["shipped", mode])
     pre = _view_files(example_renders["pre", mode])
     differing = _differing(shipped, pre)
-    allowed = {f"data/{name}" for name in _ROOT_FILES["facts"]}
-    if mode == "middle_layer":
-        allowed |= {f"{_MIDDLE_LAYER}.json", f"{_MIDDLE_LAYER}.duckdb"}
-    assert set(differing) == allowed, differing
+    # The devices the example adds hold no channel, so no channel-finder index moves.
+    assert set(differing) == {f"data/{name}" for name in _ROOT_FILES["facts"]}, differing
 
 
-def test_middle_layer_gains_only_the_example_additions(
+def test_middle_layer_gains_nothing_from_the_example_additions(
     example_renders: dict[Any, dict[str, bytes]],
 ) -> None:
+    # The racks, supplies and hosts hold no channel, and SR/VS03 is a section.
     shipped = json.loads(example_renders["shipped", "middle_layer"][f"{_MIDDLE_LAYER}.json"])
     pre = json.loads(example_renders["pre", "middle_layer"][f"{_MIDDLE_LAYER}.json"])
-    assert sorted(set(shipped) - set(pre)) == ["-", "HALL"]
-    assert set(pre) <= set(shipped)
-    for system, families in pre.items():
-        if not isinstance(families, dict):  # a top-level scalar, not a system
-            assert shipped[system] == families, system
-            continue
-        # The group Appendix A adds, SR/VS03, is a section and files as no family.
-        assert set(shipped[system]) == set(families), system
-        for family, body in families.items():
-            assert shipped[system][family] == body, (system, family)
+    assert shipped == pre
 
 
 def _additions(pre: Any, shipped: Any, path: str = "") -> dict[str, Any]:
@@ -557,7 +547,10 @@ def test_facts_gain_only_the_example_additions(
     assert added["/device_classes/Quadrupole/count"] == 1
     assert {"HALL", "SR/SECT3/G2"} <= {place["id"] for place in added["/places"]}
     assert "/place_levels" in added
-    assert new_classes <= {k.split("/")[2] for k in added if k.startswith("/unplaced_devices/")}
+    # The power supply is placed by the rack its accepted claim names.
+    assert new_classes - {"PowerSupply"} <= {
+        k.split("/")[2] for k in added if k.startswith("/unplaced_devices/")
+    }
     # The VS03 group is the only group the example adds.
     groups = {key: value for key, value in added.items() if key.endswith("/groups")}
     assert groups

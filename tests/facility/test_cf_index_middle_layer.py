@@ -1037,10 +1037,10 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
-#: The demo's groups by System, each a Family named by its short id. ``-`` is the
-#: System of the devices placed nowhere, which no group names.
+#: The demo's groups by System, each a Family named by its short id. The racks,
+#: supplies and hosts of the example hold no channel, so ``-`` and ``HALL`` are no
+#: System.
 DEMO_GROUPS = {
-    "-": [],
     "BR": [
         *("BPM", "DIAG", "DIPOLE", "DIPOLE-RAMP", "KICKER", "MAG"),
         *("QD", "QD-RAMP", "QF", "QF-RAMP", "SEPTUM", "TV"),
@@ -1050,7 +1050,6 @@ DEMO_GROUPS = {
         *("PADDLES", "QD", "QF", "TV", "VCM"),
     ],
     "GTL": ["BC", "BPM", "EGUN", "HCM", "ICT", "SHB", "SOL", "TV", "VCM"],
-    "HALL": [],
     "LINE": ["BPM", "HCM", "QD", "QF", "VCM"],
     "LN": [
         *("ACC", "BPM", "BUNCHER", "HCM", "ICT", "MASTER"),
@@ -1065,14 +1064,9 @@ DEMO_GROUPS = {
 
 #: The demo's classes no single-class group holds, by System.
 DEMO_DERIVED = {
-    "-": [
-        *("Circuit", "ControlApplication", "ElectronicsChassis", "Host", "NetworkSwitch"),
-        *("Quadrupole", "TimingChannel", "UtilityLoop"),
-    ],
     "BR": ["BeamCurrentMonitor"],
     "BTS": [],
     "GTL": [],
-    "HALL": ["ElectronicsChassis", "PowerSupply"],
     "LINE": [],
     "LN": [],
     "LTB": [],
@@ -1094,7 +1088,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 99
+    assert sum(len(families) for families in _families(document).values()) == 89
     fields = [
         field
         for system, families in document.items()
@@ -1103,8 +1097,8 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 2473
-    assert by_address == 2163
+    assert len(fields) == 2453
+    assert by_address == 2143
     assert left_out == 6
     assert document["count"] == len(built_demo.facility["channels"]) - left_out
     assert left_out == sum(
