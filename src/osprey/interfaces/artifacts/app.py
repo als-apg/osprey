@@ -239,10 +239,21 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 @media print { .jp-Toolbar, .jp-mod-toolbar { display: none !important; } }
 </style>"""
 
-# The notebook page renders light whatever the theme (the gallery frames it as
-# ``preview-iframe-light``), so it carries the C-MSG listener without a theme
-# follower.
-_NOTEBOOK_SNIPPET = _NOTEBOOK_RESPONSIVE_CSS + "\n" + _ARTIFACT_MESSAGE_LISTENER
+# The notebook page follows the theme like the other artifact pages:
+# notebook-theme.css re-points nbconvert's --jp-* properties at the tokens, and
+# the follower script keeps data-theme current while it is embedded.
+_NOTEBOOK_SNIPPET = (
+    _DESIGN_SYSTEM_HEAD
+    + '\n<link rel="stylesheet" href="/static/css/notebook-theme.css">\n'
+    + _NOTEBOOK_RESPONSIVE_CSS
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
+    + """
+<script type="module">
+import { initTheme } from '/design-system/js/theme-manager.js';
+initTheme({ role: 'follower' });
+</script>"""
+)
 
 _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
