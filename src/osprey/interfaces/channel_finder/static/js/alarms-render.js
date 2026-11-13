@@ -12,7 +12,7 @@
 import { configEntries } from './alarm-text.js';
 import { NO_TARGET, timeText } from './pv-page-sections.js';
 import { formatRoute } from './route.js';
-import { severityMark, severityOf, worstSeverity } from './severity.js';
+import { BAND_SEVERITIES, inBand, severityMark, severityOf, worstSeverity } from './severity.js';
 import { esc } from './utils.js';
 import { formatValue } from './value-format.js';
 
@@ -38,9 +38,6 @@ import { formatValue } from './value-format.js';
  * segment, its depth, and the worst severity and count of the rows below it.
  * @typedef {{ path: string, label: string, depth: number, worst: Severity, count: number }} TreeNode
  */
-
-/** The severity tiles, in the mockup's display order (not the rank). */
-const SEVERITY_TILES = /** @type {const} */ (['MAJOR', 'INVALID', 'MINOR', 'UNDEFINED']);
 
 export const NO_TREE = 'No alarm tree on this target';
 const NO_LOG = 'No alarm log on this target. Only the current state and its start time are known.';
@@ -266,7 +263,7 @@ export function bandHtml(answer, pressed) {
       `<span class="alarms-tile-n">${fmt(n)}</span><span class="alarms-tile-k">${label}</span></button>`
     );
   };
-  const severities = SEVERITY_TILES.filter((key) => key !== 'UNDEFINED' || counts.UNDEFINED)
+  const severities = BAND_SEVERITIES.filter((key) => inBand(key, counts[key]))
     .map((key) => tile(key, severityMark(key)))
     .join('');
   const chip = feedChip(answer);

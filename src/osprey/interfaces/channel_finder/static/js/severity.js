@@ -22,6 +22,26 @@ export const SEVERITIES = Object.freeze(
 
 /** @typedef {typeof SEVERITIES[number]} Severity */
 
+/**
+ * The alarm server's severities in the order a band of counts shows them (the
+ * mockup's order, not the rank).
+ * @type {readonly ['MAJOR', 'INVALID', 'MINOR', 'UNDEFINED']}
+ */
+export const BAND_SEVERITIES = Object.freeze(
+  /** @type {const} */ (['MAJOR', 'INVALID', 'MINOR', 'UNDEFINED'])
+);
+
+/**
+ * Whether a band of counts shows `severity` at `count`: UNDEFINED, which no
+ * record reports, only when something is counted under it.
+ * @param {Severity} severity
+ * @param {number} count
+ * @returns {boolean}
+ */
+export function inBand(severity, count) {
+  return severity !== 'UNDEFINED' || count > 0;
+}
+
 /** EPICS record severities by their wire number. */
 const RECORD_SEVERITIES = /** @type {const} */ (['OK', 'MINOR', 'MAJOR', 'INVALID']);
 

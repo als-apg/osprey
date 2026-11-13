@@ -80,3 +80,18 @@
 .cf-sev--none {
   color: var(--text-muted);
 }
+
+/* ---- The mark in context ---- */
+
+/* In the alarm tree the mark's shape carries the severity; the label keeps the row's text. */
+.alarms-node .cf-sev {
+  min-width: 0;
+  color: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+/* A tile counting nothing mutes its mark with its digits. */
+.alarms-tile.is-zero .cf-sev {
+  color: var(--text-muted);
+}

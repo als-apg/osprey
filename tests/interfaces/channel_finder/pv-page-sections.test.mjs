@@ -15,7 +15,6 @@ import {
   logbookCard,
   putHistoryCard,
   recordAlarmText,
-  severityText,
   unavailableLine,
   unconfiguredLine,
   valueCard,
@@ -47,15 +46,16 @@ test('an answer without a source reads not available for this target', () => {
   );
 });
 
-test('severities and the record alarm as text', () => {
-  expect(severityText(0)).toBe('NO_ALARM');
-  expect(severityText(2)).toBe('MAJOR');
-  expect(severityText('MINOR')).toBe('MINOR');
-  expect(severityText(null)).toBe('');
-  expect(recordAlarmText(/** @type {any} */ ({ severity: 1, status: 'HIGH' }))).toBe('MINOR HIGH');
-  expect(recordAlarmText(/** @type {any} */ ({ severity: 0, status: 'NO_ALARM' }))).toBe(
-    'NO_ALARM'
+test('the record alarm reads its severity through severity.js', () => {
+  expect(recordAlarmText(/** @type {any} */ ({ severity: 1, status: 'HIGH' }))).toBe(
+    'MINOR · HIGH'
   );
+  expect(recordAlarmText(/** @type {any} */ ({ severity: 2, status: 'HIHI' }))).toBe(
+    'MAJOR · HIHI'
+  );
+  expect(recordAlarmText(/** @type {any} */ ({ severity: 0, status: 'OK' }))).toBe('OK');
+  expect(recordAlarmText(/** @type {any} */ ({ severity: 7, status: '' }))).toBe('UNDEFINED');
+  expect(recordAlarmText(/** @type {any} */ ({ severity: null, status: 'HIGH' }))).toBe('HIGH');
 });
 
 test('an unconfigured card is one dashed line', () => {

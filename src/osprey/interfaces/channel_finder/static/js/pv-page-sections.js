@@ -32,9 +32,6 @@ const NOT_IN_TREE = 'Not in the alarm tree';
 const HISTORY_LIMIT = 20;
 const RETENTION_UNKNOWN = 'Retention unknown: how far back the service keeps rows is not known';
 
-/** EPICS alarm severities by their wire number. */
-const SEVERITIES = ['NO_ALARM', 'MINOR', 'MAJOR', 'INVALID'];
-
 /** @type {Intl.DateTimeFormatOptions} */
 const TIME_FORMAT = {
   year: 'numeric',
@@ -74,24 +71,17 @@ export function timeText(value) {
 }
 
 /**
- * A severity as a name: the value read carries the EPICS number.
- * @param {unknown} severity
- * @returns {string}
- */
-export function severityText(severity) {
-  if (typeof severity === 'number') return SEVERITIES[severity] ?? String(severity);
-  return severity === null || severity === undefined ? '' : String(severity);
-}
-
-/**
- * The record's own alarm from a value read: its severity and status, once
- * when the two say the same.
+ * The record's own alarm from a value read, as words: its severity (severity.js
+ * reads the EPICS number the read carries) and its status, once when the two
+ * say the same.
  * @param {ValueRow} row
  * @returns {string}
  */
 export function recordAlarmText(row) {
-  const words = [severityText(row.severity), row.status ?? ''].filter(Boolean);
-  return [...new Set(words)].join(' ');
+  const severity =
+    row.severity === null || row.severity === undefined ? '' : severityOf(row.severity);
+  const words = [severity, row.status ?? ''].filter(Boolean);
+  return [...new Set(words)].join(' · ');
 }
 
 /**
