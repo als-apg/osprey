@@ -105,11 +105,9 @@ between ``SR/QF05`` and ``SR/MAG-Q-0301``, by the rule
 decided; it merges nothing. ``SR/MAG-Q-0301`` counts as a quadrupole of its
 own in the facts view, the graph and the demo's device counts.
 
-The group ``SR/VS03`` carries no description, though the design example the
-sector is taken from gives it one. The graph takes a device's family description from the smallest
-described group that names it, so a described three-member group would
-replace the family descriptions of ``SR/QF05``, ``SR/BPM13`` and
-``SR/ION-PUMP13``, and the graph's purpose search would stop finding them.
+**The vacuum section.** The group ``SR/VS03`` states ``kind: section``. It
+keeps its description and its members and is no family: it describes none of
+its members and is no channel-finder Family.
 
 **Adding the precedence policy.** A ``policy.yaml`` with
 ``precedence: {located_in: [rack-layout, cable-schedule]}`` ranks the rack

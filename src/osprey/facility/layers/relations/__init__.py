@@ -9,7 +9,7 @@ order; empty cells are absent. The columns, required first, are::
                subject_class, object_class
     names      thing, name, scheme; basis, rule
     places     place; within, basis, rule
-    members    group, member; member_kind
+    members    group, member; member_kind, group_kind
 
 and every table also takes the citation columns ``document``, ``version``,
 ``state``, ``locator`` and ``imported``.

@@ -1914,6 +1914,8 @@
   - SR/VCM71
   - SR/VCM72
 - id: SR/VS03
+  description: Vacuum section 3
+  kind: section
   members:
   - SR/ION-PUMP13
   - SR/BPM13

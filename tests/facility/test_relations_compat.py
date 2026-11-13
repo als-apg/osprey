@@ -498,8 +498,8 @@ def test_middle_layer_gains_only_the_example_additions(
         if not isinstance(families, dict):  # a top-level scalar, not a system
             assert shipped[system] == families, system
             continue
-        extra = set(shipped[system]) - set(families)
-        assert extra == ({"VS03"} if system == "SR" else set()), system
+        # The group Appendix A adds, SR/VS03, is a section and files as no family.
+        assert set(shipped[system]) == set(families), system
         for family, body in families.items():
             assert shipped[system][family] == body, (system, family)
 

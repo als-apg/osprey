@@ -216,8 +216,7 @@
           "SHF",
           "TC",
           "VAC",
-          "VCM",
-          "VS03"
+          "VCM"
         ]
       }
     },
@@ -263,7 +262,7 @@
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert sum(len(families) for families in _families(document).values()) == {value}",
-      "value": 100
+      "value": 99
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
@@ -278,11 +277,11 @@
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
       "pin": "text:assert counts == ({value}, 4725)",
-      "value": 8317
+      "value": 8297
     },
     {
       "file": "tests/facility/test_cf_index_middle_layer.py",
-      "pin": "text:assert counts == (8317, {value})",
+      "pin": "text:assert counts == (8297, {value})",
       "value": 4725
     },
     {

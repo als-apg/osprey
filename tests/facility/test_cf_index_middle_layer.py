@@ -990,7 +990,6 @@ DEMO_GROUPS = {
     "SR": [
         *("BPM", "DIAG", "DIPOLE", "ENV", "FE", "HC", "HCM", "ID", "MAG", "QD", "QF"),
         *("QFA", "RF", "SCRAPER", "SD", "SEPTUM", "SF", "SHD", "SHF", "TC", "VAC", "VCM"),
-        "VS03",
     ],
 }
 
@@ -1025,7 +1024,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 100
+    assert sum(len(families) for families in _families(document).values()) == 99
     fields = [
         field
         for system, families in document.items()
@@ -1187,7 +1186,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (8317, 4725)
+    assert counts == (8297, 4725)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 

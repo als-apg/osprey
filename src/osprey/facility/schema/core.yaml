@@ -116,6 +116,14 @@ enums:
       contested:
       superseded:
 
+  group_kind_enum:
+    description: What a group's members have in common.
+    permissible_values:
+      family:
+        description: Devices of one sort; the group's description is its members' purpose.
+      section:
+        description: Things that belong together, such as a vacuum section or a zone; never a family.
+
   fix_op_enum:
     permissible_values:
       set:
@@ -613,6 +621,11 @@ classes:
         required: true
       description:
         description: What the set is, in the facility's words.
+      kind:
+        range: group_kind_enum
+        description: >-
+          `family` when absent. Only a family describes its members to a
+          view and files as a family there.
       label:
         description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:

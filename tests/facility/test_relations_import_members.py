@@ -170,3 +170,43 @@ class TestRefusedRows:
         groups(rows, _index(tmp_path), {}, refusals, table="racks.csv")
         (error,) = refusals.errors()
         assert error.sources == ("racks.csv",)
+
+
+class TestGroupKind:
+    """The optional ``group_kind`` column: the kind of a group the layer creates."""
+
+    def _rows(self, tmp_path: Path, body: str) -> list[Row]:
+        path = tmp_path / "members.csv"
+        path.write_text("group,member,group_kind\n" + body, encoding="utf-8")
+        return read_table(path, MEMBERS)
+
+    def test_a_stated_kind_is_written_on_the_group(self, tmp_path: Path) -> None:
+        rows = self._rows(tmp_path, "VS01,QF1,section\nVS01,QF2,\nRACKED,QF1,family\n")
+        refusals = Refusals()
+        assert groups(rows, _index(tmp_path), {}, refusals) == [
+            {"id": "RACKED", "kind": "family", "members": ["QF1"]},
+            {"id": "VS01", "kind": "section", "members": ["QF1", "QF2"]},
+        ]
+        assert not refusals
+
+    def test_no_stated_kind_writes_none(self, tmp_path: Path) -> None:
+        rows = self._rows(tmp_path, "RACKED,QF1,\n")
+        assert groups(rows, _index(tmp_path), {}, Refusals()) == [
+            {"id": "RACKED", "members": ["QF1"]}
+        ]
+
+    def test_an_unknown_kind_is_refused(self, tmp_path: Path) -> None:
+        rows = self._rows(tmp_path, "ZONE1,QF1,zone\n")
+        refusals = Refusals()
+        assert groups(rows, _index(tmp_path), {}, refusals) == []
+        (message,) = _messages(refusals)
+        assert "group_kind" in message and "`family` or `section`" in message
+
+    def test_two_kinds_for_one_group_refuse_the_later_row(self, tmp_path: Path) -> None:
+        rows = self._rows(tmp_path, "VS01,QF1,section\nVS01,QF2,family\n")
+        refusals = Refusals()
+        assert groups(rows, _index(tmp_path), {}, refusals) == [
+            {"id": "VS01", "kind": "section", "members": ["QF1"]}
+        ]
+        (message,) = _messages(refusals)
+        assert "VS01" in message and "section" in message

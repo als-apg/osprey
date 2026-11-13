@@ -75,7 +75,8 @@ The middle-layer index is written to
       }
     }
 
-A Family is a group: every group is filed under the System of each member,
+A Family is a group of kind ``family`` (a ``section`` is none and is left
+out): every such group is filed under the System of each member,
 the top place of the member's place (``-`` for a member with no place), and
 named by its id less a leading ``<System>/``. A classed device that no
 single-class group holds under its System files into a Family named by its
@@ -122,7 +123,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import FacilityRecords, is_family
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
 
 __all__ = [
@@ -717,7 +718,7 @@ def _system_of(device: Mapping[str, Any]) -> str:
 def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     """Each System's Families: its groups, then its derived (System, class) Families.
 
-    A group is filed under the System of each member, the top place of the
+    Only a group of kind ``family`` counts. A group is filed under the System of each member, the top place of the
     member's place (``-`` for a member with no place). A classed device that no
     single-class group holds under its System (a group whose members filed
     there all carry one class) files into the derived Family of its System and
@@ -726,6 +727,8 @@ def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     split: dict[str, list[tuple[Mapping[str, Any], list[Mapping[str, Any]]]]] = defaultdict(list)
     covered: dict[str, set[str]] = defaultdict(set)
     for group in records.of_kind("group"):
+        if not is_family(group):
+            continue
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
             device = records.record("device", str(member_id))

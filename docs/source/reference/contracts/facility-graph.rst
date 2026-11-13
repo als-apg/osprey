@@ -25,7 +25,8 @@ query:
   ``sPositionM`` (position along the beamline, in metres), ``lengthM``,
   ``ordinalInPlace`` and ``ordinalInModel``, each only when the facility file
   carries it, and the prose for the levels the device sits under:
-  ``familyDescription`` and ``systemDescription``. A device with a place
+  ``familyDescription`` (from the smallest described group of kind ``family``
+  naming the device) and ``systemDescription``. A device with a place
   reaches it over ``LOCATEDIN``. Relation claims add edges between devices,
   places and groups (`Relations`_).
 * **Channel bindings** — one node per control system address, carrying
@@ -44,8 +45,8 @@ query:
   ``facility_graph`` settings keep (by default every claim), holding the
   evidence behind its edge (`Relations`_).
 * **Groups** — one ``:Group`` node per group that is an end of a written
-  claim, carrying ``groupId`` and its names, and one ``HASMEMBER`` to each
-  member device. A group no claim names is no node.
+  claim, carrying ``groupId``, ``groupKind`` (``family`` or ``section``) and
+  its names, and one ``HASMEMBER`` to each member device. A group no claim names is no node.
 
 Places, devices, channel bindings and groups carry their names as
 ``altLabel``, a list; a place's or device's alias names (``scheme_names``) are
@@ -155,8 +156,8 @@ claim states none), ``rule``, ``standing``, ``document``, ``documentVersion``,
 identifier the graph does not already use, else under ``attribute_`` and the
 key with each byte outside ``[A-Za-z0-9_]`` written ``_xHH_``: ``cable-id`` is
 ``attribute_cable_x2D_id``. A claim whose end is a group reaches the
-``:Group`` node, which carries ``groupId`` and reaches each member device over
-``HASMEMBER``.
+``:Group`` node, which carries ``groupId`` and ``groupKind`` and reaches each
+member device over ``HASMEMBER``.
 
 Two settings of the deployment's config choose what is written:
 

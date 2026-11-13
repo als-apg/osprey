@@ -14,7 +14,7 @@ Nodes and their ``narad_p:`` predicates:
 - a device, typed by its class when it has one: ``deviceId``, ``facility``
   (the identity ``code``), ``rawType`` (the class name, only with a class),
   ``sourceName`` (its id), ``familyDescription`` (the description of the
-  smallest described group naming it), ``sPositionM``, ``lengthM``,
+  smallest described family naming it; a group of kind ``section`` is none), ``sPositionM``, ``lengthM``,
   ``ordinalInPlace`` and ``ordinalInModel`` (each only when the facility file
   carries it), and one ``hasBinding`` per channel it is ``on`` or an
   ``endpoint_of``; a device with a place also carries one ``locatedIn`` to
@@ -70,9 +70,10 @@ declared.
 
 Each group that is an end of a claim the ``basis`` setting keeps, whatever the
 claim's standing and whatever the ``claims`` setting, is a ``narad_sem:Group``
-(not declared ``owl:Class``): ``groupId`` (its id), one ``skos:altLabel`` per
-entry of its ``names`` and one ``hasMember`` to each member device; its
-``label`` and ``description`` are not written. ``groupId`` and ``hasMember``
+(not declared ``owl:Class``): ``groupId`` (its id), ``groupKind`` (its kind,
+``family`` when it states none), one ``skos:altLabel`` per entry of its
+``names`` and one ``hasMember`` to each member device; its ``label`` and
+``description`` are not written. ``groupId``, ``groupKind`` and ``hasMember``
 are declared only when written, so a group no claim names is no node.
 
 Subjects follow the facility file's order, predicates are sorted with
@@ -90,7 +91,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.facility import DEFAULT_ROLE, PN_LOCAL
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import FacilityRecords, group_kind, is_family
 from osprey.facility.views import GRAPH_BASIS_KEY, GRAPH_CLAIMS_KEY, ViewInputs
 from osprey.facility.views.graph_iri import iri
 
@@ -265,10 +266,11 @@ CLAIM_OBJECT_PROPERTY_NAMES: frozenset[str] = frozenset(
 )
 
 P_GROUP_ID = "groupId"
+P_GROUP_KIND = "groupKind"
 P_HAS_MEMBER = "hasMember"
 
 #: The ``narad_p:`` predicates of a group node; each is declared only when written.
-GROUP_PROPERTY_NAMES: tuple[str, ...] = (P_GROUP_ID, P_HAS_MEMBER)
+GROUP_PROPERTY_NAMES: tuple[str, ...] = (P_GROUP_ID, P_GROUP_KIND, P_HAS_MEMBER)
 
 #: Every ``narad_p:`` local name the view writes other than an attribute's;
 #: an attribute key equal to one is written under ``attribute_<key>``.
@@ -375,14 +377,14 @@ def _names(
 
 
 def _family_descriptions(groups: Iterable[Mapping[str, Any]]) -> dict[str, str]:
-    """Each device's family description: that of the smallest described group naming it.
+    """Each device's family description: that of the smallest described family naming it.
 
-    Ties between groups of one size go to the earlier group in the facility file.
+    Ties between families of one size go to the earlier group in the facility file.
     """
     chosen: dict[str, tuple[int, int, str]] = {}
     for position, group in enumerate(groups):
         description = group.get("description")
-        if not description:
+        if not description or not is_family(group):
             continue
         members = group.get("members") or []
         rank = (len(members), position, str(description))
@@ -747,7 +749,8 @@ def _group_triples(
         node = iri(code, "group", group_id)
         _add(subjects, node, RDF_TYPE, _iri(GROUP))
         _add(subjects, node, _p(P_GROUP_ID), _text(group_id))
-        used.add(P_GROUP_ID)
+        _add(subjects, node, _p(P_GROUP_KIND), _text(group_kind(group)))
+        used.update((P_GROUP_ID, P_GROUP_KIND))
         _names(subjects, node, group)
         for member in group.get("members") or []:
             _add(subjects, node, _p(P_HAS_MEMBER), _iri(iri(code, "device", str(member))))

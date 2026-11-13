@@ -108,6 +108,7 @@ DEMO_RELATION_PREDICATES = {
     "signal",
     # the group node of SR/VS03
     "groupId",
+    "groupKind",
     "hasMember",
 }
 
