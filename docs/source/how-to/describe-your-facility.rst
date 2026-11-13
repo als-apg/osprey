@@ -29,6 +29,7 @@ The tree
        devices.yaml            the devices
        channels.yaml           the control-system channels
        groups.yaml             named sets of devices
+       relations.yaml          claims that two records are related
      classes.yaml              device classes the facility adds
      models.yaml               the simulation models and their wiring
      decks/                    the decks those models name
@@ -36,6 +37,8 @@ The tree
      seeds.yaml                how a channel no model wires behaves when simulated
      measurement/<model>.yaml  the measurements a model allows
      scenarios/<name>.yaml     ways the simulated machine departs from its baseline
+     documents.yaml            the source documents records and claims cite
+     policy.yaml               how the build ranks competing claims
      fixes.yaml                corrections to records another source states
      imported/<layer>/         records an importer wrote
      knowledge/                the facility knowledge pages
@@ -44,8 +47,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``fixes.yaml`` and
-``imported/``; the hello-world preset ships
+demo preset ships all of them except ``records/relations.yaml``,
+``documents.yaml``, ``policy.yaml``, ``fixes.yaml`` and ``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
@@ -85,7 +88,7 @@ call the facility; a facility that states none is called by the project name.
 Records
 =======
 
-The four files under ``records/`` each hold a list of records of one kind.
+The files under ``records/`` each hold a list of records of one kind.
 Every record has an ``id``, and a record states only what its author knows:
 a field left out is either filled by the build or stays absent.
 
@@ -185,6 +188,10 @@ address means anything to OSPREY. What a channel is comes from its fields:
 **Groups** are named sets of devices: an id, a ``description`` in the
 facility's words and the ``members``. A group says which devices belong
 together; what a channel means stays on the channel.
+
+**Relations** are claims, one per source, that two records are related: a
+``type``, a ``subject`` and an ``object``, each naming one device, place or
+group.
 
 ``classes.yaml`` adds device classes the shared vocabulary lacks, each as the
 child of an existing class:
@@ -318,7 +325,7 @@ channel list above:
 
 ``set`` replaces the fields it names, each whole; ``add`` adds a record;
 ``drop`` removes one. ``kind`` is ``place``, ``device``, ``channel``,
-``wiring``, ``group`` or ``model``. A ``set`` states under ``was`` the value
+``wiring``, ``group``, ``model`` or ``relation``. A ``set`` states under ``was`` the value
 each layer held when the fix was written. When ``was`` is missing, or a later
 import changes that value, the build stops with ``fix-stale`` and prints the
 corrected fix to paste in its place, so a fix never silently outlives the fact it corrected. The result
