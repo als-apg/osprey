@@ -263,10 +263,9 @@ def test_a_line_starting_with_dashes_never_hides_a_skills_hooks(
     "text",
     [
         "---\nname: knob\ndescription: d\n---\nbody\n",
-        "--- \nname: knob\ndescription: d\n---\t\nbody\n",
         "---\nname: knob\ndescription: d\n---\nbody\n\n---\n\nmore\n",
     ],
-    ids=["plain", "trailing-blanks", "horizontal-rule-in-body"],
+    ids=["plain", "horizontal-rule-in-body"],
 )
 def test_a_listed_skill_with_well_formed_frontmatter_loads(
     lifecycle_repo: Path,  # noqa: F811
@@ -276,6 +275,29 @@ def test_a_listed_skill_with_well_formed_frontmatter_loads(
     _write(app_dir / "skills" / "knob" / "SKILL.md", text)
 
     check_deployment(lifecycle_repo)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"---\nname: knob\rhooks: {PreToolUse: []}\ndescription: d\n---\nbody\n",
+        b"--- \nname: knob\ndescription: d\n---\t\nbody\n",
+    ],
+    ids=["lone-carriage-return", "trailing-blanks-on-the-delimiters"],
+)
+def test_a_listed_skill_whose_lines_two_readers_split_differently_is_refused(
+    lifecycle_repo: Path,  # noqa: F811
+    raw: bytes,
+) -> None:
+    app_dir = _app(lifecycle_repo, skills=["knob"])
+    skill_file = app_dir / "skills" / "knob" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_bytes(raw)
+
+    with pytest.raises(AppManifestError) as exc:
+        check_deployment(lifecycle_repo)
+
+    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
 
 
 def test_hooks_after_leading_blank_lines_are_refused(

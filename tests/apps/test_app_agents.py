@@ -400,9 +400,11 @@ def test_a_horizontal_rule_in_the_body_is_body() -> None:
     assert parse_agent(text, app="knob", name="knob-helper").name == "knob-helper"
 
 
-def test_trailing_blanks_on_the_delimiters_are_allowed() -> None:
+def test_trailing_blanks_on_the_delimiters_are_refused() -> None:
     text = _text(FRONTMATTER).replace("---\n", "--- \t\n")
-    assert parse_agent(text, app="knob", name="knob-helper").name == "knob-helper"
+    with pytest.raises(AppManifestError) as exc:
+        parse_agent(text, app="knob", name="knob-helper")
+    assert exc.value.rule == "agent_frontmatter"
 
 
 def _agent_bytes(app_dir: Path, raw: bytes) -> None:
@@ -433,6 +435,14 @@ def test_dashes_never_hide_a_refused_key_whatever_the_line_endings_or_bom(
     encode: Any,
 ) -> None:
     _agent_bytes(_app(lifecycle_repo, agents=["knob-helper"]), encode(_hidden("---x: 1", "hooks")))
+    assert _rules(lifecycle_repo) == [("agents.knob-helper", "agent_frontmatter")]
+
+
+def test_a_lone_carriage_return_never_hides_a_refused_key(
+    lifecycle_repo: Path,  # noqa: F811
+) -> None:
+    raw = _text(FRONTMATTER).replace("name: knob-helper\n", "name: knob-helper\rhooks: {}\n")
+    _agent_bytes(_app(lifecycle_repo, agents=["knob-helper"]), raw.encode("utf-8"))
     assert _rules(lifecycle_repo) == [("agents.knob-helper", "agent_frontmatter")]
 
 

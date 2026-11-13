@@ -32,14 +32,18 @@ import yaml
 
 from osprey.utils.tool_rules import matches_denylist
 
-#: A frontmatter delimiter: a line that is exactly ``---``, trailing spaces or tabs allowed.
+#: Where the block opens and closes: ``---``, trailing spaces or tabs found here so that
+#: ``_unreadable_frontmatter`` refuses a delimiter that is not exactly ``---``.
 _DELIMITER_RE = re.compile(r"---[ \t]*")
 
 
 def _normalised_text(path: Path) -> str:
-    """The file's text with a leading byte-order mark dropped and every line ending ``\\n``."""
+    """The file's text with a leading byte-order mark dropped and ``\\r\\n`` folded to ``\\n``.
+
+    A lone ``\\r`` stays in its line, so the check sees the characters the copy carries.
+    """
     text = path.read_bytes().decode("utf-8").removeprefix("\ufeff")
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\r\n", "\n")
 
 
 def _frontmatter_lines(md_text: str) -> tuple[list[str], bool] | None:
@@ -114,14 +118,18 @@ def _unreadable_frontmatter(md_text: str) -> bool:
     the block, when a line inside it a looser reader would close on (one starting with
     ``---``, or ``---`` after a Unicode strip) hides the keys after it, when the block
     holds a line break other than the newline (a reader splitting on it sees other
-    lines), or when the block is not a YAML mapping. A caller that copies the file on
-    refuses it.
+    lines), when a delimiter line is not exactly ``---`` (a reader that takes only that
+    line closes elsewhere), or when the block is not a YAML mapping. A caller that
+    copies the file on refuses it.
     """
     block = _frontmatter_lines(md_text)
     if block is None:
         return _opens_after_stripping(md_text)
     lines, closed = block
     if not closed or any(_loose_delimiter(line) for line in lines):
+        return True
+    all_lines = md_text.split("\n")
+    if all_lines[0] != "---" or all_lines[len(lines) + 1] != "---":
         return True
     if any(char in _OTHER_LINE_BREAKS for line in lines for char in line):
         return True
