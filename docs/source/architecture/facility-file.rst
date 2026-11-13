@@ -126,6 +126,14 @@ filters the file's own channel records and names a model or a place.
      - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
      - ``resolve`` order.
      - Empty when dangling.
+   * - ``resolve_link(target)``
+     - The records a knowledge-page link names: ``resolve(target)``, else the place a ``place/<id>`` target names.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``lookup(text)``
+     - A ``(match, record)`` pair per place or device named by id, then by name, then by a place's last id segment.
+     - ``RECORD_KINDS``, then id; each record once.
+     - Empty.
    * - ``select_channels(selection)``
      - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``engine_role`` and ``plane`` facets AND; a place takes every place under it; ``engine_role`` and ``plane`` match the wiring record naming the address.
      - Document order.
