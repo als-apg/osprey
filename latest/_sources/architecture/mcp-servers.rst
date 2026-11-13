@@ -43,6 +43,8 @@ safety-limits enforcement on all write operations.
   goes through the writes check and the limits check. The write switch's position then
   decides: at *off* the write is refused, at *asked* the operator approves it at a prompt,
   and at *allowed* it runs unprompted (see :ref:`architecture-safety-chain-order`).
+  A call is checked whole before any of its writes is sent: a write refused by the
+  checks stops the whole call.
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
