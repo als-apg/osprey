@@ -29,7 +29,6 @@ import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { icon } from '/design-system/js/icons.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { showToast } from '/design-system/js/toast.js';
-import { writeTitle } from '/design-system/js/tooltip.js';
 import {
   NO_TREE,
   activeSummary,
@@ -53,7 +52,7 @@ import {
   plotUrl,
   readValues,
 } from './directory-api.js';
-import { TOOLBAR_IDS, attachSidebar, setResultCount } from './panel-toolbar.js';
+import { attachSidebar, setFilterReason, setResultCount } from './panel-toolbar.js';
 import { NO_TARGET } from './pv-page-sections.js';
 import { formatRoute } from './route.js';
 import { state } from './state.js';
@@ -181,9 +180,7 @@ export function mountAlarms(container) {
     },
     { signal }
   );
-  // The toolbar resets the toggle's reason when the pipeline changes.
-  state.on('pipelineChanged', noTreeTitle);
-  noTreeTitle();
+  setFilterReason(NO_TREE);
 
   const mounted = view;
   void createPlotCheck()().then((ok) => {
@@ -206,7 +203,6 @@ export function unmountAlarms() {
   const { controller, timer, sidebar, feedPopover } = view;
   view = null;
   feedPopover?.close();
-  state.off('pipelineChanged', noTreeTitle);
   window.clearInterval(timer);
   controller.abort();
   sidebar?.destroy();
@@ -384,7 +380,8 @@ function renderBand() {
 
 /**
  * The tree sidebar: drawn and driving the toolbar's toggle while any row
- * carries a path; otherwise gone, with the toggle saying why.
+ * carries a path; otherwise gone, and the toggle gives the reason handed to
+ * the toolbar on mount.
  * @param {import('./alarms-render.js').TreeNode[]} nodes
  */
 function showTree(nodes) {
@@ -400,20 +397,12 @@ function showTree(nodes) {
     handle.hidden = true;
     aside.replaceChildren();
     written.delete(aside);
-    noTreeTitle();
     return;
   }
   aside.hidden = false;
   handle.hidden = false;
   writePart(aside, treeHtml(nodes, view.node));
   view.sidebar ??= attachSidebar(aside, handle, SIDEBAR_KEY);
-}
-
-/** Without a tree the toolbar's toggle stays disabled and says why. */
-function noTreeTitle() {
-  if (view?.sidebar) return;
-  const toggle = document.getElementById(TOOLBAR_IDS.toggle);
-  if (toggle) writeTitle(toggle, NO_TREE);
 }
 
 /** The rows, or the centred state when the filters leave none. */
