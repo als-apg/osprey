@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
-<svg viewBox="0 0 1000 700" role="img" aria-labelledby="fgp-title fgp-desc">
+<svg viewBox="0 0 1000 770" role="img" aria-labelledby="fgp-title fgp-desc">
   <title id="fgp-title">A knowledge graph of a storage ring: one fact, the ontology, the facts about the machine, and one question answered as a walk</title>
-  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them.</desc>
+  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them. The legend names the edge styles: a solid arrow links two things, a dashed arrow ties a thing to its class, teal marks the walk. A relation claim adds an edge such as POWEREDBY between devices and places; a contested claim adds POWEREDBYCONTESTED instead, which a walk over plain edges never crosses. The demo machine has no relation claims.</desc>
   <defs>
     <marker id="fgp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fgp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -150,5 +150,22 @@
   <text class="tn t-acc" x="830" y="636" text-anchor="middle">12 addresses, in beam order</text>
 
   <text class="ts" x="36" y="670">The word "steerer" appears in none of the 12 addresses. The ontology supplies the meaning, and the facts supply the machine.</text>
+
+  <!-- legend -->
+  <g id="fgp-legend">
+    <text class="te" x="36" y="716">LEGEND</text>
+    <line class="e" x1="120" y1="712" x2="160" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="168" y="716">a link between two things</text>
+    <line class="e e-dash" x1="380" y1="712" x2="420" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="428" y="716">TYPE: a thing to its class</text>
+    <line class="e-acc" x1="640" y1="712" x2="680" y2="712" marker-end="url(#fgp-arr-acc)"/>
+    <text class="ts" x="688" y="716">the walk in step 4</text>
+    <line class="e" x1="120" y1="744" x2="160" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta" x="168" y="748">POWEREDBY</text>
+    <text class="ts" x="236" y="748">a relation claim between devices or places</text>
+    <line class="e-warn e-dash" x1="520" y1="744" x2="560" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta ta-warn" x="568" y="748">POWEREDBYCONTESTED</text>
+    <text class="ts" x="690" y="748">a contested claim; plain walks never cross it</text>
+  </g>
 </svg>
 </div>

@@ -335,7 +335,9 @@ build indexes from the Turtle that ``services.graphdb.ttl_path`` names: the
 graph view, unless the profile names another.
 
 **Graph.** The facility file as Turtle: one node per place, device and
-channel and per signal named, with the device classes as a class tree.
+channel and per signal named, with the device classes as a class tree; one
+edge per accepted or contested relation claim, one claim node per claim the
+``facility_graph`` settings keep, and one group node per group a claim names.
 
 .. _architecture-facility-schema:
 

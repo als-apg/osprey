@@ -80,7 +80,8 @@ corrector is a corrector, and a corrector is a magnet.
    :file: ../../_diagrams/facility-graph-primer.html
 
 An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
-tie each device to its class, and teal marks the walk in step 4.
+tie each device to its class, and teal marks the walk in step 4. The legend
+adds the edges relation claims write, which the demo has none of.
 
 The walk is what a list of addresses cannot do on its own: the question says
 "steerer" and "section 1", and no address spells either. The same shape answers
@@ -300,7 +301,11 @@ facility runs holds. With no ``ttl_path`` there is no **Graph** view.
 
 A device's place is its stored ``locatedIn`` relation, and a place's parent its
 stored ``partOf``. The **Overview** draws no ``partOf``, since both ends sit in
-the one places group; the legend still counts it.
+the one places group; the legend still counts it. Each relation edge between
+devices and places (``poweredBy``, ``cabledTo`` and the rest, and their
+``Contested`` twins, :ref:`reference-facility-graph`) is drawn in the same
+generic style as any other relation. Claim and group nodes, and the edges that
+end on them, are not drawn.
 
 Clicking a ``facility:`` link in a concept document opens the linked record in
 the **Graph** view, and a picked node lists the concept documents that name it.

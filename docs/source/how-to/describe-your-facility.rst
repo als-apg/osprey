@@ -194,13 +194,29 @@ together; what a channel means stays on the channel.
 group. The build writes each claim's ``standing``: ``accepted``, ``contested``
 when claims state different objects and none ranks first, or ``superseded``;
 and ``contests``, the ids of the claims it disagrees with, when there are any.
-A claim whose ends the type does not allow, an inferred claim without its rule,
-or one missing a required attribute stops the build with ``relation-invalid``,
-naming the claim. ``policy.yaml`` ranks competing claims by the kind of
-document they cite, as declared in ``documents.yaml``: ``relations.precedence``
-lists kinds per relation type or as ``default``, and a stated claim ranks
-before an inferred one unless ``stated_over_inferred: false``. Without it,
-competing claims stay ``contested``.
+A claim stops the build with ``relation-invalid``, naming the claim, on any of
+seven conditions:
+
+* an end names no device, place or group;
+* an end names more than one of them;
+* an end gives ``unit`` but names no place;
+* an end names a kind the type does not allow there;
+* ``basis: inferred`` comes without its ``rule``;
+* a required attribute is missing;
+* the subject and object name the same end, port included.
+
+``policy.yaml`` ranks competing claims by the kind of document they cite, as
+declared in ``documents.yaml``: ``relations.precedence`` lists kinds per
+relation type or as ``default``. Between claims whose documents rank the same,
+a stated claim breaks the tie over an inferred one unless
+``stated_over_inferred: false``. Without a policy, competing claims stay
+``contested``.
+
+Claims reach the knowledge graph as edges between their ends, by standing: an
+accepted claim is a plain edge, a contested one a separate contested edge, a
+superseded one no edge. Each claim is also a node carrying its source, so a
+query can go from an edge to the document behind it
+(:ref:`reference-facility-graph`).
 
 ``classes.yaml`` adds device classes the shared vocabulary lacks, each as the
 child of an existing class:

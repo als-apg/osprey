@@ -385,3 +385,183 @@ def test_the_page_census_agrees_with_the_census_counts() -> None:
         "text:middle-layer build\n     - {value}": middle_layer,
         "text:in-context index\n     - {value}": in_context,
     }
+
+
+# --- relation claims in the graph ------------------------------------------------
+
+FACILITY_PAGE = DOCS / "how-to" / "describe-your-facility.rst"
+ARCHITECTURE_PAGE = DOCS / "architecture" / "facility-file.rst"
+PRIMER = DOCS / "_diagrams" / "facility-graph-primer.html"
+
+#: A ``list-table`` row: its first two cells, each one inline literal or text.
+_ROW = re.compile(r"^   \* - (?P<first>.+)\n     - (?P<second>.+)$", re.M)
+
+
+def _literals(text: str) -> list[str]:
+    return re.findall(r"``([^`]+)``", text)
+
+
+def _contract_relations(page: str) -> list[str]:
+    """What the contract's "Relations" section fails to state about the graph's claims."""
+    from osprey.facility.views import GRAPH_BASIS_KEY, GRAPH_CLAIMS_KEY
+    from osprey.facility.views.graph import (
+        _ALLOWED,
+        ATTRIBUTE_PREFIX,
+        CLAIM,
+        CLAIM_OBJECT_PROPERTY_NAMES,
+        CLAIM_PROPERTY_NAMES,
+        CONTESTED_SUFFIX,
+        GROUP,
+        GROUP_PROPERTY_NAMES,
+        RELATION_PREDICATES,
+        GraphSettings,
+    )
+
+    section = _section(page, "Relations")
+    flat = " ".join(section.split())
+    literals = set(_literals(section))
+    missing: list[str] = []
+
+    rows = {m["first"]: m["second"] for m in _ROW.finditer(section)}
+    table = {
+        first.strip("`"): second.strip("`")
+        for first, second in rows.items()
+        if first.startswith("``") and "." not in first
+    }
+    if table != {name: p.upper() for name, p in RELATION_PREDICATES.items()}:
+        missing.append("the relation type table")
+    twins = {f"{p.upper()}{CONTESTED_SUFFIX.upper()}" for p in RELATION_PREDICATES.values()}
+    if not literals & twins:
+        missing.append("a contested twin")
+    for name in CLAIM_PROPERTY_NAMES:
+        spelled = name.upper() if name in CLAIM_OBJECT_PROPERTY_NAMES else name
+        if spelled not in literals:
+            missing.append(spelled)
+    for label in (CLAIM.rpartition("/")[2], GROUP.rpartition("/")[2]):
+        if f":{label}" not in literals:
+            missing.append(f":{label}")
+    for name in GROUP_PROPERTY_NAMES:
+        spelled = name.upper() if name == "hasMember" else name
+        if spelled not in literals:
+            missing.append(spelled)
+    if ATTRIBUTE_PREFIX not in literals or "_xHH_" not in literals:
+        missing.append("the attribute naming rule")
+    defaults = GraphSettings()
+    for key, field in ((GRAPH_CLAIMS_KEY, "claims"), (GRAPH_BASIS_KEY, "basis")):
+        cells = rows.get(f"``{key}``")
+        if cells is None:
+            missing.append(key)
+            continue
+        if tuple(_literals(cells)) != _ALLOWED[key]:
+            missing.append(f"{key} values")
+        if f"``{getattr(defaults, field)}`` (default)" not in cells:
+            missing.append(f"{key} default")
+    if not re.search(r"``basis: stated``[^.]*\brival\b", flat):
+        missing.append("the hidden rival")
+    return missing
+
+
+def test_the_contract_states_relation_edges_claims_groups_and_settings() -> None:
+    assert _contract_relations(CONTRACT_PAGE.read_text(encoding="utf-8")) == []
+
+
+def test_a_dropped_relation_fact_is_caught() -> None:
+    page = CONTRACT_PAGE.read_text(encoding="utf-8")
+    assert "the relation type table" in _contract_relations(page.replace("``RUNSON``", "``RUNS``"))
+    assert "CONTESTS" in _contract_relations(page.replace("``CONTESTS``", "``RIVALS``"))
+    assert "facility_graph.basis values" in _contract_relations(
+        page.replace("``all`` (default), ``stated``", "``all`` (default), ``given``")
+    )
+    assert "the hidden rival" in _contract_relations(page.replace("rival", "peer"))
+
+
+def _relations_paragraph(page: str) -> str:
+    start = page.index("**Relations** are")
+    return page[start : page.index("``classes.yaml`` adds", start)]
+
+
+def _shape_condition_count() -> int:
+    """How many ``relation-invalid`` conditions ``shape_problems`` checks: one per add."""
+    from osprey.facility.relations import shape_problems
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(shape_problems)))
+    return sum(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"append", "extend"}
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "problems"
+        for node in ast.walk(tree)
+    )
+
+
+def _relation_invalid_holds(paragraph: str) -> list[str]:
+    missing = []
+    flat = " ".join(paragraph.split())
+    words = re.findall(r"\b(\w+) conditions\b", flat)
+    bullets = re.findall(r"^\* ", paragraph, re.M)
+    count = _shape_condition_count()
+    if [_NUMBER_WORDS.get(w.lower()) for w in words] != [count] or len(bullets) != count:
+        missing.append("the relation-invalid conditions")
+    if not re.search(r"stated claim[^.]*\btie\b", flat):
+        missing.append("the stated-before-inferred tie-breaker")
+    return missing
+
+
+def test_the_how_to_lists_every_relation_invalid_condition() -> None:
+    assert _shape_condition_count() == 7
+    paragraph = _relations_paragraph(FACILITY_PAGE.read_text(encoding="utf-8"))
+    assert _relation_invalid_holds(paragraph) == []
+    assert "graph" in paragraph
+
+
+def test_a_dropped_condition_is_caught() -> None:
+    paragraph = _relations_paragraph(FACILITY_PAGE.read_text(encoding="utf-8"))
+    first = re.search(r"^\* .*\n", paragraph, re.M)
+    assert first
+    assert _relation_invalid_holds(paragraph.replace(first.group(0), "", 1)) == [
+        "the relation-invalid conditions"
+    ]
+
+
+def test_the_panel_section_says_how_relation_edges_are_drawn() -> None:
+    section = " ".join(
+        _section(GRAPH_PAGE.read_text(encoding="utf-8"), "Browsing the Graph").split()
+    )
+    assert "relation edge" in section
+    assert re.search(r"[Cc]laim and group nodes[^.]*not drawn", section)
+
+
+def test_the_architecture_view_lists_claims_and_groups() -> None:
+    page = ARCHITECTURE_PAGE.read_text(encoding="utf-8")
+    start = page.index("**Graph.**")
+    paragraph = " ".join(page[start : page.index("\n\n", start)].split())
+    for kind in ("place", "device", "channel", "signal", "claim", "group"):
+        assert kind in paragraph, kind
+
+
+def _legend_tokens() -> list[str]:
+    html = PRIMER.read_text(encoding="utf-8")
+    match = re.search(r'<g id="fgp-legend">(.*?)</g>', html, re.S)
+    assert match, "no legend group in the primer"
+    text = " ".join(re.findall(r">([^<]+)<", match.group(1)))
+    return [t for t in re.findall(r"\b[A-Z]{4,}\b", text) if t != "LEGEND"]
+
+
+def test_the_primer_legend_names_real_relationship_types() -> None:
+    from osprey.facility.views.graph import (
+        CONTESTED_SUFFIX,
+        OBJECT_PROPERTY_NAMES,
+        RELATION_PREDICATES,
+    )
+
+    known = {
+        *(name.upper() for name in OBJECT_PROPERTY_NAMES),
+        *(p.upper() for p in RELATION_PREDICATES.values()),
+        *(f"{p.upper()}{CONTESTED_SUFFIX.upper()}" for p in RELATION_PREDICATES.values()),
+        "TYPE",
+        "SUBCLASSOF",
+    }
+    tokens = _legend_tokens()
+    assert any(t.endswith(CONTESTED_SUFFIX.upper()) for t in tokens), tokens
+    assert set(tokens) <= known, sorted(set(tokens) - known)
