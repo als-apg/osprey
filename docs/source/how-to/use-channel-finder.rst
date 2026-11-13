@@ -381,8 +381,8 @@ With a ``pv_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
 gains **All PVs**, which searches the directory. In the ``demo`` preset:
 
 1. Click **All PVs**, type ``cavity temperature`` into the search box and press
-   Enter. The rows are the cavities' temperature readbacks, each with its
-   description, current value, alarm severity, record type and IOC.
+   Enter. The rows are the PVs whose description holds both words, each with
+   its description, current value, alarm, record type and IOC.
 2. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its PV page. A banner
    shows a latched alarm from the demo's replayed alarm feed, with its
    guidance.
