@@ -34,8 +34,9 @@ import json, os, socket, struct, sys, time
 
 fd = int(sys.argv[sys.argv.index("--socket-fd") + 1])
 log = os.environ["FAKE_CHILD_LOG"]
-with open(log, "a") as handle:
-    handle.write(json.dumps({"at": time.monotonic(), "env": dict(os.environ)}) + "\\n")
+record = json.dumps({"at": time.monotonic(), "env": dict(os.environ)}) + "\\n"
+with open(log, "ab", buffering=0) as handle:
+    handle.write(record.encode())
 with open(log) as handle:
     starts = sum(1 for _ in handle)
 with open(os.environ["FAKE_CHILD_PLAN"]) as handle:
@@ -96,7 +97,9 @@ class FakeChild:
     def starts(self) -> list[dict[str, Any]]:
         if not self.log.exists():
             return []
-        return [json.loads(line) for line in self.log.read_text().splitlines() if line]
+        # A record is a line with its newline: the child may be part-way through one.
+        complete, _, _ = self.log.read_text().rpartition("\n")
+        return [json.loads(line) for line in complete.splitlines() if line]
 
 
 @pytest.fixture()
