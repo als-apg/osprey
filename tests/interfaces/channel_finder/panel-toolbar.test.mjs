@@ -15,6 +15,7 @@ import {
   attachSidebar,
   claimToolbar,
   initToolbar,
+  setFilterReason,
   setResultCount,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/panel-toolbar.js';
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
@@ -102,6 +103,51 @@ describe('controls a view does not use', () => {
 
     // Under Feedback too: Explore has no filters to point back to.
     state.setActiveView('feedback');
+    expect(toggle().title).toBe('No filters for this view');
+  });
+});
+
+describe("a view's own reason for the filter toggle", () => {
+  test('is the tooltip the toolbar writes, through refreshes, until the view changes', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    expect(toggle().disabled).toBe(true);
+    expect(toggle().title).toBe('No alarm tree on this target');
+
+    state.setPipelineInfo('hierarchical', null);
+    expect(toggle().title).toBe('No alarm tree on this target');
+
+    state.setActiveView('feedback');
+    expect(toggle().title).toBe('No filters for this view');
+  });
+
+  test('comes back when a drawn sidebar is destroyed', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    const row = document.createElement('div');
+    row.innerHTML =
+      '<aside class="osprey-panel-sidebar" id="tree" data-open="false"></aside>' +
+      '<div class="osprey-splitter" role="separator" tabindex="0" aria-label="Resize"></div>';
+    byId('app-main').append(row);
+    const sidebar = byId('tree');
+    const api = attachSidebar(
+      sidebar,
+      /** @type {HTMLElement} */ (sidebar.nextElementSibling),
+      'cf-test-reason'
+    );
+    expect(toggle().disabled).toBe(false);
+    api.destroy();
+    expect(toggle().disabled).toBe(true);
+    expect(toggle().title).toBe('No alarm tree on this target');
+  });
+
+  test('a null reason gives the toggle back the default', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    setFilterReason(null);
     expect(toggle().title).toBe('No filters for this view');
   });
 });

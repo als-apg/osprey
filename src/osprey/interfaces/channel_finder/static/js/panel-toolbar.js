@@ -15,7 +15,9 @@
  * belongs to a view with a search and filters. While it is mounted it claims
  * the search field ({@link claimToolbar}) and writes the result count
  * ({@link setResultCount}); while its filters are drawn they drive the sidebar
- * toggle ({@link attachSidebar}). On a page that is part of All PVs and claims
+ * toggle ({@link attachSidebar}), and while they are not, a view may hand the
+ * toolbar its own reason for the disabled toggle ({@link setFilterReason}).
+ * On a page that is part of All PVs and claims
  * nothing, the search is the toolbar's own: Enter opens All PVs with the words.
  * In every other view those controls keep their slots, disabled, with a
  * tooltip that says why, so a change of view moves nothing.
@@ -59,6 +61,12 @@ function searchRedirects() {
 }
 /** Whether a drawn sidebar drives the toggle. */
 let sidebarAttached = false;
+/**
+ * The mounted view's own reason for the disabled filter toggle, or null for
+ * the toolbar's; dropped on every view change.
+ * @type {string|null}
+ */
+let filterReason = null;
 
 /** @param {string} id @returns {HTMLElement|null} */
 const byId = (id) => document.getElementById(id);
@@ -105,7 +113,7 @@ function refresh() {
     toggle.setAttribute('aria-label', SHOW_SIDEBAR);
     toggle.removeAttribute('aria-expanded');
     toggle.removeAttribute('aria-controls');
-    writeTitle(toggle, reason('filters'));
+    writeTitle(toggle, filterReason ?? reason('filters'));
   }
 }
 
@@ -130,8 +138,23 @@ export function initToolbar() {
     if (event.key !== 'Enter' || !searchRedirects()) return;
     location.hash = allPvsHash(/** @type {HTMLInputElement} */ (event.target).value);
   });
-  state.on('viewChanged', refresh);
+  state.on('viewChanged', () => {
+    filterReason = null;
+    refresh();
+  });
   state.on('pipelineChanged', refresh);
+  refresh();
+}
+
+/**
+ * Give the disabled filter toggle the mounted view's own reason, kept until
+ * the view changes; null gives it back the toolbar's. The toolbar is the one
+ * writer of that tooltip.
+ * @param {string|null} text
+ * @returns {void}
+ */
+export function setFilterReason(text) {
+  filterReason = text || null;
   refresh();
 }
 
