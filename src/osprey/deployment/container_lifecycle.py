@@ -121,7 +121,11 @@ from osprey.deployment.web_terminals.render_images import (
     render_build_session,
     verify_renders,
 )
-from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
+from osprey.deployment.web_terminals.roster import (
+    dispatch_tier_name,
+    resolve_cards,
+    single_user_alias_services,
+)
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 from osprey_connectors.config import config_anchored_at, load_project_config
@@ -253,17 +257,26 @@ def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any
 
 
 def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
-    """:data:`_SERVICE_TOKEN_VARS` merged with the projected panels' launch tokens.
+    """:data:`_SERVICE_TOKEN_VARS` merged with what the projected panels read.
 
     A projected panel that declares ``launch_token`` carries the variable's name
     as ``services.<key>.launch_token_env``, whatever its container runs; that
-    recorded name is minted as it stands.
+    recorded name is minted as it stands. One whose panel accepts the
+    deployment-wide terminal secret (:func:`single_user_alias_services`) reads
+    that secret with no default, so it is minted for it as it is for the
+    built-in panels.
     """
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
     merged = dict(_SERVICE_TOKEN_VARS)
+    alias = single_user_alias_services(config)
     for key, row in _projected_services(config).items():
         name = row.get("launch_token_env")
-        if name:
-            merged[key] = (str(name),)
+        names = (str(name),) if name else ()
+        if key in alias:
+            names = (*names, OPERATOR_SECRET_ENV)
+        if names:
+            merged[key] = names
     return merged
 
 
