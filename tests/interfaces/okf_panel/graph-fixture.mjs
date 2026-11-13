@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * A small `/api/graph` payload for the Graph view's tests: one machine, a
- * sector, two devices of two classes, their channels and signals, in the
+ * sector inside it, two devices of two classes, their channels and signals, in the
  * shape okf_panel/graph.py serves.
  */
 
@@ -16,7 +16,7 @@ export function payload() {
         kind: 'device',
         label: 'M/BPM1',
         type: 'BeamPositionMonitor',
-        props: { placePath: 'M/S1', description: 'A monitor.' },
+        props: { placePath: 'M/S1', description: 'A monitor.', altLabel: 'BPM 1, Orbit monitor 1' },
         record: 'M/BPM1',
         pages: ['devices/bpm'],
       },
@@ -62,10 +62,10 @@ export function payload() {
       [5, 7, 'writesSignal'],
       [2, 8, 'type'],
       [3, 9, 'type'],
-      [2, 1, 'inPlace'],
-      [3, 1, 'inPlace'],
+      [2, 1, 'locatedIn'],
+      [3, 1, 'locatedIn'],
       [3, 4, 'calibrates'],
+      [1, 0, 'partOf'],
     ],
-    derived: ['inPlace'],
   };
 }

@@ -1,7 +1,9 @@
 [
   "records",
+  "records[].claims",
   "records[].fixes_applied",
   "records[].kind",
+  "records[].match",
   "records[].provenance",
   "records[].record"
 ]

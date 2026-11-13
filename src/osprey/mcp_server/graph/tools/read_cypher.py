@@ -70,11 +70,33 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
       class — so ``(d:Resource)`` matches devices and ``(b:ChannelBinding)``
       narrows to bindings.
     * Relationship types are UPPERCASED: ``HASBINDING``, ``READSSIGNAL``,
-      ``WRITESSIGNAL``, ``SUBCLASSOF``, ``TYPE``. Writing ``hasBinding`` matches
-      nothing and returns zero rows rather than an error.
+      ``WRITESSIGNAL``, ``SUBCLASSOF``, ``TYPE``, ``LOCATEDIN`` (device to the
+      place it sits in) and ``PARTOF`` (place to its parent place). Writing
+      ``hasBinding`` matches nothing and returns zero rows rather than an error.
+    * A source's relation claims add edges between devices, places and groups:
+      ``POWEREDBY``, ``CABLEDTO``, ``READOUTBY``, ``CONTROLLEDBY``,
+      ``TRIGGEREDBY``, ``INTERLOCKEDBY``, ``BOUNDEDBY``, ``NETWORKEDTO``,
+      ``SUPPLIEDBY``, ``SAMEAS``, ``RUNSON``, ``LOCATEDIN`` and ``PARTOF``
+      (device to device). ``CABLEDTO``, ``NETWORKEDTO`` and ``SAMEAS`` are
+      symmetric: query them undirected, ``(a)-[:CABLEDTO]-(b)``. Plain edges
+      never cross a disputed fact: a contested claim's edge is the type's
+      ``CONTESTED`` twin (``LOCATEDINCONTESTED``), a superseded claim has none.
+      A device can have two ``LOCATEDIN``; the resolved one is the place
+      carrying the device's ``placePath``. ``HASMEMBER`` joins a ``:Group`` to
+      its devices.
+    * A ``:Claim`` node holds the evidence for a relation — ``claimId``,
+      ``relationType``, ``standing``, ``basis``, ``rule``, ``document``,
+      ``documentVersion``, ``documentState``, ``locator`` — with
+      ``CLAIMSUBJECT`` and ``CLAIMOBJECT`` to its ends and ``CONTESTS`` to a
+      rival claim.
     * Properties keep their original spelling: ``deviceId`` (the device's
       identity), ``uri`` (every node's identity), ``fullPv``, ``sourceName``,
       ``sectionCode``, ``placePath``, ``sPositionM``, ``ordinalInPlace``.
+    * ``altLabel`` is always a list. On a class it holds synonyms; places,
+      devices and channels carry their names in it. Match a name on the whole
+      entry, case-insensitively —
+      ``MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))``
+      — never with ``CONTAINS``, and never compare the list itself with ``=``.
 
     Pass values through ``params`` as ``$name`` placeholders rather than pasting
     them into the query text — ``MATCH (d:Resource {sectionCode: $section})``

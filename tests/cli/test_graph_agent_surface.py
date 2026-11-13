@@ -37,6 +37,7 @@ server name, and ``tests/cli/test_channel_finder_graph_tools.py`` owns them.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -374,3 +375,102 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
         "off must take the agent with it, or the render ships frontmatter naming "
         "tools no permission backs"
     )
+
+
+# ---------------------------------------------------------------------------
+# how the subagent matches names and walks the place tree
+# ---------------------------------------------------------------------------
+
+_SENTENCE_BREAK = re.compile(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])")
+
+#: A ``:Class`` scope is a node pattern binding the label — ``(c:Class)`` or
+#: ``(:Class)``; ``NOT n:Class`` excludes classes and scopes nothing to them.
+_CLASS_SCOPE = re.compile(r"\(\w*:Class\b")
+
+
+def _unscoped_altlabel_contains(text: str) -> list[str]:
+    """Every sentence giving a ``CONTAINS`` form over ``altLabel`` without a ``:Class`` scope."""
+    return [
+        sentence
+        for sentence in _SENTENCE_BREAK.split(text)
+        if "altLabel" in sentence and "CONTAINS" in sentence and not _CLASS_SCOPE.search(sentence)
+    ]
+
+
+def _with_empty_vocabulary_snapshot(text: str) -> str:
+    """*text* with its snapshot region replaced by a block baked with no class synonyms."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    schema = {
+        "labels": ["Class", "Resource"],
+        "relationship_types": ["HASBINDING", "LOCATEDIN", "PARTOF"],
+        "properties_by_label": {"Resource": ["deviceId", "placePath"]},
+        "prefixes": {},
+        "naming": {"note": prompt_snapshot.NAMING_NOTE, "sample_size": None},
+    }
+    block = prompt_snapshot.render_block(
+        schema, [], digest="abcdef0123456789", resource_count=1, vocabulary=()
+    )
+    head, _sep, rest = text.partition(prompt_snapshot.SNAPSHOT_BEGIN)
+    _old, _sep, tail = rest.partition(prompt_snapshot.SNAPSHOT_END)
+    return head + block + tail
+
+
+@pytest.fixture(scope="module")
+def graph_agent_texts(built_store_project) -> dict[str, str]:
+    text = (built_store_project / ".claude" / "agents" / "facility-knowledge-graph.md").read_text(
+        encoding="utf-8"
+    )
+    return {"placeholder": text, "empty vocabulary": _with_empty_vocabulary_snapshot(text)}
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_agent_states_the_record_name_rule(graph_agent_texts, snapshot):
+    """Record names match whole-entry — the one rule string, verbatim."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    text = graph_agent_texts[snapshot]
+    assert f"`{prompt_snapshot.RECORD_NAME_MATCH_RULE}`" in text
+    prose = " ".join(text.split()).lower()
+    assert "places, devices and channels carry their names as a list `altlabel`" in prose
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_agent_names_both_place_relationships_with_direction(graph_agent_texts, snapshot):
+    text = graph_agent_texts[snapshot]
+    assert "`(d)-[:LOCATEDIN]->(p)`" in text
+    assert "`(p)-[:PARTOF]->(parent)`" in text
+    assert "device to the place it sits in" in text.lower()
+    assert "place to its parent place" in text.lower()
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_agent_states_the_relation_rules(graph_agent_texts, snapshot):
+    """Undirected symmetric types, disputed facts, two places, claim evidence."""
+    prose = " ".join(graph_agent_texts[snapshot].split())
+    assert "Symmetric types are queried undirected" in prose
+    assert "`(a)-[:CABLEDTO]-(b)`" in prose
+    assert "Plain edges never cross a disputed fact" in prose
+    assert "A device can have two `LOCATEDIN`" in prose
+    assert "carrying the device's `placePath`" in prose
+    assert "A `:Claim` node holds the evidence" in prose
+    for reltype in ("HASMEMBER", "CLAIMSUBJECT", "CLAIMOBJECT", "CONTESTS"):
+        assert reltype in prose, reltype
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_no_sentence_gives_an_unscoped_altlabel_contains(graph_agent_texts, snapshot):
+    """Class synonyms keep ``CONTAINS``, but only over ``(c:Class)``; names never do."""
+    text = graph_agent_texts[snapshot]
+    assert _unscoped_altlabel_contains(text) == []
+    assert "never with `=`" not in text
+    assert "never compare with `=`" not in text
+
+
+def test_the_agent_tells_a_device_from_a_place(graph_agent_texts):
+    """``rawType`` is set only on a device with a class, so it is no device test."""
+    text = graph_agent_texts["placeholder"]
+    assert "`deviceId IS NOT NULL`" in text
+    assert "`placePath IS NOT NULL AND deviceId IS NULL`" in text
+    assert "keeps\n  `d.rawType IS NOT NULL`" not in text
+    assert "A query that means devices keeps" not in text

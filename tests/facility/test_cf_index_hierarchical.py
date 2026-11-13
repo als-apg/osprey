@@ -337,13 +337,50 @@ def test_two_level_words_at_one_depth_stop_with_view_unsupported() -> None:
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(
             FacilityRecords(
-                {"places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}]}
+                {
+                    "places": [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}],
+                    "devices": [{"id": "DA", "place": "A"}, {"id": "DB", "place": "B"}],
+                    "channels": [
+                        {"id": "A:DA", "on": {"device": "DA"}},
+                        {"id": "B:DB", "on": {"device": "DB"}},
+                    ],
+                }
             )
         )
 
     assert caught.value.kind == "view-unsupported"
     assert caught.value.format_message().startswith("facility: view-unsupported: place A — ")
     assert "`line` and `machine` both first appear at depth 0" in caught.value.detail
+    assert "in the trees `A` and `B`" in caught.value.detail
+    assert "one level word per depth" in caught.value.remedy
+    assert "another channel_finder_mode" in caught.value.remedy
+
+
+def test_level_words_of_places_holding_no_channel_are_not_counted(tmp_path: Path) -> None:
+    from osprey.facility.views.channel_finder import channel_places, hierarchy_levels
+
+    doc = {
+        "places": [
+            {"id": "A", "level": "machine"},
+            {"id": "A/S1", "level": "sector"},
+            {"id": "B", "level": "line"},
+            {"id": "C", "level": "device"},
+        ],
+        "devices": [{"id": "DA", "class": "Gauge", "place": "A/S1"}],
+        "channels": [
+            {"id": "A:DA", "on": {"device": "DA"}},
+            {"id": "B:P", "on": {"place": "A"}},
+        ],
+    }
+
+    document, database = _written(tmp_path, doc)
+
+    levels = [level["name"] for level in document["hierarchy"]["levels"]]
+    assert levels == ["machine", "sector", "class", "device", "leaf"]
+    records = FacilityRecords(doc)
+    assert [place["id"] for place in channel_places(records)] == ["A", "A/S1"]
+    assert hierarchy_levels(records) == ["machine", "sector"]
+    _assert_every_channel_is_its_address(database, len(levels))
 
 
 def test_a_level_word_that_is_a_tail_level_stops_with_view_unsupported() -> None:
@@ -351,7 +388,14 @@ def test_a_level_word_that_is_a_tail_level_stops_with_view_unsupported() -> None
     from osprey.facility.views.channel_finder import hierarchical_document
 
     with pytest.raises(FacilityBuildError) as caught:
-        hierarchical_document(FacilityRecords({"places": [{"id": "A", "level": "device"}]}))
+        hierarchical_document(
+            FacilityRecords(
+                {
+                    "places": [{"id": "A", "level": "device"}],
+                    "channels": [{"id": "A:P", "on": {"place": "A"}}],
+                }
+            )
+        )
 
     assert caught.value.kind == "view-unsupported"
 
@@ -653,3 +697,56 @@ def test_a_view_stop_names_the_file_that_states_its_record(
 
     assert (caught.value.kind, caught.value.record_id) == ("view-unsupported", "_LAB:TEMP")
     assert caught.value.sources == sources
+
+
+# --- level words per channel-holding tree (Appendix A) -------------------------------
+
+
+def _appendix_a_with_channels(tmp_path: Path, *devices: str) -> dict[str, Any]:
+    """The Appendix A facility, built, with one channel on each of ``devices``."""
+    from tests.facility._appendix_a import appendix_a_tree, build_appendix_a
+
+    tree = appendix_a_tree()
+    tree["records/channels.yaml"] = [
+        {"id": f"{device.replace('/', ':')}:CH", "on": {"device": device}} for device in devices
+    ]
+    return build_appendix_a(tmp_path / "facility", tree=tree)
+
+
+def test_a_rack_tree_holding_no_channel_leaves_the_hierarchy(tmp_path: Path) -> None:
+    facility = _appendix_a_with_channels(tmp_path, "SR/QF05", "SR/BPM13")
+    places = {place["id"]: place for place in facility["places"]}
+    assert places["HALL"]["level"] == "building"
+
+    document, database = _written(tmp_path, facility)
+
+    levels = [level["name"] for level in document["hierarchy"]["levels"]]
+    assert levels == ["machine", "sector", "class", "device", "leaf"]
+    assert sorted(document["tree"]) == ["SR"]
+    _assert_every_channel_is_its_address(database, len(levels))
+
+
+def test_a_channelled_device_projected_into_a_rack_stops_with_the_trees_and_words(
+    tmp_path: Path,
+) -> None:
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.channel_finder import hierarchical_document
+
+    facility = _appendix_a_with_channels(tmp_path, "SR/QF05", "SR/BPM13-EL")
+    (chassis,) = [device for device in facility["devices"] if device["id"] == "SR/BPM13-EL"]
+    assert chassis["place"] == "HALL/ROW3/RK08"
+
+    with pytest.raises(FacilityBuildError) as caught:
+        hierarchical_document(FacilityRecords(facility))
+
+    assert caught.value.kind == "view-unsupported"
+    assert caught.value.format_message().startswith("facility: view-unsupported: place SR — ")
+    assert caught.value.detail == (
+        "levels `building` and `machine` both first appear at depth 0 "
+        "among the places that hold channels, in the trees `HALL` and `SR`"
+    )
+    assert caught.value.remedy == (
+        "use one level word per depth across the places of the trees `HALL` and `SR` "
+        "that hold channels, keep channels out of one of them, "
+        "or select another channel_finder_mode"
+    )

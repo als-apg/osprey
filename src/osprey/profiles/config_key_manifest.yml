@@ -2453,6 +2453,22 @@ keys:
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
+  # The graph view's two settings, read through the graph View row's `reads`.
+  # No preset states them; a value outside the allowed set stops the render.
+  facility_graph.claims:
+    rendered: false
+    evidence: 'GRAPH_CLAIMS_KEY = "facility_graph\.claims"'
+    note: >-
+      Which relation claims the graph view writes as claim nodes: `all`,
+      `contested` or `none`.
+    default: all
+  facility_graph.basis:
+    rendered: false
+    evidence: 'GRAPH_BASIS_KEY = "facility_graph\.basis"'
+    note: >-
+      Which relations the graph view writes by basis: `all`, or `stated` to
+      drop inferred relations and inferred alias names.
+    default: all
 
   # ── PV directory ────────────────────────────────────────────────────
   # Read by services/pv_directory/resolve.py (the build's check and the

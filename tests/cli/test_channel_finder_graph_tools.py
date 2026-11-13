@@ -453,3 +453,76 @@ def test_other_paradigms_carry_no_snapshot_region(tmp_path, mode):
 
     assert prompt_snapshot.SNAPSHOT_BEGIN not in body
     assert "Graph at Hand" not in body
+
+
+# ---------------------------------------------------------------------------
+# how the graph paradigm matches names and walks the place tree
+# ---------------------------------------------------------------------------
+
+_SENTENCE_BREAK = re.compile(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])")
+
+#: A ``:Class`` scope is a node pattern binding the label — ``(c:Class)`` or
+#: ``(:Class)``; ``NOT n:Class`` excludes classes and scopes nothing to them.
+_CLASS_SCOPE = re.compile(r"\(\w*:Class\b")
+
+
+def _unscoped_altlabel_contains(text: str) -> list[str]:
+    """Every sentence giving a ``CONTAINS`` form over ``altLabel`` without a ``:Class`` scope."""
+    return [
+        sentence
+        for sentence in _SENTENCE_BREAK.split(text)
+        if "altLabel" in sentence and "CONTAINS" in sentence and not _CLASS_SCOPE.search(sentence)
+    ]
+
+
+@pytest.fixture(scope="module")
+def graph_channel_finder(tmp_path_factory) -> dict[str, str]:
+    """The graph-paradigm agent as rendered, and with an empty-vocabulary snapshot baked in."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    _manager, project_dir = _demo(tmp_path_factory.mktemp("cf_names"), "cf-graph-names", "graph")
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+    schema = {
+        "labels": ["Class", "Resource"],
+        "relationship_types": ["HASBINDING", "LOCATEDIN", "PARTOF"],
+        "properties_by_label": {"Resource": ["deviceId", "placePath"]},
+        "prefixes": {},
+        "naming": {"note": prompt_snapshot.NAMING_NOTE, "sample_size": None},
+    }
+    block = prompt_snapshot.render_block(
+        schema, [], digest="abcdef0123456789", resource_count=1, vocabulary=()
+    )
+    head, _sep, rest = body.partition(prompt_snapshot.SNAPSHOT_BEGIN)
+    _old, _sep, tail = rest.partition(prompt_snapshot.SNAPSHOT_END)
+    return {"placeholder": body, "empty vocabulary": head + block + tail}
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_graph_agent_states_the_record_name_rule(graph_channel_finder, snapshot):
+    """Record names match whole-entry — the one rule string, verbatim, in the arm itself."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    arm = _graph_paradigm_instructions(graph_channel_finder[snapshot])
+    rule = f"`{prompt_snapshot.RECORD_NAME_MATCH_RULE}`"
+    head, _sep, _terminology = arm.partition(_GRAPH_TERMINOLOGY_MARKER)
+    assert rule in head, "the Matching a Phrase section must state the rule"
+    assert rule in _terminology, "the terminology partial must state the rule"
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_graph_agent_names_both_place_relationships_with_direction(
+    graph_channel_finder, snapshot
+):
+    arm = _graph_paradigm_instructions(graph_channel_finder[snapshot])
+    assert "`(d)-[:LOCATEDIN]->(p)`" in arm
+    assert "`(p)-[:PARTOF]->(parent)`" in arm
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_no_graph_agent_sentence_gives_an_unscoped_altlabel_contains(
+    graph_channel_finder, snapshot
+):
+    body = graph_channel_finder[snapshot]
+    assert _unscoped_altlabel_contains(body) == []
+    assert "never compare with `=`" not in body
+    assert "never with `=`" not in body

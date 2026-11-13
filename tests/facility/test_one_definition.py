@@ -28,10 +28,11 @@ def test_combine_sorts_exactly_the_set_valued_rows_a_layer_may_state() -> None:
             row for row in SET_VALUED_SLOTS if row[0] == cls and row[1] not in COMPUTED_SLOTS[kind]
         }, kind
     assert SET_VALUED == {
-        "place": frozenset({"names"}),
-        "device": frozenset({"names"}),
+        "place": frozenset({"names", "scheme_names", "citations"}),
+        "device": frozenset({"names", "scheme_names", "citations"}),
         "channel": frozenset({"names", "tags", "former_addresses", "endpoint_of"}),
         "group": frozenset({"names", "members"}),
+        "relation": frozenset(),
     }
 
 

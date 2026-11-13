@@ -24,7 +24,7 @@
  *   props: Record<string, string>, record?: string, pages?: string[]}} GraphNode
  */
 /** @typedef {[number, number, string]} GraphEdge  source index, target index, relation */
-/** @typedef {{nodes: GraphNode[], edges: GraphEdge[], derived?: string[]}} GraphPayload */
+/** @typedef {{nodes: GraphNode[], edges: GraphEdge[]}} GraphPayload */
 /** @typedef {number | string} NodeKey */
 /**
  * @typedef {{key: NodeKey, label: string, kind: NodeKind, r: number, badge?: number,
@@ -40,7 +40,6 @@
  * @typedef {object} GraphIndex
  * @property {GraphNode[]} nodes
  * @property {GraphEdge[]} edges
- * @property {Set<string>} derived relations the graph does not hold as an edge
  * @property {[number, string, 1 | -1][][]} adjacency per node: neighbour, relation,
  *   and 1 for an edge leaving the node, -1 for one arriving
  * @property {Map<string, number>} relationCounts in display order
@@ -68,7 +67,8 @@ export const KNOWN_RELATIONS = [
   'writesSignal',
   'type',
   'subClassOf',
-  'inPlace',
+  'locatedIn',
+  'partOf',
 ];
 
 /** A neighbourhood does not walk through a node with more shown relations than this. */
@@ -123,7 +123,6 @@ export function indexGraph(payload) {
   return {
     nodes,
     edges,
-    derived: new Set(payload.derived || []),
     adjacency,
     relationCounts: new Map(order.map((relation) => [relation, counted.get(relation) || 0])),
     kindCounts,

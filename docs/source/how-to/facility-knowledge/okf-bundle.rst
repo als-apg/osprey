@@ -54,8 +54,8 @@ ones:
 
    See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
 
-**Facility links.** A document names a channel or a device of the facility
-file with a ``facility:`` link to its address or device id. Wrap the whole
+**Facility links.** A document names a channel, a device or a place of the
+facility file with a ``facility:`` link to its address, device id or place id. Wrap the whole
 destination in angle brackets when the address holds a space:
 
 .. code-block:: markdown
@@ -63,6 +63,8 @@ destination in angle brackets when the address holds a space:
    Read [the X position](facility:SR:DIAG:BPM:01:POSITION:X) of [BPM 01](facility:SR/BPM01).
    Check [the gauge](<facility:SECTOR 1 GAUGE>) first.
 
+A place is linked as ``facility:place/<id>``, as in ``facility:place/SR/S01``;
+a channel or device whose id is literally ``place/<id>`` takes the link first.
 ``osprey build`` warns ``link-dangling`` for each link the facility file does not
 hold. The KNOWLEDGE panel shows the linked record when you hover over the link;
 a click opens it in the panel's **Graph** view when the deployment has one

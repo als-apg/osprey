@@ -460,17 +460,25 @@ def test_facility_tree_is_what_init_writes(built_demo: BuiltProject) -> None:
     facility = built_demo.facility_dir
     paths = _facility_tree()
     not_shipped = [rel for rel in paths if not _on_disk(facility, rel)]
-    assert not_shipped == ["signals.yaml", "fixes.yaml", "imported/<layer>/"]
+    assert not_shipped == [
+        "signals.yaml",
+        "fixes.yaml",
+        "imported/<layer>/",
+    ]
     sentence = " ".join(_page_text(FACILITY_PAGE).split())
-    assert "ships all of them except ``signals.yaml``, ``fixes.yaml`` and ``imported/``" in sentence
+    assert (
+        "ships all of them except ``signals.yaml``, ``fixes.yaml`` and ``imported/``"
+    ) in sentence
 
     drawn_top = {rel.split("/")[0] for rel in paths}
     on_disk_top = {path.name for path in facility.iterdir()}
     assert {name + "/" for name in on_disk_top - drawn_top} == _stale(FACILITY_PAGE, "missing")
-    drawn_records = {
-        Path(rel).name for rel in paths if rel.startswith("records/") and rel != "records/"
+    shipped_records = {
+        Path(rel).name
+        for rel in paths
+        if rel.startswith("records/") and rel != "records/" and rel not in not_shipped
     }
-    assert drawn_records == {path.name for path in (facility / "records").iterdir()}
+    assert shipped_records == {path.name for path in (facility / "records").iterdir()}
 
 
 def test_facility_tree_spells_the_names_the_build_reads() -> None:

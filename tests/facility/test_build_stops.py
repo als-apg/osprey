@@ -147,6 +147,21 @@ def wire(name: str, *records: dict[str, Any]) -> Edit:
     return on_model(name, change)
 
 
+def _powered(rid: str, **slots: Any) -> dict[str, Any]:
+    """A sound ``powered_by`` claim on the deck tree, with ``slots`` replacing its own."""
+    return {
+        "id": rid,
+        "type": "powered_by",
+        "subject": {"device": "SR/QF"},
+        "object": {"device": "SR/BPM1"},
+        **slots,
+    }
+
+
+#: A documents.yaml declaring one document, so S4 checks every citation.
+_DOCUMENTS = [{"id": "spec-1", "title": "Magnet list"}]
+
+
 def fixes(*entries: dict[str, Any]) -> Edit:
     return put("fixes.yaml", {"schema": "osprey.facility.fixes/1", "fixes": list(entries)})
 
@@ -339,6 +354,22 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "reference-missing",
         "a measurement kind other than orm on a single_pass model",
     ),
+    ("reference_missing__relation_subject", "reference-missing", "relation `subject` end"),
+    ("reference_missing__relation_object", "reference-missing", "relation `object` end"),
+    ("reference_missing__relation_source", "reference-missing", "relation `source.document`"),
+    ("reference_missing__citation_document", "reference-missing", "`citations[].document`"),
+    (
+        "reference_missing__scheme_name_source",
+        "reference-missing",
+        "`scheme_names[].source.document`",
+    ),
+    ("relation_invalid__end_no_kind", "relation-invalid", "a claim end naming no kind"),
+    ("relation_invalid__end_two_kinds", "relation-invalid", "a claim end naming two kinds"),
+    ("relation_invalid__unit_off_place", "relation-invalid", "`unit` on an end naming no place"),
+    ("relation_invalid__kind_not_allowed", "relation-invalid", "an end kind the type refuses"),
+    ("relation_invalid__inferred_no_rule", "relation-invalid", "`basis: inferred` without `rule`"),
+    ("relation_invalid__missing_medium", "relation-invalid", "supplied_by without a medium"),
+    ("relation_invalid__same_end", "relation-invalid", "subject and object the same end"),
     (
         "class_unknown__device_class",
         "class-unknown",
@@ -629,7 +660,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     (
         "view_unsupported__hierarchical_two_level_words",
         "view-unsupported",
-        "two place level words at one depth",
+        "two level words at one depth among channel-holding places",
     ),
     (
         "view_unsupported__middle_layer_no_groups",
@@ -1248,6 +1279,119 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
             "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
             "allows orm alone"
+        ),
+    ),
+    "reference_missing__relation_subject": (
+        _deck(put("records/relations.yaml", [_powered("qf-power", subject={"device": "SR/Q9"})])),
+        (
+            "facility: reference-missing: relation qf-power — records/relations.yaml "
+            "`subject.device` names device SR/Q9, which does not exist; fix: add device SR/Q9 "
+            "or correct `subject.device`"
+        ),
+    ),
+    "reference_missing__relation_object": (
+        _deck(put("records/relations.yaml", [_powered("qf-power", object={"place": "SR/S09"})])),
+        (
+            "facility: reference-missing: relation qf-power — records/relations.yaml "
+            "`object.place` names place SR/S09, which does not exist; fix: add place SR/S09 or "
+            "correct `object.place`"
+        ),
+    ),
+    "reference_missing__relation_source": (
+        _deck(
+            put("documents.yaml", _DOCUMENTS),
+            put("records/relations.yaml", [_powered("qf-power", source={"document": "spec-9"})]),
+        ),
+        (
+            "facility: reference-missing: relation qf-power — records/relations.yaml "
+            "`source.document` names document spec-9, which does not exist; fix: add document "
+            "spec-9 or correct `source.document`"
+        ),
+    ),
+    "reference_missing__citation_document": (
+        _deck(
+            put("documents.yaml", _DOCUMENTS),
+            update("records/devices.yaml", 0, citations=[{"document": "spec-9"}]),
+        ),
+        (
+            "facility: reference-missing: device SR/QF — records/devices.yaml "
+            "`citations.document` names document spec-9, which does not exist; fix: add "
+            "document spec-9 or correct `citations.document`"
+        ),
+    ),
+    "reference_missing__scheme_name_source": (
+        _deck(
+            put("documents.yaml", _DOCUMENTS),
+            update(
+                "records/devices.yaml",
+                0,
+                scheme_names=[{"name": "QF1", "scheme": "lattice", "source": {"document": "x"}}],
+            ),
+        ),
+        (
+            "facility: reference-missing: device SR/QF — records/devices.yaml "
+            "`scheme_names.source.document` names document x, which does not exist; fix: add "
+            "document x or correct `scheme_names.source.document`"
+        ),
+    ),
+    "relation_invalid__end_no_kind": (
+        _deck(put("records/relations.yaml", [_powered("qf-power", subject={"port": "IN"})])),
+        (
+            "facility: relation-invalid: relation qf-power — `subject` names no device, place or "
+            "group; fix: name one of `device`, `place`, `group` in `subject`"
+        ),
+    ),
+    "relation_invalid__end_two_kinds": (
+        _deck(
+            put(
+                "records/relations.yaml",
+                [_powered("qf-power", subject={"device": "SR/QF", "place": "SR"})],
+            )
+        ),
+        (
+            "facility: relation-invalid: relation qf-power — `subject` names more than one of "
+            "device, place, group; fix: keep one of `device`, `place`, `group` in `subject`"
+        ),
+    ),
+    "relation_invalid__unit_off_place": (
+        _deck(
+            put(
+                "records/relations.yaml",
+                [_powered("qf-power", object={"device": "SR/BPM1", "unit": 2})],
+            )
+        ),
+        (
+            "facility: relation-invalid: relation qf-power — `object` gives `unit` on an end "
+            "that names no place; fix: drop `unit` from `object`, or name the place it counts in"
+        ),
+    ),
+    "relation_invalid__kind_not_allowed": (
+        _deck(put("records/relations.yaml", [_powered("qf-in-sr", type="located_in")])),
+        (
+            "facility: relation-invalid: relation qf-in-sr — `object` names a device; "
+            "located_in allows place there; fix: name a place as the object of located_in"
+        ),
+    ),
+    "relation_invalid__inferred_no_rule": (
+        _deck(put("records/relations.yaml", [_powered("qf-power", basis="inferred")])),
+        (
+            "facility: relation-invalid: relation qf-power — `basis` is inferred and `rule` is "
+            "missing; fix: name the rule that derived the claim in `rule`, or drop "
+            "`basis: inferred`"
+        ),
+    ),
+    "relation_invalid__missing_medium": (
+        _deck(put("records/relations.yaml", [_powered("qf-water", type="supplied_by")])),
+        (
+            "facility: relation-invalid: relation qf-water — supplied_by gives no "
+            "`attributes.medium`; fix: state the medium in `attributes.medium`"
+        ),
+    ),
+    "relation_invalid__same_end": (
+        _deck(put("records/relations.yaml", [_powered("qf-power", object={"device": "SR/QF"})])),
+        (
+            "facility: relation-invalid: relation qf-power — `subject` and `object` name the "
+            "same end; fix: name two different ends, or tell them apart by `port`"
         ),
     ),
     "class_unknown__device_class": (
@@ -2348,12 +2492,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             put(
                 "records/places.yaml",
                 [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}],
-            )
+            ),
+            update("records/devices.yaml", 0, place="A"),
+            update("records/devices.yaml", 1, place="B"),
         ),
         (
             "facility: view-unsupported: place A — levels `line` and `machine` both first "
-            "appear at depth 0; fix: give the places at one depth one level word, or select "
-            "another channel_finder_mode"
+            "appear at depth 0 among the places that hold channels, in the trees `A` and `B`; "
+            "fix: use one level word per depth across the places of the trees `A` and `B` "
+            "that hold channels, keep channels out of one of them, or select another "
+            "channel_finder_mode"
         ),
     ),
     "view_unsupported__middle_layer_no_groups": (
@@ -2363,7 +2511,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
-            "middle_layer and no device of the facility is in a group or has a class; fix: add "
+            "middle_layer and no device with a channel is in a group or has a class; fix: add "
             "a group or give the devices a class, or select another channel_finder_mode"
         ),
     ),

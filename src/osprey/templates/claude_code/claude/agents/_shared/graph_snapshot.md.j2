@@ -18,6 +18,8 @@ No snapshot has been captured yet. The store is seeded at deploy time, and
 `osprey up` fills this section in from the live store. Until then, start with
 `example_queries()` and `get_schema()`, and read class synonyms with
 `MATCH (c:Class) WHERE c.altLabel IS NOT NULL RETURN c.uri, c.altLabel`,
-before writing any Cypher.
+before writing any Cypher. A corpus with relation claims lists their edge
+types (`POWEREDBY`, `LOCATEDINCONTESTED`, `HASMEMBER`, `CLAIMSUBJECT`, ...)
+among `get_schema()`'s relationship types.
 
 <!-- osprey:graph-snapshot end -->

@@ -31,8 +31,10 @@ The hierarchical index is written to
       "tree": {<place node>: ... {<class>: {<device>: {<leaf>: {...}}}}}
     }
 
-The levels are the facility's place level words, ordered by the depth at which
-each first appears, then ``class``, ``device`` and ``leaf``. Every level is
+The levels are the level words of the places that hold a channel or are an
+ancestor of one (:func:`channel_places`), ordered by the depth at which each
+first appears, then ``class``, ``device`` and ``leaf``; a place tree that holds
+no channel, such as a rack tree beside the ring, adds no level. Every level is
 present for every channel: an absent place, class or device is the node ``-``
 (``_description: "no <level>"``), so every leaf sits at the same depth. A place
 node is keyed by its id relative to the place above it in the tree, a class node
@@ -48,7 +50,8 @@ node by its class (the facility's class row, else the vocabulary's), and a
 device node by its device. ``count`` is the number of leaves. A render carries
 the index when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
 with no channel writes an empty tree. The build stops with
-``view-unsupported`` when two place level words first appear at one depth, and
+``view-unsupported`` when two level words of those places first appear at one
+depth or one branch orders two of them against their depths, and
 when a tree key (a place or device id, a class, a signal, or an address used as
 a leaf key) begins with ``_``, which the loader reads as a meta key, and when
 two channels of one device node take one leaf key, which happens only when one
@@ -72,9 +75,12 @@ The middle-layer index is written to
       }
     }
 
-A Family is a group: every group is filed under the System of each member,
-the top place of the member's place (``-`` for a member with no place), and
-named by its id less a leading ``<System>/``. A classed device that no
+Only a device with a channel is a member: a rack, a supply or a host that has
+none is in no Family, and a System or Family left with no member is not
+written. A Family is a group of kind ``family`` (a ``section`` is none and is
+left out): every such group is filed under the System of each member, the top
+place of the member's place (``-`` for a member with no place), and named by
+its id less a leading ``<System>/``. A classed device that no
 single-class group holds under its System files into a Family named by its
 class under that System, described by the class; a group whose short name is
 such a class name keeps its id. A channel belongs to its ``on`` device and to
@@ -99,7 +105,8 @@ description, else its label. A channel of no family is left out; the build
 names how many channels it left out and how many it keyed by address in one
 note. ``count`` is the number of distinct addresses the Fields list; a channel
 of no family is not counted. A render carries the index when its
-``channel_finder.pipeline_mode`` is ``middle_layer``; a facility with no device in a group or with a class stops
+``channel_finder.pipeline_mode`` is ``middle_layer``; a facility with no channel-holding device in a group or
+with a class stops
 the build with ``view-unsupported``, as does a host where DuckDB cannot load
 its full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
@@ -119,7 +126,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import FacilityRecords, is_family
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
 
 __all__ = [
@@ -134,7 +141,9 @@ __all__ = [
     "MIDDLE_LAYER_FILE",
     "MIDDLE_LAYER_MODE",
     "TAIL_LEVELS",
+    "channel_places",
     "hierarchical_document",
+    "hierarchy_levels",
     "hierarchical_selected",
     "in_context_document",
     "in_context_selected",
@@ -324,8 +333,32 @@ _SHARED_KEY_REMEDY = (
 )
 
 
-def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
-    """The place level words, ordered by the depth at which each first appears."""
+def channel_places(records: FacilityRecords) -> list[Mapping[str, Any]]:
+    """The places that hold a channel or are an ancestor of one, in file order.
+
+    A channel is held by its device's place, else by the place it is on; a
+    device's place may be one a relation projected.
+
+    Args:
+        records: The facility file's records.
+
+    Returns:
+        Those place records.
+    """
+    held: set[str] = set()
+    for channel in records.of_kind("channel"):
+        on = channel.get("on") or {}
+        device = records.record("device", str(on["device"])) if on.get("device") else None
+        place_id = device.get("place") if device is not None else on.get("place")
+        if place_id is None:
+            continue
+        segments = str(place_id).split("/")
+        held.update("/".join(segments[:depth]) for depth in range(1, len(segments) + 1))
+    return [place for place in records.of_kind("place") if str(place["id"]) in held]
+
+
+def _shallowest(places: Iterable[Mapping[str, Any]]) -> dict[str, tuple[int, Mapping[str, Any]]]:
+    """Each level word's shallowest depth and the first place there to carry it."""
     shallowest: dict[str, tuple[int, Mapping[str, Any]]] = {}
     for place in places:
         word = place.get("level")
@@ -334,6 +367,40 @@ def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
         depth = str(place["id"]).count("/")
         if str(word) not in shallowest or depth < shallowest[str(word)][0]:
             shallowest[str(word)] = (depth, place)
+    return shallowest
+
+
+def hierarchy_levels(records: FacilityRecords) -> list[str]:
+    """The place levels of the hierarchical index, without checking them.
+
+    The level words of :func:`channel_places`, ordered by the depth at which
+    each first appears, then by word. Where the index builds, these are its
+    place levels; this never stops the build, so a view written in any
+    channel_finder mode can name them.
+
+    Args:
+        records: The facility file's records.
+
+    Returns:
+        The level words, shallowest first.
+    """
+    shallowest = _shallowest(channel_places(records))
+    return sorted(shallowest, key=lambda word: (shallowest[word][0], word))
+
+
+def _tree(place: Mapping[str, Any]) -> str:
+    """The id of the top place of ``place``'s tree."""
+    return str(place["id"]).split("/")[0]
+
+
+def _place_levels(records: FacilityRecords) -> list[str]:
+    """The checked place levels of the hierarchical index.
+
+    Raises:
+        FacilityBuildError: ``view-unsupported`` when a level word cannot name
+            a level, or when two level words first appear at one depth.
+    """
+    shallowest = _shallowest(channel_places(records))
     for word, (_depth, place) in sorted(shallowest.items()):
         if not _LEVEL_WORD.fullmatch(word) or word in TAIL_LEVELS:
             raise _unsupported(
@@ -349,14 +416,19 @@ def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
     for depth, words in sorted(at_depth.items()):
         if len(words) > 1:
             first, second = sorted(words)[:2]
+            trees = sorted({_tree(shallowest[first][1]), _tree(shallowest[second][1])})
+            named = " and ".join(f"`{tree}`" for tree in trees)
+            where = f"the trees {named}" if len(trees) > 1 else f"the tree {named}"
             raise _unsupported(
                 shallowest[second][1],
                 "place",
-                f"levels `{first}` and `{second}` both first appear at depth {depth}",
-                "give the places at one depth one level word, "
+                f"levels `{first}` and `{second}` both first appear at depth {depth} "
+                f"among the places that hold channels, in {where}",
+                f"use one level word per depth across the places of {where} that hold "
+                "channels, keep channels out of one of them, "
                 "or select another channel_finder_mode",
             )
-    return sorted(shallowest, key=lambda word: shallowest[word][0])
+    return sorted(shallowest, key=lambda word: (shallowest[word][0], word))
 
 
 def _place_keys(
@@ -477,13 +549,14 @@ def hierarchical_document(records: FacilityRecords) -> dict[str, Any]:
         leaves the tree holds.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when two place level words
-            first appear at one depth, when a level word cannot be a level name,
+        FacilityBuildError: ``view-unsupported`` when two level words of the
+            places that hold channels first appear at one depth, when such a
+            level word cannot be a level name,
             when one branch orders two level words against their depths, when
             a tree key begins with ``_``, or when two channels of one device
             node take one leaf key.
     """
-    place_levels = _place_levels(records.of_kind("place"))
+    place_levels = _place_levels(records)
     levels = [*place_levels, *TAIL_LEVELS]
 
     descriptions: dict[tuple[str, ...], str | None] = {}
@@ -648,7 +721,9 @@ def _system_of(device: Mapping[str, Any]) -> str:
 def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     """Each System's Families: its groups, then its derived (System, class) Families.
 
-    A group is filed under the System of each member, the top place of the
+    Only a group of kind ``family`` counts, and only a device with a channel is
+    a member, so a group or class whose devices under a System have none makes
+    no Family there. A group is filed under the System of each member, the top place of the
     member's place (``-`` for a member with no place). A classed device that no
     single-class group holds under its System (a group whose members filed
     there all carry one class) files into the derived Family of its System and
@@ -657,10 +732,12 @@ def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     split: dict[str, list[tuple[Mapping[str, Any], list[Mapping[str, Any]]]]] = defaultdict(list)
     covered: dict[str, set[str]] = defaultdict(set)
     for group in records.of_kind("group"):
+        if not is_family(group):
+            continue
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
             device = records.record("device", str(member_id))
-            if device is not None:
+            if device is not None and records.channels_on(str(member_id)):
                 by_system[_system_of(device)].append(device)
         for system, members in by_system.items():
             split[system].append((group, sorted(members, key=_member_order)))
@@ -670,6 +747,8 @@ def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     derived: dict[str, dict[str, list[Mapping[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for device in records.of_kind("device"):
         system = _system_of(device)
+        if not records.channels_on(str(device["id"])):
+            continue
         if device.get("class") and str(device["id"]) not in covered[system]:
             derived[system][str(device["class"])].append(device)
 
@@ -1019,7 +1098,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written: the index and its database.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when no device of the facility
+        FacilityBuildError: ``view-unsupported`` when no device with a channel
             is in a group or has a class, or when DuckDB cannot write the database (its
             full-text-search extension is neither installed nor reachable).
     """
@@ -1029,7 +1108,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     document, left_out, by_address = middle_layer_document(inputs.records)
     if not document.keys() - DOCUMENT_KEYS:
         raise _mode_unsupported(
-            f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "
+            f"selects {MIDDLE_LAYER_MODE} and no device with a channel is in a group "
             "or has a class",
             "add a group or give the devices a class, or select another channel_finder_mode",
         )

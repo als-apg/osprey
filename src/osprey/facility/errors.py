@@ -39,6 +39,7 @@ KINDS: tuple[str, ...] = (
     "fix-authored",
     "fix-referenced",
     "reference-missing",
+    "relation-invalid",
     "class-unknown",
     "pair-invalid",
     "value-invalid",
@@ -58,7 +59,19 @@ KINDS: tuple[str, ...] = (
 )
 
 #: Every warning kind, each ``<thing>-<problem>``.
-WARNING_KINDS: tuple[str, ...] = ("place-wrapped", "link-dangling", "kind-deferred")
+WARNING_KINDS: tuple[str, ...] = (
+    "place-wrapped",
+    "link-dangling",
+    "relation-contested",
+    "relation-coarse",
+    "alias-shared",
+    "identity-ambiguous",
+    "part-cycle",
+    "relation-stub",
+    "place-unplaced",
+    "members-disagree",
+    "kind-deferred",
+)
 
 
 def exact_number(number: float) -> str:

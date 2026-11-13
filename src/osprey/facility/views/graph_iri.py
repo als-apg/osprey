@@ -1,6 +1,7 @@
 """The graph view's IRIs: one per facility record, and the way back to its id.
 
-A place, device, channel or group of the facility file is the node
+A place, device, channel or group of the facility file, and a relation claim
+of its relation file, is the node
 ``https://narad.example.org/<kind>/<code>_<kind>_esc(<id>)``: ``code`` is the
 file's identity code, written raw, and ``esc`` writes every UTF-8 byte of the
 id outside ``[A-Za-z0-9]`` as ``_xHH_`` in upper-case hex. ``-``, ``_`` and
@@ -19,7 +20,8 @@ import re
 __all__ = ["KINDS", "NAMESPACE_ROOT", "decode", "escape", "iri", "local_name", "namespace"]
 
 #: The record kinds that are graph nodes, each with its own namespace.
-KINDS: tuple[str, ...] = ("place", "device", "channel", "group")
+#: ``relation`` is a relation claim, keyed by its claim id.
+KINDS: tuple[str, ...] = ("place", "device", "channel", "group", "relation")
 
 NAMESPACE_ROOT = "https://narad.example.org/"
 

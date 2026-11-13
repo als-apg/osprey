@@ -40,7 +40,9 @@ context the build fills from the facility, and every string leaf and key under
 them is replaced by ``FACILITY_MASK`` before the words are matched. Masks match
 whole words. Every facility-sourced string is masked whatever it is, a bare
 guarded word included, so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
-(:func:`osprey.facility.validate.vocabulary`) is never masked and stays judged.
+(:func:`osprey.facility.validate.vocabulary`) is never masked and stays judged,
+except its ``relations`` table: its end kinds and key fields are words a
+facility string may also be, so they do not shrink what is masked.
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because it holds
 constants and plain functions, not fixtures. Same convention as
@@ -234,6 +236,10 @@ FACILITY_CONTEXT_KEYS: tuple[str, ...] = (
 #: ``PROTOCOL_WORDS``, so a failing guard stays readable.
 FACILITY_MASK = "[facility]"
 
+#: Keys of the vocabulary table whose strings do not count as OSPREY's vocabulary
+#: when facility strings are collected.
+NON_VOCABULARY_KEYS = frozenset({"relations"})
+
 
 def _string_leaves(value: Any) -> Iterator[str]:
     """Every stripped, non-empty string leaf and mapping key under *value*."""
@@ -250,10 +256,14 @@ def _string_leaves(value: Any) -> Iterator[str]:
 
 
 def facility_strings(*values: Any) -> frozenset[str]:
-    """The strings *values* carry, minus the leaves of OSPREY's vocabulary table."""
+    """The strings *values* carry, minus the leaves of OSPREY's vocabulary table.
+
+    The table's ``relations`` rows are left out of what is subtracted.
+    """
     from osprey.facility.validate import vocabulary
 
-    return frozenset(_string_leaves(values)) - frozenset(_string_leaves(vocabulary()))
+    table = {key: value for key, value in vocabulary().items() if key not in NON_VOCABULARY_KEYS}
+    return frozenset(_string_leaves(values)) - frozenset(_string_leaves(table))
 
 
 def render_root_facility_strings(root: Path) -> frozenset[str]:

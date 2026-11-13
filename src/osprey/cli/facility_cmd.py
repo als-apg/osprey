@@ -16,7 +16,10 @@ change the verdict or the exit code. A device whose stated s lies outside its
 periodic model's deck prints one warning on stderr; it does not change the exit
 code. A scenario that moves a readback beyond its setpoint's tolerance, and a
 lane whose float setpoints declare no tolerance, print the build's
-settle-tolerance warning on stderr; it does not change the exit code. Render and image renders are checked by ``osprey build`` alone.
+settle-tolerance warning on stderr; it does not change the exit code. A facility
+file that holds relation claims closes stderr with one ``relations:`` summary
+line counting the claims by basis and by standing; a claim-free file prints
+none. Render and image renders are checked by ``osprey build`` alone.
 
 A profile that states ``machine:`` mounts a machine root: every verb reads and
 writes machine facts there, through
@@ -25,17 +28,19 @@ keeps the deployment's ``knowledge/``, ``ariel/`` and ``benchmarks/`` under
 ``data/facility/``. ``validate`` then stops on any other entry of
 ``data/facility/`` (``machine-restated``).
 
-``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
+``osprey facility show [--json] [TEXT]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the
 wiring records per model, each model's engine, served flag and solve setting,
 and each view with its path and whether the main render, the ``config.yml``
 ``osprey build`` writes into ``build/``, carries it, with the reason when it
-does not. With an ID it prints that record, its provenance and the fixes
-applied to it. ``--json`` prints one document on stdout and every other line on
+does not. With TEXT it prints the records of that id, else the relation claim
+of that id, else the places and devices TEXT names, each marked with how it
+matched, with the claims a place or device is an end of, its provenance and the
+fixes applied to it. ``--json`` prints one document on stdout and every other line on
 stderr; an error leaves stdout empty.
 
-``osprey facility import`` runs one step before every format reads its source,
-:func:`_replace_or_refuse`, and that step is the one place a format's verb
+``osprey facility import`` runs one step before the ``mml`` and ``list``
+formats read their source, :func:`_replace_or_refuse`, and that step is the one place a format's verb
 inspects the facility tree (while mounted, the machine root with the
 deployment's content directories; each file is removed under its own root):
 
@@ -65,12 +70,21 @@ states a device's ``s``, ``devices.yaml`` beside it. It writes channel and devic
 records. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes no layer file and exits 1.
 
+``osprey facility import relations TABLE --layer NAME`` writes a relations
+table, and the ``--names``, ``--places`` and ``--members`` tables beside it, as
+the sources of ``data/facility/imported/<NAME>/``. It never runs
+:func:`_replace_or_refuse`: bundled and hand-written records stay, the tables
+resolve against them, and no file outside the layer's directory changes. Every
+refusal prints one ``source-invalid`` line on stderr, and the verb then writes
+no layer file and exits 1.
+
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -120,9 +134,43 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     not change the exit code. A scenario that moves a readback beyond its
     setpoint's tolerance, and a lane whose float setpoints declare no
     tolerance, print the build's settle-tolerance warning on stderr; it does
-    not change the exit code.
+    not change the exit code. When the facility file holds relation claims,
+    one summary line closes stderr:
+    ``relations: N claims (S stated, I inferred); A accepted, C contested``,
+    with ``, X superseded`` appended when any claim is superseded; a facility
+    without claims prints no such line.
     """
-    _build_in_memory(ctx, repo)
+    built = _build_in_memory(ctx, repo)
+    line = _relation_summary(built.document)
+    if line is not None:
+        click.echo(line, err=True)
+
+
+def _relation_summary(document: dict[str, Any]) -> str | None:
+    """The ``validate`` summary of the facility file's relation claims.
+
+    Args:
+        document: The built facility file.
+
+    Returns:
+        ``relations: N claims (S stated, I inferred); A accepted, C contested``
+        with ``, X superseded`` appended when X is nonzero, or ``None`` when
+        the file holds no claims. A claim without ``basis`` counts as stated.
+    """
+    from osprey.facility.relations import ACCEPTED, CONTESTED, SUPERSEDED
+
+    claims = document.get("relations") or []
+    if not claims:
+        return None
+    inferred = sum(1 for claim in claims if claim.get("basis", "stated") == "inferred")
+    standing = [claim.get("standing") for claim in claims]
+    superseded = standing.count(SUPERSEDED)
+    line = (
+        f"relations: {len(claims)} claims ({len(claims) - inferred} stated, "
+        f"{inferred} inferred); {standing.count(ACCEPTED)} accepted, "
+        f"{standing.count(CONTESTED)} contested"
+    )
+    return f"{line}, {superseded} superseded" if superseded else line
 
 
 @dataclass(frozen=True)
@@ -300,12 +348,13 @@ def _build_in_memory(
 
 
 def _counts(records: FacilityRecords) -> dict[str, Any]:
-    """The records per kind, and the wiring records per model."""
+    """The records per kind, the relation claims, and the wiring records per model."""
     from osprey.facility.records import RECORD_KINDS
 
     counts: dict[str, Any] = {
         key: len(records.of_kind(kind)) for kind, key, _id in RECORD_KINDS[:4]
     }
+    counts["relations"] = len(records.document.get("relations") or [])
     counts["wiring"] = {
         str(model["name"]): len(model.get("wiring") or [])
         for model in sorted(records.of_kind("model"), key=lambda model: str(model["name"]))
@@ -360,25 +409,89 @@ def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     }
 
 
-def _record(document: dict[str, Any], record_id: str) -> list[dict[str, Any]] | str:
-    """The ``facility show ID`` records, in ``RECORD_KINDS`` order, or the line that says why
-    there are none."""
+def _entry(record: Mapping[str, Any], kind: str, match: str) -> dict[str, Any]:
+    """One ``facility show TEXT`` entry: the record without its provenance, and how it matched."""
+    provenance = dict(record.get("provenance") or {})
+    return {
+        "record": {key: value for key, value in record.items() if key != "provenance"},
+        "kind": kind,
+        "match": match,
+        "provenance": provenance,
+        "fixes_applied": list(provenance.get("fixes") or []),
+    }
+
+
+def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dict[str, Any]]:
+    """The claims with an end naming ``kind`` ``id_``, one row each.
+
+    A row holds the claim's id, type, standing, the ``other`` end's id and the
+    ``role`` the record plays: ``subject``, ``object``, or ``both`` when the
+    claim names it at both ends (``other`` is then the record itself). ``unit``
+    is the unit given on the claim's place end, the object's first.
+    """
+    from osprey.facility.relations import end_identity
+
+    listed = []
+    for claim in claims:
+        ends: list[Mapping[str, Any]] = [
+            end if isinstance(end := claim.get(side), Mapping) else {}
+            for side in ("subject", "object")
+        ]
+        identities = [end_identity(end) for end in ends]
+        named = [identity == (kind, id_) for identity in identities]
+        if not any(named):
+            continue
+        role = "both" if all(named) else "subject" if named[0] else "object"
+        other = identities[1] if role == "subject" else identities[0]
+        row: dict[str, Any] = {
+            "id": claim.get("id"),
+            "type": claim.get("type"),
+            "other": other[1] if other else None,
+            "standing": claim.get("standing"),
+            "role": role,
+        }
+        unit = next(
+            (
+                end["unit"]
+                for end in reversed(ends)
+                if end.get("unit") is not None and end.get("place") is not None
+            ),
+            None,
+        )
+        if unit is not None:
+            row["unit"] = unit
+        listed.append(row)
+    return listed
+
+
+def _record(document: dict[str, Any], text: str) -> list[dict[str, Any]] | str:
+    """The ``facility show TEXT`` entries, or the line that says why there are none.
+
+    ``text`` is tried as a record id (every kind, ``RECORD_KINDS`` order), then
+    as a relation claim id, then as a place or device name
+    (:meth:`~osprey.facility.records.FacilityRecords.lookup`); the first that
+    finds anything answers. Each entry's ``match`` says how it matched (``id``,
+    ``claim``, ``name``, ``segment``); a place or device entry lists in
+    ``claims`` the claims it is an end of.
+    """
     from osprey.facility.records import FacilityRecords
 
-    found = FacilityRecords(document).find(record_id)
-    if not found:
-        return f"facility show: no record {record_id}"
+    records = FacilityRecords(document)
+    claims = [claim for claim in document.get("relations") or [] if isinstance(claim, Mapping)]
+    hits = [("id", each) for each in records.find(text)]
+    if not hits:
+        claimed = [claim for claim in claims if claim.get("id") == text]
+        if claimed:
+            return [_entry(claim, "relation", "claim") for claim in claimed]
+        hits = list(records.lookup(text))
+    if not hits:
+        return f"facility show: no record {text}"
     entries = []
-    for each in found:
-        provenance = dict(each.record.get("provenance") or {})
-        entries.append(
-            {
-                "record": {key: value for key, value in each.record.items() if key != "provenance"},
-                "kind": each.kind,
-                "provenance": provenance,
-                "fixes_applied": list(provenance.get("fixes") or []),
-            }
-        )
+    for match, each in hits:
+        entry = _entry(each.record, each.kind, match)
+        if each.kind in ("place", "device"):
+            entry["claims"] = _claims_of(claims, each.kind, each.id)
+        entries.append(entry)
     return entries
 
 
@@ -428,15 +541,37 @@ def _print_overview(document: dict[str, Any], primary_config: str) -> None:
     )
 
 
+def _claim_direction(claim: Mapping[str, Any]) -> str:
+    """A claim row read subject first, the shown record written ``(this)``.
+
+    A subject-end row keeps the short ``type other`` form.
+    """
+    role, other = claim.get("role"), claim["other"]
+    if role == "object":
+        return f"{other} {claim['type']} (this)"
+    if role == "both":
+        return f"(this) {claim['type']} (this)"
+    return f"{claim['type']} {other}"
+
+
 def _print_record(document: dict[str, Any]) -> None:
     record = document["record"]
     id_field = "name" if document["kind"] == "model" else "id"
     fields = {key: value for key, value in record.items() if key != id_field}
     provenance = {key: value for key, value in document["provenance"].items() if key != "fixes"}
     fixes = [f"  {fix['op']}: {fix['why']}" for fix in document["fixes_applied"]]
+    header = f"{document['kind']} {record[id_field]}"
+    if document["match"] != "id":
+        header += f" (match: {document['match']})"
+    claims = [
+        f"  {claim['id']}  {_claim_direction(claim)}, {claim['standing']}"
+        + (f", unit {claim['unit']}" if "unit" in claim else "")
+        for claim in document.get("claims") or []
+    ]
     lines = [
-        f"{document['kind']} {record[id_field]}",
+        header,
         *(f"  {line}" for line in _yaml_lines(fields)),
+        *(["claims", *claims] if claims else []),
         "provenance",
         *(f"  {line}" for line in _yaml_lines(provenance)),
         "fixes applied",
@@ -447,20 +582,24 @@ def _print_record(document: dict[str, Any]) -> None:
 
 
 @facility.command("show")
-@click.argument("record_id", metavar="[ID]", required=False)
+@click.argument("record_id", metavar="[TEXT]", required=False)
 @click.option("--json", "as_json", is_flag=True, help="Print one JSON document on stdout.")
 @repo_option
 @click.pass_context
 def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | None) -> None:
-    """Print the facility the repo builds, or the record ID names.
+    """Print the facility the repo builds, or the records TEXT names.
 
     Builds in memory as ``osprey facility validate`` does and exits 1 like it
-    on an error. Without ID it prints the identity, the records per kind, the
-    wiring per model, each model's engine, served flag and solve setting, and
-    each view with its path and whether the main render carries it. With ID it
-    prints every record of that id, each under its kind, with its provenance and
-    the fixes applied to it; an ID that names no record exits 1. Under ``--json``
-    stdout holds one document and every other line goes to stderr.
+    on an error. Without TEXT it prints the identity, the records per kind, the
+    wiring per model, the relation claims, each model's engine, served flag and
+    solve setting, and each view with its path and whether the main render
+    carries it. With TEXT it prints every record of that id; failing that, the
+    relation claim of that id; failing that, every place and device TEXT names.
+    Each entry shows its kind, how it matched, the claims a place or device is
+    an end of (each read subject first, the record itself as ``(this)`` at an
+    object end), its provenance and the fixes applied to it; TEXT that matches
+    nothing exits 1. Under ``--json`` stdout holds one document and every other
+    line goes to stderr.
     """
     import json
     from contextlib import nullcontext
@@ -575,6 +714,9 @@ def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
             (MEASUREMENT_DIR, "measurement"),
         ),
         "list": (channels, devices),
+        # Writes only under imported/<layer>/ and never replaces or refuses
+        # another source (FR10), so it states no file of the tree.
+        "relations": (),
     }
 
 
@@ -902,4 +1044,78 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     _replace_or_refuse(ctx, "list", roots, repo_root)
 
     for path in run_import(listing, roots.machine):
+        report(f"wrote {_shown(path, repo_root)}")
+
+
+_TABLE_PATH = click.Path(exists=True, dir_okay=False, resolve_path=True, path_type=Path)
+
+
+@import_group.command("relations")
+@click.argument("table", metavar="TABLE", type=_TABLE_PATH)
+@click.option("--layer", required=True, help="The layer's name; written to imported/<layer>/.")
+@click.option("--names", type=_TABLE_PATH, help="A names table.")
+@click.option("--places", type=_TABLE_PATH, help="A places table.")
+@click.option("--members", type=_TABLE_PATH, help="A members table.")
+@click.option(
+    "--stub-unknown",
+    is_flag=True,
+    help="Stub a class-less device end the facility lacks as Unidentified.",
+)
+@repo_option
+@click.pass_context
+def import_relations(
+    ctx: click.Context,
+    table: Path,
+    layer: str,
+    names: Path | None,
+    places: Path | None,
+    members: Path | None,
+    stub_unknown: bool,
+    repo: Path | None,
+) -> None:
+    """Write relation tables as sources under data/facility/imported/<layer>/.
+
+    A profile that states machine: imports into that machine root instead.
+
+    \b
+    Each table is UTF-8 CSV. A header row names its columns, in any order;
+    empty cells are absent. Required columns come first:
+      TABLE      type, subject, object; subject_kind, object_kind,
+                 subject_port, object_port, object_unit, attrs, basis,
+                 rule, subject_class, object_class
+      --names    thing, name, scheme; basis, rule
+      --places   place; within, basis, rule
+      --members  group, member; member_kind, group_kind
+    Every table also takes the citation columns document, version, state,
+    locator and imported.
+
+    A device end the facility does not have is stubbed only when its row
+    states subject_class or object_class, or with --stub-unknown, which stubs
+    it as Unidentified; place and group ends are never stubbed. Every end and
+    name resolves against the whole facility except the layer being replaced,
+    bundled and hand-written records included, and no file outside
+    imported/<layer>/ changes. Exits 1 and writes no layer file when the layer
+    name is refused, when any table has a row the layer refuses, or while the
+    profile does not resolve.
+    """
+    from osprey.facility.layers.relations import import_relations as run_import
+    from osprey_connectors.errors import BuildProfileError
+
+    repo_root = find_repo_root(repo)
+    try:
+        roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
+    except (BuildProfileError, ValueError, RuntimeError) as error:
+        fail("The profile does not resolve.", str(error))
+        ctx.exit(1)
+
+    written = run_import(
+        table,
+        roots.machine,
+        layer,
+        names=names,
+        places=places,
+        members=members,
+        stub_unknown=stub_unknown,
+    )
+    for path in written:
         report(f"wrote {_shown(path, repo_root)}")

@@ -293,8 +293,9 @@ def test_validate_names_an_unknown_served_model(tmp_path: Path, built_demo: Buil
 
     assert result.exit_code == 1, result.output
     assert result.stdout == ""
-    assert result.stderr.startswith("facility: profile-invalid: path simulation.models — ")
-    assert "`NOPE`" in result.stderr
+    stop = result.stderr.splitlines()[-1]
+    assert stop.startswith("facility: profile-invalid: path simulation.models — ")
+    assert "`NOPE`" in stop
 
 
 MODEL_KEYS = {"name", "engine", "served", "settings", "deck", "wiring"}
@@ -899,8 +900,14 @@ def test_a_still_selection_of_a_place_takes_the_places_below_it(
 ) -> None:
     facility = built_demo.facility
     place_ids = [str(place["id"]) for place in facility["places"]]
-    parent = next(p for p in place_ids if any(q.startswith(f"{p}/") for q in place_ids))
     device_place = {str(device["id"]): device.get("place") for device in facility["devices"]}
+    held = {
+        str(device_place.get(str(on.get("device"))) or on.get("place"))
+        for channel in facility["channels"]
+        if (on := channel.get("on") or {})
+    }
+    # A parent some channel sits below: a place of racks alone holds no channel.
+    parent = next(p for p in place_ids if any(q.startswith(f"{p}/") for q in held))
 
     def sits_on_parent(channel: dict[str, Any]) -> bool:
         on = channel.get("on") or {}

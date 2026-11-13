@@ -172,3 +172,13 @@ def test_the_q3_device_owns_the_q6_address(view_graph: Graph) -> None:
     (binding,) = bindings
     assert (device, p("hasBinding"), binding) in view_graph
     assert (binding, p("writesSignal"), None) in view_graph
+
+
+_CLAIM_ONLY_TYPES = re.compile(r"CONTESTED\b|HASMEMBER|CLAIMSUBJECT|CLAIMOBJECT|CONTESTS|:Claim\b")
+"""Edges and labels only a corpus with relation claims carries."""
+
+
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_no_example_needs_relation_claims(query: ExampleQuery) -> None:
+    """The live lanes run every example against the demo store, which has no claims."""
+    assert _CLAIM_ONLY_TYPES.search(query.cypher) is None, query.key

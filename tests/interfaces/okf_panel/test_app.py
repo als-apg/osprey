@@ -499,6 +499,52 @@ def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path)
     ]
 
 
+def test_concept_carries_a_place_link_with_its_place_record(monkeypatch, tmp_path):
+    import json
+
+    import osprey_connectors.workspace as workspace
+
+    render = tmp_path / "render"
+    render.mkdir()
+    (render / "facility.json").write_text(
+        json.dumps(
+            {
+                "places": [
+                    {"id": "HALL"},
+                    {"id": "HALL/RK08", "description": "Rack 8."},
+                ],
+                "devices": [{"id": "SR/BPM01"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
+    bundle = tmp_path / "bundle"
+    (bundle / "places").mkdir(parents=True)
+    (bundle / "places" / "rack.md").write_text(
+        "---\ntype: place\ntitle: Rack\ndescription: A rack.\n---\n\n"
+        "In [rack 8](facility:place/HALL/RK08), not [rack 9](facility:place/HALL/RK09).\n",
+        encoding="utf-8",
+    )
+    c = TestClient(create_app(str(bundle)))
+
+    body = c.get("/api/concept", params={"id": "places/rack"}).json()
+
+    references = body["facility_references"]
+    assert [body["body"][entry["start"] : entry["end"]] for entry in references] == [
+        "[rack 8](facility:place/HALL/RK08)",
+        "[rack 9](facility:place/HALL/RK09)",
+    ]
+    assert [(e["target"], e["kinds"], e["records"]) for e in references] == [
+        (
+            "place/HALL/RK08",
+            ["place"],
+            [{"kind": "place", "id": "HALL/RK08", "description": "Rack 8."}],
+        ),
+        ("place/HALL/RK09", [], []),
+    ]
+
+
 def test_concept_without_a_facility_file_marks_links_unresolved(monkeypatch, tmp_path):
     import osprey_connectors.workspace as workspace
 

@@ -554,6 +554,14 @@
   - VCM09
   label: VCM 09
   place: BTS
+- id: CTRL/SW-3A
+  class: NetworkSwitch
+- id: CTRL/sr-mag-03
+  class: ControlApplication
+  attributes:
+    repository: sr-magnets
+- id: CTRL/srioc03
+  class: Host
 - id: GTL/BC01
   class: BuckingCoil
   description: Gun-to-linac line bucking coil 01.
@@ -701,6 +709,8 @@
   - VCM04
   label: VCM 04
   place: GTL
+- id: HALL/PANEL-3A
+  class: Circuit
 - id: LINE/BPM01
   class: BeamPositionMonitor
   label: LINE BPM 01
@@ -1330,6 +1340,8 @@
   names:
   - BPM13
   label: BPM 13
+- id: SR/BPM13-EL
+  class: ElectronicsChassis
 - id: SR/BPM14
   class: BeamPositionMonitor
   names:
@@ -3261,6 +3273,16 @@
   - klystron
   label: KLYSTRON 02
   place: SR
+- id: SR/LCW-3
+  class: UtilityLoop
+- id: SR/MAG-Q-0301
+  class: Quadrupole
+  scheme_names:
+  - name: MAG-Q-0301
+    scheme: controls
+- id: SR/MPS-C3
+  class: ElectronicsChassis
+  description: Interlock chassis, sector 3
 - id: SR/NEUTRON01
   class: BeamLossMonitor
   description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
@@ -3438,6 +3460,15 @@
   names:
   - QF05
   label: QF 05
+- id: SR/QF05-PS
+  class: PowerSupply
+  scheme_names:
+  - name: PS-Q-0301
+    scheme: cable-schedule
+  - name: QF05 supply
+    scheme: drawings
+    basis: inferred
+    rule: label-match
 - id: SR/QF06
   class: Quadrupole
   names:
@@ -6428,6 +6459,11 @@
   - thermocouple
   label: TC 12U10
   place: SR/SECT12
+- id: SR/TIM-EVR3
+  class: ElectronicsChassis
+  description: Event receiver, sector 3
+- id: SR/TIM-EVR3:OUT4
+  class: TimingChannel
 - id: SR/VALVE01
   class: Valve
   description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'

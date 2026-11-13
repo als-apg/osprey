@@ -25,13 +25,23 @@ Store shape every query here assumes (n10s-imported, Neo4j 5.26 community, no
 APOC): ``(:Resource)-[:HASBINDING]->(:ChannelBinding)``, a device typed by
 ``(:Resource)-[:TYPE]->(:Class)`` with ``:Class`` nodes chained by
 ``[:SUBCLASSOF]``, and a binding reaching its meaning through
-``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. Devices
+``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. A device
+sits in its place through ``(:Resource)-[:LOCATEDIN]->(:Resource)`` and a place
+hangs under its parent through ``(:Resource)-[:PARTOF]->(:Resource)``. Devices
 carry ``uri``, ``sourceName``, ``sectionCode``, ``system``, ``rawType``,
 ``sPositionM``, ``ordinalInPlace``, ``systemDescription`` and
 ``familyDescription``; bindings carry ``fullPv`` and ``description``; signals
 carry ``uri`` and ``label``; classes carry ``uri`` and a list-valued
-``altLabel``. Every node also wears n10s's ``Resource``
+``altLabel`` of synonyms. Places, devices and bindings carry a list-valued
+``altLabel`` too, holding the record's names. Every node also wears n10s's ``Resource``
 label, which is why nothing below matches on node labels.
+
+A corpus with relation claims adds relation edges (``POWEREDBY``, ``CABLEDTO``,
+``PARTOF`` device to device and the rest, each with a ``CONTESTED`` twin),
+``:Group`` nodes with ``HASMEMBER`` and ``:Claim`` nodes with
+``CLAIMSUBJECT``, ``CLAIMOBJECT`` and ``CONTESTS``. A device can then have two
+``LOCATEDIN``; its resolved place is the one carrying its ``placePath``. No
+query here walks those edges.
 """
 
 from __future__ import annotations

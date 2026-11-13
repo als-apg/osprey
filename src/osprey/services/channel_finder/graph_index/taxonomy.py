@@ -37,7 +37,12 @@ def prune_device_taxonomy(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, A
     an operator came for. A class earns its place by either holding devices
     (its rollup is non-zero) or by being an abstract parent of a class that
     does; anything else is a leaf about something other than devices and is
-    dropped.
+    dropped. "A class that does" applies transitively, so a parent whose only
+    subclasses are dropped is dropped with them.
+
+    A corpus that binds no device at all is the exception: every class there
+    has a zero rollup, so the declared parents are kept as the tree an empty
+    index still answers with.
 
     Args:
         rows: One mapping per ``:Class`` node, as the graph paradigm's ontology
@@ -60,6 +65,19 @@ def prune_device_taxonomy(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, A
         for parent in row.get("parents") or []:
             if parent is not None and parent != own_uri:
                 parent_uris.add(parent)
+
+    #: When something is bound, only ancestors of a class holding devices are
+    #: wanted: walk up from those classes instead of trusting any declared parent.
+    if any((row.get("rollup") or 0) != 0 for row in materialised):
+        parents_of = {row.get("uri"): row.get("parents") or [] for row in materialised}
+        frontier = [row.get("uri") for row in materialised if (row.get("rollup") or 0) != 0]
+        parent_uris = set()
+        while frontier:
+            child = frontier.pop()
+            for parent in parents_of.get(child, []):
+                if parent is not None and parent != child and parent not in parent_uris:
+                    parent_uris.add(parent)
+                    frontier.append(parent)
 
     kept: list[dict[str, Any]] = []
     for row in materialised:

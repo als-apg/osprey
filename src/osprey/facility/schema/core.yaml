@@ -7,7 +7,9 @@ description: >-
   limits and the scenarios. `osprey build` combines the sources under
   data/facility/ into one file of this shape. Every list whose order carries
   meaning sets `list_elements_ordered`; a multivalued slot without it is a set,
-  compared and written sorted by its string form.
+  compared and written sorted by its string form, or by its key when its
+  entries are keyed (`scheme_names` by name and scheme, `citations` by
+  document, version and locator).
 
 prefixes:
   osprey_facility: https://narad.example.org/schema/osprey.facility.core/
@@ -96,6 +98,31 @@ enums:
         description: Set by a fix.
       imported:
         description: Stated by an importing layer alone, where no span holds the device.
+      relation:
+        description: Projected from a `located_in` claim.
+
+  basis_enum:
+    description: How a claim or a name came to be known.
+    permissible_values:
+      stated:
+        description: A source says so directly.
+      inferred:
+        description: A named rule derived it from other facts.
+
+  standing_enum:
+    description: A claim's standing among the claims about the same fact.
+    permissible_values:
+      accepted:
+      contested:
+      superseded:
+
+  group_kind_enum:
+    description: What a group's members have in common.
+    permissible_values:
+      family:
+        description: Devices of one sort; the group's description is its members' purpose.
+      section:
+        description: Things that belong together, such as a vacuum section or a zone; never a family.
 
   fix_op_enum:
     permissible_values:
@@ -158,6 +185,16 @@ classes:
         inlined: true
       scenarios:
         range: Scenario
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      relations:
+        range: Relation
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      documents:
+        range: Document
         multivalued: true
         inlined_as_list: true
         list_elements_ordered: true
@@ -256,6 +293,16 @@ classes:
       span:
         range: Span
         inlined: true
+      scheme_names:
+        range: Alias
+        multivalued: true
+        inlined_as_list: true
+        description: The record's names in named naming schemes; a set.
+      citations:
+        range: Citation
+        multivalued: true
+        inlined_as_list: true
+        description: The documents that state the record; a set.
       provenance:
         range: Provenance
         inlined: true
@@ -317,6 +364,16 @@ classes:
       groups:
         multivalued: true
         description: Computed; the groups naming the device as a member.
+      scheme_names:
+        range: Alias
+        multivalued: true
+        inlined_as_list: true
+        description: The record's names in named naming schemes; a set.
+      citations:
+        range: Citation
+        multivalued: true
+        inlined_as_list: true
+        description: The documents that state the record; a set.
       provenance:
         range: Provenance
         inlined: true
@@ -564,6 +621,11 @@ classes:
         required: true
       description:
         description: What the set is, in the facility's words.
+      kind:
+        range: group_kind_enum
+        description: >-
+          `family` when absent. Only a family describes its members to a
+          view and files as a family there.
       label:
         description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
@@ -903,6 +965,111 @@ classes:
           active, those readings serve without drift, couplings or noise. A
           selection is `{model|place, group, signal, engine_role, plane}` and
           names a model or a place.
+
+  Relation:
+    description: One claim, from one source, that two things are related.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      type:
+        range: relation_type_enum
+        required: true
+      subject:
+        range: RelationEnd
+        required: true
+        inlined: true
+      object:
+        range: RelationEnd
+        required: true
+        inlined: true
+      attributes:
+        range: Any
+        description: "Free map: cable, signal, medium, length, ..."
+      basis:
+        range: basis_enum
+        description: Absent means stated.
+      rule:
+        description: The rule that derived an inferred claim; required with basis inferred.
+      source:
+        range: Citation
+        inlined: true
+      standing:
+        range: standing_enum
+        description: Computed; the claim's standing among the claims about the same fact.
+      contests:
+        multivalued: true
+        description: Computed; the ids of the claims this one disputes.
+      provenance:
+        range: Provenance
+        inlined: true
+
+  RelationEnd:
+    description: One end of a claim; exactly one of device, place, group.
+    attributes:
+      device:
+      place:
+      group:
+      port:
+        description: Connector, channel, outlet or terminal, in the source's words.
+      unit:
+        range: integer
+        description: Rack unit; on a place end only.
+
+  Citation:
+    description: Where in which document a fact is stated.
+    attributes:
+      document:
+        required: true
+        description: A Document id.
+      version:
+      state:
+      locator:
+      imported:
+        range: date
+
+  Document:
+    description: One source document a citation can name.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      title:
+      kind:
+        description: The facility's word for the sort of document; policy ranks by it.
+      system:
+        description: Where the document is kept.
+
+  Alias:
+    description: One name of a record in one naming scheme.
+    attributes:
+      name:
+        required: true
+      scheme:
+        required: true
+        description: "The naming vocabulary: lattice, controls, cable-schedule, ..."
+      basis:
+        range: basis_enum
+      rule:
+      source:
+        range: Citation
+        inlined: true
+
+  Policy:
+    description: How the build ranks competing claims.
+    attributes:
+      relations:
+        range: RelationPolicy
+        inlined: true
+
+  RelationPolicy:
+    description: The ranking of relation claims.
+    attributes:
+      precedence:
+        range: Any
+        description: "`{default: [kinds], <type>: [kinds]}`, document kinds from strongest to weakest."
+      stated_over_inferred:
+        range: boolean
 
   Any:
     class_uri: linkml:Any

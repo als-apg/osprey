@@ -36,17 +36,27 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
   is **no ``:Device`` label**: a device is reached as ``:Resource`` plus the
   properties only a device carries, or through its ``narad_sem`` class;
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
-  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
+  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``, plus ``:LOCATEDIN`` (device to
+  its place) and ``:PARTOF`` (place to its parent place). A corpus with
+  relation claims adds one type per relation (``:POWEREDBY``, ``:CABLEDTO``,
+  ``:PARTOF`` device to device, ...), its ``CONTESTED`` twin for a contested
+  claim, ``:HASMEMBER`` from a ``:Group``, and ``:CLAIMSUBJECT``,
+  ``:CLAIMOBJECT`` and ``:CONTESTS`` from a ``:Claim`` node. No example here
+  queries them, because the demo machine has no claims;
 * property names keep their ``narad_p:`` local spelling — ``.fullPv``,
   ``.deviceId``, ``.sectionCode``, ``.description``, ``.system``,
   ``.rawType``;
 * a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
-  too, so a query that means devices keeps the rows whose ``.rawType`` is set,
-  which only a device carries;
+  too. Every device carries ``.deviceId`` and no place does; ``.rawType`` is set
+  only on a device with a class, so the queries that walk from a class keep the
+  rows whose ``.rawType`` is set;
 * ``skos:altLabel`` arrives as a **list**, because the store is configured with
-  ``handleMultival: ARRAY`` for that predicate. Synonym matching therefore uses
-  list semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
-  against ``altLabel`` would be a bug, not a shortcut.
+  ``handleMultival: ARRAY`` for that predicate. A class carries its synonyms
+  there, and a place, device or channel its names. Matching therefore uses list
+  semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
+  against ``altLabel`` itself would be a bug, not a shortcut. A class synonym
+  is matched loosely, with ``CONTAINS`` on each entry; a record name is matched
+  on the whole entry, over nodes that are not ``:Class``. Both ignore case.
 
 Corpora
 -------
@@ -164,7 +174,7 @@ _BY_CLASS_AND_SIGNAL = ExampleQuery(
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
@@ -262,15 +272,15 @@ _BY_SYNONYM = ExampleQuery(
         "without the query naming them.\n"
         "\n"
         "Synonyms are a list on each class, so the match is over the list's "
-        "elements. It is an exact match on the whole synonym, not a substring, "
-        "which is what keeps 'pm' from matching 'pump'.\n"
+        "elements. A synonym is a phrase, so the word is looked for inside each "
+        "entry: 'quad' finds 'quadrupole'.\n"
         "\n"
         "$synonym — one word or phrase as an operator would say it. Case does "
         "not matter."
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
@@ -299,7 +309,7 @@ _CENSUS = ExampleQuery(
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 OPTIONAL MATCH (d)-[:HASBINDING]->(b:ChannelBinding)

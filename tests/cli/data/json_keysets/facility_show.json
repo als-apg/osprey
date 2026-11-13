@@ -4,6 +4,7 @@
   "counts.devices",
   "counts.groups",
   "counts.places",
+  "counts.relations",
   "counts.wiring",
   "identity",
   "models",

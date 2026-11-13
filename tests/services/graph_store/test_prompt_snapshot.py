@@ -23,6 +23,7 @@ owns preventing.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -254,6 +255,72 @@ def _block(**overrides: Any) -> str:
     return mod.render_block(_schema(), examples, **kwargs)
 
 
+#: Sentence boundaries for the unscoped-``altLabel`` guard: a full stop or
+#: semicolon before whitespace, a blank line, or the start of a list item or
+#: table row.
+_SENTENCE_BREAK = re.compile(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])")
+
+#: A ``:Class`` scope is a node pattern binding the label — ``(c:Class)`` or
+#: ``(:Class)``; ``NOT n:Class`` excludes classes and scopes nothing to them.
+_CLASS_SCOPE = re.compile(r"\(\w*:Class\b")
+
+
+def _unscoped_altlabel_contains(text: str) -> list[str]:
+    """Every sentence giving a ``CONTAINS`` form over ``altLabel`` without a ``:Class`` scope."""
+    return [
+        sentence
+        for sentence in _SENTENCE_BREAK.split(text)
+        if "altLabel" in sentence and "CONTAINS" in sentence and not _CLASS_SCOPE.search(sentence)
+    ]
+
+
+class TestRecordNameRule:
+    """Record names are identifiers: matched whole-entry, never by substring."""
+
+    def test_the_rule_is_the_contract_string(self):
+        assert mod.RECORD_NAME_MATCH_RULE == (
+            "MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))"
+        )
+
+    def test_the_naming_note_lists_the_place_relationships(self):
+        for reltype in ("LOCATEDIN", "PARTOF", "HASBINDING", "SUBCLASSOF", "TYPE"):
+            assert re.search(rf"\b{reltype}\b", mod.NAMING_NOTE), reltype
+
+    def test_the_naming_note_lists_every_relation_type_the_view_writes(self):
+        from osprey.facility.views.graph import RELATION_PREDICATES
+
+        for predicate in RELATION_PREDICATES.values():
+            assert re.search(rf"\b{predicate.upper()}\b", mod.NAMING_NOTE), predicate
+        for reltype in ("HASMEMBER", "CLAIMSUBJECT", "CLAIMOBJECT", "CONTESTS"):
+            assert re.search(rf"\b{reltype}\b", mod.NAMING_NOTE), reltype
+
+    def test_the_naming_note_states_the_relation_rules(self):
+        note = mod.NAMING_NOTE
+        assert "CONTESTED twin" in note
+        assert "never cross a disputed fact" in note
+        assert "undirected, (a)-[:CABLEDTO]-(b)" in note
+        assert "two LOCATEDIN" in note and "placePath" in note
+        assert ":Claim node holds the evidence" in note
+
+    def test_an_empty_vocabulary_snapshot_still_names_both_relationships(self):
+        """The naming note renders with or without a class table."""
+        schema = {**_schema(), "naming": {"note": mod.NAMING_NOTE, "sample_size": None}}
+        block = mod.render_block(
+            schema, [_Example()], digest="abcdef0123456789", resource_count=512, vocabulary=()
+        )
+        assert "LOCATEDIN" in block
+        assert "PARTOF" in block
+        assert _unscoped_altlabel_contains(block) == []
+
+    def test_the_guard_catches_an_unscoped_rule(self):
+        """The guard itself: the pre-scoping wording is caught, the scoped one is not."""
+        unscoped = "Match with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`."
+        assert _unscoped_altlabel_contains(unscoped) == [unscoped]
+        negated = "`MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE l CONTAINS $x)`"
+        assert _unscoped_altlabel_contains(negated) == [negated]
+        assert _unscoped_altlabel_contains(mod.VOCABULARY_MATCH_RULE) == []
+
+
 class TestRenderBlock:
     def test_block_is_marker_delimited(self):
         block = _block()
@@ -298,10 +365,30 @@ class TestRenderVocabulary:
         assert "| `Thermocouple` | `tc` |" in block
 
     def test_the_matching_rule_is_stated_with_the_table(self):
-        """`altLabel` is a list; `= $term` against a list is a confident zero."""
+        """`altLabel` is a list; `= $term` against a list is a confident zero.
+
+        The rule is scoped to ``(c:Class)``: places, devices and channels carry
+        an ``altLabel`` of names too, and those match whole-entry, never by
+        ``CONTAINS``. What is forbidden is comparing the list itself with ``=``.
+        """
         block = _block(vocabulary=mod.collect_vocabulary(_FakeStore().run))
         assert "ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)" in block
-        assert "never compare with `=`" in block
+        assert "`(c:Class)`" in mod.VOCABULARY_MATCH_RULE
+        assert "never compare the list itself with `=`" in block
+        assert "never compare with `=`" not in block
+        assert _unscoped_altlabel_contains(block) == []
+
+    def test_the_record_name_rule_stays_out_of_the_class_table(self):
+        """The record-name rule lives in the always-rendered terminology, not here."""
+        block = _block(vocabulary=mod.collect_vocabulary(_FakeStore().run))
+        assert mod.RECORD_NAME_MATCH_RULE not in mod.VOCABULARY_MATCH_RULE
+        assert mod.RECORD_NAME_MATCH_RULE not in block
+
+    def test_an_empty_capture_states_no_unscoped_altlabel_rule(self):
+        """With no class table there is no class rule, and no unscoped one either."""
+        block = _block(vocabulary=())
+        assert mod.VOCABULARY_MATCH_RULE not in block
+        assert _unscoped_altlabel_contains(block) == []
 
     def test_an_empty_capture_renders_the_note_not_an_empty_table(self):
         """An empty table would claim the corpus has no synonyms; it may have."""

@@ -231,11 +231,25 @@ Match case-insensitively, e.g.
 
 **By name and class.** `deviceId` identifies a device; `sourceName` is the name
 the device's source gave it (on a facility built by OSPREY, its id), `system`
-the top place it sits in and `sectionCode` the last part of its place. The
-ontology carries the synonyms: match a `(:Class)` on its `altLabel` list, then take every
+the top place it sits in and `sectionCode` the last part of its place. Places,
+devices and channels carry their names as a list `altLabel`. A name is an
+identifier, so match the whole entry, case-insensitively —
+`MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))`.
+Never match a name by `CONTAINS`: a short name would match every longer one it
+starts.
+The ontology carries the synonyms: match a `(:Class)` on its `altLabel` list, then take every
 device typed as that class or any subclass —
 `(d:Resource)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..]->(c)`. `altLabel` is a list,
-so match it with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`.
+so never compare the list itself with `=`; match a class synonym over
+`(c:Class)` with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`.
+
+**By place.** A device scoped to a place is found on its literals —
+`placePath`, `sectionCode`, `system` — which carry its resolved place.
+The edges are for walking the place tree: `(d)-[:LOCATEDIN]->(p)` from a device
+to the place it sits in, `(p)-[:PARTOF]->(parent)` from a place to its parent
+place. A device can have two `LOCATEDIN` when a source disputes its place; the
+resolved one is the place carrying the device's `placePath`, so a walk keeps
+`WHERE p.placePath = d.placePath`.
 
 Whichever route found the device, the addresses come from
 `-[:HASBINDING]->(b:ChannelBinding)` and the answer is `b.fullPv`. Direction is

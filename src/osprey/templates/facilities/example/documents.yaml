@@ -1,0 +1,17 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+- id: PS-LIST
+  title: Magnet power supply list
+  kind: equipment-list
+  system: document-store
+- id: RACK-ROW3
+  title: Equipment hall row 3 rack layout
+  kind: rack-layout
+  system: document-store
+- id: CS-RING
+  title: Storage ring cable schedule
+  kind: cable-schedule
+  system: document-store
+- id: NET-PLAN
+  title: Controls network plan
+  kind: network-plan
+  system: document-store
