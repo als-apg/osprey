@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from docs.screenshots import pages
-from docs.screenshots.recipes import HISTORY_SESSION, REGISTRY
+from docs.screenshots.recipes import ACTIVITY_SESSION, HISTORY_SESSION, REGISTRY
 from fastapi.testclient import TestClient
 
 from osprey.interfaces._serving import authorize_browser_context
@@ -90,3 +90,38 @@ def test_history_app_ignores_viewer_headers_from_the_browser() -> None:
 
     assert response.status_code == 200
     assert "mallory" not in response.text
+
+
+def test_activity_fixture_reads_as_the_recorded_session() -> None:
+    """What the Safety view counts comes from the fixture through the product's reading."""
+    from osprey.interfaces.web_terminal.routes.session import _calls_by_id
+    from osprey.mcp_server.session_activity import session_activity
+
+    fixture = pages.activity_fixture()
+    assert fixture["session"]["id"] == ACTIVITY_SESSION
+    assert all(node["kind"] != "debug" for node in fixture["timeline"])
+
+    reading = session_activity(fixture["timeline"])
+    assert reading["kinds"]["tool_call"] == 34
+    assert reading["kinds"]["subagent"] == 1
+    assert (reading["target"], reading["posture"]) == ("va", "writes")
+    calls = _calls_by_id(reading["nodes"])
+    assert len(calls) == 34
+    assert sum(call["approval"] is not None for call in calls.values()) == 1
+    assert sum(call["error"] for call in calls.values()) == 1
+    assert {row["call_id"] for row in fixture["artifacts"]} <= set(calls)
+
+
+def test_activity_record_answers_only_the_recorded_session() -> None:
+    record = pages._ActivityRecord()
+    assert record.timeline(ACTIVITY_SESSION).data == pages.activity_fixture()["timeline"]
+    assert record.timeline(HISTORY_SESSION).data == []
+    (row,) = record.list_sessions().data
+    assert row["session_id"] == ACTIVITY_SESSION
+    assert row["persons"] == ["alice"]
+
+
+def test_activity_recipe_opens_the_recorded_session() -> None:
+    shot = next(s for s in REGISTRY if s.name == "activity_safety")
+    assert shot.hub == "docs.screenshots.pages:activity_hub"
+    assert [sv.anchor for sv in shot.subviews] == [f"#{ACTIVITY_SESSION}/safety"]

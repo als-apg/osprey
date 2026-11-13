@@ -12,6 +12,10 @@ come to some twelve megabytes; a mismatch names the facility and the file.
 The digests were taken from a render of the commit before model inputs, under
 the configuration and facility trees below. A change that alters the view of a
 facility without inputs on purpose replaces them, and says why.
+
+Replaced since: the injection fixture's ``variables.json``, whose request record
+now carries the ``command`` mark the injection engine describes it with; with
+that one mark removed the file still has its pre-inputs digest.
 """
 
 from __future__ import annotations

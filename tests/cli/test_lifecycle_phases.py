@@ -281,6 +281,7 @@ class TestBuildPhases:
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
+            apps: dict = {}
             environment = _Environment()
             lifecycle = _Lifecycle()
             config: dict = {}

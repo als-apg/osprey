@@ -133,6 +133,11 @@ def test_describe(address: str, role: str, refresh: str):
     assert description["plane"] is None
 
 
+def test_the_request_alone_carries_the_command_mark():
+    marked = {r["address"] for r in _wiring() if "command" in engine.describe(r).get("marks", ())}
+    assert marked == {"req"}
+
+
 def test_describe_reads_attributes_too():
     class Record:
         address = "count"
