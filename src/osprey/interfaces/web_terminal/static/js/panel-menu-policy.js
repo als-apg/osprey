@@ -364,7 +364,7 @@ export function openRailContextMenu(id, x, y) {
   const entry = getEntry(ctx().getRailEl(), id);
   if (!entry || entry.classList.contains('disabled')) return false;
   // The Agent row heads the session tree, so its menu is the tree's (New
-  // session, Group by, Show pinned, Collapse/Expand all), then the pane rows a
+  // session, Artifacts by, Show pinned, Collapse/Expand all), then the pane rows a
   // tileless Agent pane has nowhere else.
   if (id === TERMINAL_RAIL_ID) {
     openContextMenu({
