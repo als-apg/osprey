@@ -256,7 +256,10 @@ field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
 settles it (see `Fixes`_). A group's ``members`` are the exception: the group
 carries every member any layer states, and layers that state different members
 get a ``members-disagree`` warning naming which source states which member,
-until they agree or a ``set`` fix names ``members``.
+until they agree or a ``set`` fix names ``members``. A place's or device's
+``scheme_names`` are joined too, so a layer can add a name to a record another
+layer states; one name in one scheme that two layers state with different
+content is still a ``layer-conflict``.
 
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
@@ -428,9 +431,10 @@ replaced. The rules:
 * **Members.** The members table creates a group no other source has. A row
   naming a member another source's group lacks adds it: the layer then states
   that group too, with every member its rows name.
-* **Names.** The names table names only the stub devices and the places this
-  layer creates. A name for a record the authored file or another layer
-  states, or for a group, is refused.
+* **Names.** The names table names any device or place. For one the authored
+  file or another layer states, the layer writes a record carrying only the
+  id and the names, and the build joins them with the names the other sources
+  state. A name for a group is refused: a group has no ``scheme_names``.
 * **Ids.** A claim's id is ``<NAME>/<type>/<hash>``. The hash covers the type,
   both ends (in either order for a symmetric type), the ports, the type's key
   attribute and the cited document, never its version, locator or

@@ -245,6 +245,88 @@ class TestAcrossLayers:
         assert device["citations"] == [{"document": "dwg-2"}, {"document": "spec-1"}]
 
 
+_NAMED: dict[str, Any] = {
+    "documents.yaml": _DOCS,
+    "records/places.yaml": [
+        {"id": "SR", "scheme_names": [{"name": "Ring", "scheme": "drawings"}]},
+    ],
+    "records/devices.yaml": [
+        {
+            "id": "QF1",
+            "class": "Quadrupole",
+            "scheme_names": [{"name": "QF1", "scheme": "lattice"}],
+        },
+    ],
+}
+
+
+def _named(devices: list[Any], places: list[Any] | None = None) -> dict[str, Any]:
+    files = {**_NAMED, "imported/cables/devices.yaml": devices}
+    if places is not None:
+        files["imported/cables/places.yaml"] = places
+    return files
+
+
+class TestSchemeNamesAcrossLayers:
+    def test_a_layer_adds_a_name_to_a_device_another_source_states(self, tmp_path: Path) -> None:
+        added = {"name": "Q-0301", "scheme": "cable-schedule", "source": {"document": "dwg-2"}}
+        result = _combine(tmp_path, _named([{"id": "QF1", "scheme_names": [added]}]))
+        device = _device(result, "QF1")
+        assert device["scheme_names"] == [
+            {"name": "Q-0301", "scheme": "cable-schedule", "source": {"document": "dwg-2"}},
+            {"name": "QF1", "scheme": "lattice"},
+        ]
+        assert result.warnings == []
+        assert [(s["layer"], s["fields"]) for s in device["provenance"]["sources"]] == [
+            ("authored", ["class", "scheme_names"]),
+            ("cables", ["scheme_names"]),
+        ]
+
+    def test_a_layer_adds_a_name_to_a_place_another_source_states(self, tmp_path: Path) -> None:
+        added = {"name": "R", "scheme": "survey"}
+        result = _combine(tmp_path, _named([], [{"id": "SR", "scheme_names": [added]}]))
+        assert [e.format_message() for e in result.errors] == []
+        (place,) = result.document["places"]
+        assert [(a["name"], a["scheme"]) for a in place["scheme_names"]] == [
+            ("R", "survey"),
+            ("Ring", "drawings"),
+        ]
+
+    def test_an_entry_two_layers_state_alike_is_one_entry(self, tmp_path: Path) -> None:
+        same = {"scheme": "lattice", "name": "QF1"}
+        device = _device(_combine(tmp_path, _named([{"id": "QF1", "scheme_names": [same]}])), "QF1")
+        assert device["scheme_names"] == [{"name": "QF1", "scheme": "lattice"}]
+
+    def test_one_key_with_two_contents_across_layers_conflicts(self, tmp_path: Path) -> None:
+        other = {"name": "QF1", "scheme": "lattice", "basis": "inferred", "rule": "guess"}
+        error = _one(_combine(tmp_path, _named([{"id": "QF1", "scheme_names": [other]}])).errors)
+        assert error.kind == "layer-conflict"
+        assert (error.record_kind, error.record_id) == ("device", "QF1")
+        assert error.sources == ("imported/cables/devices.yaml", "records/devices.yaml")
+        assert error.detail == (
+            "`scheme_names` states two contents for key name QF1, scheme lattice: authored, cables"
+        )
+
+    def test_a_fix_naming_the_field_resolves_the_conflict(self, tmp_path: Path) -> None:
+        other = {"name": "QF1", "scheme": "lattice", "basis": "inferred", "rule": "guess"}
+        fix = {
+            "op": "set",
+            "kind": "device",
+            "id": "QF1",
+            "fields": {"scheme_names": [{"name": "QF1", "scheme": "lattice"}]},
+            "was": {
+                "scheme_names": {
+                    "authored": [{"name": "QF1", "scheme": "lattice"}],
+                    "cables": [other],
+                }
+            },
+            "why": "The lattice file states the name.",
+        }
+        files = {**_named([{"id": "QF1", "scheme_names": [other]}]), "fixes.yaml": _fixes(fix)}
+        device = _device(_combine(tmp_path, files), "QF1")
+        assert device["scheme_names"] == [{"name": "QF1", "scheme": "lattice"}]
+
+
 class TestFixValues:
     def test_a_set_with_two_contents_under_one_key_is_refused(self, tmp_path: Path) -> None:
         fix = {

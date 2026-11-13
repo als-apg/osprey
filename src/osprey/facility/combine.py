@@ -9,9 +9,12 @@ list.
 
 Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
 the conflict check runs over what is left: two present unequal values on a
-field no ``set`` names stop the build (``layer-conflict``), but a group carries
-every member any source states (``UNIONED``), and ``members-disagree`` warns
-when the sources differ. Last, the schema
+field no ``set`` names stop the build (``layer-conflict``). Three set slots are
+joined instead (``UNIONED``): a group carries every member any source states
+(``members-disagree`` warns when the sources differ), and a place or device
+carries every ``scheme_names`` entry any source states, where one
+``(name, scheme)`` key two sources give different contents still stops the
+build. Last, the schema
 defaults are filled and recorded in each record's provenance: a channel that
 states no description but names a signal is given one composed from its
 owner, its signal and its unit, recorded as a default; a setpoint that
@@ -99,7 +102,12 @@ SET_VALUED: dict[str, frozenset[str]] = {
 
 #: The set slots a layer adds to, per record kind: the record carries every
 #: entry any source states, where every other field must agree across sources.
-UNIONED: dict[str, frozenset[str]] = {"group": frozenset({"members"})}
+#: ``citations`` is not one: a layer stating a record's citations states them all.
+UNIONED: dict[str, frozenset[str]] = {
+    "group": frozenset({"members"}),
+    "place": frozenset({"scheme_names"}),
+    "device": frozenset({"scheme_names"}),
+}
 
 _OPS = ("set", "add", "drop")
 _KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
@@ -758,7 +766,10 @@ class _Combiner:
                 if all(_same(values[0].value, v.value) for v in values[1:]):
                     continue
                 if _unioned(record.kind, name, values):
-                    self._members_disagree(record, values)
+                    if name in KEYED_SETS:
+                        self._keys_disagree(record, name, values)
+                    else:
+                        self._members_disagree(record, values)
                     continue
                 shown = "; ".join(f"{v.layer}={_show(v.value)}" for v in values)
                 self.errors.append(
@@ -771,6 +782,23 @@ class _Combiner:
                         detail=f"`{name}` differs: {shown}",
                     )
                 )
+
+    def _keys_disagree(self, record: _Record, name: str, values: list[_Value]) -> None:
+        """Stop on each key of a joined keyed set that two sources give different contents."""
+        entries = [entry for v in values for entry in v.value]
+        layers = ", ".join(sorted({str(v.layer) for v in values}))
+        for key in keyed_clashes(name, entries):
+            self.errors.append(
+                FacilityBuildError(
+                    "layer-conflict",
+                    record.id,
+                    record.files(),
+                    f"state the entry alike in each source, or add a `set` fix for `{name}` "
+                    "to fixes.yaml",
+                    record_kind=record.kind,
+                    detail=f"`{name}` states two contents for key {key}: {layers}",
+                )
+            )
 
     def _members_disagree(self, record: _Record, values: list[_Value]) -> None:
         """Warn that a group's sources state different members, naming who states which."""

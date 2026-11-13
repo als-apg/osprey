@@ -27,12 +27,13 @@ The ``places`` table creates places under the authored places and its own rows,
 never under another imported layer's places (p5-r1). The ``members`` table
 creates a group no other source has; a row naming a member another source's
 group lacks makes the layer state that group too, and the group carries every
-member any source states. The ``names`` table names only the stub devices and places
-this layer creates (p5-r4). Every end and name resolves against the whole
+member any source states. The ``names`` table names any device or place; one
+another source has gets a record here carrying only its id and the names, and
+the thing carries every name any source states. Every end and name resolves against the whole
 facility bar the layer being replaced.
 
 The layer ``<layer>`` is written to ``imported/<layer>/``: ``relations.yaml``,
-``devices.yaml`` (the stubs), ``places.yaml`` and ``groups.yaml``, each sorted
+``devices.yaml`` (the stubs and the named devices), ``places.yaml`` and ``groups.yaml``, each sorted
 by id and written only when it holds a record, and each input table copied
 byte for byte as ``relations.csv``, ``names.csv``, ``places.csv`` and
 ``members.csv``. ``relations.csv`` marks the directory as a relations layer.
@@ -153,7 +154,7 @@ def import_relations(
     group_records = _members.groups(
         member_rows, index, stubs, refusals, members.name if members else ""
     )
-    _names.names(
+    named_devices, named_places = _names.names(
         name_rows,
         index,
         refusals,
@@ -167,8 +168,8 @@ def import_relations(
 
     records: dict[str, list[dict[str, Any]]] = {
         "relations.yaml": claim_records,
-        "devices.yaml": [stubs[key] for key in sorted(stubs)],
-        "places.yaml": sorted(place_records, key=lambda record: record["id"]),
+        "devices.yaml": sorted([*stubs.values(), *named_devices], key=lambda r: r["id"]),
+        "places.yaml": sorted([*place_records, *named_places], key=lambda r: r["id"]),
         "groups.yaml": sorted(group_records, key=lambda record: record["id"]),
     }
     tables = {"relations": table, "names": names, "places": places, "members": members}

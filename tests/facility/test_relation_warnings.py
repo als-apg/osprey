@@ -111,6 +111,16 @@ class TestAliasShared:
         )
         assert _lines(_run(tmp_path, files), "alias-shared") == []
 
+    def test_a_name_another_layer_adds_is_seen(self, tmp_path: Path) -> None:
+        files = _tree(
+            [_device("QF1", scheme_names=[_alias("Q1")]), _device("QF2")],
+            **{"imported/cables/devices.yaml": [{"id": "QF2", "scheme_names": [_alias("Q1")]}]},
+        )
+        assert _lines(_run(tmp_path, files), "alias-shared") == [
+            "facility: alias-shared: scheme legacy Q1 — devices QF1, QF2 carry the name; "
+            "fix: give each record its own name in the scheme if the scheme is one-to-one"
+        ]
+
 
 def _layer_devices(*ids: str, cls: str = "Quadrupole") -> list[dict[str, Any]]:
     return [_device(rid, cls) for rid in ids]
