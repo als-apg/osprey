@@ -93,6 +93,7 @@
 
 .osprey-tree-title {
   flex: 1;
+  font-size: var(--text-lg);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;

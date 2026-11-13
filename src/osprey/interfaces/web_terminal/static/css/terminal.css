@@ -1864,7 +1864,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
    layout parent to hang off. */
 .rail-context-menu {
   position: fixed;
-  min-width: 180px;
+  min-width: 220px;
   max-width: 280px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -1885,7 +1885,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   padding: 6px var(--space-2);
   text-align: left;
   font-family: var(--font-display);
-  font-size: var(--text-md);
+  min-height: 30px;
+  font-size: var(--text-lg);
   line-height: var(--leading-tight);
   color: var(--text-primary);
   background: none;

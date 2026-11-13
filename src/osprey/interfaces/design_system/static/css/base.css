@@ -252,7 +252,7 @@ button {
    (terminal.css) and looks the same; keep the two in step. */
 .osprey-context-menu {
   position: fixed;
-  min-width: 180px;
+  min-width: 220px;
   max-width: 300px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -272,7 +272,8 @@ button {
   padding: 6px var(--space-2);
   text-align: left;
   font-family: var(--font-display);
-  font-size: var(--text-md);
+  min-height: 30px;
+  font-size: var(--text-lg);
   line-height: var(--leading-tight);
   color: var(--text-primary);
   background: none;
@@ -397,7 +398,7 @@ button {
 .rail-context-value {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: var(--text-base);
+  font-size: var(--text-md);
   color: var(--text-muted);
   white-space: nowrap;
 }
