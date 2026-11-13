@@ -7,13 +7,12 @@ import io
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from osprey.imaging import render
 from osprey.imaging.render import RenderOutcome, RenderUnavailable, Rendition
 from osprey.services.ariel_search.attachments import prepare
 from osprey.services.ariel_search.attachments.prepare import PreparedPicture, prepare_picture
-
-Image = pytest.importorskip("PIL.Image")
 
 pytestmark = pytest.mark.timeout(60)
 

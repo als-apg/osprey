@@ -30,16 +30,28 @@ that does not exist yet is a warning to BuildKit, not an error, so a cache that
 has never been written costs a build nothing. A sink needs a builder that can
 export a cache: Docker's containerd image store or a ``docker-container``
 builder. The classic overlay2 store refuses one.
+
+A source that exists but cannot be read is another matter. When the registry
+fails to serve a layer the source lists, BuildKit fails the whole build, even
+though the cache only ever saves time. :func:`run_image_build` runs every image
+build OSPREY runs, and rebuilds once without the source when that is how a
+build failed.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import yaml
+
+from osprey.deployment.errors import CapturedProcessError
+
+logger = logging.getLogger(__name__)
 
 CACHE_FROM_ENV = "OSPREY_BUILD_CACHE_FROM"
 CACHE_TO_ENV = "OSPREY_BUILD_CACHE_TO"
@@ -173,13 +185,107 @@ def compose_cache_override_file(
     document = compose_cache_override(root, compose_files)
     if document is None:
         return None
+    from osprey_connectors.workspace import BUILD_DIR_NAME
+
+    return _write_override(root / BUILD_DIR_NAME, document)
+
+
+#: The file name every cache override is written under (:func:`_write_override`).
+_OVERRIDE_NAME = re.compile(r"osprey-build-cache\.[0-9a-f]+\.override\.yml")
+
+
+def _write_override(directory: Path, document: dict) -> Path:
+    """Write *document* as a cache override in *directory*, named by its content."""
     from osprey.deployment.compose_merge import _FILE_MODE
     from osprey_connectors.safety_file import atomic_replace
-    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     text = _OVERRIDE_HEADER + "\n" + yaml.safe_dump(document, sort_keys=False)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-    target = root / BUILD_DIR_NAME / f"osprey-build-cache.{digest}.override.yml"
+    target = directory / f"osprey-build-cache.{digest}.override.yml"
     target.parent.mkdir(parents=True, exist_ok=True)
     atomic_replace(target, text.encode("utf-8"), mode=_FILE_MODE, sync="best_effort")
     return target
+
+
+# --- a source that cannot be read -------------------------------------------------
+
+#: How BuildKit reports a layer it could not fetch from a registry, e.g.
+#: ``could not fetch content descriptor sha256:243d… (application/vnd.oci.image
+#: .layer.v1.tar+gzip) from remote: not found``. A local file a ``COPY`` names
+#: and the context lacks fails with ``failed to compute cache key`` too, but never
+#: with this, so a broken recipe is not rebuilt for nothing. The message does not
+#: name the registry: a base-image layer the registry fails to serve matches as
+#: well, and costs one more attempt.
+_SOURCE_READ_FAILURE = re.compile(
+    rb"could not fetch content descriptor sha256:[0-9a-f]+ .*from remote"
+)
+
+
+def without_cache_source(cmd: Sequence[str]) -> list[str] | None:
+    """*cmd* with its cache source taken out, or ``None`` when it reads none.
+
+    A direct build loses its ``--cache-from`` pair. A compose invocation's cache
+    override is written again without its ``cache_from`` entries, or dropped
+    when they were all it held. A sink stays: the build it writes is the one
+    the next build reads.
+    """
+    out: list[str] = []
+    dropped = False
+    args = iter(cmd)
+    for arg in args:
+        value = next(args, None) if arg in ("--cache-from", "-f") else None
+        if arg == "--cache-from":
+            dropped = True
+            continue
+        if arg == "-f" and value is not None and _OVERRIDE_NAME.fullmatch(Path(value).name):
+            override = Path(value)
+            document = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
+            services = document.get("services") or {}
+            for service in services.values():
+                if service.get("build", {}).pop("cache_from", None) is not None:
+                    dropped = True
+            kept = {name: s for name, s in services.items() if s.get("build")}
+            if kept:
+                out.extend((arg, str(_write_override(override.parent, {"services": kept}))))
+            continue
+        out.append(arg)
+        if value is not None:
+            out.append(value)
+    return out if dropped else None
+
+
+def _source_read_failed(error: CapturedProcessError) -> bool:
+    """Whether *error*'s captured output shows a registry failing to serve a layer."""
+    if error.spool_path is None:
+        # Verbose mode: the output went to the terminal, not to a file.
+        return False
+    try:
+        output = error.spool_path.read_bytes()
+    except OSError:
+        return False
+    return _SOURCE_READ_FAILURE.search(output) is not None
+
+
+def run_image_build(cmd: Sequence[str], run: Callable[[list[str]], object]) -> None:
+    """Run the image build *cmd* through *run*, once more without its source if that failed it.
+
+    *run* runs one argv, raising :class:`CapturedProcessError` when it fails
+    (:func:`osprey.deployment.subprocess_capture.run_captured`). A build that
+    failed for any other reason, or that read no source, fails as it did. The
+    rebuild builds the layers the source would have given, so it is slower,
+    and its own failure is the one raised.
+    """
+    try:
+        run(list(cmd))
+    except CapturedProcessError as error:
+        # The output first: rewriting a compose override is a file written for a
+        # retry that a broken recipe never earns.
+        fallback = without_cache_source(cmd) if _source_read_failed(error) else None
+        if fallback is None:
+            raise
+        logger.warning(
+            "The build cache could not be read (the registry did not serve a layer it lists); "
+            "building again without it. The failed attempt's output: %s",
+            error.spool_path,
+        )
+        run(fallback)

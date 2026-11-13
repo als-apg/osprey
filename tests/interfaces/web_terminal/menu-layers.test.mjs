@@ -223,7 +223,7 @@ const LISTING_VERBS = new Set([
   'Move up',
   'Move down',
   'Delete group',
-  'Group by',
+  'Artifacts by',
   'Pin',
   'Unpin',
   'Show pinned sessions',
@@ -843,7 +843,7 @@ describe('every GP7 verb is reachable at its place and calls its previous handle
     expect(notifySpy).toHaveBeenCalledOnce();
   });
 
-  test('Sessions row: New session, Group by Kind / Activity and Collapse all / Expand all', async () => {
+  test('Sessions row: New session, Artifacts by Activity / Kind and Collapse all / Expand all', async () => {
     const items = sessionsRowItems();
     row(items, 'New session').run?.();
     await vi.waitFor(() =>

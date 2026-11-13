@@ -323,6 +323,18 @@ describe('trigger button (a ⋯)', () => {
     expect(menu()?.style.top).toBe('42px'); // 42 + 5 fits in 100
   });
 
+  test("side: 'right' opens beside the button, and at the right edge on its left", () => {
+    const { btn } = setup();
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1000);
+    openContextMenu({ x: 0, y: 0, triggerEl: btn, side: 'right', ariaLabel: 'View', items: [] });
+    expect(menu()?.style.left).toBe('526px'); // 528 - the 2 px submenu overlap
+    expect(menu()?.style.top).toBe('6px'); // 10 - the 4 px submenu rise
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(600);
+    openContextMenu({ x: 0, y: 0, triggerEl: btn, side: 'right', ariaLabel: 'View', items: [] });
+    expect(menu()?.style.left).toBe('302px'); // 500 - 200 + 2
+  });
+
   test('a press on the button is not an outside press; the next open from it toggles the menu closed', () => {
     const { btn } = setup();
     open(btn);
@@ -401,6 +413,43 @@ describe('submenus', () => {
       ],
     });
   }
+
+  test('focus follows the pointer to an enabled row and leaves the row with it', () => {
+    open();
+    expect(document.activeElement).toBe(row('Rename'));
+    hover(row('Open panel'));
+    expect(document.activeElement).toBe(row('Open panel'));
+    hover(row('Locked'));
+    expect(document.activeElement).toBe(row('Open panel'));
+    // Off every row: the level holds focus, so no row is lit and the keys still work.
+    row('Open panel').dispatchEvent(new MouseEvent('pointerleave'));
+    expect(document.activeElement).toBe(levels()[0]);
+    press('ArrowDown');
+    expect(document.activeElement).toBe(row('Rename'));
+  });
+
+  test('a submenu closes a moment after the pointer leaves every level', () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      row('Open panel').click();
+      expect(levels().length).toBe(2);
+      // From the parent level into the child: the child stays.
+      levels()[0].dispatchEvent(new MouseEvent('pointerleave'));
+      levels()[1].dispatchEvent(new MouseEvent('pointerenter'));
+      vi.advanceTimersByTime(500);
+      expect(levels().length).toBe(2);
+      // Out of the menu: the child closes, the root stays.
+      levels()[1].dispatchEvent(new MouseEvent('pointerleave'));
+      vi.advanceTimersByTime(50);
+      expect(levels().length).toBe(2);
+      vi.advanceTimersByTime(200);
+      expect(levels().length).toBe(1);
+      expect(row('Open panel').getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   test('a submenu row shows ▸ after its hint, carries the menu ARIA, and runs nothing', () => {
     open();

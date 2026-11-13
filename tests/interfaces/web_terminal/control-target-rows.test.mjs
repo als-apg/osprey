@@ -135,12 +135,17 @@ describe('renderRow', () => {
   });
 
   test('an outcome older than the freshness window is not shown', () => {
-    const last = { target: 'va', status: 'applied', age_s: OUTCOME_MAX_AGE_S + 1 };
+    const last = {
+      target: 'va',
+      status: 'refused',
+      reason: 'unreachable',
+      age_s: OUTCOME_MAX_AGE_S + 1,
+    };
     const node = renderRow(rowOf(), stateOf({ last_switch: last }), ctx);
     expect(node.querySelector('.ctc-outcome')).toBeNull();
 
     const fresh = renderRow(rowOf(), stateOf({ last_switch: { ...last, age_s: 1 } }), ctx);
-    expect(fresh.querySelector('.ctc-outcome')?.textContent).toBe('✓ switched');
+    expect(fresh.querySelector('.ctc-outcome')?.textContent).toBe('✗ unreachable');
   });
 });
 

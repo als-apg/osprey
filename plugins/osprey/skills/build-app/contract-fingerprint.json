@@ -1,6 +1,6 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.9.0b3-7190-gbb8578f9e7",
+  "reviewed_against": "2026.9.0b3-7427-g77d9b29331",
   "files": {
     "apps/manifest.py": "945ca922ecc45ccc1ba049e0506bbd2ed52abfe436615af961b76743f134eeab",
     "apps/rules.py": "52b7da64976d3278a913ea7585f04b9cc5f42ef8c3a115c84c8bdb78d7802d34",
@@ -20,6 +20,6 @@
     "apps/scaffold-app/skills/scaffold-app/SKILL.md": "c73be6b7ef5a657cb35452f97017a83c9ea8d3ca62098dba2b00d07bcd1a37cf",
     "apps/scaffold-app/tests/panel.test.js": "cde12729a397de8d9616c74252c9ecf76b7da50d3c66c8942f28160d760f9220",
     "interfaces/design_system/panels/validator.py": "d09b82ea461282d09050444006d1c78d2647ccdb72e94693dfc9247dc4e40766",
-    "interfaces/design_system/static/css/primitives.css": "27149dce43759aa2a76b3261c83ce48b5d7d36aeeb1d5a949163fade3ee5685c"
+    "interfaces/design_system/static/css/primitives.css": "80ad115b1d482a3b02cae0ebd4c4498aee6de08fa34556b800bf4ec2cb87c4ce"
   }
 }

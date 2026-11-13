@@ -41,7 +41,11 @@ LATER_STAGES: tuple[tuple[str, Stage], ...] = (
 
 
 def build_facility(
-    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
+    facility_dir: Path,
+    *,
+    project_name: str,
+    content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> FacilityDocument:
     """Build the facility file in memory.
 
@@ -52,6 +56,8 @@ def build_facility(
             when there is no ``identity.yaml``.
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The facility file.
@@ -60,12 +66,16 @@ def build_facility(
         FacilityBuildError: The first error of the first stage that fails.
     """
     return build_facility_with_warnings(
-        facility_dir, project_name=project_name, content_dir=content_dir
+        facility_dir, project_name=project_name, content_dir=content_dir, judges_kinds=judges_kinds
     )[0]
 
 
 def build_facility_with_warnings(
-    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
+    facility_dir: Path,
+    *,
+    project_name: str,
+    content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> tuple[FacilityDocument, list[FacilityBuildWarning]]:
     """Build the facility file in memory, with the warnings of the build.
 
@@ -76,6 +86,8 @@ def build_facility_with_warnings(
             when there is no ``identity.yaml``.
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The facility file and the warnings the stages found, in the order
@@ -85,7 +97,11 @@ def build_facility_with_warnings(
         FacilityBuildError: The first error of the first stage that fails.
     """
     report = run_stages(
-        facility_dir, project_name=project_name, later=LATER_STAGES, content_dir=content_dir
+        facility_dir,
+        project_name=project_name,
+        later=LATER_STAGES,
+        content_dir=content_dir,
+        judges_kinds=judges_kinds,
     )
     report.raise_first()
     document = report.validated.document

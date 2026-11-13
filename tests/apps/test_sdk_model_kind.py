@@ -17,8 +17,6 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("at")
-
 from osprey.apps import sdk
 from osprey.simulation import model_request
 from osprey.simulation.response import RESULT_TAG

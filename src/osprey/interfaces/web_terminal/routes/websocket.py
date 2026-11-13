@@ -2322,6 +2322,10 @@ def _age_seconds(stamp: Any) -> float | None:
 def _aged(block: Any) -> dict[str, Any] | None:
     """A published block with ``age_s`` added, from its own ``at`` stamp.
 
+    The record's switch terminus carries no ``at``, only its request's
+    ``requested_at``; the age falls back to that. A block left unaged would
+    keep its outcome on screen for good.
+
     For ``last_switch`` above all: the chip shows a switch's outcome while it is
     news and stops when it becomes history, so the age is the whole of what
     decides which of the two an operator is looking at.
@@ -2332,7 +2336,7 @@ def _aged(block: Any) -> dict[str, Any] | None:
     """
     if not isinstance(block, dict):
         return None
-    return {**block, "age_s": _age_seconds(block.get("at"))}
+    return {**block, "age_s": _age_seconds(block.get("at") or block.get("requested_at"))}
 
 
 def _short_label(machine_kind: str) -> str:

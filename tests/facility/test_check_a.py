@@ -38,6 +38,7 @@ import json
 from collections.abc import Callable, Sequence
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 
@@ -57,10 +58,7 @@ from tests.facility._model_reference import (
     refusal,
     section,
 )
-
-at = pytest.importorskip("at")
-
-from tests.services.mml import _mml_recipes as recipes  # noqa: E402
+from tests.services.mml import _mml_recipes as recipes
 
 # xdist_group("mml_built"): the session ``mml_built`` fixture builds each fixture
 # tree once, and every module reading it shares the group so that one build

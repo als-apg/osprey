@@ -23,6 +23,16 @@
  * The pick is the artifact the tab shows for the session it is on: one value,
  * cleared on every key change, set by {@link switchTo} (`artifactId`, else the
  * row's `last_artifact_id`) and by the sidebar.
+ *
+ * A new session's title during its first turn comes from
+ * session-title-chase.js: the sent prompt stands in, and the model re-lists
+ * until the listing titles the session.
+ *
+ * Every way to start a new session (the Agent bar's `+` on either surface, the
+ * chat's ⋯ New session, the switcher's "+ New session", the sidebar's
+ * Sessions `+` and its Agent row menu) is `switchTo({new: true})`, which tells
+ * listeners `new` once the session is started: session-layout.js gives it a
+ * workspace of its own.
  */
 
 import { apiRequest, createEventSource, fetchJSON, pageEventsUrl } from './api.js';
@@ -32,6 +42,7 @@ import { isStreaming, newConversation, stopTurn } from './chat.js';
 import { onChat } from './chat-events.js';
 import { resumeSession, startNewSession } from './sessions.js';
 import { isTerminalSurface } from './agent-surface.js';
+import { createTitleChase } from './session-title-chase.js';
 
 /** The hub's session listing. */
 export const SESSIONS_PATH = '/api/sessions';
@@ -55,6 +66,7 @@ export const NEW_SESSION_TITLE = 'New session';
  * @property {boolean} [current_for_key]
  * @property {string} [title]
  * @property {string} [naming]
+ * @property {string|null} [title_source] - null until the listing has a title
  * @property {string|null} [last_artifact_id]
  * @property {string|null} [pinned]
  * @property {string} [state]
@@ -98,6 +110,14 @@ let lastRefreshAt = -Infinity;
 /** @type {Promise<void> | null} */
 let inFlight = null;
 let generation = 0;
+
+const titles = createTitleChase({
+  pointer: getPointer,
+  activeRow: () => activeRow(),
+  held: () => [...loaded, ...pinnedListed],
+  refresh: () => refresh(),
+  changed: () => notify('rows'),
+});
 
 /** @param {string} reason */
 function notify(reason) {
@@ -164,6 +184,7 @@ export function initSessionModel() {
   active = true;
   unsubscribers.push(subscribeToPointer(onPointer));
   unsubscribers.push(onChat('turn-end', () => refresh()));
+  unsubscribers.push(onChat('user-message', titles.sent));
   unsubscribers.push(createEventSource(pageEventsUrl(), { onMessage: onHubFrame }).stop);
   return loadFirst();
 }
@@ -173,6 +194,7 @@ export function resetSessionModel() {
   for (const off of unsubscribers.splice(0)) off();
   if (lastActiveTimer) clearTimeout(lastActiveTimer);
   if (refreshTimer) clearTimeout(refreshTimer);
+  titles.reset();
   lastActiveTimer = refreshTimer = null;
   listeners.clear();
   loaded = [];
@@ -182,8 +204,7 @@ export function resetSessionModel() {
   more = false;
   record = 'complete';
   firstLoaded = false;
-  pickId = null;
-  pendingPick = null;
+  pickId = pendingPick = null;
   lastRefreshAt = -Infinity;
   inFlight = null;
   generation += 1;
@@ -193,6 +214,7 @@ export function resetSessionModel() {
 /** @param {string|null} key */
 function onPointer(key) {
   pickId = pendingPick && pendingPick.key === key ? pendingPick.id : null;
+  titles.pointed(key);
   pendingPick = null;
   if (key) {
     if (lastActiveTimer) clearTimeout(lastActiveTimer);
@@ -231,6 +253,7 @@ function onHubFrame(data) {
   if (data?.type === 'session_transcript') {
     if (loaded.some((r) => r.session_key === data.session_key) || data.session_key === getPointer())
       refresh();
+    if (data.session_key === getPointer()) titles.moved();
     relayToPanels(data.session_key);
   } else if (data?.type === 'session_deleted') {
     forgetSession(data.transcript_id);
@@ -296,7 +319,7 @@ export function activeRow() {
       transcript_id: null,
       session_key: key,
       current_for_key: true,
-      title: NEW_SESSION_TITLE,
+      title: titles.standInFor(key) ?? NEW_SESSION_TITLE,
       last_artifact_id: null,
       synthesized: true,
     }
@@ -325,7 +348,10 @@ export function recordState() {
 }
 
 /**
- * Listen for model changes (`pointer`, `rows`, `named`, `pick`, `switched`).
+ * Listen for model changes (`pointer`, `rows`, `named`, `pick`, `new`,
+ * `switched`). `new` comes once per new session the operator starts, after the
+ * start and before its `switched`; on the terminal the pointer moves later, when
+ * the socket confirms the session.
  * @param {(change: {reason: string}) => void} fn
  * @returns {() => void}
  */
@@ -465,6 +491,7 @@ function loadFirst() {
       more = Boolean(body?.more);
       record = body?.record ?? 'complete';
       firstLoaded = true;
+      titles.listed();
       notify('rows');
     })
     .catch((err) => {
@@ -536,7 +563,7 @@ async function runRefresh() {
     body = await fetchJSON(listUrl(null, false));
   } catch (err) {
     console.warn('[session-model] refresh failed', err);
-    return;
+    return void titles.failed();
   }
   if (gen !== generation) return;
   const first = rowsOf(body);
@@ -552,6 +579,7 @@ async function runRefresh() {
   }
   record = body?.record ?? record;
   firstLoaded = true;
+  titles.listed();
   notify('rows');
 }
 
@@ -628,7 +656,8 @@ function guardStreaming(name) {
  * A no-op for the active row (an `artifactId` still becomes the pick). While
  * the chat streams it asks first. A row current for its key moves the pointer
  * to that key; any other transcript is entered (`POST …/enter`) and the
- * pointer moves to the minted key. `{new: true}` starts a new conversation.
+ * pointer moves to the minted key. `{new: true}` starts a new conversation and
+ * tells listeners `new`.
  * @param {SessionRow | {new: true}} target
  * @param {{artifactId?: string|null, reason?: string}} [options]
  * @returns {Promise<boolean>} whether the tab moved
@@ -638,6 +667,7 @@ export async function switchTo(target, { artifactId = null } = {}) {
     if (!(await guardStreaming(NEW_SESSION_TITLE))) return false;
     if (isTerminalSurface()) await startNewSession();
     else newConversation();
+    notify('new');
     notify('switched');
     return true;
   }

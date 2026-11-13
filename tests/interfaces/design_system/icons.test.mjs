@@ -72,6 +72,7 @@ const CONTRACT_NAMES = [
   'download',
   'copy',
   'trash',
+  'list-filter',
   'filter',
   'zoom-in',
   'zoom-out',

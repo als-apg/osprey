@@ -7,8 +7,6 @@ All tests mock doocs4py so no installed DOOCS environment is required.
 import asyncio
 import sys
 import threading
-import time
-from contextlib import suppress
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +21,7 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._stall import STALL_CEILING_S, Stall
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
@@ -172,69 +171,47 @@ class TestConnect:
         assert isinstance(raised.value.__cause__, RuntimeError)
 
     async def test_an_ens_that_does_not_answer_fails_connect_within_timeout_s(self):
-        release = threading.Event()
         mock_d4py = _make_doocs4py()
-        mock_d4py.names.side_effect = lambda _pattern: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch("osprey_connectors.config.get_config_value", return_value=False),
-            ):
-                from osprey_connectors.control_system._doocs_connector import DOOCSConnector
-
-                conn = DOOCSConnector()
-                start = time.monotonic()
-                with pytest.raises(ConnectorUnavailableError, match=r"0\.2") as raised:
-                    await conn.connect({"timeout_s": 0.2})
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
-
-        assert "ENS" in str(raised.value)
-        assert elapsed < 2.0
-        assert conn._connected is False
-
-    async def test_the_ens_probe_runs_off_the_event_loop(self):
-        mock_d4py = _make_doocs4py()
-
-        def slow_names(_pattern):
-            time.sleep(0.3)  # stand-in for a slow ENS lookup
-            return [("FACILITY", "XFEL")]
-
-        mock_d4py.names.side_effect = slow_names
-
-        ticks = 0
-
-        async def ticker():
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.005)
-                ticks += 1
-
         with (
+            Stall() as names,
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
+            mock_d4py.names.side_effect = names
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            ticker_task = asyncio.create_task(ticker())
+            with pytest.raises(ConnectorUnavailableError, match=r"within 0\.2s") as raised:
+                await conn.connect({"timeout_s": 0.2})
+            answered_first = not names.returned
+
+        assert "ENS" in str(raised.value)
+        assert answered_first, "connect answered only once the ENS lookup returned"
+        assert conn._connected is False
+
+    async def test_the_ens_probe_runs_off_the_event_loop(self):
+        """Regaining the loop while the ENS lookup is still parked is possible only off the loop."""
+        mock_d4py = _make_doocs4py()
+        with (
+            Stall(answer=[("FACILITY", "XFEL")]) as names,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch("osprey_connectors.config.get_config_value", return_value=False),
+        ):
+            mock_d4py.names.side_effect = names
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
+
+            conn = DOOCSConnector()
             connect_task = asyncio.create_task(conn.connect({}))
-
-            start = time.monotonic()
-            await asyncio.sleep(0.05)
-            elapsed = time.monotonic() - start
-
+            began = await asyncio.to_thread(names.entered.wait, STALL_CEILING_S)
+            still_parked = not names.returned
+            names.release()
             await connect_task
-            ticker_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await ticker_task
             await conn.disconnect()
 
-        assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
-        assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
+        assert began, "the ENS was never asked"
+        assert still_parked, "the loop was regained only after the ENS lookup returned"
 
     async def test_timeout_s_defaults_to_five_seconds(self, connector):
         conn, _ = connector
@@ -620,127 +597,109 @@ async def _bounded_connector(timeout_s):
 class TestBoundedCalls:
     """No call outlives its bound, however long the transport stalls.
 
-    Every stalled fake blocks on an ``Event`` with a finite wait, released
-    before the test returns, so the worker thread it occupies exits before
-    the event loop closes.
+    Each stalled fake is a :class:`Stall`. The connector answering while the
+    stall has not yet returned is what proves the bound fired; the message
+    names the bound that did. No test reads a clock.
     """
 
     async def test_a_stalled_read_raises_timeout_error_within_timeout_s(self):
-        release = threading.Event()
         mock_d4py = _make_doocs4py()
-        mock_d4py.get.side_effect = lambda _address: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_connector(0.2)
-                start = time.monotonic()
-                with pytest.raises(TimeoutError) as raised:
-                    await conn.read_channel("FAC/DEV/LOC/PROP")
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as get,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            mock_d4py.get.side_effect = get
+            conn = await _bounded_connector(0.2)
+            with pytest.raises(TimeoutError) as raised:
+                await conn.read_channel("FAC/DEV/LOC/PROP")
+            answered_first = not get.returned
 
+        assert answered_first
         assert "FAC/DEV/LOC/PROP" in str(raised.value)
+        assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
-        assert elapsed < 2.0
 
     async def test_a_per_call_timeout_wins_over_timeout_s(self):
-        release = threading.Event()
         mock_d4py = _make_doocs4py()
-        mock_d4py.get.side_effect = lambda _address: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_connector(30)
-                start = time.monotonic()
-                with pytest.raises(TimeoutError):
-                    await conn.read_channel("FAC/DEV/LOC/PROP", timeout=0.2)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as get,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            mock_d4py.get.side_effect = get
+            conn = await _bounded_connector(30)
+            with pytest.raises(TimeoutError) as raised:
+                await conn.read_channel("FAC/DEV/LOC/PROP", timeout=0.2)
+            answered_first = not get.returned
 
-        assert elapsed < 2.0
+        assert answered_first
+        assert "within 0.2s" in str(raised.value)
 
     async def test_a_stalled_set_is_unconfirmed_not_failed(self):
-        release = threading.Event()
         mock_d4py = _make_doocs4py()
-        mock_d4py.set.side_effect = lambda _address, _value: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_connector(0.2)
-                start = time.monotonic()
-                result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as send,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            mock_d4py.set.side_effect = send
+            conn = await _bounded_connector(0.2)
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
+            answered_first = not send.returned
 
+        assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.error_message is not None
+        assert "within 0.2s" in result.error_message
         assert result.observed_value is None
         assert mock_d4py.get.call_count == 0
-        assert elapsed < 2.0
 
     async def test_a_stalled_limits_check_is_unconfirmed(self):
-        release = threading.Event()
         validator = _make_limits_validator(confirm=True)
-        validator.validate = MagicMock(side_effect=lambda *_a, **_k: release.wait(10))
         mock_d4py = _make_doocs4py()
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=validator),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_connector(0.2)
-                start = time.monotonic()
-                result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
-                elapsed = time.monotonic() - start
-                set_calls_at_return = mock_d4py.set.call_count
-        finally:
-            release.set()
+        with (
+            Stall() as check,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=validator),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            validator.validate = MagicMock(side_effect=check)
+            conn = await _bounded_connector(0.2)
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
+            answered_first = not check.returned
+            set_calls_at_return = mock_d4py.set.call_count
 
+        assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.error_message is not None
+        assert "within 0.2s" in result.error_message
         assert set_calls_at_return == 0
-        assert elapsed < 2.0
 
     async def test_a_stalled_confirming_read_is_unconfirmed(self):
-        release = threading.Event()
         mock_d4py = _make_doocs4py()
-        mock_d4py.get.side_effect = lambda _address: release.wait(10)
-        try:
-            with (
-                patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-                patch(_LIMITS_PATCH, return_value=None),
-                patch(_TZ_PATCH, return_value=UTC),
-                patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
-            ):
-                conn = await _bounded_connector(0.2)
-                start = time.monotonic()
-                result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
-                elapsed = time.monotonic() - start
-        finally:
-            release.set()
+        with (
+            Stall() as get,
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            mock_d4py.get.side_effect = get
+            conn = await _bounded_connector(0.2)
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
+            answered_first = not get.returned
 
+        assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.error_message is not None
+        assert "within 0.2s" in result.error_message
         assert result.observed_value is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
-        assert elapsed < 2.0
 
 
 class _Incomparable:

@@ -12,15 +12,13 @@ import copy
 from pathlib import Path
 from typing import Any
 
+import at
+import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
 
 MODEL = "SR"
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"

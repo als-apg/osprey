@@ -3,13 +3,8 @@ validator for a session-tier plan-file body — static AST allowlist, narrowed
 CA/connector pattern scan, and a mock-RunEngine dry-run.
 
 The dry-run stage actually drives a real bluesky `RunEngine` (in a
-subprocess) against real ophyd-async mock devices, so — like every other
-bluesky-capable test in this directory — the dry-run tests are guarded by
-`pytest.importorskip` rather than failing outright when `bluesky`/
-`ophyd_async` aren't installed. The static-allowlist and pattern-scan stages
-need neither, but this file keeps the same guard for every test for
-consistency with its siblings (`test_exemplar_plans.py`,
-`test_runengine_integration.py`).
+subprocess) against real ophyd-async mock devices. The static-allowlist and
+pattern-scan stages need neither.
 """
 
 from __future__ import annotations
@@ -21,23 +16,20 @@ from pathlib import Path
 
 import pytest
 
-bluesky = pytest.importorskip("bluesky")
-ophyd_async = pytest.importorskip("ophyd_async")
-
-from osprey.mcp_server.workspace.execution.sandbox_executor import (  # noqa: E402
+from osprey.mcp_server.workspace.execution.sandbox_executor import (
     _ALLOWED_IMPORTS,
     _ALLOWED_TOP_LEVEL,
     _DANGEROUS_PATTERNS,
     validate_sandbox_code,
 )
-from osprey.services.bluesky_bridge import plan_validation  # noqa: E402
-from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
+from osprey.services.bluesky_bridge import plan_validation
+from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
     channel_roles,
     scan_metadata,
 )
-from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
+from osprey.services.bluesky_bridge.plan_validation import (
     _CA_ONLY_PATTERNS,
     _EPICS_INERT_ENV,
     _ca_pattern_scan,
@@ -45,7 +37,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
     hash_plan_body,
     validate_plan,
 )
-from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES  # noqa: E402
+from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES
 
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one movable channel, one

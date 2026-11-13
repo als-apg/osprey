@@ -337,6 +337,36 @@
   order: 2;
 }
 
+/* A contributed breadcrumb names what the tile shows in place of the tile's
+ * own name (the Artifacts tile: "Artifact › <title>"). It is not a subtitle
+ * beside the name: the name goes, and the crumb takes its slot at the left,
+ * ahead of the spacer, with the leaf ellipsized (its full text is the leaf's
+ * tooltip). A narrow bar drops the root and its chevron and keeps the leaf
+ * alone (the bar is an inline-size container for that query), and the
+ * crumb's floor makes the region count as crowded so the fold ladder moves
+ * the panel icons into the tile ⋯ before the leaf shrinks away. */
+.tile-tab:has(> .tile-tab-contrib.has-crumb) {
+  container-type: inline-size;
+}
+
+.tile-tab:has(> .tile-tab-contrib.has-crumb) > .tile-tab-title {
+  display: none;
+}
+
+.tile-tab .tile-tab-contrib > .osprey-crumb {
+  order: 0;
+  flex: 0 1 auto;
+  min-width: min(11em, 60%);
+  font-family: var(--font-display);
+}
+
+@container (max-width: 480px) {
+  .tile-tab .osprey-crumb-root,
+  .tile-tab .osprey-crumb-sep {
+    display: none;
+  }
+}
+
 /* ---- One control language ----
  * Every interactive element the bar renders is the design language's 28px
  * ghost control. The tile's own ⋯, open in new window and close, a panel's
@@ -383,6 +413,12 @@
 .tile-tab .contrib-icon[aria-pressed="true"] {
   color: var(--text-primary);
   background: var(--surface-selected);
+}
+
+/* A hub icon that asks to be read (`tone: 'warning'`, which only the hub
+ * sends): the warning colour, kept on hover and while its popover is open. */
+.tile-tab .contrib-icon.contrib-icon-warning {
+  color: var(--color-warning);
 }
 
 .tile-tab .bar-icon {
@@ -540,6 +576,28 @@
   align-items: center;
   gap: var(--space-2);
   flex: 0 0 auto;
+}
+
+/* The zoom chip (pane-zoom.js): the pane's level while it is not 100%, a
+ * quiet pill a click resets. */
+.tile-tab .tile-tab-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tile-tab .tile-tab-zoom:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 /* Open in new window while the pane cannot leave: the primitive's disabled

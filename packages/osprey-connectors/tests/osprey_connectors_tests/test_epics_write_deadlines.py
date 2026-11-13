@@ -8,21 +8,29 @@ fields only for an enumeration). A session that promises an answer within
 ``S + 2T`` relies on this.
 
 The fake client below models the parts of aioca that decide timing, with no
-IOC: every call is bounded the way aioca's ``maybe_throw``/``ca_timeout``
-bounds it -- one ``asyncio.wait_for`` over the connection and the call
-together, the timeout either a relative float or an absolute ``(deadline,)``
-tuple -- and a call that runs out answers ``CANothing(name, ECA_TIMEOUT)``, as
-under ``throw=False``. A channel connects once (``connect_s`` after its first
-use) and stays connected until a test drops it. Delays are kept small so the
-bounds stay meaningful under load.
+IOC and no waiting: every call is bounded the way aioca's
+``maybe_throw``/``ca_timeout`` bounds it -- one deadline over the connection
+and the call together, given either as a relative float or as an absolute
+``(deadline,)`` tuple -- and a call that runs out answers
+``CANothing(name, ECA_TIMEOUT)``, as under ``throw=False``. Time is a
+:class:`VirtualClock` that the connector reads too: a call that fits before
+its deadline moves the clock on by what it took, and one that does not moves
+it to the deadline. So every duration below is exact, and a busy runner cannot
+change one. A channel connects once (``connect_s`` after its first use) and
+stays connected until a test drops it.
+
+Two tests are about concurrency rather than time. Their writes meet at a
+:class:`_Rendezvous` that opens only when all of them are in flight at once, so
+writes that queue behind each other are caught by what they did, not by how
+long it took.
 """
 
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import math
 import threading
-import time
 import types
 from typing import Any
 from unittest.mock import MagicMock
@@ -30,6 +38,7 @@ from unittest.mock import MagicMock
 import aioca
 import pytest
 
+from osprey_connectors.control_system import _epics_connector
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._ca_loop import CaLoop
 from osprey_connectors.control_system._epics_connector import (
@@ -47,18 +56,74 @@ from osprey_connectors_tests._epics_fakes import (
     ca_reading,
 )
 
-# Wall-clock bounds: keep the whole file on one worker, away from other timing work.
-pytestmark = pytest.mark.xdist_group("epics-write-timing")
-
 S = 0.3  # step-read budget
 T = 0.4  # put and confirming-read budget
-SLACK = 0.2
-BOUND = S + 2 * T + SLACK
+BOUND = S + 2 * T
 
 #: aioca's own default when a call is given no timeout.
 AIOCA_DEFAULT_TIMEOUT = 5.0
-#: Long enough to stand for "never" against every budget above.
-NEVER = 60.0
+#: A call or connection that never ends.
+NEVER = math.inf
+#: Real seconds a concurrency test waits for its writes to meet before it
+#: gives up. Only a failing run ever spends them.
+GIVE_UP_S = 10.0
+
+
+class VirtualClock:
+    """The time the connector and the fake aioca both read; only a call that takes time moves it.
+
+    It stands in for the connector module's ``time``, so the connector's
+    deadlines (``time.time() + T``) and its connection bookkeeping
+    (``time.monotonic()``) run on it. One scale serves both, so a deadline is
+    compared with the same number elapsed time is measured on.
+    """
+
+    def __init__(self, start: float = 1_000.0):
+        self._now = start
+        self._lock = threading.Lock()
+
+    def time(self) -> float:
+        return self._now
+
+    monotonic = time
+
+    def advance(self, seconds: float) -> None:
+        with self._lock:
+            self._now += seconds
+
+    def advance_to(self, when: float) -> None:
+        """Move the clock on to ``when``; never back."""
+        with self._lock:
+            self._now = max(self._now, when)
+
+
+class _Rendezvous:
+    """Holds each call that arrives until ``count`` of them are in flight together.
+
+    ``most`` is the largest number ever held at once, so calls that queue
+    behind one another leave it below ``count``. The wait gives up after
+    :data:`GIVE_UP_S` of real time and lets every held call go, so a failing
+    run reports that rather than hanging; a passing run never waits for it.
+    Every arrival must come on one event loop: the CA loop's.
+    """
+
+    def __init__(self, count: int):
+        self.count = count
+        self.most = 0
+        self._held = 0
+        self._all_in = asyncio.Event()
+
+    async def arrive(self) -> None:
+        self._held += 1
+        self.most = max(self.most, self._held)
+        if self._held >= self.count:
+            self._all_in.set()
+        try:
+            await asyncio.wait_for(self._all_in.wait(), GIVE_UP_S)
+        except TimeoutError:
+            self._all_in.set()
+        finally:
+            self._held -= 1
 
 
 class _Record:
@@ -68,7 +133,8 @@ class _Record:
     channel. ``info_s``: time for ``cainfo``. ``get_s``: time for a TIME-form
     (or plain) get. ``ctrl_s``: time for a CTRL-form get. ``put_s``: time until
     the put callback arrives (only a waiting put waits for it). ``after_put``
-    runs once the put has ended, however it ended.
+    runs once the put has ended, however it ended. ``read_gate`` and
+    ``put_gate`` hold a connected get or put at a :class:`_Rendezvous`.
     """
 
     def __init__(
@@ -81,6 +147,8 @@ class _Record:
         get_s: float = 0.0,
         ctrl_s: float = 0.0,
         put_s: float = 0.0,
+        read_gate: _Rendezvous | None = None,
+        put_gate: _Rendezvous | None = None,
     ):
         self.held = value
         self.labels = labels
@@ -89,8 +157,11 @@ class _Record:
         self.get_s = get_s
         self.ctrl_s = ctrl_s
         self.put_s = put_s
+        self.read_gate = read_gate
+        self.put_gate = put_gate
         self.after_put: Any = None
         self.down = False
+        self.clock: VirtualClock  # set by the fake that serves it
         self._connected_at: float | None = None
         self.puts: list[Any] = []
         self.put_threads: list[str] = []
@@ -108,29 +179,23 @@ class _Record:
     def reconnect_after(self, seconds: float) -> None:
         """The channel drops and is connected again ``seconds`` from now."""
         self.down = False
-        self._connected_at = time.monotonic() + seconds
+        self._connected_at = self.clock.monotonic() + seconds
 
-    async def wait_connected(self) -> None:
+    def until_connected(self) -> float:
+        """Seconds from now until the channel is connected."""
         if self.down:
-            await asyncio.sleep(3600.0)
-        now = time.monotonic()
+            return NEVER
+        now = self.clock.monotonic()
         if self._connected_at is None:
             self._connected_at = now + self.connect_s
-        left = self._connected_at - now
-        if left > 0:
-            await asyncio.sleep(left)
+        return max(0.0, self._connected_at - now)
 
     def reading(self, **attrs: Any) -> Any:
         return ca_reading(self.held, datatype=self.datatype, **attrs)
 
 
-async def _take(seconds: float) -> None:
-    if seconds > 0:
-        await asyncio.sleep(seconds)
-
-
 class TimingAioca(types.ModuleType):
-    """A stand-in ``aioca`` whose calls take time and honour their timeouts as aioca does."""
+    """A stand-in ``aioca`` whose calls take virtual time and keep their deadlines as aioca does."""
 
     CANothing = aioca.CANothing
     FORMAT_RAW = aioca.FORMAT_RAW
@@ -138,97 +203,108 @@ class TimingAioca(types.ModuleType):
     FORMAT_CTRL = aioca.FORMAT_CTRL
     DBR_CHAR_STR = aioca.DBR_CHAR_STR
 
-    def __init__(self, **records: _Record):
+    def __init__(self, clock: VirtualClock, **records: _Record):
         super().__init__("aioca")
+        self.clock = clock
         self.records = {name.replace("_", ":"): record for name, record in records.items()}
+        for record in self.records.values():
+            record.clock = clock
         self.calls: list[tuple[str, str, Any]] = []
 
-    @staticmethod
-    async def _bounded(name: str, timeout: Any, body) -> Any:
-        """aioca's ``ca_timeout`` under ``throw=False``: one bound over the whole call."""
+    def _deadline(self, timeout: Any) -> float:
+        """aioca's ``ca_timeout``: a relative float, an absolute tuple, or its default."""
         if timeout is None:
             timeout = AIOCA_DEFAULT_TIMEOUT
         if isinstance(timeout, tuple):
-            timeout = timeout[0] - time.time()
-        try:
-            return await asyncio.wait_for(body, timeout)
-        except TimeoutError:
-            return aioca.CANothing(name, ECA_TIMEOUT)
+            return timeout[0]
+        return self.clock.time() + timeout
+
+    def _spend(self, deadline: float, seconds: float) -> bool:
+        """Spend ``seconds`` of the call, or answer ``False`` at the deadline if they do not fit."""
+        finish = self.clock.monotonic() + seconds
+        if finish > deadline:
+            self.clock.advance_to(deadline)
+            return False
+        self.clock.advance_to(finish)
+        return True
+
+    @staticmethod
+    def _timed_out(name: str) -> Any:
+        return aioca.CANothing(name, ECA_TIMEOUT)
 
     async def connect(self, name, *, timeout=None, throw=True, **_kw):
         assert throw is False
         self.calls.append(("connect", name, timeout))
         record = self.records[name]
-
-        async def body():
-            await record.wait_connected()
-            return aioca.CANothing(name)
-
-        return await self._bounded(name, timeout, body())
+        if not self._spend(self._deadline(timeout), record.until_connected()):
+            return self._timed_out(name)
+        return aioca.CANothing(name)
 
     async def caget(self, name, *, format=aioca.FORMAT_RAW, timeout=None, throw=True, **_kw):
         assert throw is False
         self.calls.append(("caget", name, format))
         record = self.records[name]
-
-        async def body():
-            await record.wait_connected()
-            if format == aioca.FORMAT_CTRL:
-                record.ctrl_fetches += 1
-                await _take(record.ctrl_s)
-                return record.reading(units="mA", precision=3, enums=record.labels)
-            await _take(record.get_s)
-            return record.reading()
-
-        return await self._bounded(name, timeout, body())
+        deadline = self._deadline(timeout)
+        if not self._spend(deadline, record.until_connected()):
+            return self._timed_out(name)
+        if record.read_gate is not None:
+            await record.read_gate.arrive()
+        if format == aioca.FORMAT_CTRL:
+            record.ctrl_fetches += 1
+            if not self._spend(deadline, record.ctrl_s):
+                return self._timed_out(name)
+            return record.reading(units="mA", precision=3, enums=record.labels)
+        if not self._spend(deadline, record.get_s):
+            return self._timed_out(name)
+        return record.reading()
 
     async def cainfo(self, name, *, timeout=None, throw=True, **_kw):
         assert throw is False
         self.calls.append(("cainfo", name, None))
         record = self.records[name]
-
-        async def body():
-            await record.wait_connected()
-            await _take(record.info_s)
-            return types.SimpleNamespace(name=name, datatype=record.datatype, count=1, write=True)
-
-        return await self._bounded(name, timeout, body())
+        deadline = self._deadline(timeout)
+        if not self._spend(deadline, record.until_connected()):
+            return self._timed_out(name)
+        if not self._spend(deadline, record.info_s):
+            return self._timed_out(name)
+        return types.SimpleNamespace(name=name, datatype=record.datatype, count=1, write=True)
 
     async def caput(self, name, value, *, wait=False, timeout=None, throw=True, **_kw):
         assert throw is False
         self.calls.append(("caput", name, value))
         record = self.records[name]
-
-        async def body():
-            await record.wait_connected()
-            record.puts.append(value)
-            record.put_threads.append(threading.current_thread().name)
-            record.door_seen.append(door_is_open())
-            # The IOC maps an enum label to its state itself.
-            if record.labels is not None and isinstance(value, str) and value in record.labels:
-                record.held = record.labels.index(value)
-            else:
-                record.held = value
-            try:
-                if wait:
-                    await _take(record.put_s)
-            finally:
-                if record.after_put is not None:
-                    record.after_put()
-            return aioca.CANothing(name)
-
-        return await self._bounded(name, timeout, body())
+        deadline = self._deadline(timeout)
+        if not self._spend(deadline, record.until_connected()):
+            return self._timed_out(name)
+        if record.put_gate is not None:
+            await record.put_gate.arrive()
+        record.puts.append(value)
+        record.put_threads.append(threading.current_thread().name)
+        record.door_seen.append(door_is_open())
+        # The IOC maps an enum label to its state itself.
+        if record.labels is not None and isinstance(value, str) and value in record.labels:
+            record.held = record.labels.index(value)
+        else:
+            record.held = value
+        try:
+            if wait and not self._spend(deadline, record.put_s):
+                return self._timed_out(name)
+        finally:
+            if record.after_put is not None:
+                record.after_put()
+        return aioca.CANothing(name)
 
 
 class _SlowHopLoop(InlineCaLoop):
     """A busy CA loop: each coroutine starts ``hop`` seconds after it is handed over."""
 
-    def __init__(self, hop: float):
+    def __init__(self, clock: VirtualClock, hop: float):
         super().__init__()
+        self.clock = clock
         self.hop = hop
 
     async def run(self, coro):
-        await asyncio.sleep(self.hop)
+        self.clock.advance(self.hop)
         return await coro
 
 
@@ -259,6 +335,14 @@ def _writes_enabled(monkeypatch):
     monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
 
 
+@pytest.fixture(autouse=True)
+def clock(monkeypatch) -> VirtualClock:
+    """The connector reads the virtual clock, never the wall clock."""
+    clock = VirtualClock()
+    monkeypatch.setattr(_epics_connector, "time", clock)
+    return clock
+
+
 @pytest.fixture
 def ca_loop():
     """A CA loop on a thread of its own, as in production."""
@@ -267,104 +351,106 @@ def ca_loop():
     loop.stop()
 
 
-async def _timed_write(connector, address, value, **kw):
-    start = time.monotonic()
+async def _timed_write(clock, connector, address, value, **kw):
+    start = clock.monotonic()
     result = await connector.write_channel(address, value, **kw)
-    return result, time.monotonic() - start
+    return result, clock.monotonic() - start
 
 
 class TestStepRead:
-    def test_a_slow_connection_and_a_slow_get_share_one_budget(self):
-        """Connection and get each take most of S; the read still ends within S."""
-        connector = _connector(TimingAioca(SR_CH=_Record(connect_s=0.2, get_s=0.2)))
+    def test_a_slow_connection_and_a_slow_get_share_one_budget(self, clock):
+        """Connection and get each fit in S; together they do not, and the read ends at S."""
+        connector = _connector(TimingAioca(clock, SR_CH=_Record(connect_s=0.2, get_s=0.2)))
 
-        start = time.monotonic()
+        start = clock.monotonic()
         current = connector.current_value_reader()("SR:CH")
-        elapsed = time.monotonic() - start
+        elapsed = clock.monotonic() - start
 
         assert current is None
-        assert elapsed <= S + SLACK
+        assert elapsed == pytest.approx(S)
 
     @pytest.mark.asyncio
-    async def test_a_step_read_that_never_connects_refuses_within_s(self):
+    async def test_a_step_read_that_never_connects_refuses_at_s(self, clock):
         record = _Record(connect_s=NEVER)
-        connector = _connector(TimingAioca(SR_CH=record), validator=_step_checking_validator())
+        connector = _connector(
+            TimingAioca(clock, SR_CH=record), validator=_step_checking_validator()
+        )
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.REFUSED
         assert record.puts == []
-        assert elapsed <= S + SLACK
+        assert elapsed == pytest.approx(S)
 
 
 class TestPut:
     @pytest.mark.asyncio
-    async def test_a_put_whose_callback_never_comes_is_unconfirmed_within_t(self):
+    async def test_a_put_whose_callback_never_comes_is_unconfirmed_at_t(self, clock):
         record = _Record(put_s=NEVER)
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert record.puts == [2.0]
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_the_connection_is_charged_to_the_put_deadline(self):
+    async def test_the_connection_is_charged_to_the_put_deadline(self, clock):
         """A connection that takes most of T leaves the callback only the rest."""
         record = _Record(connect_s=0.3, put_s=0.3)
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert record.puts == [2.0]
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_connect_field_lookup_and_put_share_one_deadline(self):
+    async def test_connect_field_lookup_and_put_share_one_deadline(self, clock):
         """Each step fits in T on its own; together they do not, and the put phase ends at T."""
         record = _Record(connect_s=0.15, info_s=0.15, put_s=0.15)
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert record.puts == [2.0]
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_a_field_lookup_that_never_answers_fails_the_put_unsent_within_t(self):
+    async def test_a_field_lookup_that_never_answers_fails_the_put_unsent_at_t(self, clock):
         record = _Record(info_s=NEVER)
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.FAILED
         assert record.puts == []
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_the_put_deadline_is_set_before_the_hop_to_the_ca_loop(self):
+    async def test_the_put_deadline_is_set_before_the_hop_to_the_ca_loop(self, clock):
         """Time spent waiting for a busy CA loop is charged to the put: past T, nothing is sent."""
         record = _Record()
         hop = 1.5 * T
-        connector = _connector(TimingAioca(SR_CH=record), loop=_SlowHopLoop(hop))
+        connector = _connector(TimingAioca(clock, SR_CH=record), loop=_SlowHopLoop(clock, hop))
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=False)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=False)
 
         assert result.outcome is WriteOutcome.FAILED
         assert record.puts == []
-        assert elapsed <= hop + SLACK
+        assert elapsed == pytest.approx(hop)
 
     @pytest.mark.asyncio
-    async def test_a_put_after_its_deadline_is_not_sent(self):
+    async def test_a_put_after_its_deadline_is_not_sent(self, clock):
         record = _Record()
-        fake = TimingAioca(SR_CH=record)
+        fake = TimingAioca(clock, SR_CH=record)
         connector = _connector(fake)
 
         verdict, _failure = await connector._put_ca(
-            "SR:CH", 2.0, wait=True, deadline=(time.time() - 0.01,)
+            "SR:CH", 2.0, wait=True, deadline=(clock.time() - 0.01,)
         )
 
         assert verdict == "not_sent"
@@ -372,9 +458,9 @@ class TestPut:
         assert not [call for call in fake.calls if call[0] == "caput"]
 
     @pytest.mark.asyncio
-    async def test_the_door_is_open_where_the_put_runs(self, ca_loop):
+    async def test_the_door_is_open_where_the_put_runs(self, clock, ca_loop):
         record = _Record()
-        connector = _connector(TimingAioca(SR_CH=record), loop=ca_loop)
+        connector = _connector(TimingAioca(clock, SR_CH=record), loop=ca_loop)
 
         result = await connector.write_channel("SR:CH", 2.0, confirm=True)
 
@@ -386,26 +472,26 @@ class TestPut:
 
 class TestConfirmingRead:
     @pytest.mark.asyncio
-    async def test_a_get_that_never_answers_is_unconfirmed_within_t(self):
+    async def test_a_get_that_never_answers_is_unconfirmed_at_t(self, clock):
         record = _Record()
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
         def stall():
             record.get_s = NEVER  # the put lands; the read that follows stalls
 
         record.after_put = stall
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert record.puts == [2.0]
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_connect_and_get_share_the_confirming_read_deadline(self):
+    async def test_connect_and_get_share_the_confirming_read_deadline(self, clock):
         """A reconnect and a get each fit in T; together they do not, and the read ends at T."""
         record = _Record()
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
 
         def reconnect_slowly():
             record.reconnect_after(0.25)
@@ -413,40 +499,40 @@ class TestConfirmingRead:
 
         record.after_put = reconnect_slowly
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_stalled_control_fields_cost_the_read_nothing_beyond_t(self):
+    async def test_stalled_control_fields_cost_the_read_nothing_beyond_t(self, clock):
         """An enum's labels never arrive; the reading stands and the write is still confirmed."""
         record = _Record(0, labels=("OFF", "ON"), ctrl_s=NEVER)
-        connector = _connector(TimingAioca(SR_VALVE=record))
+        connector = _connector(TimingAioca(clock, SR_VALVE=record))
 
-        result, elapsed = await _timed_write(connector, "SR:VALVE", 1, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:VALVE", 1, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.observed_value == 1
         assert record.ctrl_fetches == 1
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_the_control_fetch_shares_the_get_deadline(self):
+    async def test_the_control_fetch_shares_the_get_deadline(self, clock):
         """Get and label fetch each fit in T; together they do not, and the read ends at T."""
         record = _Record(0, labels=("OFF", "ON"), get_s=0.35, ctrl_s=0.35)
-        connector = _connector(TimingAioca(SR_VALVE=record))
+        connector = _connector(TimingAioca(clock, SR_VALVE=record))
 
-        result, elapsed = await _timed_write(connector, "SR:VALVE", 1, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:VALVE", 1, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert record.ctrl_fetches == 1
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
     @pytest.mark.asyncio
-    async def test_an_enum_label_is_confirmed_with_the_fetched_labels(self):
+    async def test_an_enum_label_is_confirmed_with_the_fetched_labels(self, clock):
         record = _Record(0, labels=("OFF", "ON"))
-        connector = _connector(TimingAioca(SR_VALVE=record))
+        connector = _connector(TimingAioca(clock, SR_VALVE=record))
 
         result = await connector.write_channel("SR:VALVE", "ON", confirm=True)
 
@@ -456,9 +542,9 @@ class TestConfirmingRead:
         assert record.ctrl_fetches == 1
 
     @pytest.mark.asyncio
-    async def test_a_non_enum_channel_fetches_no_control_fields(self):
+    async def test_a_non_enum_channel_fetches_no_control_fields(self, clock):
         record = _Record()
-        fake = TimingAioca(SR_CH=record)
+        fake = TimingAioca(clock, SR_CH=record)
         connector = _connector(fake)
 
         result = await connector.write_channel("SR:CH", 2.0, confirm=True)
@@ -471,8 +557,8 @@ class TestConfirmingRead:
 
 class TestConnectionEvidence:
     @pytest.mark.asyncio
-    async def test_a_confirming_read_records_its_connection_for_stale_detection(self):
-        connector = _connector(TimingAioca(SR_CH=_Record()))
+    async def test_a_confirming_read_records_its_connection_for_stale_detection(self, clock):
+        connector = _connector(TimingAioca(clock, SR_CH=_Record()))
 
         await connector._confirming_read("SR:CH", T)
 
@@ -480,25 +566,25 @@ class TestConnectionEvidence:
         assert "SR:CH" not in connector._connect_failures
 
     @pytest.mark.asyncio
-    async def test_a_confirming_read_that_cannot_connect_records_the_failure(self):
+    async def test_a_confirming_read_that_cannot_connect_records_the_failure(self, clock):
         record = _Record()
-        connector = _connector(TimingAioca(SR_CH=record))
+        connector = _connector(TimingAioca(clock, SR_CH=record))
         record.after_put = record.drop  # the put lands, then the channel goes down
 
-        result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "SR:CH" in connector._connect_failures
-        assert elapsed <= T + SLACK
+        assert elapsed == pytest.approx(T)
 
 
 class TestWholeWrite:
     @pytest.mark.asyncio
-    async def test_every_phase_slow_still_ends_within_s_plus_2t(self, ca_loop):
+    async def test_every_phase_slow_still_ends_within_s_plus_2t(self, clock, ca_loop):
         """Step read and put each succeed late in their budgets, then the read stalls."""
         record = _Record(0, labels=("OFF", "ON"), get_s=0.25, put_s=0.3)
         connector = _connector(
-            TimingAioca(SR_VALVE=record), validator=_step_checking_validator(), loop=ca_loop
+            TimingAioca(clock, SR_VALVE=record), validator=_step_checking_validator(), loop=ca_loop
         )
 
         def stall_after_put():
@@ -507,31 +593,38 @@ class TestWholeWrite:
 
         record.after_put = stall_after_put
 
-        result, elapsed = await _timed_write(connector, "SR:VALVE", "ON", confirm=True)
+        result, elapsed = await _timed_write(clock, connector, "SR:VALVE", "ON", confirm=True)
 
         assert record.puts == ["ON"]
         assert result.outcome is WriteOutcome.UNCONFIRMED
+        # The step read's get, the put's callback, then the whole confirming read.
+        assert elapsed == pytest.approx(0.25 + 0.3 + T)
         assert elapsed <= BOUND
 
     @pytest.mark.asyncio
-    async def test_a_saturated_default_executor_does_not_delay_a_write(self):
-        """Work that fills the loop's default pool cannot queue a write's validation."""
+    async def test_a_saturated_default_executor_does_not_delay_a_write(self, clock):
+        """Work that fills the loop's default pool cannot queue a write's validation.
+
+        The pool's one worker is held until the write is over, so a validation
+        queued there would never run and the write would not end.
+        """
         loop = asyncio.get_running_loop()
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         loop.set_default_executor(pool)
         release = threading.Event()
-        blockers = [loop.run_in_executor(None, release.wait, 10.0) for _ in range(3)]
+        blockers = [loop.run_in_executor(None, release.wait, GIVE_UP_S) for _ in range(3)]
         try:
             record = _Record()
             seen: list[str] = []
             connector = _connector(
-                TimingAioca(SR_CH=record), validator=_step_checking_validator(seen)
+                TimingAioca(clock, SR_CH=record), validator=_step_checking_validator(seen)
             )
 
-            result, elapsed = await _timed_write(connector, "SR:CH", 2.0, confirm=True)
+            result = await asyncio.wait_for(
+                connector.write_channel("SR:CH", 2.0, confirm=True), GIVE_UP_S
+            )
 
             assert result.outcome is WriteOutcome.CONFIRMED
-            assert elapsed <= BOUND
             assert len(seen) == 1
             assert seen[0].startswith(WRITE_THREAD_PREFIX)
         finally:
@@ -539,21 +632,26 @@ class TestWholeWrite:
             await asyncio.gather(*blockers)
 
     @pytest.mark.asyncio
-    async def test_concurrent_stalled_writes_do_not_queue_behind_each_other(self, ca_loop):
-        """Many writes to distinct stalled channels at once each end within S + 2T."""
+    async def test_concurrent_stalled_writes_do_not_queue_behind_each_other(self, clock, ca_loop):
+        """Stalled writes to distinct channels have their reads, then puts, in flight together."""
         count = 16
-        records = {f"SR_CH{i}": _Record(get_s=0.25, put_s=NEVER) for i in range(count)}
+        reads, puts = _Rendezvous(count), _Rendezvous(count)
+        records = {
+            f"SR_CH{i}": _Record(put_s=NEVER, read_gate=reads, put_gate=puts) for i in range(count)
+        }
         connector = _connector(
-            TimingAioca(**records), validator=_step_checking_validator(), loop=ca_loop
+            TimingAioca(clock, **records), validator=_step_checking_validator(), loop=ca_loop
+        )
+        # The step read's real-time backstop on the CA loop must outlast the rendezvous.
+        connector._step_read_timeout = 3 * GIVE_UP_S
+
+        results = await asyncio.gather(
+            *(connector.write_channel(f"SR:CH{i}", 2.0, confirm=True) for i in range(count))
         )
 
-        outcomes = await asyncio.gather(
-            *(_timed_write(connector, f"SR:CH{i}", 2.0, confirm=True) for i in range(count))
-        )
-
-        for result, elapsed in outcomes:
-            assert result.outcome is WriteOutcome.UNCONFIRMED
-            assert elapsed <= BOUND
+        assert reads.most == count
+        assert puts.most == count
+        assert all(result.outcome is WriteOutcome.UNCONFIRMED for result in results)
         assert all(record.puts == [2.0] for record in records.values())
 
     def test_the_write_executor_refuses_a_call_past_its_thread_cap(self):
@@ -572,8 +670,12 @@ class TestWholeWrite:
         executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_disconnect_retires_the_write_executor_and_a_later_write_builds_a_new_one(self):
-        connector = _connector(TimingAioca(SR_CH=_Record()), validator=_step_checking_validator())
+    async def test_disconnect_retires_the_write_executor_and_a_later_write_builds_a_new_one(
+        self, clock
+    ):
+        connector = _connector(
+            TimingAioca(clock, SR_CH=_Record()), validator=_step_checking_validator()
+        )
 
         await connector.write_channel("SR:CH", 2.0, confirm=True)
         first = connector._write_executor

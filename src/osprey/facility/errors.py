@@ -70,6 +70,7 @@ WARNING_KINDS: tuple[str, ...] = (
     "relation-stub",
     "place-unplaced",
     "members-disagree",
+    "kind-deferred",
 )
 
 

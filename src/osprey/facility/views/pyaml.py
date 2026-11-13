@@ -944,7 +944,8 @@ def _kind_sections(
 
     A kind with no tool writes no tool section. Each tool section is ``type``
     and ``name``, the writer's keys, then the kind's ``tool_keys`` the
-    measurement file states.
+    measurement file states. A kind the measurement stage deferred, registered
+    by no installed package, writes nothing.
     """
     from osprey.facility.kinds import registered
 
@@ -953,6 +954,8 @@ def _kind_sections(
     extras: list[dict[str, Any]] = []
     files: dict[str, str] = {}
     for kind in kinds:
+        if kind not in declared:
+            continue
         declaration = declared[kind]
         if declaration.tool is not None and declaration.view_section is not None:
             written = declaration.view_section(context)
@@ -1024,7 +1027,9 @@ def kind_records(
         for role, array in array_of.items()
     }
     declared = registered()
-    listed = [declared[str(kind)] for kind in measurement.get("kinds") or []]
+    # A deferred kind, registered by no installed package, has no record here.
+    names_listed = [str(kind) for kind in measurement.get("kinds") or [] if str(kind) in declared]
+    listed = [declared[kind] for kind in names_listed]
     group_addresses |= {
         role: addresses
         for role, addresses in measurement_groups(records, model, member_sorts(listed)).items()
@@ -1040,8 +1045,8 @@ def kind_records(
         role_names["tune"] = str(monitors[-1]["name"])
     blocks = measurement.get("kind_blocks") or {}
     kinds: dict[str, Any] = {}
-    for kind in measurement.get("kinds") or []:
-        declaration = declared[str(kind)]
+    for kind in names_listed:
+        declaration = declared[kind]
         members = {
             role: {
                 "requirement": requirement,

@@ -23,15 +23,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.facility import FACILITY_FILE  # noqa: E402
-from osprey.simulation import model_request  # noqa: E402
-from osprey_connectors.simulation.composite import Composite  # noqa: E402
-from tests.facility._turn_by_turn_fixture import (  # noqa: E402
+from osprey.facility import FACILITY_FILE
+from osprey.simulation import model_request
+from osprey_connectors.simulation.composite import Composite
+from tests.facility._turn_by_turn_fixture import (
     ARMS,
     DECK,
     MONITORS,

@@ -1,0 +1,1 @@
+The Info icon of an artifact tile, and of the Artifacts tile, now opens the details card when the tile is in a window of its own. Before, a click on it did nothing there, because the card was looked for only in the main page. In the window, the card also shows the from-another-session notice, and "Got it" works there too.

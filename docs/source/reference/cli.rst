@@ -1204,6 +1204,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility:place/<id>``, no place), prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   A measurement kind no installed package registers, in a tree that mounts no
+   machine root and lists no application and no dependency, prints one
+   ``facility: kind-deferred: measurement <model> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
    A group whose sources state different members prints one
    ``members-disagree`` warning naming which source states which member; the
    group carries them all.

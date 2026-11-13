@@ -5,7 +5,7 @@ Shift+F10 with focus on it, the menu taking focus on its first row and Escape
 handing it back. Pins:
 
 - A tile bar's ⋯ and a right-click on the bar offer the same rows.
-- A pop-out's bar carries the window rows (Reattach, Reload, Close window) and
+- A pop-out's bar carries the window rows (Reattach, Zoom, Reload, Close window) and
   none of the dock's; Close window closes the window and the panel keeps its
   sidebar row, with no tile coming back.
 - A right-click on the terminal body opens the Terminal menu.
@@ -245,6 +245,7 @@ def test_a_tile_bars_more_button_and_a_right_click_on_the_bar_offer_the_same_row
         assert from_bar == [
             "Open panel",
             "Maximize",
+            "Zoom",
             "Open in new window",
             "Reload",
             "Reveal in sidebar",
@@ -282,8 +283,8 @@ def test_a_pop_out_bar_has_the_window_rows_and_close_window_keeps_the_sidebar_ro
         # The window rows, Close window last; nothing that acts on a dock or
         # on the rail membership of a panel already on it.
         assert labels[labels.index("Reattach") :] in (
-            ["Reattach", "Reload", "Close window"],
-            ["Reattach", "Reload", "Help", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Help", "Close window"],
         ), labels
         for verb in (
             "Open panel",

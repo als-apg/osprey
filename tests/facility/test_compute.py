@@ -7,19 +7,18 @@ import io
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 import yaml
 
-at = pytest.importorskip("at")
-
-from osprey.facility import compute  # noqa: E402
-from osprey.facility.build import (  # noqa: E402
+from osprey.facility import compute
+from osprey.facility.build import (
     LATER_STAGES,
     build_facility,
     build_facility_with_warnings,
 )
-from osprey.facility.errors import FacilityBuildError  # noqa: E402
-from osprey.facility.validate import StageReport, run_stages, validate  # noqa: E402
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.validate import StageReport, run_stages, validate
 
 QUAD = "Quadrupole"
 BPM = "BeamPositionMonitor"

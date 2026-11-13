@@ -13,8 +13,6 @@ import pytest
 from tests import _session_database
 from tests._session_database import DEV_SERVER_URL_5432, DEV_SERVER_URL_5433, own_database
 
-pytest.importorskip("psycopg")
-
 
 @pytest.fixture
 def silent_server() -> Iterator[int]:

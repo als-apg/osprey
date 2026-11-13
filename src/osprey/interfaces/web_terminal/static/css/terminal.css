@@ -149,15 +149,16 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-sessi
   min-height: var(--sidebar-tree-floor, 52px);
 }
 
-/* Rows keep their height; a box keeps min(its content, 3 rows of 26 px and
-   its 2 px padding): up to three rows it never shrinks, past that 80 px. */
+/* Rows keep their height; a box keeps min(its content, 5½ rows of 26 px and
+   its 2 px padding): up to six rows it never shrinks, past that 145 px, five
+   whole rows and half of the sixth under the fade, so it reads as scrollable. */
 .sidebar-group > .sidebar-row > [data-session-tree] > :not(.osprey-tree-box),
-.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(4))) {
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(7))) {
   flex: none;
 }
 
-.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(4)) {
-  min-height: 80px;
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(7)) {
+  min-height: 145px;
 }
 
 /* A scrolled group fades at whichever edge has more (sidebar.js sets .fade /
@@ -497,14 +498,16 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   position: relative;
 }
 
-/* The Sessions row's "+" (a new session) sits over the row's right end; the
-   row keeps that room clear for its Open hint and badge. Collapsed, the
-   sidebar shows the row's icon alone and no "+". */
+/* The Sessions row's view button (sidebar-session-view.js) and "+" (a new
+   session) sit over the row's right end; the row keeps that room clear for
+   its Open hint and badge. Collapsed, the sidebar shows the row's icon alone
+   and neither button. */
 html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
-  padding-right: 32px;
+  padding-right: 56px;
 }
 
-.sidebar-new-session {
+.sidebar-new-session,
+.sidebar-session-view {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -513,9 +516,25 @@ html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
   color: var(--text-muted);
 }
 
-.sidebar-new-session .osprey-ic {
+.sidebar-session-view {
+  right: 26px;
+}
+
+:is(.sidebar-new-session, .sidebar-session-view) .osprey-ic {
   width: 14px;
   height: 14px;
+}
+
+/* A view that differs from the defaults: a small accent dot on the button. */
+.sidebar-session-view[data-changed]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
 }
 
 .sidebar-kids {
@@ -782,7 +801,8 @@ html[data-sidebar="collapsed"] :is(
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
   .sidebar-open-hint,
-  .sidebar-new-session
+  .sidebar-new-session,
+  .sidebar-session-view
 ) {
   display: none;
 }
@@ -1376,8 +1396,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
    "Where am I" is the first thing read, so it is not the middle row of an
    equal list: it is a card under the popover's "The agent is on" title, with
-   the name, the consequence line, and the writes switch. The accent tint is
-   quiet, not a warning. */
+   the name and the writes switch on one line and any note under them. The
+   accent tint is quiet, not a warning. */
 .ctc-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1408,10 +1428,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .ctc-card .ctc-switchwrap {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
 }
 
-.ctc-card > .ctc-outcome {
+/* The notes under the name line (a held write phrase, an outcome) run the
+   card's whole width. */
+.ctc-card > :not(.ctc-card-title, .ctc-switchwrap) {
   grid-column: 1 / -1;
 }
 
@@ -1668,10 +1690,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   font-style: italic;
 }
 
-.ctc-outcome[data-status="success"] {
-  color: var(--color-success);
-}
-
 .ctc-outcome[data-status="refused"],
 .ctc-outcome[data-status="expired"] {
   color: var(--color-error);
@@ -1846,7 +1864,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
    layout parent to hang off. */
 .rail-context-menu {
   position: fixed;
-  min-width: 200px;
+  min-width: 220px;
   max-width: 280px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -1862,12 +1880,14 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 .rail-context-item {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: 6px var(--space-2);
   text-align: left;
   font-family: var(--font-display);
+  min-height: 30px;
   font-size: var(--text-lg);
+  line-height: var(--leading-tight);
   color: var(--text-primary);
   background: none;
   border: none;
@@ -1877,7 +1897,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .rail-context-item:hover,
-.rail-context-item:focus {
+.rail-context-item:focus-visible {
   background: var(--bg-elevated);
   outline: none;
 }
@@ -1901,14 +1921,14 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* The hovered row's glyph joins its text colour — on the danger row that is
    how the "×" turns red with "Remove from rail". */
 .rail-context-item:hover .rail-context-glyph,
-.rail-context-item:focus .rail-context-glyph {
+.rail-context-item:focus-visible .rail-context-glyph {
   color: inherit;
 }
 
 /* Destructive verb: neutral at rest like every other row, error-red the
    moment it is the one about to run. */
 .rail-context-item.danger:hover,
-.rail-context-item.danger:focus {
+.rail-context-item.danger:focus-visible {
   color: var(--color-error);
   background: var(--error-tint-10);
 }
@@ -1922,7 +1942,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .rail-context-item[aria-disabled="true"]:hover,
-.rail-context-item[aria-disabled="true"]:focus {
+.rail-context-item[aria-disabled="true"]:focus-visible {
   color: var(--text-muted);
   background: none;
 }

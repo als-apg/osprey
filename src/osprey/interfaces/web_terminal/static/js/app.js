@@ -22,7 +22,7 @@ import { wireAgentLinks } from './agent-links.js';
 import { wireArtifactLinks } from './artifact-links.js';
 import { fetchJSON, withPrefix } from './api.js';
 import { getPointer, setPointer } from './session-pointer.js';
-import { subscribe as subscribeToSessions } from './session-model.js';
+import { subscribe as subscribeToSessions, switchTo } from './session-model.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -30,11 +30,11 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSafetySwitches } from './safety-switches.js';
 import { initCodeReviewTab } from './code-review-tab.js';
-import { startNewSession } from './sessions.js';
 import { attachSessionSwitcher } from './session-switcher.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
 import { installPlaceMenus } from './place-menu.js';
+import { fillFrame, initPaneZoom, installZoomWheel } from './pane-zoom.js';
 import { initPaneWindow } from './pane-window.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
@@ -158,9 +158,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // window, which pane-window wires as it dresses one.
   try {
     installPlaceMenus(document);
-    initPaneWindow({ installPlaceMenus });
+    initPaneWindow({ installPlaceMenus, installZoomWheel, fillFrame });
   } catch (err) {
     console.error('Failed to init the place menus:', err);
+  }
+  // Ctrl+wheel and pinch zoom one pane (pane-zoom.js), not the page.
+  try {
+    initPaneZoom();
+  } catch (err) {
+    console.error('Failed to init the pane zoom:', err);
   }
   // The empty dock slot's menu. After the panel manager and the dock: it reads
   // the rail and the layout holder. panel-manager's verbs are injected, since
@@ -278,7 +284,11 @@ function initControlSystemBlock() {
 
 /* ---- New Session Button ---- */
 
-function initNewSessionButton() {
+/**
+ * The terminal's Agent bar `+`: a new session, the way every other `+` starts
+ * one. Exported for testability: the DOMContentLoaded bootstrap calls it.
+ */
+export function initNewSessionButton() {
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
   // Its `+` is a placeholder svg; the dock may hold the bar off the page when
@@ -288,7 +298,7 @@ function initNewSessionButton() {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
-      await startNewSession();
+      await switchTo({ new: true });
     } catch (err) {
       console.error('Failed to start new session:', err);
     } finally {

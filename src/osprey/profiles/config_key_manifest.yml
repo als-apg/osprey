@@ -2054,7 +2054,8 @@ keys:
     note: >-
       Extra environment variable names the agent-code sandboxes pass through
       on top of their fixed allowlist; read per run by the python executor,
-      the visualization sandbox and plan validation
+      the visualization sandbox and plan validation, and at start by the
+      notebook sidecar for its server and kernels
       (`mcp_server/sandbox_env.configured_child_env_passthrough`). It cannot
       name one of osprey's own endpoint tokens or terminal names: such an
       entry is an error.

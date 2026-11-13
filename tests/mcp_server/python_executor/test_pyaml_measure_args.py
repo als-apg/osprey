@@ -26,8 +26,6 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_args import (
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.mcp_server.conftest import assert_error
 
-pytest.importorskip("pyaml")
-
 #: The measurement file SR is given: every kind its instruments allow.
 SR_KINDS = ["orm", "dispersion", "trm"]
 

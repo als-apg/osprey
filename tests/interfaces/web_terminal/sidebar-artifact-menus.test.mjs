@@ -1,6 +1,6 @@
 /**
  * The session tree's context menus (sidebar-artifact-menus.js): each row
- * kind's exact items, New session through switchTo, Group by on the Agent row
+ * kind's exact items, New session through switchTo, Artifacts by on the Agent row
  * only, a session's Open / Focus and Pin / Unpin, Show pinned sessions, rename
  * in place, the transcript export, Collapse others, a disabled approval
  * preview, Copy run ID, Download, the delete guard on an artifact, on a run
@@ -154,13 +154,13 @@ afterEach(() => {
 });
 
 describe('the Agent row', () => {
-  test('New session, Group by, Show pinned sessions, Expand all — and New session goes through switchTo({new: true})', async () => {
+  test('New session, Artifacts by, Show pinned sessions, Expand all — and New session goes through switchTo({new: true})', async () => {
     const items = menus.buildAgentRowMenuItems();
     /** @param {{label?: string}} i */
     const label = (i) => i.label;
     expect(items.filter(label).map(label)).toEqual([
       'New session',
-      'Group by',
+      'Artifacts by',
       'Show pinned sessions',
       'Expand all',
     ]);
@@ -168,16 +168,17 @@ describe('the Agent row', () => {
     await vi.waitFor(() => expect(sessionModel.switchTo).toHaveBeenCalledWith({ new: true }));
   });
 
-  test('Group by ▸ Kind / Activity, checked from the stored mode, applies through the controller', async () => {
+  test('Artifacts by ▸ Activity / Kind, checked from the stored mode, applies through the controller', async () => {
     listing.readTreeView.mockReturnValue('activity');
     const group = /** @type {any} */ (
-      menus.buildAgentRowMenuItems().find((/** @type {any} */ i) => i.label === 'Group by')
+      menus.buildAgentRowMenuItems().find((/** @type {any} */ i) => i.label === 'Artifacts by')
     );
     expect(group.submenu.map((/** @type {any} */ i) => [i.label, i.checked])).toEqual([
-      ['Kind', false],
       ['Activity', true],
+      ['Kind', false],
     ]);
-    group.submenu[0].run();
+    expect(group.value).toBe('Activity');
+    group.submenu[1].run();
     await vi.waitFor(() => expect(controller.setTreeView).toHaveBeenCalledWith('kind'));
     listing.readTreeView.mockReturnValue('kind');
   });
@@ -198,7 +199,7 @@ describe('the Agent row: Expand all / Collapse all', () => {
     const labels = menus.buildAgentRowMenuItems().map((/** @type {any} */ i) => i.label);
     expect(labels.filter(Boolean)).toEqual([
       'New session',
-      'Group by',
+      'Artifacts by',
       'Show pinned sessions',
       'Collapse all',
     ]);
@@ -254,9 +255,9 @@ describe('a session row', () => {
     expect(menuRow('Open in Agent')).toBeUndefined();
   });
 
-  test('Group by is not on a session row (it is the Sessions row’s)', async () => {
+  test('Artifacts by is not on a session row (it is the Sessions row’s)', async () => {
     await rightClick($('.osprey-tree-title'));
-    expect(menuLabels().some((l) => l.startsWith('Group by'))).toBe(false);
+    expect(menuLabels().some((l) => l.startsWith('Artifacts by'))).toBe(false);
   });
 
   test('Open clicks the row (the controller switches the Agent to it)', async () => {

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.dispatch_worker.record_double import worker_record  # noqa: F401 - a fixture
+
 
 @pytest.fixture
 def facility_zone_config(tmp_path, monkeypatch) -> str:
@@ -18,6 +20,3 @@ def facility_zone_config(tmp_path, monkeypatch) -> str:
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
     return "Asia/Tokyo"
-
-
-from tests.dispatch_worker.record_double import worker_record  # noqa: E402, F401 - a fixture

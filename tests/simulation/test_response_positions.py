@@ -18,16 +18,14 @@ from typing import Any
 import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.simulation import model_request  # noqa: E402
-from osprey.simulation.response import (  # noqa: E402
+from osprey.simulation import model_request
+from osprey.simulation.response import (
     COLUMN_POSITIONS_KEY,
     RESULT_TAG,
     ROW_POSITIONS_KEY,
 )
-from tests.apps.test_sdk_model import _ring_render  # noqa: E402
-from tests.simulation.test_response_kind import _payload, _printed  # noqa: E402
+from tests.apps.test_sdk_model import _ring_render
+from tests.simulation.test_response_kind import _payload, _printed
 
 ROWS = ["BPM_1:X", "BPM_2:X"]
 

@@ -1,0 +1,1 @@
+Automatic session names are now shorter: a noun phrase of 2 to 4 words and at most 32 characters (before: up to 6 words and 60 characters), for example "Storage ring vacuum pressures". Most names now fit in the sidebar row without an ellipsis. Sessions that already have a name keep it.
