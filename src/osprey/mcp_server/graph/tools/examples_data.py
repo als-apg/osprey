@@ -12,7 +12,12 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
   plus ``:ChannelBinding``, ``:Class``, and one device-class label per device;
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
   ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``, plus ``:LOCATEDIN`` (device to
-  its place) and ``:PARTOF`` (place to its parent place);
+  its place) and ``:PARTOF`` (place to its parent place). A corpus with
+  relation claims adds one type per relation (``:POWEREDBY``, ``:CABLEDTO``,
+  ``:PARTOF`` device to device, ...), its ``CONTESTED`` twin for a contested
+  claim, ``:HASMEMBER`` from a ``:Group``, and ``:CLAIMSUBJECT``,
+  ``:CLAIMOBJECT`` and ``:CONTESTS`` from a ``:Claim`` node. No example here
+  queries them, because the demo machine has no claims;
 * property names keep their ``narad_p:`` local spelling — ``.uri``,
   ``.deviceId``, ``.fullPv``, ``.sourceName``, ``.sectionCode``, ``.rawType``,
   ``.sPositionM``, ``.ordinalInPlace``;

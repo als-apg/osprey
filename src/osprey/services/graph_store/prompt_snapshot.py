@@ -47,6 +47,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from osprey.facility.views.graph import RELATION_PREDICATES
 from osprey.services.graph_store.seeder import NARAD_PREFIXES, local_name
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -80,10 +81,25 @@ RELATIONSHIP_TYPES_CYPHER = (
     "RETURN relationshipType ORDER BY relationshipType"
 )
 
+#: Relation types beyond the place tree, as the loader spells them.
+_RELATION_TYPES = ", ".join(
+    predicate.upper()
+    for predicate in RELATION_PREDICATES.values()
+    if predicate.upper() not in ("LOCATEDIN", "PARTOF")
+)
+
 NAMING_NOTE = (
     "n10s applyNeo4jNaming: relationship types are uppercased (HASBINDING, "
     "LOCATEDIN, PARTOF, READSSIGNAL, WRITESSIGNAL, SUBCLASSOF, TYPE); rdf:type is "
-    "both a label and a TYPE edge to a Class node"
+    "both a label and a TYPE edge to a Class node. Relation edges between devices, "
+    f"places and groups: {_RELATION_TYPES}, plus PARTOF device to device. A "
+    "contested claim's edge is the type's CONTESTED twin (LOCATEDINCONTESTED), so "
+    "plain edges never cross a disputed fact. CABLEDTO, NETWORKEDTO and SAMEAS are "
+    "symmetric: query them undirected, (a)-[:CABLEDTO]-(b). A device can have two "
+    "LOCATEDIN; the resolved place carries the device's placePath. HASMEMBER joins "
+    "a :Group to its devices. A :Claim node holds the evidence (claimId, standing, "
+    "document, locator): CLAIMSUBJECT and CLAIMOBJECT to its ends, CONTESTS to a "
+    "rival claim"
 )
 
 

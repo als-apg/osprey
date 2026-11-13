@@ -576,3 +576,46 @@ def test_the_graph_partial_states_names_places_and_routes(structural):
     assert generic and all("description" in s.lower() for s in generic), generic
     assert hardcoded_vocabulary_hits(rendered) == []
     assert PROTOCOL_WORDS.search(rendered) is None
+
+
+#: The four things the agent text must say about relations and claims.
+RELATION_RULES = (
+    "Symmetric types are queried undirected",
+    "`(a)-[:CABLEDTO]-(b)`",
+    "Plain edges never cross a disputed fact",
+    "A device can have two `LOCATEDIN`",
+    "carrying the device's `placePath`",
+    "A `:Claim` node holds the evidence",
+)
+
+
+@pytest.mark.parametrize("structural", (False, True))
+def test_the_graph_partial_states_the_relation_rules(structural):
+    """Relation edges, their twins, groups and claims, in both branches."""
+    from osprey.facility.views.graph import RELATION_PREDICATES
+
+    rendered = (
+        TemplateManager()
+        .jinja_env.get_template("claude_code/claude/agents/_terminology/graph.md.j2")
+        .render(graph_terminology_structural=structural)
+    )
+
+    for rule in RELATION_RULES:
+        assert rule in rendered, rule
+    for predicate in RELATION_PREDICATES.values():
+        assert f"`{predicate.upper()}`" in rendered, predicate
+    for shape in (
+        "`(a)-[:POWEREDBYCONTESTED]->(b)`",
+        "`(g:Group)-[:HASMEMBER]->(d)`",
+        "`(c:Claim)-[:CLAIMSUBJECT]->(a)`",
+        "`(c:Claim)-[:CLAIMOBJECT]->(b)`",
+        "`(c:Claim)-[:CONTESTS]->(rival:Claim)`",
+    ):
+        assert shape in rendered, shape
+
+
+def test_the_channel_finder_names_the_resolved_place():
+    source = (_TEMPLATE_ROOT.parent / "channel-finder.md.j2").read_text(encoding="utf-8")
+    prose = " ".join(source.split())
+    assert "A device can have two `LOCATEDIN`" in prose
+    assert "the place carrying the device's `placePath`" in prose

@@ -21,6 +21,13 @@ table reads them. Every node also wears n10s's
 ``Resource`` label, which is why the Cypher these tables replace matches on no
 node label at all.
 
+A corpus with relation claims also carries relation edges (``POWEREDBY``,
+``CABLEDTO``, ``PARTOF`` device to device and the rest, each with a
+``CONTESTED`` twin), ``:Group`` nodes joined by ``HASMEMBER`` and ``:Claim``
+nodes joined by ``CLAIMSUBJECT``, ``CLAIMOBJECT`` and ``CONTESTS``. No table
+reads them: a device's place comes from its ``placePath``, so a second,
+disputed ``LOCATEDIN`` never reaches a row.
+
 The mapping onto the tables:
 
 * ``bindings`` — one row per ``(device, binding)`` pair, denormalised with the

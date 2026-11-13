@@ -24,6 +24,7 @@ is unconfigured or down — the moment an agent most needs to be told what the
 paradigm is.
 """
 
+import functools
 import json
 import logging
 
@@ -231,7 +232,69 @@ _RELATIONSHIPS: tuple[dict[str, str], ...] = (
         "to": "parent place",
         "pattern": "(p)-[:PARTOF]->(parent)",
     },
+    {
+        "type": "HASMEMBER",
+        "from": "group",
+        "to": "device",
+        "pattern": "(g:Group)-[:HASMEMBER]->(d)",
+    },
+    {
+        "type": "CLAIMSUBJECT",
+        "from": "claim",
+        "to": "device, place or group",
+        "pattern": "(c:Claim)-[:CLAIMSUBJECT]->(a)",
+    },
+    {
+        "type": "CLAIMOBJECT",
+        "from": "claim",
+        "to": "device, place or group",
+        "pattern": "(c:Claim)-[:CLAIMOBJECT]->(b)",
+    },
+    {
+        "type": "CONTESTS",
+        "from": "claim",
+        "to": "rival claim",
+        "pattern": "(c:Claim)-[:CONTESTS]->(rival:Claim)",
+    },
 )
+
+
+def _end_kinds(kinds: list[str]) -> str:
+    """``["device", "place"]`` -> ``"device or place"``."""
+    return " or ".join(kinds)
+
+
+@functools.cache
+def _relationships() -> tuple[dict[str, str], ...]:
+    """The fixed rows plus one row per relation type of the vocabulary.
+
+    A relation row is generated from the graph view's own predicate table, so a
+    type the view writes is a type the manifest names. A symmetric type's pattern
+    is undirected: the edge runs whichever way its claim was written. A row that
+    repeats a fixed one (``LOCATEDIN`` device to place) is not listed twice.
+    """
+    from osprey.facility.validate import relation_types
+    from osprey.facility.views.graph import RELATION_PREDICATES
+
+    rows = list(_RELATIONSHIPS)
+    seen = {(row["type"], row["from"], row["to"]) for row in rows}
+    types = relation_types()
+    for name, predicate in RELATION_PREDICATES.items():
+        spec = types[name]
+        reltype = predicate.upper()
+        row = {
+            "type": reltype,
+            "from": _end_kinds(spec["subject"]),
+            "to": _end_kinds(spec["object"]),
+            "pattern": (
+                f"(a)-[:{reltype}]-(b)" if spec.get("symmetric") else f"(a)-[:{reltype}]->(b)"
+            ),
+        }
+        if (row["type"], row["from"], row["to"]) not in seen:
+            seen.add((row["type"], row["from"], row["to"]))
+            rows.append(row)
+    return tuple(rows)
+
 
 _CORPUS: dict[str, object] = {
     "property": "facility",
@@ -263,6 +326,21 @@ _NOTES: tuple[str, ...] = (
     "reachable or seeded. read_cypher and get_schema report that.",
     f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_REBUILD_HINT}` "
     "to load the corpus.",
+    "A symmetric relationship (CABLEDTO, NETWORKEDTO, SAMEAS) is queried "
+    "undirected, (a)-[:CABLEDTO]-(b): its edge runs whichever way the source "
+    "stated it.",
+    "Plain relation edges never cross a disputed fact. A contested claim's edge "
+    "takes the type's CONTESTED twin, the type name with CONTESTED appended "
+    "(LOCATEDINCONTESTED, POWEREDBYCONTESTED); a superseded claim has no edge. "
+    "Ask for both, [:POWEREDBY|POWEREDBYCONTESTED], to see the dispute.",
+    "A device can have two LOCATEDIN edges: its place in the facility file and "
+    "a source's claim that disagrees. The resolved one is the place carrying "
+    "the device's placePath: MATCH (d)-[:LOCATEDIN]->(p) WHERE p.placePath = "
+    "d.placePath.",
+    "A Claim node holds the evidence for a relation: claimId, relationType, "
+    "standing, basis, rule, document, documentVersion, documentState and "
+    "locator. Reach it from an end with (c:Claim)-[:CLAIMSUBJECT|CLAIMOBJECT]->(d); "
+    "CONTESTS joins it to a rival claim.",
 )
 
 
@@ -306,7 +384,7 @@ def capabilities() -> str:
                 "description_predicates": _DESCRIPTION_PREDICATES,
                 "synonyms": _SYNONYMS,
                 "record_names": _RECORD_NAMES,
-                "relationships": [dict(rel) for rel in _RELATIONSHIPS],
+                "relationships": [dict(rel) for rel in _relationships()],
                 "corpus": _CORPUS,
                 "limits": {
                     "timeout_s": context.query_timeout_s,

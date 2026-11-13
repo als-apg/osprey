@@ -286,6 +286,22 @@ class TestRecordNameRule:
         for reltype in ("LOCATEDIN", "PARTOF", "HASBINDING", "SUBCLASSOF", "TYPE"):
             assert re.search(rf"\b{reltype}\b", mod.NAMING_NOTE), reltype
 
+    def test_the_naming_note_lists_every_relation_type_the_view_writes(self):
+        from osprey.facility.views.graph import RELATION_PREDICATES
+
+        for predicate in RELATION_PREDICATES.values():
+            assert re.search(rf"\b{predicate.upper()}\b", mod.NAMING_NOTE), predicate
+        for reltype in ("HASMEMBER", "CLAIMSUBJECT", "CLAIMOBJECT", "CONTESTS"):
+            assert re.search(rf"\b{reltype}\b", mod.NAMING_NOTE), reltype
+
+    def test_the_naming_note_states_the_relation_rules(self):
+        note = mod.NAMING_NOTE
+        assert "CONTESTED twin" in note
+        assert "never cross a disputed fact" in note
+        assert "undirected, (a)-[:CABLEDTO]-(b)" in note
+        assert "two LOCATEDIN" in note and "placePath" in note
+        assert ":Claim node holds the evidence" in note
+
     def test_an_empty_vocabulary_snapshot_still_names_both_relationships(self):
         """The naming note renders with or without a class table."""
         schema = {**_schema(), "naming": {"note": mod.NAMING_NOTE, "sample_size": None}}

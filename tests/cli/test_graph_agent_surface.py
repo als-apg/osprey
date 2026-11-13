@@ -445,6 +445,20 @@ def test_the_agent_names_both_place_relationships_with_direction(graph_agent_tex
 
 
 @pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_agent_states_the_relation_rules(graph_agent_texts, snapshot):
+    """Undirected symmetric types, disputed facts, two places, claim evidence."""
+    prose = " ".join(graph_agent_texts[snapshot].split())
+    assert "Symmetric types are queried undirected" in prose
+    assert "`(a)-[:CABLEDTO]-(b)`" in prose
+    assert "Plain edges never cross a disputed fact" in prose
+    assert "A device can have two `LOCATEDIN`" in prose
+    assert "carrying the device's `placePath`" in prose
+    assert "A `:Claim` node holds the evidence" in prose
+    for reltype in ("HASMEMBER", "CLAIMSUBJECT", "CLAIMOBJECT", "CONTESTS"):
+        assert reltype in prose, reltype
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
 def test_no_sentence_gives_an_unscoped_altlabel_contains(graph_agent_texts, snapshot):
     """Class synonyms keep ``CONTAINS``, but only over ``(c:Class)``; names never do."""
     text = graph_agent_texts[snapshot]

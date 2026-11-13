@@ -35,6 +35,13 @@ carry ``uri`` and ``label``; classes carry ``uri`` and a list-valued
 ``altLabel`` of synonyms. Places, devices and bindings carry a list-valued
 ``altLabel`` too, holding the record's names. Every node also wears n10s's ``Resource``
 label, which is why nothing below matches on node labels.
+
+A corpus with relation claims adds relation edges (``POWEREDBY``, ``CABLEDTO``,
+``PARTOF`` device to device and the rest, each with a ``CONTESTED`` twin),
+``:Group`` nodes with ``HASMEMBER`` and ``:Claim`` nodes with
+``CLAIMSUBJECT``, ``CLAIMOBJECT`` and ``CONTESTS``. A device can then have two
+``LOCATEDIN``; its resolved place is the one carrying its ``placePath``. No
+query here walks those edges.
 """
 
 from __future__ import annotations
