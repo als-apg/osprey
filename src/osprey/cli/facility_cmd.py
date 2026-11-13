@@ -34,8 +34,8 @@ does not. With an ID it prints that record, its provenance and the fixes
 applied to it. ``--json`` prints one document on stdout and every other line on
 stderr; an error leaves stdout empty.
 
-``osprey facility import`` runs one step before every format reads its source,
-:func:`_replace_or_refuse`, and that step is the one place a format's verb
+``osprey facility import`` runs one step before the ``mml`` and ``list``
+formats read their source, :func:`_replace_or_refuse`, and that step is the one place a format's verb
 inspects the facility tree (while mounted, the machine root with the
 deployment's content directories; each file is removed under its own root):
 
@@ -64,6 +64,14 @@ layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
 states a device's ``s``, ``devices.yaml`` beside it. It writes channel and device
 records. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes no layer file and exits 1.
+
+``osprey facility import relations TABLE --layer NAME`` writes a relations
+table, and the ``--names``, ``--places`` and ``--members`` tables beside it, as
+the sources of ``data/facility/imported/<NAME>/``. It never runs
+:func:`_replace_or_refuse`: bundled and hand-written records stay, the tables
+resolve against them, and no file outside the layer's directory changes. Every
+refusal prints one ``source-invalid`` line on stderr, and the verb then writes
+no layer file and exits 1.
 
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
@@ -561,6 +569,9 @@ def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
             (MEASUREMENT_DIR, "measurement"),
         ),
         "list": (channels, devices),
+        # Writes only under imported/<layer>/ and never replaces or refuses
+        # another source (FR10), so it states no file of the tree.
+        "relations": (),
     }
 
 
@@ -888,4 +899,78 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     _replace_or_refuse(ctx, "list", roots, repo_root)
 
     for path in run_import(listing, roots.machine):
+        report(f"wrote {_shown(path, repo_root)}")
+
+
+_TABLE_PATH = click.Path(exists=True, dir_okay=False, resolve_path=True, path_type=Path)
+
+
+@import_group.command("relations")
+@click.argument("table", metavar="TABLE", type=_TABLE_PATH)
+@click.option("--layer", required=True, help="The layer's name; written to imported/<layer>/.")
+@click.option("--names", type=_TABLE_PATH, help="A names table.")
+@click.option("--places", type=_TABLE_PATH, help="A places table.")
+@click.option("--members", type=_TABLE_PATH, help="A members table.")
+@click.option(
+    "--stub-unknown",
+    is_flag=True,
+    help="Stub a class-less device end the facility lacks as Unidentified.",
+)
+@repo_option
+@click.pass_context
+def import_relations(
+    ctx: click.Context,
+    table: Path,
+    layer: str,
+    names: Path | None,
+    places: Path | None,
+    members: Path | None,
+    stub_unknown: bool,
+    repo: Path | None,
+) -> None:
+    """Write relation tables as sources under data/facility/imported/<layer>/.
+
+    A profile that states machine: imports into that machine root instead.
+
+    \b
+    Each table is UTF-8 CSV. A header row names its columns, in any order;
+    empty cells are absent. Required columns come first:
+      TABLE      type, subject, object; subject_kind, object_kind,
+                 subject_port, object_port, object_unit, attrs, basis,
+                 rule, subject_class, object_class
+      --names    thing, name, scheme; basis, rule
+      --places   place; within, basis, rule
+      --members  group, member; member_kind
+    Every table also takes the citation columns document, version, state,
+    locator and imported.
+
+    A device end the facility does not have is stubbed only when its row
+    states subject_class or object_class, or with --stub-unknown, which stubs
+    it as Unidentified; place and group ends are never stubbed. Every end and
+    name resolves against the whole facility except the layer being replaced,
+    bundled and hand-written records included, and no file outside
+    imported/<layer>/ changes. Exits 1 and writes no layer file when the layer
+    name is refused, when any table has a row the layer refuses, or while the
+    profile does not resolve.
+    """
+    from osprey.facility.layers.relations import import_relations as run_import
+    from osprey_connectors.errors import BuildProfileError
+
+    repo_root = find_repo_root(repo)
+    try:
+        roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
+    except (BuildProfileError, ValueError, RuntimeError) as error:
+        fail("The profile does not resolve.", str(error))
+        ctx.exit(1)
+
+    written = run_import(
+        table,
+        roots.machine,
+        layer,
+        names=names,
+        places=places,
+        members=members,
+        stub_unknown=stub_unknown,
+    )
+    for path in written:
         report(f"wrote {_shown(path, repo_root)}")
