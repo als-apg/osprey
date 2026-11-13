@@ -1,9 +1,10 @@
 // @ts-check
 /**
  * The panel's scope switch (app.js, panel-toolbar.js): Curated · All PVs ·
- * Feedback as the buttons of the toolbar seg `#cf-views` when /api/info carries
- * the directory descriptor, and Explore | Feedback otherwise. Nothing of it goes
- * to the hub's tile bar.
+ * Alarms · Archive · Feedback as the buttons of the toolbar seg `#cf-views` when
+ * /api/info carries the directory descriptor (Alarms and Archive while their
+ * service is configured), and Explore | Feedback otherwise; an empty or unknown
+ * route lands on Curated. Nothing of it goes to the hub's tile bar.
  *   npx vitest run tests/interfaces/channel_finder/scope-tabs.test.mjs
  *
  * app.js boots on import, so each case re-imports it into a fresh module registry
@@ -212,6 +213,15 @@ describe('with the directory descriptor', () => {
     expect(views.feedback.mount).toHaveBeenCalledTimes(1);
     expect(pressed()).toEqual(['feedback']);
   });
+
+  test.each(['', '#', '#/', '#constructor', '#/nowhere'])(
+    'the hash %j lands on Curated, pressed',
+    async (hash) => {
+      const { views } = await boot(WITH_DIRECTORY, hash);
+      expect(views.explore.mount).toHaveBeenCalledTimes(1);
+      expect(pressed()).toEqual(['explore']);
+    }
+  );
 
   test.each(['#/pv/SR01%3AX', '#/ioc/ioc-sr01'])('%s presses All PVs', async (hash) => {
     await boot(WITH_DIRECTORY, hash);
@@ -560,6 +570,33 @@ describe('the Archive tab', () => {
     expect(names()).toEqual(WITH);
     expect(views.archive.mount).not.toHaveBeenCalled();
     expect(pressed()).toEqual(['explore']);
+  });
+
+  test('with only an archive the seg reads Curated · All PVs · Archive · Feedback', async () => {
+    await boot({
+      ...WITH_DIRECTORY,
+      directory: { ...DESCRIPTOR, configured_services: ['archive'] },
+    });
+    expect(names()).toEqual([
+      'explore:Curated',
+      'allpvs:All PVs',
+      'archive:Archive',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('the order is fixed, whatever order the descriptor lists the services in', async () => {
+    await boot({
+      ...WITH_DIRECTORY,
+      directory: { ...DESCRIPTOR, configured_services: ['archive', 'alarm_state'] },
+    });
+    expect(names()).toEqual([
+      'explore:Curated',
+      'allpvs:All PVs',
+      'alarms:Alarms',
+      'archive:Archive',
+      'feedback:Feedback',
+    ]);
   });
 
   test('#/archive mounts the view and presses the tab', async () => {
