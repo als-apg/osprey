@@ -111,7 +111,8 @@ is refused without asking.
        pyAML view.
    * - ``correctors``
      - every corrector
-     - Corrector setpoint addresses, for ``orm`` only.
+     - Corrector setpoint addresses, for a kind that takes them; of the
+       shipped ones, ``orm`` alone.
    * - ``modulation``
      - ``"bipolar"``; ``"unipolar"`` with ``by`` ``"group"``
      - ``"bipolar"`` steps each setting to both sides of its present value,

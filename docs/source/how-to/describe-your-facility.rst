@@ -196,8 +196,8 @@ child of an existing class:
      parent: Magnet
      aliases: [insertion device, ID]
 
-``signals.yaml`` adds signal roles the same way; a role the vocabulary already
-has is refused:
+``signals.yaml`` adds signal roles the vocabulary lacks; one it already has is
+refused:
 
 .. code-block:: yaml
 
@@ -512,18 +512,12 @@ ring:
    :caption: measurement/SR.yaml
    :start-after: Delete this line to make the file yours.
 
-``kinds`` names the allowed measurements, from the registered kinds (the built-ins
-``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``, plus any an
-installed package registers). ``groups`` names the group, or the list
+``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
+``crm`` and ``chromaticity_monitor``. ``groups`` names the group, or the list
 of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
 ``quad``, ``sext``) and
 ``instruments`` the channel each instrument is read or stepped on (``tune``,
-``rf``). A registered kind may declare roles of its own, each named in
-``groups`` or ``instruments`` as the kind sorts it; the build stops on a role
-neither shipped nor declared by a listed kind. What is a kind's own (a trigger,
-settings, a chain of steps) goes in ``kind_blocks.<kind>``, which the build
-checks against the schema the kind declares
-(:doc:`/reference/contracts/facility-kinds`). Each kind needs its own members and step keys, and the build stops
+``rf``). Each kind needs its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:
@@ -551,6 +545,11 @@ the other plane pairs with:
      - ``tune``, ``rf``
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
+
+A measurement OSPREY does not ship is a kind an installed package registers
+(:doc:`register-a-measurement-kind`). It is listed under ``kinds`` like the
+five, may name roles of its own under ``groups`` and ``instruments``, and
+takes its own settings under ``kind_blocks.<kind>``.
 
 A model solved in a single pass allows only the kinds that run single pass;
 of the shipped ones, ``orm`` alone. A group plays one role;

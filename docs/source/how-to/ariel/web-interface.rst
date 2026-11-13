@@ -205,8 +205,8 @@ brings up dependencies such as PostgreSQL.
 **Start-up and the database:** start-up gives the database 30 s to answer. A
 database that refuses the connection, or is not running, leaves the panel up
 without search, browse or entry persistence, and the log says so. A database
-that takes the connection and does not answer ends start-up instead, with one
-line in the log:
+that takes the connection and does not answer ends start-up instead, and the
+log says
 ``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``.
 
 .. admonition:: Collaboration Welcome

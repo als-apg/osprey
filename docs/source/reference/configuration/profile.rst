@@ -243,7 +243,8 @@ Profile YAML reference
      - mapping
      - ``{}``
      - The applications the deployment runs, by name; each one's files live in
-       ``apps/<name>/`` beside the profile (see :doc:`/how-to/apps/index`). In
+       ``apps/<name>/`` beside the profile or in an installed package (see
+       :doc:`/how-to/apps/index`). In
        a login file, which of them the login's card shows, and with
        ``apps.<name>.access`` who on that login sees and opens the panel, in a
        shared roster card's words; absent, every user of the login. The tier
@@ -538,7 +539,7 @@ injector wrote, or a tier inherited counts as stated.
    * - ``hooks.debug``
      - always
 
-A render that switches the controls server off — every bundled app
+A render that switches the controls server off — every bundled shared login
 does — is asked for neither control-system key: it has no
 control system to state a type for.
 

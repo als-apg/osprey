@@ -88,10 +88,8 @@ violation with the app and the field it is in. The scaffold passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs ``npm`` and network access once.
 
-An app an installed package ships is checked the same way, from that
-package's directory, and its violations name the distribution
-(``<dist>:<module path>/<file>``). Imports under the app's own package are
-its own.
+An app an installed package ships (:doc:`index`) is checked the same way, and
+its violations name the distribution (``<dist>:<module path>/<file>``).
 
 4. Build and start
 ------------------
@@ -218,13 +216,12 @@ verdict (tier, switch, session), applies the limits and records the write —
 your code does none of that. A refusal arrives as ``ChannelWriteBlockedError``
 and the backend passes its sentence on.
 
-A route that needs to know who is calling asks the terminal, never the
-request: the terminal drops any ``X-Osprey-Caller`` header a request arrives
-with and sets its own, ``agent`` or ``panel``. ``caller_kind(request.headers)``
-reads it, and only beside the launch token the terminal adds
-(``launch_token: true``, on a login that arms the app; ``launch_token_env()``
-names its variable). A request without that token raises ``ValueError``: a
-caller header the terminal did not set is never trusted.
+A route that must tell the agent from the operator calls
+``caller_kind(request.headers)``, which answers ``agent`` or ``panel``. The
+terminal sets that header itself and drops any ``X-Osprey-Caller`` a request
+arrives with. ``caller_kind`` trusts it only beside the launch token the
+terminal adds (``launch_token: true``, on a login that arms the app) and
+raises ``ValueError`` without it.
 
 The scaffold adds one check of its own, and it is the pattern for every
 write you add: the write request carries the readback the operator saw on the
@@ -240,6 +237,10 @@ exist, their channels, a model's BPMs and correctors — comes from the SDK
 own and moves to another facility with the deployment. The Bluesky bridges the
 deployment runs for a target come from ``bridges_for_target(target)``: lane
 name to bridge URL, empty when none.
+
+A backend that writes its own audit records files them under
+``audit_surface()``: the app's name, which its tool server's records already
+carry.
 
 The tool server
 ===============
@@ -270,10 +271,6 @@ agent leaves them unset, and a value it sends is replaced.
 backend becomes the manifest's ``errors.unreachable`` sentence, a refusal the
 ``errors.refused`` one, each with the detail appended.
 
-``audit_surface()`` is the word the app's audit records file under: its name,
-the one its tool server's records already carry. A backend that writes its own
-records uses it, so they read under the same word.
-
 The panel
 =========
 
@@ -293,10 +290,11 @@ app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend's state say whether writes are on, and the panel
 say *Writes are off*.
 
-The page says when it can be driven: ``index.html`` carries
-``<html data-page-ready="pending">``, and ``panel.js`` imports ``markPageReady``
-from ``/design-system/js/page-ready.js`` and calls it once the first refresh
-has drawn, error or not. ``osprey app check`` refuses a panel that never does.
+The page says when it can be driven, which a browser test or a recording
+waits for: ``index.html`` carries ``<html data-page-ready="pending">``, and
+``panel.js`` imports ``markPageReady`` from
+``/design-system/js/page-ready.js`` and calls it once the first refresh has
+drawn, error or not. ``osprey app check`` refuses a panel without the import.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
@@ -386,14 +384,12 @@ write with them:
   preset) arms nothing, whatever its file says.
 
 A login's ``apps.<name>.access`` says who on that login sees and opens the
-panel, in the words a shared roster card uses (``self``, ``roster``, ``user:``,
-``domain:``, ``tier:``). The build spells it out to ``user:`` and ``domain:``
-members on the panel block, in the spelling the auth sidecar forwards, and
-refuses a set no browser caller can match. The terminal compares the forwarded
-identity with it: a caller it does not admit does not see the panel in the list
-and is answered as for an unpublished one. The agent, on the panel token, is
-judged by the login alone, so the login keeps the app's tools and skill. Without
-the key every user of the login sees it. It never decides a write.
+panel, in the words a shared roster card uses (``self``, ``roster``,
+``user:``, ``domain:``, ``tier:``); without it, every user of the login does.
+A user it does not admit does not see the panel in the list and is answered
+as for an unpublished one, and the build refuses a set no browser user can
+match. The agent is judged by the login alone, so the login keeps the app's
+tools and skill. The key never decides a write.
 
 Hide an app from one login in that login's file:
 
@@ -612,8 +608,8 @@ inside it and call it with the header the terminal sends:
        assert (state["channel"], state["target"]) == ("Q1:RB", "va")
 
 The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
-test with the build's own message. A test that needs an owner on another
-machine writes that owner's record into ``served.control_tree``.
+test with the build's own message. Run pytest with the app's directory
+on the import path, so the test can import the app's package.
 
 Dependencies
 ============
@@ -631,14 +627,14 @@ delete ``panel/`` or ``skills/``, delete its line there too.
 Manifest keys
 =============
 
-Every level refuses unknown keys. Defaults in brackets.
-
 An app ships no hook code; it declares facts in ``app.yml`` and OSPREY's
 hooks act on them: ``tools.approval`` for a write, ``tools.deny_in_jobs`` for
 a job-only refusal, ``tools.errors`` for the agent's guidance. ``osprey app
 check`` and the build refuse a ``hooks`` key, a ``hooks/`` directory at the
 app's root and a ``.claude/`` directory anywhere in it, each with rule
 ``no_hooks``.
+
+Every level refuses unknown keys. Defaults in brackets.
 
 .. list-table::
    :header-rows: 1

@@ -34,13 +34,14 @@ profile's ``dependencies`` (:doc:`/reference/configuration/profile`); the build
 turns a local path into a wheel the project image installs. A kind is read by
 ``osprey build`` alone; the approval hook, the MCP servers and the measure
 script read what the build wrote and import neither the registry nor the
-kind's package. A kind's package imports OSPREY only through
-``osprey.facility.kinds``.
+kind's package. A kind's package should import OSPREY only through
+``osprey.facility.kinds`` (`Stability`_).
 
 The build stops on:
 
 - a measurement file listing a kind no installed package registers;
-- a kind whose package the project image does not install;
+- a registered kind, listed or not, whose package the project image does not
+  install;
 - two distributions declaring one name (a built-in name included);
 - an entry point that loads anything but a declaration or a mapping of its
   fields, a mapping naming a field the declaration does not have, or a
@@ -101,7 +102,7 @@ Every field is required except ``member_sorts``, ``facts_writer``,
        validated by, or ``None``.
    * - ``view_section``
      - The writer of the kind's pyAML tool section:
-       ``(ViewContext) -> ViewSection(fields, devices)``.
+       ``(ViewContext) -> ViewSection(fields, devices)``, or ``None``.
    * - ``facts_writer``
      - ``(facility file, sub-block) -> mapping``: the facts the kind keeps
        for one model.
@@ -114,9 +115,8 @@ Every field is required except ``member_sorts``, ``facts_writer``,
 
 Registration refuses a requirement outside the three words, a stepped,
 corrector or sorted role that is not a member, an unshipped member left
-unsorted, a sort
-outside the three words, and a measure plan ``plan_problems`` finds fault
-with.
+unsorted, a sort outside the three words, and a measure plan
+``plan_problems`` finds fault with.
 
 Member roles
 ============
@@ -178,7 +178,7 @@ View files and the settings transform
 =====================================
 
 Each ``view_files`` writer is handed the model's ``ViewContext`` (the kinds
-listed, each group role's array name, the measurement file, the device names
+listed, each shipped group role's array name, the measurement file, the device names
 and the design optics) and returns the file's text; the files it wrote are
 named in the model's kind block.
 
@@ -192,11 +192,12 @@ What the build writes
 
 The facts document (``data/facility_facts.json``) carries:
 
-- ``measurement_kinds``: one row per registered kind (``members``,
+- ``measurement_kinds``: once a model has a pyAML view, one row per registered
+  kind (``members``,
   ``stepped_roles``, ``single_pass``, ``matrix``, ``takes_by``,
   ``corrector_roles``, ``description``);
 - ``measurement_models.<model>``: for each pyAML view, ``kinds``, ``names``
-  (role to the view's name: a group role's array, the RF plant, the tune
+  (role to the view's name: a shipped group role's array, the RF plant, the tune
   monitor), ``instruments`` (role to address) and ``rf`` (the setpoints the
   RF plants step).
 
@@ -219,8 +220,7 @@ Signal roles, engine words and scenarios
 ========================================
 
 **Signal roles.** A channel's ``signal`` is a role the vocabulary lists or one
-the facility adds in ``signals.yaml`` (``{name, aliases?, description?}``); a
-role the vocabulary already has is refused.
+the facility adds in ``signals.yaml`` (:doc:`/how-to/describe-your-facility`).
 
 **Engine record words.** An engine's ``describe(record)`` states
 ``engine_role``, ``plane``, ``refresh`` and optional ``marks`` for each wiring

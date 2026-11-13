@@ -119,8 +119,6 @@ agent's brief gets one note per subagent saying when to delegate, and the work
 runs in the subagent's context instead of filling the main one — the right
 shape for a task that reads a lot to answer a little, such as a search.
 
-An app carries no hook: it declares what OSPREY's own hooks act on.
-
 The build installs skills and subagents into every login that shows the app.
 
 Where the app has a backend, the agent's tools reach it only at the routes the manifest declares, through
@@ -248,8 +246,9 @@ An app is found in one of two places:
 
 - **your deployment** — a directory ``apps/<name>/`` in the repository, as
   above;
-- **an installed package** — a Python distribution that declares the app as
-  an entry point, its package directory laid out like ``apps/<name>/``:
+- **an installed package** — for an app several deployments share: a Python
+  distribution that declares the app as an entry point, its package directory
+  laid out like ``apps/<name>/``:
 
   .. code-block:: toml
 
@@ -260,8 +259,7 @@ Either way an app runs only when the profile's ``apps:`` block lists it. An
 installed app's package must be one the project image installs, so its
 distribution goes in the profile's ``dependencies``. A directory under
 ``apps/`` may not take the name of an installed app, listed or not: the build
-refuses it and names the package that installs the app. No app's package
-lives under ``osprey`` or ``osprey_connectors``, wherever the app comes from.
+refuses it and names the package that installs the app.
 
 Where to go next
 ================

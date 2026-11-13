@@ -7,9 +7,9 @@ Register a measurement kind
 A measurement kind is a word a model's measurement file lists under
 ``kinds:`` (:doc:`/how-to/describe-your-facility`). OSPREY ships five:
 ``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``
-(:doc:`/how-to/measure-with-pyaml`). A deployment adds its own from an
-installable package, through the same registry the five go through, with no
-OSPREY change. The contract, with every declaration field, the member roles
+(:doc:`/how-to/measure-with-pyaml`). A deployment whose machine needs another adds
+it from an installable package, through the same registry the five go
+through, with no OSPREY change. The contract, with every declaration field, the member roles
 and what the build writes, is :doc:`/reference/contracts/facility-kinds`.
 
 The worked example is the package ``fixture-kind-deployment`` under
@@ -21,31 +21,25 @@ The worked example is the package ``fixture-kind-deployment`` under
 ===================
 
 A kind is one ``KindDeclaration`` from ``osprey.facility.kinds``, the only
-OSPREY module the package imports:
+OSPREY module the package should import:
 
 .. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
    :language: python
    :start-at: FIXTURE_KIND = KindDeclaration(
 
-- ``members`` names each group or instrument role the kind uses, with its
-  requirement: ``wired`` (named by the measurement file and wired by the
-  model), ``exists`` (named and a channel of the facility) or ``optional``.
-  ``member_sorts`` says what a member the pyAML view does not ship is:
-  ``monitors`` or ``instrument`` here; it is optional.
-- ``stepped_roles`` are the roles whose setpoints a measurement steps;
-  ``corrector_roles`` the roles ``correctors`` may name; ``tool_keys`` the
-  measurement-file keys the kind's tool takes (``corrector_delta``).
-- ``single_pass``, ``matrix`` and ``takes_by`` set where the kind runs and the
-  measure tool's arguments; ``measure_plan`` is what the measure script does,
-  as data; ``description`` is the line the agent is told.
+- ``members`` names each group or instrument role the kind uses and how
+  strictly: ``wired``, ``exists`` or ``optional``. ``member_sorts`` says what a
+  member the pyAML view does not ship is (``monitors`` or ``instrument`` here).
+- ``stepped_roles``, ``corrector_roles`` and ``tool_keys`` say what a
+  measurement steps, what ``correctors`` may name and which measurement-file
+  keys the tool takes (``corrector_delta``).
 - ``view_section`` and ``view_files`` write the kind's part of each model's
-  pyAML view.
+  pyAML view; ``measure_plan`` is what the measure script does, as data.
 - ``measurement_schema``, ``facts_writer``, ``build_stops`` and
   ``settings_from_measurement`` are the kind's own block, its facts, its build
-  stops and the engine settings it needs (below). The last three are optional.
+  stops and the engine settings it needs (below).
 
-A field not on the declaration is refused, so the package names no hook OSPREY
-does not offer. The full field table is *The declaration* in
+The full field table is *The declaration* in
 :doc:`/reference/contracts/facility-kinds`.
 
 2. Register it
@@ -66,9 +60,8 @@ In the package's ``pyproject.toml`` these are the
 ============================
 
 Only ``osprey build`` reads the declaration; the runtime reads what the build
-wrote. The build still refuses a kind whose package the profile's
-``dependencies`` do not carry into the project image, so the package is
-installed twice:
+wrote. The build still refuses a registered kind whose package the project
+image does not install, so the package is installed twice:
 
 - **Where** ``osprey build`` **runs.** The build reads every declaration from
   the installed entry points; a package missing there leaves the kind
@@ -78,8 +71,7 @@ installed twice:
   its source at ``./kinds/fixture_kind`` in the deployment repository). The
   build turns a local path into a wheel in the same deployment-package install
   an application's package gets (:doc:`/how-to/apps/build-your-own-app`), and
-  the image installs it. Never list it in the dev-only local-requirements
-  manifest: the build refuses a kind whose package the image does not install.
+  the image installs it.
 
 4. Give the kind its block
 ==========================
@@ -103,6 +95,10 @@ Only a block the schema admits reaches the kind's ``build_stops``,
 asks its engine for enough turns past the trigger sample; the patch lands in
 the model's ``settings`` in the facility file and the simulator's view.
 
+The build writes the ``facts_writer`` output, per model, into the facts
+document, where an application reads it with ``osprey.apps.sdk.read_facts``
+(*What the build writes* in :doc:`/reference/contracts/facility-kinds`).
+
 5. Command steps
 ================
 
@@ -115,8 +111,8 @@ fires, and the kind's ``build_stops`` refuses any other address:
    :language: python
    :pyobject: build_stops
 
-The measurement's approval prompt lists only what ``pyaml_measure`` steps: the
-addresses of each stepped role. A chain step's command is fired by the
+The measurement's approval prompt lists only the setpoints ``pyaml_measure``
+steps. A chain step's command is fired by the
 application's own write tool through ``osprey.apps.sdk.command_write``, so the
 channels it fires are shown on that tool's approval card, which the
 application's ``tools.approval`` entry describes
@@ -124,20 +120,10 @@ application's ``tools.approval`` entry describes
 call that leads to it is its caller's to check
 (:ref:`reference-guarded-run`, *Command write*).
 
-6. Where the kind's facts live
-==============================
-
-The build writes the kind's ``facts_writer`` output as ``facts`` in each
-model's kind block, ``measurement_models.<model>.kinds.<kind>``, beside the
-``block`` it was written from. An application reads it with
-``osprey.apps.sdk.read_facts``. Two models may give one kind different blocks,
-so each has its own facts. The rest of the kind block is *What the build
-writes* in :doc:`/reference/contracts/facility-kinds`.
-
 What a refusal means
 ====================
 
-Each stops ``osprey build``; the build prints the line and its ``fix:``.
+Each stops ``osprey build``, which prints the line and how to fix it.
 
 .. list-table::
    :header-rows: 1
@@ -160,7 +146,8 @@ Each stops ``osprey build``; the build prints the line and its ``fix:``.
      - Two installed packages declare one name.
    * - ``measurement kind hooked_kind — it names hook 'on_trigger', which OSPREY
        does not offer``
-     - The declaration states a field ``KindDeclaration`` does not have.
+     - A declaration given as a mapping names a field ``KindDeclaration``
+       does not have.
    * - ``kind <kind> needs `<slot>`, which the file does not name``
      - A required member is missing from the measurement file.
    * - ``kind_blocks.<kind>.<field>: <message>``

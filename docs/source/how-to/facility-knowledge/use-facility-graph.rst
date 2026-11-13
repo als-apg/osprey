@@ -530,7 +530,7 @@ can write, so the graph server's read transaction, not the credential, keeps
 that tier read-only, as with the ARIEL database credential.
 
 ``demo-logbook`` has no control surface and no graph tools.
-``demo-knowledge`` is the app built around the graph: it keeps
+``demo-knowledge`` is the login built around the graph: it keeps
 the facility-knowledge-graph agent, the graph-backed channel finder and the
 KNOWLEDGE panel, and nothing that reads or writes the machine.
 

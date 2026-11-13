@@ -252,8 +252,8 @@ points to.
    :language: yaml
 
 
-It is spelled in ``tiers/*.yml``, in the deployment root for the root or
-single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
+It is spelled in ``tiers/*.yml`` and, for the root or single-user render, in
+the deployment root; a shared login is always ``never``. A tier
 overrides the root. Only ``asked`` and ``allowed`` arm; any other value, and no
 key at all, reads ``never``. The tier is a ceiling, not a selection: an armed
 tier may write to every machine the deployment configures, and the switch picks
@@ -508,7 +508,7 @@ Earlier releases armed writes per connector type, with
 - **Until you do**, each retired key builds with one warning naming the new
   key. A layer with a literal ``true`` in its flat or any per-type key reads
   ``writes: allowed`` --- for every machine, not only the type it named; any
-  other value reads ``never``. An app always reads ``never``. A file that
+  other value reads ``never``. A shared login always reads ``never``. A file that
   spells both the retired and the new key is refused. The retired keys are
   refused from 2026.12.0.
 - **A render built before this release** is not reread with the old rule: at

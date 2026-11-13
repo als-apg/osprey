@@ -168,7 +168,9 @@ so that run fills in the ``config:`` keys the profile lacks and lists whatever
 else differs from the presets under "left for you", applying none of it.
 A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
 is re-emitted from the bundled login, an edited one keeps its lines and gains
-``lists: own``. A ``landing.groups`` entry ``type: apps`` becomes
+``lists: own`` and, unless it states its writes, ``control_system.writes:
+never``; where the ``tiers/`` file already exists, the output says to merge the
+two by hand. A ``landing.groups`` entry ``type: apps`` becomes
 ``type: shared``; until then it reads as ``shared`` for one release.
 Your deployment's own selections — the roster, the shared logins, the default
 tier, role tiers, the landing groups — are left for you and named in the
@@ -1167,9 +1169,8 @@ is :doc:`/how-to/apps/index`.
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
    does not name is reported and not checked. An application an installed package
-   ships is checked from its package directory; its violations name the
-   distribution (``<dist>:<module path>/<file>``), and the closing line counts the
-   applications under ``apps/`` and the installed ones apart. The JS checks execute the
+   ships is checked too; its violations name the
+   distribution (``<dist>:<module path>/<file>``). The JS checks execute the
    application's JS tests, with none of the shell's secrets; they need Node and
    install a pinned toolchain into the user's cache once; an application with no
    JS needs neither.
@@ -1222,7 +1223,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    groups) and the wiring record count per model, each model with its engine,
    whether the main render serves it and its solve setting, and each view with
    its path under the render and whether it is written. The views are those of
-   the main render, ``build/config.yml``; a tier's or app's selection does not change
+   the main render, ``build/config.yml``; a login's selection does not change
    them. A view that is not written names the config key or model fact that
    left it out. With ``ID`` it prints every place, device, channel, group or
    model of that id, each under its kind, with its provenance (the layer and
