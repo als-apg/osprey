@@ -186,7 +186,7 @@ session in the terminal; its sidebar lists your sessions. It has four views:
 .. figure:: /_static/screenshots/activity_safety_light.png
    :class: only-light
    :figclass: only-light
-   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls a server gate checked.
+   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls through a server gate.
    :width: 100%
 
    The **Safety** view of a Bluesky grid scan on the virtual accelerator. Of 34
@@ -195,7 +195,7 @@ session in the terminal; its sidebar lists your sessions. It has four views:
 .. figure:: /_static/screenshots/activity_safety_dark.png
    :class: only-dark
    :figclass: only-dark
-   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls a server gate checked.
+   :alt: The Safety view of one session: 33 calls allowed, one approved by the operator after 31.1 s, none denied, and the 18 calls through a server gate.
    :width: 100%
 
    The **Safety** view of a Bluesky grid scan on the virtual accelerator. Of 34
