@@ -36,7 +36,7 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
 )
 from tests import _litellm_callbacks
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
-from tests._session_database import dev_server_url, own_database
+from tests._session_database import CONNECT_TIMEOUT_S, dev_server_url, own_database
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
@@ -431,7 +431,10 @@ async def connection_pool(database_url: str):
     from osprey.services.ariel_search.database import create_connection_pool
 
     config = DatabaseConfig(uri=database_url)
-    pool = await create_connection_pool(config)
+    # The session database's connect bound: a server that takes the connection
+    # and never answers ends the open with the store's own error, naming it,
+    # instead of holding setup until the test timeout.
+    pool = await create_connection_pool(config, deadline_s=CONNECT_TIMEOUT_S)
     yield pool
     await pool.close()
 
