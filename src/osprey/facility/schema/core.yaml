@@ -7,7 +7,9 @@ description: >-
   limits and the scenarios. `osprey build` combines the sources under
   data/facility/ into one file of this shape. Every list whose order carries
   meaning sets `list_elements_ordered`; a multivalued slot without it is a set,
-  compared and written sorted by its string form.
+  compared and written sorted by its string form, or by its key when its
+  entries are keyed (`scheme_names` by name and scheme, `citations` by
+  document, version and locator).
 
 prefixes:
   osprey_facility: https://narad.example.org/schema/osprey.facility.core/

@@ -30,6 +30,7 @@ can print all of them; the result lists them in file order.
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 from collections.abc import Mapping
@@ -55,6 +56,7 @@ __all__ = [
     "LoadResult",
     "SourceRecord",
     "Sources",
+    "citation_dates",
     "group_families",
     "keyed_clashes",
     "keyed_order",
@@ -138,9 +140,35 @@ KEYED_SETS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _plain(value: Any) -> Any:
+    """A value json can write with sorted keys: a map with a non-string key becomes
+    a tagged list of its entries, each key spelled canonically."""
+    if isinstance(value, dict):
+        if all(isinstance(k, str) for k in value):
+            return {k: _plain(v) for k, v in value.items()}
+        return {"\u0000map": sorted([_canonical(k), _plain(v)] for k, v in value.items())}
+    if isinstance(value, list | tuple):
+        return [_plain(v) for v in value]
+    return value
+
+
 def _canonical(value: Any) -> str:
-    """A value's text independent of map key order; ``1``, ``"1"`` and ``True`` differ."""
-    return json.dumps(value, sort_keys=True, default=str)
+    """A value's text independent of map key order; ``1``, ``"1"`` and ``True`` differ.
+
+    Total: a map with non-string keys, at any depth, has a text too.
+    """
+    return json.dumps(_plain(value), sort_keys=True, default=str)
+
+
+def _is_entry(entry: Any) -> bool:
+    """A keyed-set entry the set compares: a map with string keys only. Any other
+    entry is left for the schema stage, which reports it."""
+    return isinstance(entry, dict) and all(isinstance(k, str) for k in entry)
+
+
+def _content(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """An entry without its null fields: a null field and an absent one are one content."""
+    return {k: v for k, v in entry.items() if v is not None}
 
 
 def _entry_key(slot: str, entry: Mapping[str, Any]) -> tuple[tuple[int, str], ...]:
@@ -154,15 +182,17 @@ def _entry_key(slot: str, entry: Mapping[str, Any]) -> tuple[tuple[int, str], ..
 def keyed_order(slot: str, entries: list[Any]) -> list[Any]:
     """A keyed set in its compared and written form.
 
-    Identical map entries collapse, and the maps are ordered by key, then by
-    content; an entry that is not a map is left for the schema stage and
+    Identical map entries collapse (a null field counting as absent, and
+    written so), and the maps are ordered by key, then by content; an entry
+    that is not a map with string keys is left for the schema stage and
     written after them, ordered by string form.
     """
     maps: dict[str, Any] = {}
     rest = []
     for entry in entries:
-        if isinstance(entry, dict):
-            maps.setdefault(_canonical(entry), entry)
+        if _is_entry(entry):
+            content = _content(entry)
+            maps.setdefault(_canonical(content), content)
         else:
             rest.append(entry)
     ordered = sorted(maps.items(), key=lambda item: (_entry_key(slot, item[1]), item[0]))
@@ -176,15 +206,48 @@ def keyed_clashes(slot: str, entries: Any) -> list[str]:
     contents: dict[tuple[tuple[int, str], ...], set[str]] = {}
     spelled: dict[tuple[tuple[int, str], ...], str] = {}
     for entry in entries:
-        if not isinstance(entry, dict):
+        if not _is_entry(entry):
             continue
         key = _entry_key(slot, entry)
-        contents.setdefault(key, set()).add(_canonical(entry))
+        contents.setdefault(key, set()).add(_canonical(_content(entry)))
         spelled[key] = ", ".join(
             f"no {name}" if entry.get(name) is None else f"{name} {entry[name]}"
             for name in KEYED_SETS[slot]
         )
     return [spelled[key] for key in sorted(contents) if len(contents[key]) > 1]
+
+
+def _citation_text(citation: Any) -> Any:
+    """A citation with its ``imported`` date as ISO text."""
+    if isinstance(citation, dict) and isinstance(citation.get("imported"), datetime.date):
+        return {**citation, "imported": citation["imported"].isoformat()}
+    return citation
+
+
+def citation_dates(kind: str, fields: Mapping[str, Any]) -> dict[str, Any]:
+    """A record's fields with every ``Citation.imported`` date as its ISO text.
+
+    YAML reads an unquoted date as a date; written as text, it is one content
+    with the equal quoted string, and ``facility.json`` can hold it. Covers a
+    place's or device's ``citations`` and ``scheme_names[].source``, and a
+    relation's ``source``; any other shape is left as found.
+    """
+    out = dict(fields)
+    if kind in ("place", "device"):
+        citations = out.get("citations")
+        if isinstance(citations, list):
+            out["citations"] = [_citation_text(c) for c in citations]
+        aliases = out.get("scheme_names")
+        if isinstance(aliases, list):
+            out["scheme_names"] = [
+                {**a, "source": _citation_text(a["source"])}
+                if isinstance(a, dict) and "source" in a
+                else a
+                for a in aliases
+            ]
+    elif kind == "relation" and "source" in out:
+        out["source"] = _citation_text(out["source"])
+    return out
 
 
 #: The schema class each record kind is shaped by.
@@ -333,8 +396,8 @@ class Sources:
         fixes: ``fixes.yaml``'s document as parsed, or ``None`` when absent.
         documents: ``documents.yaml``'s records, in file order.
         policy: ``policy.yaml`` without its header, or ``None`` when absent or
-            holding nothing but a header or comments. Loaded and key-checked
-            only; never written into the facility file.
+            holding nothing but a header or comments. Key- and value-checked
+            against the declared document kinds; never written into the facility file.
     """
 
     identity: dict[str, Any] | None = None
@@ -533,6 +596,7 @@ class _Reader:
         rid = self._record_id(row, "id", rel, index)
         if rid is None:
             return
+        row = citation_dates(kind, row)
         self._check_keys(row, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
         if kind == "channel":
             on = row.get("on")
@@ -664,7 +728,59 @@ class _Reader:
                 if precedence is not None and self._policy_mapping(precedence, where):
                     allowed = frozenset({"default", *relation_types()})
                     self._check_policy_keys(precedence, allowed, where)
+                    for key, kinds in precedence.items():
+                        if key in allowed:
+                            self._check_precedence(key, kinds, f"{where}.{key}")
+                ranked = relations.get("stated_over_inferred")
+                if "stated_over_inferred" in relations and not isinstance(ranked, bool):
+                    self._path_error(
+                        f"{rel}.relations.stated_over_inferred",
+                        f"is {ranked!r}, not true or false",
+                        "write true or false",
+                    )
         self.sources.policy = data
+
+    def _check_precedence(self, key: str, kinds: Any, where: str) -> None:
+        """Check one precedence list: distinct non-empty strings, each a declared document kind.
+
+        ``default`` may instead be the string ``undecided`` (no ranking). Runs after
+        ``documents.yaml`` is read, so the declared kinds are known.
+        """
+        if key == "default" and kinds == "undecided":
+            return
+        if not isinstance(kinds, list):
+            accepted = "a list of document kinds"
+            if key == "default":
+                accepted += " or `undecided`"
+            self._path_error(where, f"is not {accepted}", f"write {accepted}")
+            return
+        declared = {
+            row["kind"] for row in self.sources.documents if isinstance(row.get("kind"), str)
+        }
+        seen: set[str] = set()
+        for index, kind in enumerate(kinds):
+            if not isinstance(kind, str) or not kind.strip():
+                self._path_error(
+                    where,
+                    f"entry {index} is {kind!r}, not a document kind",
+                    "list document kinds as non-empty strings",
+                )
+            elif kind in seen:
+                self._path_error(where, f"lists `{kind}` twice", f"keep one `{kind}` in {where}")
+            elif not self.sources.documents:
+                self._path_error(
+                    where,
+                    f"lists `{kind}`, but no documents.yaml declares documents",
+                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                )
+            elif kind not in declared:
+                self._path_error(
+                    where,
+                    f"lists `{kind}`, which no document in documents.yaml has as its kind",
+                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                )
+            if isinstance(kind, str):
+                seen.add(kind)
 
     def _policy_mapping(self, value: Any, where: str) -> bool:
         if isinstance(value, dict):

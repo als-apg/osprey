@@ -78,7 +78,9 @@ linkml_meta = LinkMLMeta({'default_prefix': 'osprey_facility',
                     'one file of this shape. Every list whose order carries '
                     'meaning sets `list_elements_ordered`; a multivalued slot '
                     'without it is a set, compared and written sorted by its '
-                    'string form.',
+                    'string form, or by its key when its entries are keyed '
+                    '(`scheme_names` by name and scheme, `citations` by document, '
+                    'version and locator).',
      'id': 'https://narad.example.org/schema/osprey.facility.core',
      'imports': ['linkml:types', 'vocabulary'],
      'name': 'osprey.facility.core',

@@ -21,7 +21,7 @@ recorded as a default.
     schema: osprey.facility.fixes/1
     fixes:
       - op: set                      # set | add | drop
-        kind: channel                # place | device | channel | wiring | group | model
+        kind: channel                # place | device | channel | wiring | group | model | relation
         id: SR:QF:SP
         fields: {role: setpoint}     # set: the fields it replaces, each whole
         was: {role: {mml: readback}} # set: per field, every layer's present value
@@ -32,8 +32,9 @@ recorded as a default.
         record: {class: Quadrupole}  # add: the record's slots
         why: Missing from the export.
 
-Every list compares and emits in source order except the set-valued slots,
-which compare and emit sorted by their string form. Records emit sorted by id,
+Every list compares and emits in source order except the set-valued slots:
+a plain set compares and emits sorted by its string form, a keyed set
+(``scheme_names``, ``citations``) ordered by its key. Records emit sorted by id,
 models by name with ``texture`` last, wiring inside its model by id. The result
 does not depend on the order of fixes.yaml.
 """
@@ -59,6 +60,7 @@ from osprey.facility.sources import (
     RECORD_FILES,
     SET_VALUED_SLOTS,
     Sources,
+    citation_dates,
     group_families,
     keyed_clashes,
     keyed_order,
@@ -200,6 +202,16 @@ def _show(value: Any) -> str:
     """One-line YAML for a value in an error line."""
     text = yaml.safe_dump(value, default_flow_style=True, sort_keys=True, width=1 << 30)
     return text.strip().removesuffix("...").strip()
+
+
+def _was_dates(kind: str, was: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """A fix's ``was`` with its citation dates as text, as the layers hold them."""
+    out: dict[str, Any] = {}
+    for name, layers in was.items():
+        out[name] = {
+            layer: citation_dates(kind, {name: value})[name] for layer, value in layers.items()
+        }
+    return out
 
 
 def _group_list(value: Any) -> Any:
@@ -348,9 +360,9 @@ class _Combiner:
             kind,
             rid,
             why,
-            fields=dict(fields or {}),
-            record=dict(record or {}),
-            was=None if "was" not in entry else dict(was or {}),
+            fields=citation_dates(kind, fields or {}),
+            record=citation_dates(kind, record or {}),
+            was=None if "was" not in entry else _was_dates(kind, was or {}),
         )
 
     # --- collecting -----------------------------------------------------------

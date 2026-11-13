@@ -297,3 +297,163 @@ class TestFixValues:
         assert error.detail == (
             "device QF9 `scheme_names` states two contents for key name QF9, scheme lattice"
         )
+
+
+def _build_error(tmp_path: Path, files: dict[str, Any]) -> FacilityBuildError:
+    """The stop a build reports; a crash fails the test instead."""
+    with pytest.raises(FacilityBuildError) as raised:
+        build_facility(_write(tmp_path, files), project_name="p")
+    return raised.value
+
+
+class TestTotality:
+    """A keyed set whose maps carry non-string keys is a build error, never a crash."""
+
+    def _device_yaml(self, citations: str) -> dict[str, Any]:
+        return {
+            "documents.yaml": _DOCS,
+            "records/devices.yaml": ("- id: QF1\n  class: Quadrupole\n  citations:\n" + citations),
+        }
+
+    def test_a_map_with_a_non_string_key_loads_and_combines(self, tmp_path: Path) -> None:
+        files = self._device_yaml(
+            "  - {document: spec-1, 1: x}\n  - {document: spec-1}\n  - {document: dwg-2}\n"
+        )
+        result = _combine(tmp_path, files)
+        (device,) = result.document["devices"]
+        assert {"document": "spec-1", 1: "x"} in device["citations"]
+
+    def test_a_top_level_mixed_key_map_is_a_build_error(self, tmp_path: Path) -> None:
+        files = self._device_yaml("  - {document: spec-1, 1: x}\n  - {document: dwg-2}\n")
+        assert _build_error(tmp_path, files).kind == "source-invalid"
+
+    def test_a_nested_mixed_key_map_is_a_build_error(self, tmp_path: Path) -> None:
+        files = self._device_yaml(
+            "  - {document: spec-1, locator: {1: a, b: c}}\n"
+            "  - {document: spec-1, locator: {1: a, b: c}, state: x}\n"
+            "  - {document: dwg-2}\n"
+        )
+        errors = _load_errors(tmp_path, files)
+        assert [e.kind for e in errors] == ["source-invalid"]
+        assert _build_error(tmp_path / "b", files).kind == "source-invalid"
+
+
+class TestNullKeyFields:
+    def test_an_explicit_null_and_an_absent_field_are_one_entry(self, tmp_path: Path) -> None:
+        citations = [{"document": "spec-1", "version": None}, {"document": "spec-1"}]
+        files = {
+            "imported/mml/devices.yaml": [
+                {"id": "QF1", "class": "Quadrupole", "citations": citations}
+            ],
+            "documents.yaml": _DOCS,
+        }
+        assert _load_errors(tmp_path / "a", files) == []
+        device = _device(_combine(tmp_path / "b", files), "QF1")
+        assert device["citations"] == [{"document": "spec-1"}]
+
+    def test_null_and_absent_build_identical_bytes(self, tmp_path: Path) -> None:
+        first = _tree([], [{"document": "spec-1", "version": None}, _CITATIONS[2]])
+        second = _tree([], [_CITATIONS[2], {"document": "spec-1"}])
+        assert facility_bytes(
+            build_facility(_write(tmp_path / "a", first), project_name="p")
+        ) == facility_bytes(build_facility(_write(tmp_path / "b", second), project_name="p"))
+
+
+_DATED = (
+    "- id: QF1\n"
+    "  class: Quadrupole\n"
+    "  citations:\n"
+    "  - {document: spec-1, imported: 2026-03-04}\n"
+    "  - {document: spec-1, imported: '2026-03-04'}\n"
+    "  scheme_names:\n"
+    "  - {name: QF1, scheme: lattice, source: {document: spec-1, imported: 2026-03-04}}\n"
+)
+
+
+class TestImportedDates:
+    def test_a_date_and_the_equal_string_are_one_citation(self, tmp_path: Path) -> None:
+        files = {"documents.yaml": _DOCS, "imported/mml/devices.yaml": _DATED}
+        assert _load_errors(tmp_path / "a", files) == []
+        device = _device(_combine(tmp_path / "b", files), "QF1")
+        assert device["citations"] == [{"document": "spec-1", "imported": "2026-03-04"}]
+        assert device["scheme_names"][0]["source"] == {
+            "document": "spec-1",
+            "imported": "2026-03-04",
+        }
+
+    def test_a_place_citation_date_is_text(self, tmp_path: Path) -> None:
+        files = {
+            "documents.yaml": _DOCS,
+            "records/places.yaml": (
+                "- id: SR\n  citations:\n  - {document: spec-1, imported: 2026-03-04}\n"
+            ),
+        }
+        (place,) = _combine(tmp_path, files).document["places"]
+        assert place["citations"] == [{"document": "spec-1", "imported": "2026-03-04"}]
+
+    def test_an_unquoted_date_builds_facility_bytes(self, tmp_path: Path) -> None:
+        dated = build_facility(
+            _write(tmp_path / "a", {"documents.yaml": _DOCS, "records/devices.yaml": _DATED}),
+            project_name="p",
+        )
+        quoted = build_facility(
+            _write(
+                tmp_path / "b",
+                {
+                    "documents.yaml": _DOCS,
+                    "records/devices.yaml": _DATED.replace(
+                        "imported: 2026-03-04", "imported: '2026-03-04'"
+                    ),
+                },
+            ),
+            project_name="p",
+        )
+        assert b"2026-03-04" in facility_bytes(dated)
+        assert facility_bytes(dated) == facility_bytes(quoted)
+
+    def test_a_set_fix_brings_dates_in_as_text(self, tmp_path: Path) -> None:
+        fixes = (
+            f"schema: {FIXES_HEADER}\n"
+            "fixes:\n"
+            "- op: set\n"
+            "  kind: device\n"
+            "  id: QF1\n"
+            "  fields:\n"
+            "    citations:\n"
+            "    - {document: spec-1, imported: 2026-03-04}\n"
+            "    - {document: spec-1, imported: '2026-03-04'}\n"
+            "    - {document: dwg-2}\n"
+            "    scheme_names:\n"
+            "    - {name: QF1, scheme: lattice, source: {document: dwg-2, imported: 2026-01-02}}\n"
+            "  was:\n"
+            "    citations:\n"
+            "      authored: [{document: spec-1}]\n"
+            "      mml: [{document: dwg-2}, {document: spec-1}]\n"
+            "  why: The import date is known.\n"
+        )
+        device = _device(_combine(tmp_path, {**_LAYERED, "fixes.yaml": fixes}), "QF1")
+        assert device["citations"] == [
+            {"document": "dwg-2"},
+            {"document": "spec-1", "imported": "2026-03-04"},
+        ]
+        assert device["scheme_names"][0]["source"]["imported"] == "2026-01-02"
+
+    def test_an_add_fix_brings_dates_in_as_text(self, tmp_path: Path) -> None:
+        fixes = (
+            f"schema: {FIXES_HEADER}\n"
+            "fixes:\n"
+            "- op: add\n"
+            "  kind: device\n"
+            "  id: QF9\n"
+            "  record:\n"
+            "    class: Quadrupole\n"
+            "    citations: [{document: spec-1, imported: 2026-03-04}]\n"
+            "  why: Missing from the export.\n"
+        )
+        files = {
+            "documents.yaml": _DOCS,
+            "records/devices.yaml": [{"id": "QF1", "class": "Quadrupole"}],
+            "fixes.yaml": fixes,
+        }
+        device = _device(_combine(tmp_path, files), "QF9")
+        assert device["citations"] == [{"document": "spec-1", "imported": "2026-03-04"}]

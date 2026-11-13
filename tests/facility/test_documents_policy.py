@@ -1,4 +1,4 @@
-"""``documents.yaml`` and ``policy.yaml``: loaded at S1, documents emitted, policy key-checked only."""
+"""``documents.yaml`` and ``policy.yaml``: loaded at S1, documents emitted, policy checked, never emitted."""
 
 from __future__ import annotations
 
@@ -110,12 +110,12 @@ _POLICY = {
 
 class TestPolicy:
     def test_policy_is_loaded_without_its_header(self, tmp_path: Path) -> None:
-        loaded = load_sources(_write(tmp_path, {"policy.yaml": _POLICY}))
+        loaded = load_sources(_write(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": _POLICY}))
         assert loaded.errors == []
         assert loaded.sources.policy == {"relations": _POLICY["relations"]}
 
     def test_policy_is_never_emitted(self, tmp_path: Path) -> None:
-        document = _document(tmp_path, {"policy.yaml": _POLICY})
+        document = _document(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": _POLICY})
         assert "policy" not in document
         assert run_stages(tmp_path, project_name="demo").ok
 
@@ -129,7 +129,7 @@ class TestPolicy:
     def test_every_relation_type_is_a_precedence_key(self, tmp_path: Path) -> None:
         precedence = {name: ["spec"] for name in relation_types()}
         policy = {"relations": {"precedence": {"default": ["spec"], **precedence}}}
-        assert _load_errors(tmp_path, {"policy.yaml": policy}) == []
+        assert _load_errors(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": policy}) == []
 
     @pytest.mark.parametrize(
         ("policy", "key", "where"),
@@ -167,3 +167,119 @@ class TestPolicy:
         error = _one(_load_errors(tmp_path, {"policy.yaml": {"relations": ["x"]}}))
         assert error.record_id == "policy.yaml.relations"
         assert "is not a mapping" in error.detail
+
+
+def _policy_errors(
+    tmp_path: Path, relations: dict[str, Any], docs: Any = _DOCS
+) -> list[FacilityBuildError]:
+    files: dict[str, Any] = {"policy.yaml": {"relations": relations}}
+    if docs is not None:
+        files["documents.yaml"] = docs
+    return _load_errors(tmp_path, files)
+
+
+_PRECEDENCE = "policy.yaml.relations.precedence"
+
+
+class TestPolicyValues:
+    def test_list_of_declared_kinds_is_accepted(self, tmp_path: Path) -> None:
+        relations = {
+            "precedence": {"default": ["spec", "drawing"], "powered_by": ["drawing"]},
+            "stated_over_inferred": False,
+        }
+        assert _policy_errors(tmp_path, relations) == []
+
+    def test_default_undecided_is_accepted(self, tmp_path: Path) -> None:
+        relations = {"precedence": {"default": "undecided", "powered_by": ["spec"]}}
+        assert _policy_errors(tmp_path, relations) == []
+
+    def test_default_undecided_needs_no_documents(self, tmp_path: Path) -> None:
+        assert _policy_errors(tmp_path, {"precedence": {"default": "undecided"}}, None) == []
+
+    def test_absent_stated_over_inferred_is_accepted(self, tmp_path: Path) -> None:
+        assert _policy_errors(tmp_path, {"precedence": {"default": ["spec"]}}) == []
+
+    def test_build_with_valid_policy_passes(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": _POLICY})
+        assert run_stages(tmp_path, project_name="demo").ok
+
+    @pytest.mark.parametrize(
+        ("precedence", "where", "detail"),
+        [
+            ({"default": ["spec", "spec"]}, "default", "lists `spec` twice"),
+            ({"powered_by": ["spec", "drawing", "spec"]}, "powered_by", "lists `spec` twice"),
+            ({"default": [""]}, "default", "entry 0 is '', not a document kind"),
+            ({"default": ["spec", "  "]}, "default", "entry 1 is '  ', not a document kind"),
+            ({"default": [3]}, "default", "entry 0 is 3, not a document kind"),
+            ({"default": [None]}, "default", "entry 0 is None, not a document kind"),
+            ({"default": [["spec"]]}, "default", "entry 0 is ['spec'], not a document kind"),
+            (
+                {"default": ["memo"]},
+                "default",
+                "lists `memo`, which no document in documents.yaml has as its kind",
+            ),
+            (
+                {"powered_by": ["spec", "memo"]},
+                "powered_by",
+                "lists `memo`, which no document in documents.yaml has as its kind",
+            ),
+            ({"powered_by": "undecided"}, "powered_by", "is not a list of document kinds"),
+            ({"default": "spec"}, "default", "is not a list of document kinds or `undecided`"),
+            ({"default": {"spec": 1}}, "default", "is not a list of document kinds or `undecided`"),
+        ],
+    )
+    def test_bad_precedence_value_stops_at_its_path(
+        self, tmp_path: Path, precedence: dict[str, Any], where: str, detail: str
+    ) -> None:
+        error = _one(_policy_errors(tmp_path, {"precedence": precedence}))
+        assert error.kind == "source-invalid"
+        assert error.record_kind == "path"
+        assert error.record_id == f"{_PRECEDENCE}.{where}"
+        assert error.sources == ("policy.yaml",)
+        assert error.detail == detail
+
+    @pytest.mark.parametrize("docs", [None, "", "[]\n"])
+    def test_kind_with_no_documents_stops(self, tmp_path: Path, docs: Any) -> None:
+        error = _one(_policy_errors(tmp_path, {"precedence": {"default": ["spec"]}}, docs))
+        assert error.kind == "source-invalid"
+        assert error.record_id == f"{_PRECEDENCE}.default"
+        assert error.sources == ("policy.yaml",)
+        assert error.detail == "lists `spec`, but no documents.yaml declares documents"
+
+    def test_document_without_kind_declares_no_kind(self, tmp_path: Path) -> None:
+        docs = [{"id": "d1", "title": "untyped"}]
+        error = _one(_policy_errors(tmp_path, {"precedence": {"default": ["spec"]}}, docs))
+        assert error.record_id == f"{_PRECEDENCE}.default"
+        assert "no document in documents.yaml has as its kind" in error.detail
+
+    def test_every_bad_entry_is_reported(self, tmp_path: Path) -> None:
+        errors = _policy_errors(tmp_path, {"precedence": {"default": ["memo", "spec", "spec", 1]}})
+        assert [e.detail for e in errors] == [
+            "lists `memo`, which no document in documents.yaml has as its kind",
+            "lists `spec` twice",
+            "entry 3 is 1, not a document kind",
+        ]
+
+    def test_unknown_type_key_is_not_value_checked(self, tmp_path: Path) -> None:
+        error = _one(_policy_errors(tmp_path, {"precedence": {"fed_by": ["memo"]}}))
+        assert "unknown key `fed_by`" in error.detail
+
+    @pytest.mark.parametrize("value", ["yes", "true", 1, 0, None, ["true"]])
+    def test_non_bool_stated_over_inferred_stops(self, tmp_path: Path, value: Any) -> None:
+        error = _one(_policy_errors(tmp_path, {"stated_over_inferred": value}))
+        assert error.kind == "source-invalid"
+        assert error.record_kind == "path"
+        assert error.record_id == "policy.yaml.relations.stated_over_inferred"
+        assert error.sources == ("policy.yaml",)
+        assert error.detail == f"is {value!r}, not true or false"
+        assert "policy.yaml.relations.stated_over_inferred" in error.format_message()
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_bool_stated_over_inferred_is_accepted(self, tmp_path: Path, value: bool) -> None:
+        assert _policy_errors(tmp_path, {"stated_over_inferred": value}) == []
+
+    def test_bad_value_stops_the_build_at_load(self, tmp_path: Path) -> None:
+        _write(tmp_path, {"policy.yaml": {"relations": {"precedence": {"default": ["spec"]}}}})
+        report = run_stages(tmp_path, project_name="demo")
+        assert report.failed == "load"
+        assert [e.kind for e in report.errors] == ["source-invalid"]
