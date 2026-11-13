@@ -409,6 +409,43 @@ than a tab at login.
    apps:
      corrector-trim: {shown: true, panel_hidden: true}
 
+Per-deployment container settings
+=================================
+
+Three things about a container are the deployment's and not the app's, so
+they are set in ``profile.yml`` under ``apps.<name>.services.<key>``:
+
+.. code-block:: yaml
+
+   # profile.yml
+   apps:
+     lattice:
+       services:
+         lattice:
+           network: host
+           env: [EPICS_CA_ADDR_LIST]
+           mounts:
+             - {source: /nfs/physics/lattices, target: /lattices}
+             - {source: /usr/local/oag/bin, target: /opt/oag/bin}
+
+``network``
+   ``bridge`` (the default) or ``host``
+   (:ref:`deployment-network-attachment`).
+
+``env``
+   Host environment variable names passed into the container, added to the
+   manifest's.
+
+``mounts``
+   Host directories or files bound into a ``runtime: osprey`` container,
+   always read-only: a lattice repository on a network share, a physics
+   code's binaries the project image does not carry. ``source`` is an absolute
+   host path, written out (no variable); ``target`` is an absolute container
+   path outside ``/app`` and ``/osprey``. A source that does not exist fails
+   the start. The build refuses a source that holds, or lies inside, the
+   deployment's guarded-run, limits, control-context or identity paths. An
+   ``image:`` container states its binds in its own compose fragment.
+
 .. _how-to-apps-skills:
 
 Skills and agent parity

@@ -372,12 +372,12 @@ def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
 def test_every_listed_application_ships_beside_the_preset() -> None:
     """A preset's ``apps:`` block names only applications the package carries.
 
-    Orbit bump ships with OSPREY and no preset turns it on.
+    Orbit bump and the lattice panel ship with OSPREY and no preset turns them on.
     """
     apps_dir = PRESETS_DIR / "apps"
     shipped = {path.name for path in apps_dir.iterdir()}
     listed = {name for preset in _all_presets() for name in preset_apps(preset)}
-    assert shipped == {"orbit-bump"}
+    assert shipped == {"lattice", "orbit-bump"}
     assert listed == set()
     for name in shipped:
         assert (apps_dir / name / "app.yml").is_file()

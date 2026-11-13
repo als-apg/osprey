@@ -249,6 +249,19 @@ REGISTRY: list[DocShot] = [
         element_selector="#inner",
         viewport=(1280, 1700),
     ),
+    # The lattice app's panel, served by its own backend over the example
+    # facility's storage ring: pyAT computes the optics before the capture
+    # (docs/screenshots/lattice_panel.py), so the shot is the ready analysis.
+    # The viewport ends below the dispersion chart; the tune diagram is under it.
+    DocShot(
+        name="lattice_panel",
+        environment="standalone_interface",
+        kind="static",
+        app_factory="docs.screenshots.lattice_panel:create_app",
+        wait_selector=".lt-charts",
+        themes=("light", "dark"),
+        viewport=(1280, 750),
+    ),
     # ARIEL (opt-in ``--stack``), in the live web terminal. One tutorial stack →
     # one PNG of the one screen: rail, list and the seeded logbook's newest
     # entry, clicked into the reader. Single-theme (light) → no theme suffix;

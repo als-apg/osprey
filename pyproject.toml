@@ -599,9 +599,13 @@ python_version = "3.11"
 # import one another by bare name (`import osprey_safety_file`, `from validation
 # import ...`). Naming them ahead of `src` resolves those imports, so a call from
 # one script into a sibling is checked rather than taken as `Any`.
+#
+# The lattice application is a project of its own below `src`, imported as
+# `lattice_app` where it runs; its root is named so it is checked under that name.
 mypy_path = """\
 src/osprey/templates/claude_code/claude/hooks:\
 src/osprey/templates/services/teams_bridge/relay:\
+src/osprey/profiles/presets/apps/lattice:\
 src:packages/osprey-connectors/src:packages/osprey-optimizer/src:packages/pyaml-cs-osprey/src"""
 explicit_package_bases = true
 files = [
@@ -755,11 +759,12 @@ testpaths = [
 ]
 # The connectors suite's helpers (osprey_connectors_tests) are imported by the
 # framework's own connector tests, which may be collected before that suite is.
-# The bundled example application is imported by its own tests, as a deployment's
-# image imports it.
+# The bundled applications are imported by their own tests, as a deployment's
+# image imports them.
 pythonpath = [
     "packages/osprey-connectors/tests",
     "src/osprey/profiles/presets/apps/orbit-bump",
+    "src/osprey/profiles/presets/apps/lattice",
 ]
 python_files = [
     "test_*.py",

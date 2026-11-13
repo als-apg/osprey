@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
@@ -33,6 +33,14 @@ WatchdogsBlock = dict[str, dict[str, Any]]
 The rules, and the parsed definitions, are :mod:`osprey.services.watchdog.config`'s:
 one parser serves profile validation and the runtime, and a render writes the
 block back out, so the profile keeps the map itself rather than a parsed copy."""
+
+MOUNT_KEYS: tuple[str, ...] = ("source", "target")
+"""The keys of one ``mounts:`` entry. There is no mode key: every mount is read-only."""
+
+RESERVED_MOUNT_TARGETS: tuple[str, ...] = ("/app", "/osprey")
+"""Container directories a ``mounts:`` target may not be, be inside or hold:
+the project image's own files, and where the application runtime binds the
+container's config, state, spool and control tree."""
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""
@@ -75,6 +83,89 @@ def network_mode_errors(value: Any, key: str) -> list[str]:
         # re-read the same line looking for a typo that is not there.
         message += ". A bare yes/no/on/off in YAML parses as a boolean — quote the value."
     return [message]
+
+
+def mounts_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``mounts:`` list (empty when valid).
+
+    The ``mounts:`` axis binds host paths read-only into an application's
+    ``runtime: osprey`` container: a lattice repository on a network share, a
+    physics code's binaries the project image does not carry. Each entry is a
+    mapping of exactly ``source``, an absolute host path spelled literally, and
+    ``target``, an absolute container path outside
+    :data:`RESERVED_MOUNT_TARGETS`. Accumulates rather than raises, like
+    :func:`network_mode_errors`. Whether a source exposes a path the deployment
+    protects is the render's check, which knows those paths.
+
+    Args:
+        value: The declared list, exactly as it came out of the YAML.
+        key: Dotted path of the declaration, used verbatim in the messages.
+
+    Returns:
+        Human-readable error messages; empty when every entry is well-formed.
+    """
+    if not isinstance(value, list):
+        return [f"{key} must be a list of {{source, target}} mappings (got {type(value).__name__})"]
+    errors: list[str] = []
+    targets: dict[str, int] = {}
+    for index, entry in enumerate(value):
+        where = f"{key}[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(
+                f"{where} must be a mapping of source and target (got {type(entry).__name__})"
+            )
+            continue
+        errors.extend(
+            f"{where}.{extra} is not a key of a mount ({', '.join(MOUNT_KEYS)}): every "
+            "mount is read-only"
+            for extra in sorted(str(name) for name in entry if name not in MOUNT_KEYS)
+        )
+        if missing := [name for name in MOUNT_KEYS if name not in entry]:
+            errors.append(f"{where} lacks {' and '.join(missing)}")
+            continue
+        source, target = entry["source"], entry["target"]
+        if isinstance(source, str) and "$" in source:
+            errors.append(
+                f"{where}.source may not carry a variable (got {source!r}): its value is "
+                "unknown when the deployment is rendered"
+            )
+        elif not isinstance(source, str) or not source.startswith("/"):
+            errors.append(f"{where}.source must be an absolute host path (got {source!r})")
+        if not isinstance(target, str) or not target.startswith("/"):
+            errors.append(f"{where}.target must be an absolute container path (got {target!r})")
+            continue
+        if "$" in target:
+            errors.append(f"{where}.target may not carry a variable (got {target!r})")
+            continue
+        parts = PurePosixPath(target).parts
+        if ".." in parts:
+            errors.append(f"{where}.target may not carry `..` (got {target!r})")
+            continue
+        normal = PurePosixPath(target).as_posix()
+        if normal == "/":
+            errors.append(f"{where}.target is the container's root")
+            continue
+        reserved = next(
+            (
+                root
+                for root in RESERVED_MOUNT_TARGETS
+                if normal == root or normal.startswith(f"{root}/")
+            ),
+            None,
+        )
+        if reserved is not None:
+            errors.append(
+                f"{where}.target is inside {reserved}, which the container's own files and "
+                f"binds use (got {target!r})"
+            )
+            continue
+        if normal in targets:
+            errors.append(
+                f"{where}.target {normal} is already the target of {key}[{targets[normal]}]"
+            )
+            continue
+        targets[normal] = index
+    return errors
 
 
 def env_names_errors(value: Any, key: str) -> list[str]:
@@ -215,6 +306,10 @@ class AppServiceAxes:
     so every bad spelling is reported at once."""
     env: Any = None
     """Host variable names passed through to the container; ``None`` adds none."""
+    mounts: Any = None
+    """Host directories or files a ``runtime: osprey`` container is bound
+    read-only (``[{source, target}]``, checked by :func:`mounts_errors`);
+    ``None`` binds none."""
 
 
 @dataclass

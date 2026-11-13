@@ -267,9 +267,11 @@ Where to go next
 - :doc:`build-your-own-app` — from ``osprey app new`` to a running panel and
   tools on your deployment: the manifest, the backend, the tool server, the
   panel, writes and approvals, logins, skills and subagents.
+- :doc:`lattice` — the bundled lattice app: its decks, engines and tools.
 - :ref:`osprey app <cli-osprey-app>` — the command reference.
 
 .. toctree::
    :hidden:
 
    build-your-own-app
+   lattice

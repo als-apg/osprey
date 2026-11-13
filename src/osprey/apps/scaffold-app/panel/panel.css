@@ -2,6 +2,11 @@
    design-system primitives (primitives.css). */
 
 .scaffold {
+  box-sizing: border-box;
+  /* base.css pins html and body to the tile and hides their overflow, so the
+     panel's root is what scrolls. */
+  height: 100%;
+  overflow-y: auto;
   padding: var(--space-4);
 }
 

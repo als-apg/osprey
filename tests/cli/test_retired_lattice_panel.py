@@ -8,13 +8,17 @@ once and is dropped rather than refusing the build.
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
+import osprey
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_document import _WARNED_RETIRED_KEYS, normalize_retired_panel
+
+BUNDLED_LATTICE_APP = Path(osprey.__file__).parent / "profiles" / "presets" / "apps" / "lattice"
 
 
 @pytest.fixture(autouse=True)
@@ -25,13 +29,42 @@ def _warn_afresh():
 
 
 def test_the_panel_selection_loses_it_with_one_warning(caplog: pytest.LogCaptureFixture) -> None:
-    raw = {"web_panels": ["ariel", "lattice", "okf"], "default_panel": "lattice"}
+    raw = {"web_panels": ["ariel", "lattice", "okf"]}
     with caplog.at_level(logging.WARNING):
         normalize_retired_panel(raw, "profile.yml")
         normalize_retired_panel(raw | {"web_panels": ["lattice"]}, "profile.yml")
     assert raw == {"web_panels": ["ariel", "okf"]}
     assert caplog.text.count("`web_panels: lattice` is no longer read") == 1
-    assert "profile.yml: `default_panel: lattice` is no longer read" in caplog.text
+
+
+def _repo(tmp_path: Path, **keys: object) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    root = repo / "profile.yml"
+    document = {"name": "Facility", "data": "data", "deploy_services": True, **keys}
+    root.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return root.resolve()
+
+
+def test_a_repo_still_opening_on_it_builds_without_a_default_panel(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = _repo(tmp_path, default_panel="lattice")
+    with caplog.at_level(logging.WARNING):
+        resolved, _ = resolve_build_profile(root, preset=None)
+    assert resolved.default_panel is None
+    assert "`default_panel: lattice` is no longer read" in caplog.text
+
+
+def test_a_repo_running_the_lattice_app_opens_on_its_panel(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = _repo(tmp_path, default_panel="lattice", apps={"lattice": {}})
+    shutil.copytree(BUNDLED_LATTICE_APP, root.parent / "apps" / "lattice")
+    with caplog.at_level(logging.WARNING):
+        resolved, _ = resolve_build_profile(root, preset=None)
+    assert resolved.default_panel == "lattice"
+    assert "no longer read" not in caplog.text
 
 
 @pytest.mark.parametrize(

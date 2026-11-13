@@ -167,6 +167,8 @@ def _project_container(
     block["env"] = _merge_names(container.env, axes.get("env") or [])
     if "network" in axes:
         block["network"] = axes["network"]
+    if container.runtime is not None and axes.get("mounts"):
+        block["mounts"] = [dict(mount) for mount in axes["mounts"]]
     if container.state is not None:
         block["state"] = container.state
     block["drives_target"] = container.drives_target

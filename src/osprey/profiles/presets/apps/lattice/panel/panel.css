@@ -1,0 +1,142 @@
+/* The lattice panel, inside a hub tile. The toolbar, the analysis toggle, chips, buttons
+   and cards are the design-system primitives; this file holds what is the app's own:
+   the charts and the layout. Tokens only. */
+
+.lt {
+  box-sizing: border-box;
+  /* base.css pins html and body to the tile and hides their overflow, so the
+     panel's root is what scrolls. */
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+}
+
+.lt-select {
+  padding: 2px 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+/* An analysis nobody has computed yet reads quieter than one that is ready. */
+.lt .osprey-seg button[data-status="absent"] {
+  opacity: 0.7;
+}
+
+.lt .osprey-seg button[data-status="failed"] {
+  color: var(--color-error);
+}
+
+.lt-error {
+  margin: var(--space-2, 8px) 0 0;
+  color: var(--color-error);
+}
+
+.lt-meta {
+  margin: var(--space-2, 8px) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.lt-body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3, 12px);
+  flex-wrap: wrap;
+}
+
+.lt-charts {
+  flex: 3 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.lt-side {
+  flex: 1 1 220px;
+}
+
+.lt-name {
+  color: var(--text-secondary);
+}
+
+.lt-value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-files {
+  display: flex;
+  gap: var(--space-2, 8px);
+}
+
+.lt-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lt-plot {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--chart-paper-bg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.lt-plot-bg {
+  fill: var(--chart-plot-bg);
+  stroke: var(--chart-axis-line);
+}
+
+.lt-grid {
+  stroke: var(--chart-grid);
+}
+
+.lt-res {
+  stroke: var(--chart-axis-text);
+  stroke-width: 0.6;
+  opacity: 0.35;
+}
+
+.lt-res[data-order="1"],
+.lt-res[data-order="2"] {
+  stroke-width: 1.4;
+  opacity: 0.7;
+}
+
+.lt-res[data-order="3"] {
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.lt-line {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.lt-pt {
+  stroke: none;
+}
+
+.lt-tick,
+.lt-label,
+.lt-legend {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--chart-axis-text);
+}
+
+.lt-legend {
+  font-size: 11px;
+}

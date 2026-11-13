@@ -127,7 +127,7 @@ def test_a_service_carries_only_axis_keys(key: str) -> None:
     message = _parse_refusal({"knob": {"services": {"knob": {key: "x"}}}})
 
     assert f"apps.knob.services.knob.{key}" in message
-    assert "env, network" in message
+    assert "env, mounts, network" in message
 
 
 @pytest.mark.parametrize(
@@ -194,6 +194,47 @@ def test_a_service_the_manifest_does_not_declare_is_refused(tmp_path: Path) -> N
     [
         ({"network": "lan"}, "apps.knob.services.knob.network must be one of bridge, host"),
         ({"env": "HTTP_PROXY"}, "apps.knob.services.knob.env must be a list"),
+        ({"mounts": "/nfs/lattices"}, "apps.knob.services.knob.mounts must be a list"),
+        ({"mounts": ["/nfs/lattices:/lattices"]}, "mounts[0] must be a mapping"),
+        ({"mounts": [{"source": "/nfs/lattices"}]}, "mounts[0] lacks target"),
+        (
+            {"mounts": [{"source": "/nfs", "target": "/lattices", "read_only": False}]},
+            "mounts[0].read_only is not a key of a mount (source, target): every mount is "
+            "read-only",
+        ),
+        (
+            {"mounts": [{"source": "lattices", "target": "/lattices"}]},
+            "mounts[0].source must be an absolute host path (got 'lattices')",
+        ),
+        (
+            {"mounts": [{"source": "$HOME/lattices", "target": "/lattices"}]},
+            "mounts[0].source may not carry a variable",
+        ),
+        (
+            {"mounts": [{"source": "/nfs/lattices", "target": "lattices"}]},
+            "mounts[0].target must be an absolute container path (got 'lattices')",
+        ),
+        (
+            {"mounts": [{"source": "/nfs/lattices", "target": "/data/../app"}]},
+            "mounts[0].target may not carry `..`",
+        ),
+        (
+            {"mounts": [{"source": "/nfs/lattices", "target": "/app/project/decks"}]},
+            "mounts[0].target is inside /app, which the container's own files and binds use",
+        ),
+        (
+            {"mounts": [{"source": "/nfs/lattices", "target": "/"}]},
+            "mounts[0].target is the container's root",
+        ),
+        (
+            {
+                "mounts": [
+                    {"source": "/nfs/a", "target": "/lattices"},
+                    {"source": "/nfs/b", "target": "/lattices/"},
+                ]
+            },
+            "mounts[1].target /lattices is already the target of apps.knob.services.knob.mounts[0]",
+        ),
     ],
 )
 def test_service_axes_are_validated(tmp_path: Path, axes: dict[str, Any], words: str) -> None:
@@ -203,6 +244,36 @@ def test_service_axes_are_validated(tmp_path: Path, axes: dict[str, Any], words:
         load_profile_document(repo / "profile.yml")
 
     assert words in str(excinfo.value)
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_runtime_container_takes_read_only_mounts(tmp_path: Path) -> None:
+    mounts = [{"source": "/nfs/oag/lattices", "target": "/lattices"}]
+    repo = _repo(tmp_path, {"apps": {"knob": {"services": {"knob": {"mounts": mounts}}}}})
+
+    loaded = load_profile_document(repo / "profile.yml")
+
+    assert loaded.profile.apps["knob"].services["knob"].mounts == mounts
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_an_image_container_states_its_binds_in_its_fragment(tmp_path: Path) -> None:
+    manifest = {"name": "knob", "containers": {"knob": {"image": "redis:7"}}}
+    mounts = [{"source": "/nfs/oag/lattices", "target": "/lattices"}]
+    repo = _repo(tmp_path, {"apps": {"knob": {"services": {"knob": {"mounts": mounts}}}}})
+    _write_yaml(tmp_path / "apps" / "knob" / "app.yml", manifest)
+    (tmp_path / "apps" / "knob" / "compose" / "knob").mkdir(parents=True)
+    (tmp_path / "apps" / "knob" / "compose" / "knob" / "docker-compose.yml.j2").write_text(
+        "services:\n  {{ service_key }}:\n    image: {{ service.image }}\n", encoding="utf-8"
+    )
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        load_profile_document(repo / "profile.yml")
+
+    assert (
+        "apps.knob.services.knob.mounts is for a runtime: osprey container; knob runs its "
+        "own image, whose compose fragment states its binds" in str(excinfo.value)
+    )
 
 
 # ---------------------------------------------------------------------------

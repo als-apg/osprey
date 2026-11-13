@@ -62,6 +62,7 @@ from .build_profile_document import (
     RENDER_KEYS,
     _normalize_empty_collections,
     _read_profile_document,
+    drop_retired_default_panel,
 )
 from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
 from .build_profile_model import SERVICE_AXES, BuildProfile
@@ -565,7 +566,9 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
             config=dict(entry.get("config") or {}),
             services={
                 str(key): AppServiceAxes(
-                    network=(axes or {}).get("network"), env=(axes or {}).get("env")
+                    network=(axes or {}).get("network"),
+                    env=(axes or {}).get("env"),
+                    mounts=(axes or {}).get("mounts"),
                 )
                 for key, axes in (entry.get("services") or {}).items()
             },
@@ -1852,6 +1855,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _raise_app_block_problems(raw, "the profile", login=False)
+    drop_retired_default_panel(raw)
     _check_simulation_periods(raw)
     _check_default_scenarios(raw)
     _check_limits_database_path(raw)

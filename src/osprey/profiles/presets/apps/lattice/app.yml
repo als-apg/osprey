@@ -1,0 +1,29 @@
+# Lattice analyses of the facility's decks: one backend computes each once and every
+# terminal, the agent and the file exports read the same cached result. Nothing is written
+# to the machine, so every tool is a read tool and every route a GET.
+name: lattice
+summary: Shows optics, tunes, chromaticity and apertures of the facility's lattice decks.
+containers:
+  lattice:
+    runtime: osprey
+    command: [python, -m, lattice_app.server]
+    health: /health
+    # The result cache: it outlives the container, so a restart recomputes nothing.
+    state: var/lattice
+panel:
+  label: Lattice
+  container: lattice
+  # A result request waits for a running analysis up to 45 s before it answers "running".
+  read_timeout_s: 60
+  agent_routes:
+    - [GET, /api/state]
+    - [GET, /api/result]
+    - [GET, /api/export]
+  roster_grant: {single_user_alias: true}
+tools:
+  module: lattice_app.tools
+  read: [lattice_state, lattice_result, lattice_export]
+  errors:
+    unreachable: The lattice panel's backend is not answering; check its container with osprey health.
+    refused: The lattice backend refused the request; read lattice_state for the models and analyses it offers.
+skills: [lattice]

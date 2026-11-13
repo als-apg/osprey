@@ -211,6 +211,9 @@ route the tools call must be in `panel.agent_routes`; a tool must be under
   imports it; whatever drives the panel waits for that mark.
 - Primitives first; `panel.css` holds only the app's own layout, on design
   tokens (`var(--space-2)`), with a rule for every class you introduce.
+- The panel's root scrolls: the design system pins `html` and `body` to the
+  tile and hides their overflow, so keep the root's `height: 100%` and
+  `overflow-y: auto` from the scaffold, or content below the tile is cut off.
 - Export the functions that render state and test them in
   `tests/*.test.js` (Vitest, DOM). The test builds its own DOM, so a new
   field goes into the test's markup too.

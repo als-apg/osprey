@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" data-page-ready="pending">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
+<link rel="stylesheet" href="static/panel.css">
+<title>Lattice</title>
+</head>
+<body>
+<main id="lattice" class="lt">
+  <div class="osprey-panel-toolbar">
+    <div class="osprey-panel-toolbar__start">
+      <select class="lt-select" data-field="model" aria-label="model" hidden></select>
+      <select class="lt-select" data-field="energy" aria-label="energy" hidden></select>
+      <span class="osprey-seg" data-field="analyses"></span>
+    </div>
+    <div class="osprey-panel-toolbar__end">
+      <span class="osprey-chip" data-field="status" hidden></span>
+    </div>
+  </div>
+  <p class="lt-error" data-field="error" hidden></p>
+  <p class="lt-meta" data-field="meta" hidden></p>
+  <div class="lt-body" data-field="body"></div>
+</main>
+<script type="module" src="static/panel.js"></script>
+</body>
+</html>

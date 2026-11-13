@@ -12,4 +12,6 @@ apps:
       gauge:
         network: host
         env: [GAUGE_EXTRA]
+        mounts:
+          - {source: /srv/gauge-data, target: /gauge-data}
   ledger: {}

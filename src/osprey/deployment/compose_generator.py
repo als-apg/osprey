@@ -3134,6 +3134,8 @@ def _inject_project_metadata(config):
         if config_with_labels.get("service_key") in services and "service" in config_with_labels:
             config_with_labels["service"] = services[config_with_labels["service_key"]]
 
+    _refuse_protected_app_mounts(config_with_labels)
+
     # The simulated machine's tick period, resolved through the one function the
     # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
@@ -3255,7 +3257,7 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     "service": (
         "the `services.<k>` block: `app`, `command`, `image`, `config_file`, "
         "`audit_identity`, `drives_target`, `port`, `health`, `launch_token_env`, "
-        "`network`, `env`"
+        "`network`, `env`, `mounts`"
     ),
     **_PANEL_GRANT_NAMES,
     "osprey_images.worker": "the project image",
@@ -3677,6 +3679,40 @@ def _protected_mount(source, config):
     ):
         return "the control-identity directory"
     return None
+
+
+def _refuse_protected_app_mounts(config):
+    """Refuse a deployment's ``mounts`` on an application container that expose a protected path.
+
+    ``apps.<name>.services.<key>.mounts`` binds host paths read-only into a
+    ``runtime: osprey`` container. Read-only still shows what is there, so a
+    source that is, is inside or holds a path :func:`_protected_mount` names is
+    refused, as it is for an ``image:`` fragment's binds.
+
+    :param config: The render context, with the protected paths already injected
+    :type config: dict
+    :raises DeploymentPreconditionError: A mount exposes a protected path
+    """
+    services = config.get("services")
+    if not isinstance(services, Mapping):
+        return
+    for key, block in services.items():
+        if not isinstance(block, Mapping) or not block.get("mounts"):
+            continue
+        axis = f"apps.{block.get('app', key)}.services.{key}.mounts"
+        for mount in block["mounts"]:
+            source = str(mount["source"])
+            words = "a path unknown at render time" if _interpolates(source) else None
+            words = words or _protected_mount(source, config)
+            if words:
+                raise DeploymentPreconditionError(
+                    reason=f"{axis} binds {source} into {key}, which exposes {words}.",
+                    remedy=(
+                        f"Name a narrower directory in {axis}: one that neither holds nor "
+                        "is inside the deployment's guarded-run, limits, control-context or "
+                        "identity paths."
+                    ),
+                )
 
 
 def _publishes_off_loopback(entry):

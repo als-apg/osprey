@@ -133,6 +133,7 @@ def test_profile_axis_keys_are_carried_into_the_service() -> None:
                     "knob-demo": {
                         "network": "host",
                         "env": ["EPICS_CA_ADDR_LIST", "KNOB_DEMO_MODE"],
+                        "mounts": [{"source": "/nfs/oag/lattices", "target": "/lattices"}],
                     },
                     "knob-cache": {"env": ["REDIS_PASSWORD"]},
                 }
@@ -144,8 +145,9 @@ def test_profile_axis_keys_are_carried_into_the_service() -> None:
     assert runtime["network"] == "host"
     # The manifest's names first, then the profile's, each once.
     assert runtime["env"] == ["KNOB_DEMO_MODE", "EPICS_CA_ADDR_LIST"]
+    assert runtime["mounts"] == [{"source": "/nfs/oag/lattices", "target": "/lattices"}]
     cache = services["knob-cache"]["config"]
-    assert "network" not in cache
+    assert "network" not in cache and "mounts" not in cache
     assert cache["env"] == ["REDIS_PASSWORD"]
 
 
