@@ -106,6 +106,8 @@ class FakeDirectory:
 
     async def property_values(self, name: str, prefix: str | None, deadline: float) -> Any:  # noqa: ARG002
         self.asked.append((name, prefix))
+        if self.failure:
+            raise RuntimeError(self.failure)
         if name not in self.values:
             return Unavailable(f"property {name!r} did not answer")
         return [value for value in self.values[name] if value.startswith(prefix or "")]
@@ -362,6 +364,18 @@ async def test_properties_unavailable_from_the_service_refuses(tmp_path: Path) -
     details = refused["envelope"]["details"]
     assert details["reason"] == "property 'nope' did not answer"
     assert details["source"]["service"] == "channelfinder"
+
+
+async def test_a_failed_property_read_never_serves_the_exception_text(tmp_path: Path) -> None:
+    FakeDirectory.failure = "cannot reach https://reader:secret@cf.example/ChannelFinder"
+    _install(tmp_path, FACILITY)
+
+    with assert_raises_error(error_type="service_unavailable") as refused:
+        await properties.directory_properties("iocName")
+
+    details = refused["envelope"]["details"]
+    assert details["reason"] == "the service failed: RuntimeError"
+    assert "cf.example" not in json.dumps(details) and "secret" not in json.dumps(details)
 
 
 async def test_properties_with_no_source_refuses_not_supported(tmp_path: Path) -> None:
