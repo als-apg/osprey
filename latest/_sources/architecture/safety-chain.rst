@@ -563,6 +563,20 @@ only connector-host children should reach a gateway. The web tier runs ``network
 today, so a kernel, and anything a cell starts, can reach any gateway a connector-host child
 can.
 
+A kernel's **environment** is the execution allowlist (:ref:`python-executor-secrets-zone`),
+so the terminal's provider key, database passwords and telemetry login are not in a cell's
+``os.environ``. That removes the copy a kernel was handed, not the reach of its user: a
+kernel has no file guard, so a cell can open what the container's user can open, which
+includes the environment of that user's other processes that are not closed to it (the
+agent's own process holds the provider key) and the files in that user's home. Closing that
+takes a kernel that runs as another user or in another container, which OSPREY does not do
+today.
+
+Under the ``none`` auth posture the proxy in front of the terminals adds each user's operator
+secret itself, so a cell on the host network could call it as any user. ``osprey up`` therefore
+refuses an open deployment whose render shows the notebook panel, on the same terms as one whose
+render lifts a shell (:ref:`open posture <multi-user-open-mode>`).
+
 **The approval prompt attributes a write to a person; it does not contain code already running
 in the container.** The prompt is answered at the terminal, and the terminal's server runs in
 the same container, as the same user, as the agent and everything the agent runs. What keeps

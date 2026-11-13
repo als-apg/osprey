@@ -93,6 +93,13 @@ put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
 
+The same start refuses an open deployment whose render shows the notebook
+panel (``web_terminals.open_mode_code_panel`` in the lint). A kernel runs what
+is typed into a cell, in the terminal's container and with no guard in front of
+it, so it is a shell by another name, and the agent can write the cell a person
+then runs. No deny entry clears this one: either stop selecting ``jupyter`` in
+the renders the message names and rebuild, or choose one of the postures below.
+
 **Passwords**, managed by OSPREY:
 
 .. code-block:: yaml

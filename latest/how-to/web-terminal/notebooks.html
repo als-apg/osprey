@@ -740,6 +740,29 @@ no extra line, because nothing you do in the notebook would change it.</p>
 <p>A page reload keeps the kernel running, but the notebook comes back as it was
 last saved. Output from cells that ran since that save is gone.</p>
 </section>
+<section id="what-a-cell-s-environment-holds">
+<h2>What a cell’s environment holds<a class="headerlink" href="#what-a-cell-s-environment-holds" title="Link to this heading">#</a></h2>
+<p>The notebook server and its kernels start with the fixed set of environment
+variables executed code gets (<a class="reference internal" href="../../reference/configuration/config.html#config-python-executor"><span class="std std-ref">python_executor: — how long one agent script may run, and what it inherits</span></a>): paths, locale,
+the interpreter, TLS trust, proxies, the control-system client settings and
+the osprey names a cell reads. The terminal’s provider key, its database
+passwords and its telemetry login are not in that set, so <code class="docutils literal notranslate"><span class="pre">os.environ</span></code> in a
+cell does not hold them. A cell that needs another variable gets it the way an
+executor run does, by name:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_executor.child_env_passthrough</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">HDF5_PLUGIN_PATH</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>This keeps credentials out of a kernel’s own environment and is not a sandbox.
+A kernel runs as the same user as the terminal’s server and the agent, in the
+same container and on its network: what that user can read on disk or from
+another of its processes, a cell can read, and what the container can reach, a
+cell can reach (<a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-residual"><span class="std std-ref">What the switch does not close</span></a>).</p>
+<p>For that reason the panel needs a login wall. A deployment on
+<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> trusts every request its proxy forwards, and a cell could
+send one; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start such a deployment while a render shows
+this panel (<a class="reference internal" href="multi-user/login.html#multi-user-open-mode"><span class="std std-ref">open posture</span></a>).</p>
+</section>
 <section id="notebooks-the-agent-also-edits">
 <h2>Notebooks the agent also edits<a class="headerlink" href="#notebooks-the-agent-also-edits" title="Link to this heading">#</a></h2>
 <p>The OSPREY agent may edit a notebook under <code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> (and, as before,
@@ -903,6 +926,7 @@ the save-time dialog above.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turning-the-panel-on">Turning the panel on</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-notebooks-live">Where notebooks live</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-machine-a-kernel-writes-to">Which machine a kernel writes to</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-cell-s-environment-holds">What a cell’s environment holds</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-the-agent-also-edits">Notebooks the agent also edits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-in-a-multi-user-deployment">Notebooks in a multi-user deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-notebook-output-cannot-run">What a notebook output cannot run</a></li>

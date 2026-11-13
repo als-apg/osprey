@@ -1011,7 +1011,11 @@ plus any names listed in <code class="docutils literal notranslate"><span class=
 interpreter, TLS trust, proxies, plotting caches, the control-system client
 settings and the osprey names the run reads. A credential osprey holds cannot
 be listed in <code class="docutils literal notranslate"><span class="pre">child_env_passthrough</span></code>. The child does not load the project’s
-env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code>) itself.</p>
+env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code>) itself. A notebook kernel is started with
+the same set, so a cell’s <code class="docutils literal notranslate"><span class="pre">os.environ</span></code> holds no provider key, database
+password or telemetry login either. The executor’s file and <code class="docutils literal notranslate"><span class="pre">/proc</span></code> refusals
+are its own and do not bind a kernel
+(<a class="reference internal" href="safety-chain.html#architecture-safety-chain-residual"><span class="std std-ref">What the switch does not close</span></a>).</p>
 <p>Opening one of the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, or any <code class="docutils literal notranslate"><span class="pre">/proc/*/environ</span></code> or
 <code class="docutils literal notranslate"><span class="pre">/proc/*/cmdline</span></code>, is refused in both modes, for reads and writes. The
 visualization sandbox refuses the same opens, <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> reads included. A

@@ -1426,7 +1426,8 @@ change lands after <code class="docutils literal notranslate"><span class="pre">
 must be a finite, positive number of seconds; any other value, <code class="docutils literal notranslate"><span class="pre">null</span></code>
 included, refuses every run, so no run is left without a time bound.</p>
 <p>Agent Python — the python executor, the visualization tools and plan
-validation — starts with a fixed set of environment variables from the host:
+validation — and the notebook server with its kernels start with a fixed set
+of environment variables from the host:
 paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
 control-system client settings (<code class="docutils literal notranslate"><span class="pre">EPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">TANGO_*</span></code>, <code class="docutils literal notranslate"><span class="pre">ENSHOST</span></code>) and the osprey names the run itself reads. Nothing else from the
 host reaches it. <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> adds names to that
