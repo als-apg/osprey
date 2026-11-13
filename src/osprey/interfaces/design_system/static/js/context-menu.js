@@ -46,7 +46,8 @@
  * window's realm, so nothing here tests them with `instanceof Node`.
  *
  * Focus contract — opening records the document's `activeElement` and focuses the
- * first enabled row. That focus is handed back only on the KEYBOARD dismissals
+ * first enabled row. The pointer then takes it along: an enabled row it enters
+ * takes focus, so one row is lit at a time. That focus is handed back only on the KEYBOARD dismissals
  * (Escape/Tab) and on close-before-run, where it is restored before the action
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
  * and resize dismissals never move focus: blur in particular fires AFTER focus
@@ -668,6 +669,11 @@ function buildRow(item, depth) {
       cancelHover();
       closeLevelsFrom(depth + 1);
     });
+  }
+  if (!item.disabled) {
+    // Focus follows the pointer, so the row that opened focused does not stay
+    // lit beside the hovered one.
+    btn.addEventListener('pointerenter', () => btn.focus({ preventScroll: true }));
   }
   return btn;
 }

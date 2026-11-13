@@ -414,6 +414,15 @@ describe('submenus', () => {
     });
   }
 
+  test('focus follows the pointer to an enabled row and stays off a disabled one', () => {
+    open();
+    expect(document.activeElement).toBe(row('Rename'));
+    hover(row('Open panel'));
+    expect(document.activeElement).toBe(row('Open panel'));
+    hover(row('Locked'));
+    expect(document.activeElement).toBe(row('Open panel'));
+  });
+
   test('a submenu row shows ▸ after its hint, carries the menu ARIA, and runs nothing', () => {
     open();
     const parent = row('Open panel');
