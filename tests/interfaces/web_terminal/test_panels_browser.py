@@ -2309,6 +2309,9 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
+        # The boot layout replaces the default arrangement; a rectangle or sash
+        # read before that is one of the arrangement about to be dropped.
+        wait_for_dock_settled(page)
 
         before = page.evaluate(_ALIGN_JS, "artifacts")
         assert before is not None, "artifacts placeholder/iframe missing"
@@ -2330,8 +2333,17 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
         page.mouse.down()
         try:
             page.mouse.move(sash["x"] - 150, sash["y"], steps=8)
-            # One rAF/RO tick to let the live follower re-apply geometry.
-            page.wait_for_timeout(150)
+            # Wait, button still down, for the group to have resized and the
+            # live follower to have re-applied the overlay's geometry to it.
+            page.wait_for_function(
+                f"""async ([sid, w0]) => {{
+                    const r = await ({_ALIGN_JS})(sid);
+                    return !!r && Math.abs(r.contentW - w0) >= 100
+                        && Math.abs(r.iframeLeft - r.contentLeft) <= 2
+                        && Math.abs(r.iframeW - r.contentW) <= 2;
+                }}""",
+                arg=["artifacts", before["contentW"]],
+            )
 
             mid = page.evaluate(_ALIGN_JS, "artifacts")
             assert mid is not None, "alignment probe lost mid-drag"
