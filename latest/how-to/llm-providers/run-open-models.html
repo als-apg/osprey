@@ -801,8 +801,23 @@ dashboard scores each test on its first attempt, without reruns:</p>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
-<span class="sd-summary-text">Tier 2 · 6 tests</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<span class="sd-summary-text">Tier 2 · 16 tests</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <dl>
+<dt><strong>A cleared alarm</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Is the heartbeat PV of IOC sim-SR in alarm right now?</div>
+<div class="line"><em>Passes if:</em> answers no alarm on ca:SIM:SR:HEARTBEAT</div>
+</div>
+</dd>
+<dt><strong>A latched alarm</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Is the storage ring RF cavity 1 temperature in alarm right now?</div>
+<div class="line"><em>Passes if:</em> answers a latched, unacknowledged MAJOR alarm on SR:RF:CAVITY:01:TEMPERATURE:RB</div>
+</div>
+</dd>
+<dt><strong>An acknowledged alarm</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> What is the alarm state of the storage ring sector 3 vacuum gauge pressure right now?</div>
+<div class="line"><em>Passes if:</em> answers an acknowledged MINOR alarm on SR:VAC:GAUGE:SR03:PRESSURE:RB</div>
+</div>
+</dd>
 <dt><strong>Compare with a logged chart</strong></dt><dd><div class="line-block">
 <div class="line"><em>Asks:</em> The beam current dipped in the last hour. Is there a similar loss in the logbook, and how do the two compare?</div>
 <div class="line"><em>Passes if:</em> both sizes within tolerance and the comparison the right way round</div>
@@ -818,14 +833,49 @@ dashboard scores each test on its first attempt, without reruns:</p>
 <div class="line"><em>Passes if:</em> finds the pressure burst and names sector 7</div>
 </div>
 </dd>
+<dt><strong>Find a PV only the full list has</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Which PV tells how long the storage-ring IOC, sim-SR, has been running?</div>
+<div class="line"><em>Passes if:</em> names ca:SIM:SR:UPTIME</div>
+</div>
+</dd>
+<dt><strong>Find a curated PV</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Which PV reads the storage ring beam lifetime?</div>
+<div class="line"><em>Passes if:</em> names SR:DIAG:DCCT:01:LIFETIME:RB</div>
+</div>
+</dd>
 <dt><strong>Find a value only a plot shows</strong></dt><dd><div class="line-block">
 <div class="line"><em>Asks:</em> What is the run identifier of the sector 9 orbit drift study in the logbook?</div>
 <div class="line"><em>Passes if:</em> the run id, which only the plot’s pixels carry</div>
 </div>
 </dd>
+<dt><strong>IOC host and engineer</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Which host does IOC sim-LTB run on, and who is its engineer?</div>
+<div class="line"><em>Passes if:</em> answers host virtual-accelerator and engineer ‘demo engineer’</div>
+</div>
+</dd>
+<dt><strong>Is an IOC alive</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Is the storage-ring IOC, sim-SR, alive?</div>
+<div class="line"><em>Passes if:</em> reads ca:SIM:SR:HEARTBEAT and answers alive</div>
+</div>
+</dd>
 <dt><strong>Rehearse, then apply live</strong></dt><dd><div class="line-block">
 <div class="line"><em>Asks:</em> Rehearse this trim on the simulator, then apply it to the live machine; later, what am I pointed at?</div>
 <div class="line"><em>Passes if:</em> rehearsed before the live write, the value lands on the machine, and the location is right after an outside move</div>
+</div>
+</dd>
+<dt><strong>Show a PV only the full list has</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Show me the heartbeat PV of IOC sim-BTS.</div>
+<div class="line"><em>Passes if:</em> names ca:SIM:BTS:HEARTBEAT</div>
+</div>
+</dd>
+<dt><strong>Show a curated PV</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Show me the forward power PV of storage ring RF cavity 1.</div>
+<div class="line"><em>Passes if:</em> names SR:RF:CAVITY:01:POWER:FWD</div>
+</div>
+</dd>
+<dt><strong>Show an IOC’s health PVs</strong></dt><dd><div class="line-block">
+<div class="line"><em>Asks:</em> Show me IOC sim-SR and list its health PVs.</div>
+<div class="line"><em>Passes if:</em> names ca:SIM:SR:HEARTBEAT, ca:SIM:SR:UPTIME and ca:SIM:SR:ENGINEER</div>
 </div>
 </dd>
 <dt><strong>Write a new scan plan</strong></dt><dd><div class="line-block">

@@ -542,14 +542,16 @@ composite, each physics model is an engine plug-in reached only through its
 <h2>What gets served<a class="headerlink" href="#what-gets-served" title="Link to this heading">#</a></h2>
 <p>The served list is the simulator view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>: its <code class="docutils literal notranslate"><span class="pre">channels</span></code>,
 every channel address the facility declares, then one
-<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> address for each served physics model. Which
-models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, with the texture model
-always last. A physics model is one child of the composite, built from the
-view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and its deck, <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the
-engine plug-in its record names; the texture serves every channel no model
-wires. The container’s ready line prints how many channels it serves, so the
-count is read off the running service rather than kept in prose that would
-rot.</p>
+<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> address for each served physics model, then the
+view’s <code class="docutils literal notranslate"><span class="pre">ioc_health</span></code> list: read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>,
+<code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code> addresses for every served model, texture
+included. Which models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, with
+the texture model always last. A physics model is one child of the composite,
+built from the view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and its deck,
+<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the engine plug-in its record names;
+the texture serves every channel no model wires. The container’s ready line
+prints how many channels it serves, so the count is read off the running
+service rather than kept in prose that would rot.</p>
 <p>The entrypoint, the runner and the model surface read the view through
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.view.SimulatorView</span></code>, the one reader every
 consumer of a view opens it with. Each wiring record of <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>
@@ -885,9 +887,9 @@ element under <code class="docutils literal notranslate"><span class="pre">error
 <p>A declared element carries <code class="docutils literal notranslate"><span class="pre">dx</span></code>, <code class="docutils literal notranslate"><span class="pre">dy</span></code> and <code class="docutils literal notranslate"><span class="pre">roll</span></code>, and with <code class="docutils literal notranslate"><span class="pre">multipoles:</span>
 <span class="pre">true</span></code> also <code class="docutils literal notranslate"><span class="pre">dB&lt;n&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">dA&lt;n&gt;</span></code>, with the bounds and the seeding of a bound
 element. <code class="docutils literal notranslate"><span class="pre">multipoles</span></code> is false when left out, and may be true only on an
-element that has both <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> and <code class="docutils literal notranslate"><span class="pre">PolynomA</span></code>. Declaring an element the wiring
-already binds is allowed and can only add slots: it carries the union of the
-two. The build stops, naming the element, when a declared element is not in
+element that has both <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> and <code class="docutils literal notranslate"><span class="pre">PolynomA</span></code>. Declaring an element the
+wiring already binds is allowed and can only add slots: it carries the union of
+the two. The build stops, naming the element, when a declared element is not in
 the deck or is in it more than once, and when the list names an element twice.
 A monitor’s element takes readout faults instead, so declaring one is refused,
 with the same words by the scenario check of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and when the

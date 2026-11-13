@@ -448,6 +448,12 @@
 <span class="sd">``&lt;model&gt;/&lt;name&gt;`` through :meth:`Composite.model_get` and</span>
 <span class="sd">:meth:`Composite.model_set` only.</span>
 
+<span class="sd">**IOC health.** ``supported_variables`` also holds the view&#39;s ``ioc_health``</span>
+<span class="sd">addresses, ``&lt;code&gt;:SIM:&lt;model&gt;:&lt;signal&gt;``, read-only and served for every model</span>
+<span class="sd">the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds</span>
+<span class="sd">since the composite started, ``UPTIME`` is those seconds, both on its clock, and</span>
+<span class="sd">``ENGINEER`` is a fixed demo string. No read of one reaches a child.</span>
+
 <span class="sd">**Reads.** A physics readback of type float reads ``truth + motion(address,</span>
 <span class="sd">t)``, passed through the child&#39;s ``readout`` when the engine exports one, then</span>
 <span class="sd">clamped; the readout always sees both readings of a monitor, so a read of one</span>
@@ -549,7 +555,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">lume.exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReadOnlyError</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">lume.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LUMEModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">lume.variables</span><span class="w"> </span><span class="kn">import</span> <span class="n">NDVariable</span><span class="p">,</span> <span class="n">StrVariable</span><span class="p">,</span> <span class="n">Variable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lume.variables</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntVariable</span><span class="p">,</span> <span class="n">NDVariable</span><span class="p">,</span> <span class="n">ScalarVariable</span><span class="p">,</span> <span class="n">StrVariable</span><span class="p">,</span> <span class="n">Variable</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">default_config_path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
@@ -572,12 +578,16 @@
     <span class="n">is_float_channel</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ENGINEER</span><span class="p">,</span>
+    <span class="n">HEARTBEAT</span><span class="p">,</span>
     <span class="n">MONITOR</span><span class="p">,</span>
     <span class="n">SEEDS_FILE</span><span class="p">,</span>
     <span class="n">SETPOINT</span><span class="p">,</span>
+    <span class="n">UPTIME</span><span class="p">,</span>
     <span class="n">VARIABLES_FILE</span><span class="p">,</span>
     <span class="n">Model</span><span class="p">,</span>
     <span class="n">SimulatorView</span><span class="p">,</span>
+    <span class="n">ViewSchemaError</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">SIMULATOR_LOG_DIR_RELPATH</span><span class="p">,</span> <span class="n">repo_root_for_config</span>
 
@@ -603,6 +613,9 @@
 
 <span class="c1">#: The condition :meth:`Composite.output_severity` names for a failed child&#39;s channel.</span>
 <span class="n">_UDF</span> <span class="o">=</span> <span class="s2">&quot;udf&quot;</span>
+
+<span class="c1">#: The value ``ENGINEER`` serves.</span>
+<span class="n">_DEMO_ENGINEER</span> <span class="o">=</span> <span class="s2">&quot;demo engineer&quot;</span>
 
 <span class="n">_ELLIPSIS</span> <span class="o">=</span> <span class="s2">&quot;…&quot;</span>
 <span class="n">_FAULT_SEPARATOR</span> <span class="o">=</span> <span class="s2">&quot;/&quot;</span>
@@ -668,6 +681,21 @@
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">NDVariable</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">variable</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">variable</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_ioc_health_variable</span><span class="p">(</span><span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">signal</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Variable</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The read-only variable of one IOC health address.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ViewSchemaError: ``signal`` is not an IOC health signal.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">signal</span> <span class="o">==</span> <span class="n">HEARTBEAT</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">IntVariable</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">signal</span> <span class="o">==</span> <span class="n">UPTIME</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ScalarVariable</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;s&quot;</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">signal</span> <span class="o">==</span> <span class="n">ENGINEER</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">StrVariable</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="n">_DEMO_ENGINEER</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">}</span><span class="s2"> is not an IOC health address: rebuild with osprey build&quot;</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_producers_first</span><span class="p">(</span><span class="n">children</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">_Child</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
@@ -784,6 +812,7 @@
             <span class="n">view</span> <span class="o">=</span> <span class="n">SimulatorView</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_instance</span> <span class="o">=</span> <span class="n">instance</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span> <span class="o">=</span> <span class="n">clock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_started_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">clock</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_evolve</span> <span class="o">=</span> <span class="n">evolve</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_state_path</span> <span class="o">=</span> <span class="p">(</span>
             <span class="kc">None</span> <span class="k">if</span> <span class="n">state_dir</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Path</span><span class="p">(</span><span class="n">state_dir</span><span class="p">)</span> <span class="o">/</span> <span class="n">ACTIVE_SCENARIOS_FILENAME</span>
@@ -828,6 +857,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_status</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">status_addresses</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ioc_health</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">address</span><span class="p">:</span> <span class="n">signal</span>
+            <span class="k">for</span> <span class="n">signals</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">ioc_health_by_model</span><span class="p">()</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">signal</span><span class="p">,</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">signals</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">}</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">channels</span><span class="p">():</span>
@@ -842,6 +876,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">StrVariable</span><span class="p">(</span>
                 <span class="n">name</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">default_value</span><span class="o">=</span><span class="n">STATUS_OK</span><span class="p">,</span> <span class="n">read_only</span><span class="o">=</span><span class="kc">True</span>
             <span class="p">)</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">signal</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ioc_health</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">_ioc_health_variable</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">signal</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_signature</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">|</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span></div>
@@ -1265,7 +1301,7 @@
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">supported_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Variable</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every channel address and status address of the view, by address.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Every channel, status and IOC health address of the view, by address.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span>
 
     <span class="nd">@property</span>
@@ -1337,18 +1373,27 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_partition</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Split names into the status values, the texture&#39;s names and each child&#39;s names.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Split names into the status and IOC health values, the texture&#39;s and each child&#39;s.&quot;&quot;&quot;</span>
         <span class="n">statuses</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="n">texture</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">physics</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_status</span><span class="p">:</span>
                 <span class="n">statuses</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_status</span><span class="p">[</span><span class="n">name</span><span class="p">]]</span><span class="o">.</span><span class="n">status</span>
+            <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ioc_health</span><span class="p">:</span>
+                <span class="n">statuses</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ioc_health_value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ioc_health</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
             <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span><span class="p">:</span>
                 <span class="n">texture</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">physics</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">statuses</span><span class="p">,</span> <span class="n">texture</span><span class="p">,</span> <span class="n">physics</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ioc_health_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">signal</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The value an IOC health signal serves at this instant.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">signal</span> <span class="o">==</span> <span class="n">ENGINEER</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_DEMO_ENGINEER</span>
+        <span class="n">uptime</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_started_s</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">uptime</span><span class="p">)</span> <span class="k">if</span> <span class="n">signal</span> <span class="o">==</span> <span class="n">HEARTBEAT</span> <span class="k">else</span> <span class="n">uptime</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
@@ -1567,10 +1612,10 @@
 <span class="sd">        A texture channel returns the value the texture holds; a physics</span>
 <span class="sd">        channel its child&#39;s plain read; a setpoint the active scenarios hold</span>
 <span class="sd">        the value last written to it; a faulted reading its unfaulted value;</span>
-<span class="sd">        a status address its status.</span>
+<span class="sd">        a status address its status; an IOC health address its value now.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            names: Channel or status addresses.</span>
+<span class="sd">            names: Channel, status or IOC health addresses.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            The value by address, in its stored representation.</span>

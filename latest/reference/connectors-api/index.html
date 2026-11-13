@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -491,10 +492,11 @@ connector must do is in <a class="reference internal" href="../contracts/connect
 exactly those names. A module whose name starts with an underscore is internal
 and can change in any release; the concrete connectors are among them, and a
 caller builds one through <a class="reference internal" href="building.html#osprey_connectors.factory.ConnectorFactory" title="osprey_connectors.factory.ConnectorFactory"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></a>
-from its registered type name. Three subpackages –
-<a class="reference internal" href="contracts.html#module-osprey_connectors.control_system" title="osprey_connectors.control_system"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.control_system</span></code></a>, <a class="reference internal" href="contracts.html#module-osprey_connectors.archiver" title="osprey_connectors.archiver"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.archiver</span></code></a> and
-<a class="reference internal" href="supervision.html#module-osprey_connectors.ipc" title="osprey_connectors.ipc"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.ipc</span></code></a> – gather their implementation behind one
-namespace, and their names are imported from the subpackage itself.</p>
+from its registered type name. Seven subpackages –
+<a class="reference internal" href="contracts.html#module-osprey_connectors.control_system" title="osprey_connectors.control_system"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.control_system</span></code></a>, <a class="reference internal" href="contracts.html#module-osprey_connectors.archiver" title="osprey_connectors.archiver"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.archiver</span></code></a>,
+<a class="reference internal" href="supervision.html#module-osprey_connectors.ipc" title="osprey_connectors.ipc"><code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey_connectors.ipc</span></code></a> and the four service kinds on <a class="reference internal" href="services.html"><span class="doc">Directory, alarms and put log</span></a> –
+gather their implementation behind one namespace, and their names are imported
+from the subpackage itself.</p>
 <p>How the package versions, and what each release promises to keep compatible,
 is in the Stability section of the package’s
 <a class="reference external" href="https://github.com/als-apg/osprey/blob/main/packages/osprey-connectors/README.md">README</a>.
@@ -512,6 +514,7 @@ says which release added what.</p>
 <li class="toctree-l1"><a class="reference internal" href="deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l1"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l1"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l1"><a class="reference internal" href="utilities.html">Utilities</a></li>
 </ul>
 </div>

@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -1171,7 +1172,12 @@ control-system connector answers about the present.</p>
 <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>. Out-of-tree connectors written against the old contract must be updated.</p>
 </div>
 <p>Subclass <a class="reference internal" href="../connectors-api/contracts.html#osprey_connectors.archiver.ArchiverConnector" title="osprey_connectors.archiver.ArchiverConnector"><code class="xref py py-class docutils literal notranslate"><span class="pre">ArchiverConnector</span></code></a> and implement
-<code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">check_availability</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">check_availability</span></code>.
+<code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>’s <code class="docutils literal notranslate"><span class="pre">is_archived</span></code> and the values <code class="docutils literal notranslate"><span class="pre">check_availability</span></code> answers
+are <code class="docutils literal notranslate"><span class="pre">None</span></code> when the archiver cannot say; <code class="docutils literal notranslate"><span class="pre">check_availability</span></code> raises
+<code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> while the archiver is not connected. <code class="docutils literal notranslate"><span class="pre">store_extent()</span></code> is optional: it
+answers an <code class="docutils literal notranslate"><span class="pre">ArchiveExtent</span></code> (the channels the store records now, its oldest and
+newest sample); the default answers every part unknown, with a reason.</p>
 <p><code class="docutils literal notranslate"><span class="pre">get_data</span></code> is the entire contract. It returns a <strong>long-format</strong> <code class="docutils literal notranslate"><span class="pre">pandas.DataFrame</span></code>
 with exactly three columns, sorted by <code class="docutils literal notranslate"><span class="pre">channel</span></code> then <code class="docutils literal notranslate"><span class="pre">timestamp</span></code>:</p>
 <div class="pst-scrollable-table-container"><table class="table">

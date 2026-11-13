@@ -661,6 +661,62 @@ and <code class="docutils literal notranslate"><span class="pre">value</span></c
 each bin is reduced; the archiver section of
 <a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a> says what each mode returns.</p>
 </section>
+<section id="read-the-channel-directory">
+<h2>Read the channel directory<a class="headerlink" href="#read-the-channel-directory" title="Link to this heading">#</a></h2>
+<p>A ChannelFinder directory is built from a <code class="docutils literal notranslate"><span class="pre">BackendSpec</span></code> by
+<code class="docutils literal notranslate"><span class="pre">create_service</span></code>, which reads the kind from the spec; <code class="docutils literal notranslate"><span class="pre">settings</span></code> is the
+connection block. Building it sends nothing:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">read_directory.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Search a ChannelFinder directory and read one channel&#39;s record, with no OSPREY deployment.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.directory</span><span class="w"> </span><span class="kn">import</span> <span class="n">DirectoryQuery</span><span class="p">,</span> <span class="n">DirectoryRecord</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.service_answers</span><span class="w"> </span><span class="kn">import</span> <span class="n">BackendSpec</span>
+
+<span class="n">DIRECTORY</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://channelfinder.facility.edu:8443/ChannelFinder&quot;</span><span class="p">,</span> <span class="s2">&quot;timeout_s&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">}</span>
+
+<span class="c1">#: Seconds each call may spend.</span>
+<span class="n">DEADLINE_S</span> <span class="o">=</span> <span class="mf">10.0</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">BackendSpec</span><span class="p">(</span>
+        <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;directory&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;channelfinder&quot;</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s2">&quot;live&quot;</span><span class="p">,</span> <span class="n">settings</span><span class="o">=</span><span class="n">DIRECTORY</span><span class="p">,</span> <span class="n">rehearsal</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">)</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_service</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+
+    <span class="n">page</span> <span class="o">=</span> <span class="k">await</span> <span class="n">directory</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">DirectoryQuery</span><span class="p">(</span><span class="n">words</span><span class="o">=</span><span class="s2">&quot;SR:BPM*&quot;</span><span class="p">),</span> <span class="n">DEADLINE_S</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">page</span><span class="o">.</span><span class="n">outcome</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">rows</span><span class="p">)</span><span class="si">}</span><span class="s2"> of </span><span class="si">{</span><span class="n">page</span><span class="o">.</span><span class="n">total</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">page</span><span class="o">.</span><span class="n">rows</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">row</span><span class="o">.</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="o">.</span><span class="n">channel_type</span><span class="si">:</span><span class="s2">&lt;3</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="o">.</span><span class="n">server</span><span class="si">:</span><span class="s2">&lt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">record</span> <span class="o">=</span> <span class="k">await</span> <span class="n">directory</span><span class="o">.</span><span class="n">describe</span><span class="p">(</span><span class="s2">&quot;SR:BPM1:X&quot;</span><span class="p">,</span> <span class="n">DEADLINE_S</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">DirectoryRecord</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">record</span><span class="o">.</span><span class="n">row</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">record</span><span class="o">.</span><span class="n">row</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2"> on </span><span class="si">{</span><span class="n">record</span><span class="o">.</span><span class="n">row</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>  <span class="c1"># Outcome.NOT_LISTED, or Unavailable(reason=...)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+<p>Against a directory listing those three BPM channels, it prints:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>found: 3 of 3
+  SR:BPM1:X  ai  sr-bpm  BPM 1 horizontal position
+  SR:BPM1:Y  ai  sr-bpm  BPM 1 vertical position
+  SR:BPM2:X  ai  sr-bpm  BPM 2 horizontal position
+SR:BPM1:X: Active on sr-bpm.facility.edu
+</pre></div>
+</div>
+<p>Every answer is a value, never an exception: a search returns a page whose
+<code class="docutils literal notranslate"><span class="pre">outcome</span></code> says how it ended, and <code class="docutils literal notranslate"><span class="pre">describe</span></code> returns the record,
+<code class="docutils literal notranslate"><span class="pre">Outcome.NOT_LISTED</span></code>, or <code class="docutils literal notranslate"><span class="pre">Unavailable</span></code> with the reason.</p>
+</section>
 <section id="what-needs-a-deployment">
 <h2>What needs a deployment<a class="headerlink" href="#what-needs-a-deployment" title="Link to this heading">#</a></h2>
 <p>Three things on the connector side are a deployment’s, and a script without one
@@ -675,8 +731,8 @@ from the dict a connector is built from: the facility’s timezone, the write
 tier and the channel limits. A script that has none reads them at their
 defaults and logs a warning that it fell back to UTC. To set the timezone,
 name a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> that states <code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>:</p>
-<div class="literal-block-wrapper docutils container" id="id3">
-<div class="code-block-caption"><span class="caption-text">config.yml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">config.yml</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
 </pre></div>
@@ -707,8 +763,8 @@ returns a result whose <code class="docutils literal notranslate"><span class="p
 <code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> raises
 <a class="reference internal" href="../../reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelWriteBlockedError" title="osprey_connectors.errors.ChannelWriteBlockedError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code></a>, whose message ends
 with the reason. Built from the same <code class="docutils literal notranslate"><span class="pre">CONFIG</span></code> as above:</p>
-<div class="literal-block-wrapper docutils container" id="id4">
-<div class="code-block-caption"><span class="caption-text">write_refused.py</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">write_refused.py</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">register_builtin_connectors</span><span class="p">()</span>
     <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">(</span><span class="n">CONFIG</span><span class="p">)</span>
@@ -797,6 +853,7 @@ write, and the archiver contract.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-channels">Read channels</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-history">Read history</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-the-channel-directory">Read the channel directory</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-needs-a-deployment">What needs a deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-write-is-refused">When a write is refused</a></li>
 </ul>

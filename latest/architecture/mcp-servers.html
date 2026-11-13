@@ -467,8 +467,9 @@ tools via stdio JSON-RPC. This page lists every server that ships in-tree,
 with every tool each one can register. The <strong>10 core servers</strong> are the ones a
 deployment normally renders: <code class="docutils literal notranslate"><span class="pre">control_system</span></code>, the four channel-finder
 variants, <code class="docutils literal notranslate"><span class="pre">workspace</span></code>, <code class="docutils literal notranslate"><span class="pre">python_executor</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel</span></code>,
-<code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">graph</span></code>. Four more ship in-tree but are off
-by default: <code class="docutils literal notranslate"><span class="pre">phoebus</span></code>, <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>. A profile
+<code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> and <code class="docutils literal notranslate"><span class="pre">graph</span></code>. <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> renders only
+when the config has a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section. Four more ship in-tree but are
+off by default: <code class="docutils literal notranslate"><span class="pre">phoebus</span></code>, <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>. A profile
 enables one with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.&lt;name&gt;.enabled:</span> <span class="pre">true</span></code>. The
 <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset enables <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code>; <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> and
 <code class="docutils literal notranslate"><span class="pre">optimizer</span></code> stay off in every preset. Build profiles can inject additional servers beyond
@@ -476,7 +477,7 @@ these.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
-  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, or pv-directory when the config has a pv_directory section; all run as child processes of the harness and expose no network port.</desc>
   <defs>
     <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -520,26 +521,30 @@ these.</p>
   <text class="tn" x="756" y="274" text-anchor="middle">python_executor</text>
   <text class="ts" x="756" y="290" text-anchor="middle">execute</text>
   <!-- servers, row 2 -->
-  <rect class="mask" x="216" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="216" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="296" y="362" text-anchor="middle">ariel</text>
-  <text class="ts" x="296" y="378" text-anchor="middle">logbook search</text>
-  <rect class="mask" x="400" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="400" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="480" y="362" text-anchor="middle">facility_knowledge</text>
-  <text class="ts" x="480" y="378" text-anchor="middle">OKF bundle</text>
-  <rect class="mask" x="584" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="584" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="664" y="362" text-anchor="middle">graph</text>
-  <text class="ts" x="664" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <rect class="mask" x="124" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="124" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="204" y="362" text-anchor="middle">ariel</text>
+  <text class="ts" x="204" y="378" text-anchor="middle">logbook search</text>
+  <rect class="mask" x="308" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="308" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="388" y="362" text-anchor="middle">facility_knowledge</text>
+  <text class="ts" x="388" y="378" text-anchor="middle">OKF bundle</text>
+  <rect class="mask" x="492" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="492" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="572" y="362" text-anchor="middle">graph</text>
+  <text class="ts" x="572" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <rect class="mask" x="676" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="676" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="756" y="362" text-anchor="middle">pv-directory</text>
+  <text class="ts" x="756" y="378" text-anchor="middle">read-only · if configured</text>
   <!-- zone footnote -->
   <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
 </svg>
 </div>
 <p>The four channel-finder variants count as four of the ten, but a deployment
 serves exactly one of them — whichever <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> names —
-under the single <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name, which is why the map shows seven
-running processes.</p>
+under the single <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name. The map shows those seven running
+processes, and <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> where it renders.</p>
 <section id="control-system">
 <h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
 <section id="id1">
@@ -661,10 +666,45 @@ questions, each with per-corpus parameter values.</p></li>
 </ul>
 </section>
 </section>
+<section id="pv-directory">
+<h2>PV Directory<a class="headerlink" href="#pv-directory" title="Link to this heading">#</a></h2>
+<section id="id2">
+<h3><code class="docutils literal notranslate"><span class="pre">pv-directory</span></code><a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.pv_directory</span></code></p>
+<p>Reads the control system’s own directory of channel addresses for the session’s
+current control target. It is present only when the config has a
+<code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section; the alarm and put-log tools are present only when
+that section configures their source. Every tool is a read and is pre-approved.
+The <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> shared login carries the server; the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> and
+<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> logins switch it off. See <a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">directory_search</span></code> – Search the directory by words, name, property values and
+status, curated channels and announced ones alike, each row marked with its origin.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">directory_properties</span></code> – List the values one directory property holds, such as
+each IOC or host, spelled as the directory spells them.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pv_record</span></code> – Look up channel addresses: the directory record and, where
+configured, alarm state, alarm configuration, alarm history, put history and
+archive facts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ioc_record</span></code> – Look up one IOC: its host, ports, channel counts, engineer, the
+addresses of its health channels and, with an alarm feed configured, its channels
+in alarm.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">active_alarms</span></code> – List every channel in alarm now, with the counts per severity,
+from the alarm feed.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">alarm_state</span></code> – Read the current alarm of each channel address from the alarm
+feed, marking a record stale when the feed has stopped updating.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">alarm_history</span></code> – List the alarm events the alarm logger recorded for one
+channel address.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">alarm_config</span></code> – Look up one channel address in the alarm configuration: its
+path, guidance, displays, and whether its alarm is enabled and latching.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">put_history</span></code> – List the writes the put log recorded for one channel address.</p></li>
+</ul>
+</section>
+</section>
 <section id="workspace">
 <h2>Workspace<a class="headerlink" href="#workspace" title="Link to this heading">#</a></h2>
-<section id="id2">
-<h3><code class="docutils literal notranslate"><span class="pre">workspace</span></code><a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
+<section id="id3">
+<h3><code class="docutils literal notranslate"><span class="pre">workspace</span></code><a class="headerlink" href="#id3" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.workspace</span></code></p>
 <p>Manages artifacts, data context, screen capture, visualizations,
 documents, and session state. This is the largest server, grouping
@@ -762,8 +802,8 @@ window) that locate this session in the agent record, for a filed issue to carry
 </section>
 <section id="python-executor">
 <h2>Python Executor<a class="headerlink" href="#python-executor" title="Link to this heading">#</a></h2>
-<section id="id3">
-<h3><code class="docutils literal notranslate"><span class="pre">python_executor</span></code><a class="headerlink" href="#id3" title="Link to this heading">#</a></h3>
+<section id="id4">
+<h3><code class="docutils literal notranslate"><span class="pre">python_executor</span></code><a class="headerlink" href="#id4" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code></p>
 <p>Runs agent-authored Python as a separate process on the host — a process
 boundary with limits enforcement and timeout protection, not a sandbox; see
@@ -785,8 +825,8 @@ the model alone. Read-only.</p></li>
 </section>
 <section id="ariel">
 <h2>ARIEL<a class="headerlink" href="#ariel" title="Link to this heading">#</a></h2>
-<section id="id4">
-<h3><code class="docutils literal notranslate"><span class="pre">ariel</span></code><a class="headerlink" href="#id4" title="Link to this heading">#</a></h3>
+<section id="id5">
+<h3><code class="docutils literal notranslate"><span class="pre">ariel</span></code><a class="headerlink" href="#id5" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.ariel</span></code></p>
 <p>Searches facility logbook entries and operational records. Supports
 keyword search, semantic (embedding-based) search, direct SQL queries,
@@ -855,8 +895,8 @@ question shapes, each with per-corpus parameter values.</p></li>
 </section>
 <section id="phoebus">
 <h2>Phoebus<a class="headerlink" href="#phoebus" title="Link to this heading">#</a></h2>
-<section id="id5">
-<h3><code class="docutils literal notranslate"><span class="pre">phoebus</span></code><a class="headerlink" href="#id5" title="Link to this heading">#</a></h3>
+<section id="id6">
+<h3><code class="docutils literal notranslate"><span class="pre">phoebus</span></code><a class="headerlink" href="#id6" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.phoebus</span></code></p>
 <p>Drives a running Phoebus product through its agent bridge, an HTTP server inside
 the Phoebus process: it opens displays, reads their widgets and live values,
@@ -889,8 +929,8 @@ time range, bound to the archiver when <code class="docutils literal notranslate
 </section>
 <section id="optimizer">
 <h2>Optimizer<a class="headerlink" href="#optimizer" title="Link to this heading">#</a></h2>
-<section id="id6">
-<h3><code class="docutils literal notranslate"><span class="pre">optimizer</span></code><a class="headerlink" href="#id6" title="Link to this heading">#</a></h3>
+<section id="id7">
+<h3><code class="docutils literal notranslate"><span class="pre">optimizer</span></code><a class="headerlink" href="#id7" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.optimizer</span></code></p>
 <p>Reads the optimizer service a profile deploys with its <code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> section
 (<a class="reference internal" href="../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>). It is off in every preset and
@@ -932,8 +972,8 @@ pointer moves to it.</p></li>
 </section>
 <section id="bluesky">
 <h2>Bluesky<a class="headerlink" href="#bluesky" title="Link to this heading">#</a></h2>
-<section id="id7">
-<h3><code class="docutils literal notranslate"><span class="pre">bluesky</span></code><a class="headerlink" href="#id7" title="Link to this heading">#</a></h3>
+<section id="id8">
+<h3><code class="docutils literal notranslate"><span class="pre">bluesky</span></code><a class="headerlink" href="#id8" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.bluesky</span></code></p>
 <p>A thin HTTP client of the facility-side Bluesky bridge. It lists plans and
 devices, and stages a shared plan draft. It queues and starts that draft, stops
@@ -991,8 +1031,8 @@ hardware stays where the plan left it (requires human approval).</p></li>
 </section>
 <section id="health">
 <h2>Health<a class="headerlink" href="#health" title="Link to this heading">#</a></h2>
-<section id="id8">
-<h3><code class="docutils literal notranslate"><span class="pre">health</span></code><a class="headerlink" href="#id8" title="Link to this heading">#</a></h3>
+<section id="id9">
+<h3><code class="docutils literal notranslate"><span class="pre">health</span></code><a class="headerlink" href="#id9" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.health</span></code></p>
 <p>Runs the facility health suite for the agent. It is off by default and enabled
 with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.health.enabled:</span> <span class="pre">true</span></code>; the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset
@@ -1068,16 +1108,20 @@ the poll tier reports as skipped (requires human approval).</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-finder-graph"><code class="docutils literal notranslate"><span class="pre">channel_finder_graph</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pv-directory">PV Directory</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2"><code class="docutils literal notranslate"><span class="pre">pv-directory</span></code></a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#workspace">Workspace</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id2"><code class="docutils literal notranslate"><span class="pre">workspace</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id3"><code class="docutils literal notranslate"><span class="pre">workspace</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor">Python Executor</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id3"><code class="docutils literal notranslate"><span class="pre">python_executor</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id4"><code class="docutils literal notranslate"><span class="pre">python_executor</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel">ARIEL</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id4"><code class="docutils literal notranslate"><span class="pre">ariel</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id5"><code class="docutils literal notranslate"><span class="pre">ariel</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-knowledge">Facility Knowledge</a><ul class="visible nav section-nav flex-column">
@@ -1089,19 +1133,19 @@ the poll tier reports as skipped (requires human approval).</p></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus">Phoebus</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id5"><code class="docutils literal notranslate"><span class="pre">phoebus</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id6"><code class="docutils literal notranslate"><span class="pre">phoebus</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#optimizer">Optimizer</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id6"><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id7"><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bluesky">Bluesky</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id7"><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id8"><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health">Health</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id8"><code class="docutils literal notranslate"><span class="pre">health</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id9"><code class="docutils literal notranslate"><span class="pre">health</span></code></a></li>
 </ul>
 </li>
 </ul>

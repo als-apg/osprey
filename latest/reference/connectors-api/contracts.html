@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -1862,11 +1863,50 @@ and notebook kernels where <code class="docutils literal notranslate"><span clas
 </dd></dl>
 
 <p id="module-osprey_connectors.archiver">The archiver connector contract.</p>
-<p><code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> and its metadata model, the processing modes, the
+<p><code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code>, its metadata model and store extent, the processing modes, the
 field name a channel is stored under, and the client arguments for the MongoDB
 archive store, which the archive recorder and the deploy-time seed open
 without the connector. The concrete archivers are the
 <code class="docutils literal notranslate"><span class="pre">_*_archiver_connector</span></code> modules beside this one.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.archiver.</span></span><span class="sig-name descname"><span class="pre">ArchiveExtent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oldest</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newest</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/archiver/_base.html#ArchiveExtent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>What an archive store holds, as far as the archiver can say.</p>
+<p>Every field is <code class="docutils literal notranslate"><span class="pre">None</span></code> when unknown. <code class="docutils literal notranslate"><span class="pre">channels</span></code> is the set of channel
+addresses the store records now; <code class="docutils literal notranslate"><span class="pre">oldest</span></code> and <code class="docutils literal notranslate"><span class="pre">newest</span></code> are the instants
+of its oldest and newest samples; <code class="docutils literal notranslate"><span class="pre">reason</span></code> says why a part is unknown.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent.channels">
+<span class="sig-name descname"><span class="pre">channels</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent.channels" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent.oldest">
+<span class="sig-name descname"><span class="pre">oldest</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">datetime</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent.oldest" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent.newest">
+<span class="sig-name descname"><span class="pre">newest</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">datetime</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent.newest" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent.reason">
+<span class="sig-name descname"><span class="pre">reason</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent.reason" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiveExtent.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oldest</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">newest</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.archiver.ArchiveExtent.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiverConnector">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.archiver.</span></span><span class="sig-name descname"><span class="pre">ArchiverConnector</span></span><a class="reference internal" href="../../_modules/osprey_connectors/archiver/_base.html#ArchiverConnector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.archiver.ArchiverConnector" title="Link to this definition">#</a></dt>
@@ -2008,10 +2048,28 @@ empty result is an empty frame with these columns.</p>
 <dd class="field-odd"><p><strong>channels</strong> (<em>list</em><em>[</em><em>str</em><em>]</em>) – List of channel addresses to check</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Dictionary mapping channel address to availability status</p>
+<dd class="field-even"><p>Dictionary mapping channel address to availability status; <code class="docutils literal notranslate"><span class="pre">None</span></code>
+where this archiver cannot say.</p>
 </dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If the archiver is not connected; a disconnected
+    archiver has no store to ask, so it answers nothing.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, bool | None]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiverConnector.store_extent">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">store_extent</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/archiver/_base.html#ArchiverConnector.store_extent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.archiver.ArchiverConnector.store_extent" title="Link to this definition">#</a></dt>
+<dd><p>What the store holds: its channels, oldest and newest sample.</p>
+<p>Optional. The default answers every part unknown, with a reason, so an
+archiver that cannot list its store keeps working unchanged.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, bool]</p>
+<dd class="field-odd"><p><a class="reference internal" href="#osprey_connectors.archiver.ArchiveExtent" title="osprey_connectors.archiver._base.ArchiveExtent"><em>ArchiveExtent</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -2026,6 +2084,8 @@ empty result is an empty frame with these columns.</p>
 <p><code class="docutils literal notranslate"><span class="pre">channel</span></code> is the same protocol-agnostic channel address the control-system
 connectors take, and the same value that appears in the <code class="docutils literal notranslate"><span class="pre">channel</span></code> column of
 <a class="reference internal" href="#osprey_connectors.archiver.ArchiverConnector.get_data" title="osprey_connectors.archiver.ArchiverConnector.get_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ArchiverConnector.get_data()</span></code></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">is_archived</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code> when this archiver cannot say whether it archives
+the channel; <code class="docutils literal notranslate"><span class="pre">description</span></code> then says why.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -2035,7 +2095,7 @@ connectors take, and the same value that appears in the <code class="docutils li
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.archiver.ArchiverMetadata.is_archived">
-<span class="sig-name descname"><span class="pre">is_archived</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiverMetadata.is_archived" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">is_archived</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.archiver.ArchiverMetadata.is_archived" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -2302,12 +2362,21 @@ Without one, neither is passed.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.values_match"><code class="docutils literal notranslate"><span class="pre">values_match()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.write_door.door_is_open"><code class="docutils literal notranslate"><span class="pre">door_is_open()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.write_door.open_door"><code class="docutils literal notranslate"><span class="pre">open_door()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent.channels"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent.channels</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent.oldest"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent.oldest</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent.newest"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent.newest</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent.reason"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent.reason</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiveExtent.__init__"><code class="docutils literal notranslate"><span class="pre">ArchiveExtent.__init__()</span></code></a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.connect"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.connect()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.disconnect"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.disconnect()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.get_data"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.get_data()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.get_metadata"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.get_metadata()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.check_availability"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.check_availability()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverConnector.store_extent"><code class="docutils literal notranslate"><span class="pre">ArchiverConnector.store_extent()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archiver.ArchiverMetadata"><code class="docutils literal notranslate"><span class="pre">ArchiverMetadata</span></code></a><ul class="visible nav section-nav flex-column">

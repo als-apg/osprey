@@ -453,15 +453,40 @@
 <span class="sd">    ``channel`` is the same protocol-agnostic channel address the control-system</span>
 <span class="sd">    connectors take, and the same value that appears in the ``channel`` column of</span>
 <span class="sd">    :meth:`ArchiverConnector.get_data`.</span>
+
+<span class="sd">    ``is_archived`` is ``None`` when this archiver cannot say whether it archives</span>
+<span class="sd">    the channel; ``description`` then says why.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">is_archived</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">is_archived</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">archival_start</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">archival_end</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">sampling_period</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
 
+
+
+<div class="viewcode-block" id="ArchiveExtent">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.archiver.ArchiveExtent">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArchiveExtent</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What an archive store holds, as far as the archiver can say.</span>
+
+<span class="sd">    Every field is ``None`` when unknown. ``channels`` is the set of channel</span>
+<span class="sd">    addresses the store records now; ``oldest`` and ``newest`` are the instants</span>
+<span class="sd">    of its oldest and newest samples; ``reason`` says why a part is unknown.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">channels</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">oldest</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">newest</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+
+<span class="c1">#: The reason the default :meth:`ArchiverConnector.store_extent` answers.</span>
+<span class="n">NO_EXTENT_REASON</span> <span class="o">=</span> <span class="s2">&quot;this archiver does not report what it holds&quot;</span>
 
 
 <div class="viewcode-block" id="ArchiverConnector">
@@ -593,7 +618,7 @@
 <div class="viewcode-block" id="ArchiverConnector.check_availability">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.archiver.ArchiverConnector.check_availability">[docs]</a>
     <span class="nd">@abstractmethod</span>
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_availability</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_availability</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Check which channels are archived.</span>
 
@@ -601,8 +626,24 @@
 <span class="sd">            channels: List of channel addresses to check</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            Dictionary mapping channel address to availability status</span>
+<span class="sd">            Dictionary mapping channel address to availability status; ``None``</span>
+<span class="sd">            where this archiver cannot say.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            RuntimeError: If the archiver is not connected; a disconnected</span>
+<span class="sd">                archiver has no store to ask, so it answers nothing.</span>
 <span class="sd">        &quot;&quot;&quot;</span></div>
+
+
+<div class="viewcode-block" id="ArchiverConnector.store_extent">
+<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.archiver.ArchiverConnector.store_extent">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">store_extent</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiveExtent</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;What the store holds: its channels, oldest and newest sample.</span>
+
+<span class="sd">        Optional. The default answers every part unknown, with a reason, so an</span>
+<span class="sd">        archiver that cannot list its store keeps working unchanged.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">ArchiveExtent</span><span class="p">(</span><span class="n">reason</span><span class="o">=</span><span class="n">NO_EXTENT_REASON</span><span class="p">)</span></div>
 </div>
 
 </pre></div>

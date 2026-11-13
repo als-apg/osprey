@@ -416,6 +416,7 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -525,6 +526,25 @@ past for.</p>
 <dd><p>Where a rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> states the simulator’s Channel Access port,
 dotted as the build’s service injector writes it, the reach contract
 projects it, and the VA connector fills unset gateway ports from it.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.simulator.has_simulator">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulator.</span></span><span class="sig-name descname"><span class="pre">has_simulator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulator.html#has_simulator"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulator.has_simulator" title="Link to this definition">#</a></dt>
+<dd><p>Whether the build has a simulator.</p>
+<p>The port alone answers no for an in-process virtual accelerator; the
+connector type alone answers no for a facility baseline that keeps its
+simulator. The simulator view cannot decide, because every build writes it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The build
+validator, which sees an overlay, passes the overlay with
+<code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code> filled in from the profile.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -746,6 +766,18 @@ so it claims none.</p>
 no file and no control-context record is consulted, which is what lets a
 supervisor call it at every restart and get the deployment’s answer rather than
 the calling process’s.</p>
+<dl class="py data">
+<dt class="sig sig-object py" id="osprey_connectors.archive_targets.APPLIANCE_TARGETS">
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">APPLIANCE_TARGETS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">frozenset</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">frozenset({'live',</span> <span class="pre">'standin'})</span></span><a class="headerlink" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS" title="Link to this definition">#</a></dt>
+<dd><p>the real machine and the
+stand-in that rehearses it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The targets the facility’s archive serves</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.archive_targets.archive_targets">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.archive_targets.</span></span><span class="sig-name descname"><span class="pre">archive_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/archive_targets.html#archive_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.archive_targets.archive_targets" title="Link to this definition">#</a></dt>
@@ -758,7 +790,7 @@ turns on whether the deployment built a simulator, which the
 section alone does not carry.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The targets per the module table — <code class="xref py py-data docutils literal notranslate"><span class="pre">_APPLIANCE_TARGETS</span></code>,
+<dd class="field-even"><p>The targets per the module table — <a class="reference internal" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS" title="osprey_connectors.archive_targets.APPLIANCE_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">APPLIANCE_TARGETS</span></code></a>,
 <code class="xref py py-data docutils literal notranslate"><span class="pre">_STORE_TARGETS</span></code> or <code class="xref py py-data docutils literal notranslate"><span class="pre">_NO_TARGETS</span></code>. A target absent from the
 set has no archive: a caller holding it has nothing to offer, never a
 default to fall back on.</p>
@@ -1068,12 +1100,14 @@ inert flat line when one is what misled the writer.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.VIRTUAL_ACCELERATOR_PORT_KEY"><code class="docutils literal notranslate"><span class="pre">VIRTUAL_ACCELERATOR_PORT_KEY</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.has_simulator"><code class="docutils literal notranslate"><span class="pre">has_simulator()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.virtual_accelerator_active"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator_active()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulator.virtual_accelerator_port"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator_port()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#live-standin-active-the-standin-target-s-deployed-container-gate"><code class="docutils literal notranslate"><span class="pre">live_standin_active</span></code> — the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target’s deployed-container gate</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.LIVE_STANDIN_PORT_KEY"><code class="docutils literal notranslate"><span class="pre">LIVE_STANDIN_PORT_KEY</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.live_standin_active"><code class="docutils literal notranslate"><span class="pre">live_standin_active()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.standin.live_standin_port"><code class="docutils literal notranslate"><span class="pre">live_standin_port()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS"><code class="docutils literal notranslate"><span class="pre">APPLIANCE_TARGETS</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.archive_targets"><code class="docutils literal notranslate"><span class="pre">archive_targets()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.archive_targets.archive_withheld"><code class="docutils literal notranslate"><span class="pre">archive_withheld()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.honesty.ArchiverPairing"><code class="docutils literal notranslate"><span class="pre">ArchiverPairing</span></code></a><ul class="visible nav section-nav flex-column">

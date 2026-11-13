@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -501,7 +502,8 @@ uses on a logbook database you run yourself (<code class="docutils literal notra
 how much of each logbook entry the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), whether
 the agent shows its thinking (<code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code>), the Phoebus
 display bridge
-(<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), and the deployment keys that decide which container image each
+(<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), where PV records, alarms and put history come from
+(<code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code>), and the deployment keys that decide which container image each
 service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled
 in. Settings that only
 ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
@@ -737,6 +739,13 @@ an empty graph from reading as a populated one; a count of zero warns and
 names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> as the remedy. The agent’s own graph
 tools report the same degraded states from the inside — see
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> — appears when a <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> section is configured.
+One row per configured service (directory, alarm logger, put log), read
+from that service’s probe on the current control target: <code class="docutils literal notranslate"><span class="pre">ok</span></code> with the
+service’s evidence while it answers, <code class="docutils literal notranslate"><span class="pre">warning</span></code> with the reason when it
+cannot, and <code class="docutils literal notranslate"><span class="pre">skip</span></code> when it has no source on this target.
+<code class="docutils literal notranslate"><span class="pre">pv_directory_alarm_feed</span></code> (<code class="docutils literal notranslate"><span class="pre">--full</span></code>) starts the alarm feed, waits up to
+its deadline for catch-up and reports what the feed has read.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
 service: hybrid logbook search and the OKF panel (the qmd sidecar), the
 graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
@@ -1612,6 +1621,129 @@ live values only.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> and <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code>
 outrank their keys; see <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>.</p>
 </section>
+<section id="pv-directory-pv-records-alarms-and-put-history">
+<span id="config-pv-directory"></span><h2><code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> — PV records, alarms and put history<a class="headerlink" href="#pv-directory-pv-records-alarms-and-put-history" title="Link to this heading">#</a></h2>
+<p>This section feeds the Channels panel’s All PVs view and the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code>
+MCP server. Each source answers on the control targets it serves: <code class="docutils literal notranslate"><span class="pre">type</span></code>
+and the three sub-blocks on <code class="docutils literal notranslate"><span class="pre">live</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code>, the simulator and
+<code class="docutils literal notranslate"><span class="pre">alarm_state.replay_file</span></code> on <code class="docutils literal notranslate"><span class="pre">va</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.type</span></code></p></td>
+<td><p>The facility’s directory service; <code class="docutils literal notranslate"><span class="pre">channelfinder</span></code> is built in.
+Absent, the section is simulator-only (below).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.url</span></code></p></td>
+<td><p>The service URL. The build refuses a <code class="docutils literal notranslate"><span class="pre">type</span></code> without it.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.timeout_s</span></code></p></td>
+<td><p>Seconds one call may take. Default <code class="docutils literal notranslate"><span class="pre">6.0</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.auth</span></code></p></td>
+<td><p>The login a proxy in front of the service asks for: <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, each secret named by environment
+variable. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is the absolute path of a PEM CA.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.description_property</span></code></p></td>
+<td><p>The directory property shown as a PV’s description. Default
+<code class="docutils literal notranslate"><span class="pre">recordDesc</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.exact_properties</span></code></p></td>
+<td><p>Properties a search matches as whole values. Default
+<code class="docutils literal notranslate"><span class="pre">[pvStatus,</span> <span class="pre">recordType]</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.detail_properties</span></code></p></td>
+<td><p>The properties a PV page shows. Unset, every property the record
+carries.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.hidden_properties</span></code></p></td>
+<td><p>Properties never shown.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.filter_cap</span></code></p></td>
+<td><p>The largest result set fetched whole for facets, the origin filter and
+CSV export. Default <code class="docutils literal notranslate"><span class="pre">5000</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.ioc_health_suffixes</span></code></p></td>
+<td><p>The record-name suffix of each IOC health role (<code class="docutils literal notranslate"><span class="pre">heartbeat</span></code>,
+<code class="docutils literal notranslate"><span class="pre">uptime</span></code>, <code class="docutils literal notranslate"><span class="pre">engineer</span></code>). Default
+<code class="docutils literal notranslate"><span class="pre">{heartbeat:</span> <span class="pre">HEARTBEAT,</span> <span class="pre">uptime:</span> <span class="pre">UPTIME}</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.display.engineer_property</span></code></p></td>
+<td><p>The directory property naming an IOC’s engineer. Default <code class="docutils literal notranslate"><span class="pre">Engineer</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_log</span></code></p></td>
+<td><p>Alarm history: <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">phoebus_alarm_logger</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state</span></code></p></td>
+<td><p>Current alarm state. <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">phoebus_alarm_server</span></code> reads the alarm
+server’s Kafka topic and needs <code class="docutils literal notranslate"><span class="pre">settings.bootstrap_servers</span></code> and
+<code class="docutils literal notranslate"><span class="pre">settings.topic</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.replay_file</span></code></p></td>
+<td><p>The alarm feed on <code class="docutils literal notranslate"><span class="pre">va</span></code>: <code class="docutils literal notranslate"><span class="pre">demo:&lt;name&gt;</span></code> names a feed packaged with
+OSPREY, any other value an <code class="docutils literal notranslate"><span class="pre">.ndjson</span></code> file relative to the project.
+It may be set beside <code class="docutils literal notranslate"><span class="pre">type</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.put_log</span></code></p></td>
+<td><p>Put history: <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">caputlog</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">pv_directory.caveats</span></code> and each sub-block’s <code class="docutils literal notranslate"><span class="pre">caveats</span></code> are lines shown with
+every answer from that source. A sub-block takes the same <code class="docutils literal notranslate"><span class="pre">settings</span></code> keys as
+the directory. The Kafka client is the <code class="docutils literal notranslate"><span class="pre">alarm-state</span></code> extra
+(<code class="docutils literal notranslate"><span class="pre">osprey-framework[alarm-state]</span></code>); without it the build warns and the feed
+is unavailable. A container gets it by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_SPEC</span></code> to that
+requirement (<a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a>).</p>
+<p><strong>Simulator-only form.</strong> A section without <code class="docutils literal notranslate"><span class="pre">type</span></code> lists the simulator’s channels
+and IOC health PVs on <code class="docutils literal notranslate"><span class="pre">va</span></code>. A build with no simulator has nothing to list:
+it warns, and every section answers “not available for this target”.</p>
+<p><strong>Off.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.pv_directory=null</span></code>, or <code class="docutils literal notranslate"><span class="pre">pv_directory:</span> <span class="pre">null</span></code> in
+a profile that extends a preset with the section, removes it. That spelling
+builds only over a parent that writes the section as one nested mapping,
+never as dotted <code class="docutils literal notranslate"><span class="pre">pv_directory.*</span></code> keys. The shared logins
+<code class="docutils literal notranslate"><span class="pre">tiers/logbook.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">tiers/knowledge.yml</span></code> switch the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code>
+server off
+(<code class="docutils literal notranslate"><span class="pre">claude_code.servers.pv-directory.enabled:</span> <span class="pre">false</span></code>).</p>
+<p>A facility with ChannelFinder, the Phoebus alarm services and caPutLog:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># build/config.yml</span>
+<span class="nt">pv_directory</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channelfinder</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://channelfinder.example.org/ChannelFinder</span>
+<span class="w">  </span><span class="nt">display</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Shown first on a PV page.</span>
+<span class="w">    </span><span class="nt">detail_properties</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">recordDesc</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">iocName</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">hostName</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">ioc_health_suffixes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">heartbeat</span><span class="p">:</span><span class="w"> </span><span class="nv">HEARTBEAT</span><span class="p p-Indicator">,</span><span class="nt"> uptime</span><span class="p">:</span><span class="w"> </span><span class="nv">UPTIME</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">alarm_log</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus_alarm_logger</span>
+<span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://alarmlogger.example.org</span>
+<span class="w">  </span><span class="nt">alarm_state</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus_alarm_server</span>
+<span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">bootstrap_servers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kafka.example.org:9092</span><span class="w">  </span><span class="c1"># osprey:not-a-port — Kafka&#39;s broker port</span>
+<span class="w">      </span><span class="nt">topic</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Accelerator</span>
+<span class="w">    </span><span class="c1"># The feed the simulator target replays.</span>
+<span class="w">    </span><span class="nt">replay_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo:example-alarms</span>
+<span class="w">  </span><span class="nt">put_log</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">caputlog</span>
+<span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://caputlog.example.org</span>
+<span class="w">    </span><span class="nt">caveats</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">Logs puts made through the CA gateway only.</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
 <section id="screen-capture-where-screenshots-are-written">
 <span id="config-screen-capture"></span><h2><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written<a class="headerlink" href="#screen-capture-where-screenshots-are-written" title="Link to this heading">#</a></h2>
 <p>The workspace server’s <code class="docutils literal notranslate"><span class="pre">screenshot_capture</span></code> tool saves every capture as a
@@ -2015,6 +2147,7 @@ the surface that refused it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-thinking-display-whether-the-agent-shows-its-thinking"><code class="docutils literal notranslate"><span class="pre">claude_code.thinking.display</span></code> — whether the agent shows its thinking</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus-the-phoebus-display-bridge"><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pv-directory-pv-records-alarms-and-put-history"><code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> — PV records, alarms and put history</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screen-capture-where-screenshots-are-written"><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">

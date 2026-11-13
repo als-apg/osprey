@@ -1144,6 +1144,9 @@ category, since the container itself keeps serving and stays healthy.</p>
 <p>A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">deck</span></code>, and every channel of that machine is
 the texture’s.</p>
+<p>Every served model, <code class="docutils literal notranslate"><span class="pre">texture</span></code> included, also has read-only IOC health
+channels, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>, <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code>, which
+the IOC pages of All PVs read (<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>).</p>
 <p><strong>A model may read another model’s records.</strong> A model record’s <code class="docutils literal notranslate"><span class="pre">inputs</span></code>
 lists records other models of the facility wire, each an <code class="docutils literal notranslate"><span class="pre">address</span></code> and an
 <code class="docutils literal notranslate"><span class="pre">engine</span></code> block in the consuming engine’s own words:</p>

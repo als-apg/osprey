@@ -617,8 +617,10 @@ under <code class="docutils literal notranslate"><span class="pre">data/facility
 which the compose file mounts at <code class="docutils literal notranslate"><span class="pre">/data/simulator/</span></code>.</p>
 <p>The container serves the <code class="docutils literal notranslate"><span class="pre">channels</span></code> of the view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>, which
 holds every channel address the facility declares. It also serves one
-<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel for each served physics model. Its ready
-line in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> prints the count.</p>
+<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel for each served physics model, and the
+read-only <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:HEARTBEAT</span></code>, <code class="docutils literal notranslate"><span class="pre">UPTIME</span></code> and <code class="docutils literal notranslate"><span class="pre">ENGINEER</span></code> IOC
+health channels for every served model. Its ready line in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code>
+prints the count.</p>
 <p>Nothing is invented, and no other channel list feeds the set:</p>
 <ul class="simple">
 <li><p>A data mount without the view refuses the boot and names the missing file.</p></li>

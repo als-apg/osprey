@@ -540,10 +540,194 @@ or “RF cavity voltage”, into control system addresses, such as
 <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> or <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:VOLTAGE:RB</span></code> in the
 demo preset. It uses LLM-based pipelines, so a query can use
 everyday terms rather than exact channel names.</p>
+<p>Four pipelines do this, each by a different paradigm. They differ in the size
+of the channel catalog they suit and in how far the search moves from the
+channels as named to the channels as meant:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 400" role="img" aria-labelledby="cf-paradigms-title cf-paradigms-desc">
+  <title id="cf-paradigms-title">The four channel finder paradigms</title>
+  <desc id="cf-paradigms-desc">Four cards, one per pipeline. In-context: a dictionary of channel names with plain-text descriptions, all of it in the model's context. Hierarchical: a sequence of constrained choices, system then family then field, that narrows the catalog down to the target channels. Middle layer: a ReAct agent that calls query tools in an order it chooses. Graph: devices, signals and their typed relationships. Two arrows run beneath the cards from left to right: catalog scale, from hundreds of PVs to hundreds of thousands, and abstraction, from literal (channels as named) to semantic (channels as meant).</desc>
+  <defs>
+    <marker id="cf-paradigms-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- in-context pipeline -->
+  <g transform="translate(12,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">IN-CONTEXT PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Direct in-context lookup</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Dictionary lookup.</text>
+    <text class="ts" x="14" y="281">Every PV is paired with a plain-text</text>
+    <text class="ts" x="14" y="293">description, and the whole list is</text>
+    <text class="ts" x="14" y="305">dropped into the LLM's context.</text>
+    <path class="nb" d="M9 84 Q111 76 111 84 V232 Q111 224 9 232 Z" style="stroke: var(--od-muted)"/>
+    <path class="nb" d="M213 84 Q111 76 111 84 V232 Q111 224 213 232 Z" style="stroke: var(--od-muted)"/>
+    <line class="e-thin e-dash" x1="111" y1="82" x2="111" y2="228"/>
+    <rect class="nb-foc" x="13" y="97" width="92" height="26" rx="3"/>
+    <text class="ts" x="17" y="108" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">MAG:DIPOLE01:RB</text>
+    <text x="17" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Dipole 1 field readback</text>
+    <text class="ts" x="17" y="140" style="font-size: 8px; fill: var(--od-ink)">MAG:CORR04:RB</text>
+    <text x="17" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Corrector 4 readback</text>
+    <text class="ts" x="17" y="172" style="font-size: 8px; fill: var(--od-ink)">MAG:QUAD03:SP</text>
+    <text x="17" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Quadrupole 3 setpoint</text>
+    <text class="ts" x="17" y="204" style="font-size: 8px; fill: var(--od-ink)">RF:CAVITY:PHA</text>
+    <text x="17" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Cavity 1 RF phase</text>
+    <text class="ts" x="119" y="108" style="font-size: 8px; fill: var(--od-ink)">MAG:DIPOLE03:RB</text>
+    <text x="119" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Dipole 3 field readback</text>
+    <text class="ts" x="119" y="140" style="font-size: 8px; fill: var(--od-ink)">VAC:GAUGE07:PR</text>
+    <text x="119" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Vacuum gauge 7 pressure</text>
+    <text class="ts" x="119" y="172" style="font-size: 8px; fill: var(--od-ink)">DIAG:BPM12:X</text>
+    <text x="119" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">BPM 12 x position</text>
+    <rect class="nb-foc" x="115" y="193" width="92" height="26" rx="3"/>
+    <text class="ts" x="119" y="204" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">DIAG:SCREEN:IMG</text>
+    <text x="119" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Screen 1 camera image</text>
+  </g>
+
+  <!-- hierarchical pipeline -->
+  <g transform="translate(250,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">HIERARCHICAL PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Hierarchical descent</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Multiple-choice, top-down.</text>
+    <text class="ts" x="14" y="281">A sequence of constrained LLM calls</text>
+    <text class="ts" x="14" y="293">narrows the catalog down to the</text>
+    <text class="ts" x="14" y="305">target PVs.</text>
+    <g transform="translate(5.4,72) scale(0.66)">
+      <line class="e-thin" x1="146" y1="38" x2="80" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="174" y1="38" x2="240" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="172" y1="108" x2="210" y2="146" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-warn" x1="160" y1="44" x2="160" y2="78" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="148" y1="108" x2="110" y2="146" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="110" y1="182" x2="110" y2="206" style="stroke-width: 2.6"/>
+      <polygon class="nb-warn" points="160,8 202,26 160,44 118,26"/>
+      <text class="tn" x="160" y="30" text-anchor="middle" style="font-size: 13px">System?</text>
+      <polygon class="nb" points="80,78 122,96 80,114 38,96" style="stroke: var(--od-soft)"/>
+      <polygon class="nb-warn" points="160,78 202,96 160,114 118,96"/>
+      <text class="tn" x="160" y="100" text-anchor="middle" style="font-size: 13px">Family?</text>
+      <polygon class="nb" points="240,78 282,96 240,114 198,96" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="108" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">vac</text>
+      <text class="ts" x="172" y="68" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">mag</text>
+      <text class="ts" x="212" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">rf</text>
+      <text class="ts" x="118" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">dipole</text>
+      <text class="ts" x="204" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">quad</text>
+      <polygon class="nb-warn" points="110,146 152,164 110,182 68,164"/>
+      <text class="tn" x="110" y="168" text-anchor="middle" style="font-size: 13px">Field?</text>
+      <polygon class="nb" points="210,146 252,164 210,182 168,164" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="132" y="198" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">RB</text>
+      <rect class="nb-foc" x="20" y="206" width="280" height="28" rx="4"/>
+      <text class="ts t-acc" x="160" y="225" text-anchor="middle" style="font-size: 13px; font-weight: 600">MAG:DIPOLE01:RB</text>
+    </g>
+  </g>
+
+  <!-- middle layer pipeline -->
+  <g transform="translate(488,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">MIDDLE LAYER PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Interactive agent (ReAct)</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">The agent decides each step.</text>
+    <text class="ts" x="14" y="281">Tools expose slices of the same</text>
+    <text class="ts" x="14" y="293">catalog, but the agent reasons about</text>
+    <text class="ts" x="14" y="305">each result and chooses the next</text>
+    <text class="ts" x="14" y="317">call itself.</text>
+    <rect class="zone" x="12" y="68" width="198" height="62" rx="5" style="stroke: var(--od-soft); stroke-dasharray: 4 3"/>
+    <rect class="nb" x="19" y="75" width="76" height="16" rx="3"/>
+    <text class="ts" x="57" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_systems</text>
+    <rect class="nb" x="101" y="75" width="82" height="16" rx="3"/>
+    <text class="ts" x="142" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_families</text>
+    <rect class="nb" x="19" y="96" width="88" height="16" rx="3"/>
+    <text class="ts" x="63" y="107" text-anchor="middle" style="fill: var(--od-ink)">inspect_fields</text>
+    <rect class="nb" x="113" y="96" width="82" height="16" rx="3"/>
+    <text class="ts" x="154" y="107" text-anchor="middle" style="fill: var(--od-ink)">list_channels</text>
+    <text class="ts" x="20" y="124">+4 more</text>
+    <text class="te" x="111" y="145" text-anchor="middle">ORDERED PROBES</text>
+    <circle cx="22" cy="161" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="164" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">1</text>
+    <rect class="nb-warn" x="37" y="153" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="164" style="fill: var(--od-ink)">list_families(&quot;SR&quot;)</text>
+    <text class="ts" x="40" y="179" style="font-size: 8px">→ BPM, DIPOLE, QUAD, …</text>
+    <circle cx="22" cy="191" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="194" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">2</text>
+    <rect class="nb-warn" x="37" y="183" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="194" style="fill: var(--od-ink)">inspect_fields(&quot;DIPOLE&quot;)</text>
+    <text class="ts" x="40" y="209" style="font-size: 8px">→ SP, RB, CMD</text>
+    <circle cx="22" cy="221" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="224" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">3</text>
+    <rect class="nb-warn" x="37" y="213" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="224" style="fill: var(--od-ink)">list_channels(&quot;DIPOLE&quot;,&quot;RB&quot;)</text>
+    <text class="ts" x="40" y="239" style="font-size: 8px">→ 2 PVs ✓</text>
+  </g>
+
+  <!-- graph pipeline -->
+  <g transform="translate(726,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">GRAPH PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Ontology-based search</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">A graph of typed relationships.</text>
+    <text class="ts" x="14" y="281">Devices, signals, and their</text>
+    <text class="ts" x="14" y="293">relationships are explicit.</text>
+    <g transform="translate(5.4,76) scale(0.66)">
+      <line class="e" x1="56" y1="50" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="220" y1="50" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e" x1="156" y1="186" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="156" y1="186" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e e-dash" x1="156" y1="186" x2="50" y2="186" style="stroke-width: 1.6"/>
+      <circle class="mask" cx="56" cy="50" r="44" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="56" cy="50" r="44" style="stroke-width: 1.8"/>
+      <text class="tn" x="56" y="54" text-anchor="middle" style="font-size: 13px">PowerSupply</text>
+      <circle class="mask" cx="220" cy="50" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="220" cy="50" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="220" y="54" text-anchor="middle" style="font-size: 13px">Magnet</text>
+      <circle class="mask" cx="270" cy="138" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="270" cy="138" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="270" y="142" text-anchor="middle" style="font-size: 13px">Signal</text>
+      <circle class="mask" cx="156" cy="186" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="156" cy="186" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="156" y="190" text-anchor="middle" style="font-size: 13px">Dipole</text>
+      <circle class="mask" cx="50" cy="186" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="50" cy="186" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="50" y="190" text-anchor="middle" style="font-size: 13px">Beamline</text>
+      <text class="ts" x="138" y="36" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">controls</text>
+      <text class="ts" x="248" y="96" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">readback</text>
+      <text class="ts" x="178" y="124" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">is-a</text>
+      <text class="ts" x="224" y="168" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">setpoint</text>
+      <text class="ts" x="103" y="178" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">part of</text>
+    </g>
+  </g>
+
+  <!-- axes -->
+  <text class="te" x="150" y="359" text-anchor="end" style="font-size: 9px">CATALOG SCALE</text>
+  <text class="tn" x="164" y="360" style="font-size: 13px">hundreds of PVs</text>
+  <line class="e" x1="282" y1="356" x2="784" y2="356" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn" x="944" y="360" text-anchor="end" style="font-size: 13px">hundreds of thousands</text>
+  <text class="te" x="150" y="385" text-anchor="end" style="font-size: 9px">ABSTRACTION</text>
+  <text class="tn t-acc" x="164" y="386" style="font-size: 13px">literal — channels as named</text>
+  <line class="e-acc" x1="356" y1="382" x2="734" y2="382" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn t-acc" x="944" y="386" text-anchor="end" style="font-size: 13px">semantic — channels as meant</text>
+</svg>
+</div>
+<p>The pipelines search the <em>curated</em> channels: the ones the facility description
+declares and describes. A PV name met in an alarm, a script or a logbook entry
+is often not one of them. For those the Channel Finder also reads the control
+system’s own directory, which lists every PV the control system announces: see
+<a class="reference internal" href="#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
-<p>Hellert et al. (2025), <em>From Natural Language to Control Signals</em>,
-<a class="reference external" href="https://arxiv.org/abs/2512.18779">arXiv:2512.18779</a>.</p>
+<p>T. Hellert et al., <em>Mach. Learn.: Sci. Technol.</em> <strong>7</strong>, 045010 (2026) ·
+<a class="reference external" href="https://doi.org/10.1088/2632-2153/ae8219">doi:10.1088/2632-2153/ae8219</a>.</p>
 <dl class="simple">
 <dt><a class="reference internal" href="../architecture/retrieval-paths.html#retrieval-paths"><span class="std std-ref">Retrieval Paths</span></a></dt><dd><p>Where the Channel Finder sits among OSPREY’s retrieval stacks — it is
 the one that uses no embeddings at all.</p>
@@ -813,19 +997,47 @@ seeded with.</p></li>
 index rather than browsing a channel tree, and the device card reads the store.
 See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
 </section>
+<section id="all-pvs-the-control-system-s-directory">
+<span id="channel-finder-all-pvs"></span><h2>All PVs: the Control System’s Directory<a class="headerlink" href="#all-pvs-the-control-system-s-directory" title="Link to this heading">#</a></h2>
+<p>Whichever pipeline runs, it answers only for the curated channels. The
+directory answers for the rest. It is the control system’s own record of every
+PV and IOC, such as a ChannelFinder service, or the virtual accelerator’s PV
+list in the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset. Its names, descriptions and properties are shown
+as the control system records them; nothing in it is curated, and nothing that
+reads it can write.</p>
+<p>The directory is on when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section; the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset ships one. The same section can name an alarm server, an alarm
+log and a put log. <a class="reference internal" href="../reference/configuration/config.html#config-pv-directory"><span class="std std-ref">pv_directory: — PV records, alarms and put history</span></a> has the keys and how to switch
+the section off.</p>
+<p><strong>For the agent</strong> the section adds the <code class="docutils literal notranslate"><span class="pre">pv-directory</span></code> MCP server: search the
+directory, read a PV’s or an IOC’s record and, where their source is
+configured, the alarms and recorded writes. Every tool is a read and runs
+without an approval prompt. The agent’s prompt tells it to check the curated
+channels first and to say when a name is the control system’s own.
+<a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists the tools.</p>
+<p><strong>For the operator</strong> it adds the All PVs, Alarms and Archive views of the
+panel: see <a class="reference internal" href="#all-pvs-alarms-and-archive">All PVs, Alarms and Archive</a>.</p>
+<p>Every answer comes from the machine the control-target chip shows: the
+simulator’s own PVs and replayed alarm feed on <em>Simulator</em>, the facility’s
+services on <em>Live</em> and <em>Rehearsal</em>. An answer with no source for the current
+target reads <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">available</span> <span class="pre">for</span> <span class="pre">this</span> <span class="pre">target</span></code>.
+<a class="reference internal" href="../reference/connectors-api/services.html"><span class="doc">Directory, alarms and put log</span></a> has the table of sources per target.</p>
+</section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
 <p>The browser-based channel explorer is the Channel Finder panel of the web
 terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>).</p>
-<p>The explorer is read-only. To correct a channel, edit
-<code class="docutils literal notranslate"><span class="pre">data/facility/fixes.yaml</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p>The explorer is read-only. To correct a channel, edit <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> in the
+facility tree and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <p>The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
 the search box in the panel toolbar (<code class="docutils literal notranslate"><span class="pre">/</span></code> focuses it) and it keeps the
 channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
-device’s class or any class above it. Explore and Feedback are at the toolbar’s
-left. The result count and the search box are at its right.</p>
+device’s class or any class above it. The view switch is at the toolbar’s
+left: Explore and Feedback, or Curated, All PVs and Feedback when <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+has a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section, with Alarms and Archive when their service is
+configured. The result count and the search box are at its right.</p>
 <p>The sidebar narrows further:</p>
 <ul class="simple">
 <li><p>Section, System and Signal count matching channels.</p></li>
@@ -884,8 +1096,46 @@ fills it. Channel validation is not offered on this pipeline. The
 channel-suggestion typeahead in the web panels still works in graph mode:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names from the facility file and writes them
 into the snapshot the panels use.</p>
+<section id="all-pvs-alarms-and-archive">
+<h3>All PVs, Alarms and Archive<a class="headerlink" href="#all-pvs-alarms-and-archive" title="Link to this heading">#</a></h3>
+<p>With a <code class="docutils literal notranslate"><span class="pre">pv_directory</span></code> section (<a class="reference internal" href="#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>) the view switch
+gains <strong>All PVs</strong>, which searches the directory. In the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>All PVs</strong>, type <code class="docutils literal notranslate"><span class="pre">cavity</span> <span class="pre">temperature</span></code> into the search box and press
+Enter. The rows are the PVs whose description holds both words, each with
+its description, current value, alarm, record type and IOC.</p></li>
+<li><p>Click <code class="docutils literal notranslate"><span class="pre">SR:RF:CAVITY:01:TEMPERATURE:RB</span></code> to open its PV page. A banner
+shows a latched alarm from the demo’s replayed alarm feed, with its
+guidance.</p></li>
+</ol>
+<p>Words match descriptions first, and names only when no description matched;
+every word must match. A word holding <code class="docutils literal notranslate"><span class="pre">*</span></code> or <code class="docutils literal notranslate"><span class="pre">?</span></code> matches names as a glob,
+and a leading <code class="docutils literal notranslate"><span class="pre">=</span></code> asks for the exact name. The sidebar filters the result,
+and <strong>show request</strong> reveals the request that ran.</p>
+<p>Each row carries one of two marks:</p>
+<ul class="simple">
+<li><p>◆ <strong>Curated</strong>: the facility description declares the PV.</p></li>
+<li><p>◇ <strong>Control system only</strong>: the control system announces it and the facility
+description does not.</p></li>
+</ul>
+<p>The search words carry over from the Curated view: a <code class="docutils literal notranslate"><span class="pre">Not</span> <span class="pre">here?</span></code> line under
+its results opens All PVs with the same words, and a curated search with no
+hits offers to search the whole directory instead. The names of ticked rows
+can be copied, sent to the assistant or, when CANOPY serves Trace, plotted.</p>
+<p>A <strong>PV page</strong> has one card per answer: Value, Alarm, Put history, Directory,
+Archive and Logbook. A card whose service is not configured is one dashed
+line. Clicking an IOC opens its <strong>IOC page</strong>: its PVs, the alarms on it, its
+health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.</p>
+<p>Two more views appear when their service is configured. Neither writes:</p>
+<ul class="simple">
+<li><p><strong>Alarms</strong> lists what is in alarm now on the control target, worst first.
+Acknowledge in the alarm server’s own client.</p></li>
+<li><p><strong>Archive</strong> says what the control target’s archive records: how many of the
+directory’s PVs, and its newest sample.</p></li>
+</ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys for every pipeline, and how the active one is served to
 the agent, are in <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p>
+</section>
 </section>
 </section>
 
@@ -941,7 +1191,11 @@ the agent, are in <a class="reference internal" href="../reference/contracts/cha
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-pipeline">Graph Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#all-pvs-the-control-system-s-directory">All PVs: the Control System’s Directory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#all-pvs-alarms-and-archive">All PVs, Alarms and Archive</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

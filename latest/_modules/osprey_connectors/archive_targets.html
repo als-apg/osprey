@@ -524,7 +524,7 @@
 
 <span class="c1">#: The targets the facility&#39;s archive serves: the real machine and the</span>
 <span class="c1">#: stand-in that rehearses it.</span>
-<span class="n">_APPLIANCE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">})</span>
+<span class="n">APPLIANCE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">})</span>
 
 <span class="c1">#: The targets the deployment&#39;s own store serves: the virtual accelerator.</span>
 <span class="n">_STORE_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">TARGET_VA</span><span class="p">})</span>
@@ -533,6 +533,7 @@
 <span class="n">_NO_TARGETS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;APPLIANCE_TARGETS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;archive_targets&quot;</span><span class="p">,</span>
     <span class="s2">&quot;archive_withheld&quot;</span><span class="p">,</span>
 <span class="p">]</span>
@@ -550,7 +551,7 @@
 <span class="sd">            section alone does not carry.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        The targets per the module table — :data:`_APPLIANCE_TARGETS`,</span>
+<span class="sd">        The targets per the module table — :data:`APPLIANCE_TARGETS`,</span>
 <span class="sd">        :data:`_STORE_TARGETS` or :data:`_NO_TARGETS`. A target absent from the</span>
 <span class="sd">        set has no archive: a caller holding it has nothing to offer, never a</span>
 <span class="sd">        default to fall back on.</span>
@@ -569,7 +570,7 @@
 
     <span class="k">if</span> <span class="n">archiver_type</span> <span class="ow">in</span> <span class="n">_STORE_ARCHIVERS</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_STORE_TARGETS</span> <span class="k">if</span> <span class="n">virtual_accelerator_port</span><span class="p">(</span><span class="n">config</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_NO_TARGETS</span>
-    <span class="k">return</span> <span class="n">_APPLIANCE_TARGETS</span> <span class="k">if</span> <span class="n">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span> <span class="k">else</span> <span class="n">_NO_TARGETS</span></div>
+    <span class="k">return</span> <span class="n">APPLIANCE_TARGETS</span> <span class="k">if</span> <span class="n">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">,</span> <span class="n">settings</span><span class="p">)</span> <span class="k">else</span> <span class="n">_NO_TARGETS</span></div>
 
 
 

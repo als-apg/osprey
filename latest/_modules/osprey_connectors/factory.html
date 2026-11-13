@@ -429,12 +429,14 @@
                   
   <h1>Source code for osprey_connectors.factory</h1><div class="highlight"><pre>
 <span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">Connector factory for creating control system and archiver connectors.</span>
+<span class="sd">Connector factory for control system and archiver connectors and the service backends.</span>
 
 <span class="sd">Provides centralized factory for instantiating and configuring connectors</span>
 <span class="sd">based on configuration. Connectors are registered through the Osprey registry</span>
-<span class="sd">system for unified component management and lazy loading.</span>
-
+<span class="sd">system for unified component management and lazy loading. The four read-only</span>
+<span class="sd">service kinds (``directory``, ``alarm_state``, ``alarm_log``, ``put_log``) are</span>
+<span class="sd">registered and built through one kind-keyed pair, :meth:`ConnectorFactory.register_service`</span>
+<span class="sd">and :meth:`ConnectorFactory.create_service`.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -448,9 +450,20 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.alarm_log</span><span class="w"> </span><span class="kn">import</span> <span class="n">AlarmLog</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.alarm_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AlarmState</span>
+
     <span class="c1"># Import only for annotations: pulling in the archiver base eagerly would</span>
     <span class="c1"># make pandas a hard dependency of the lean control-system import chain.</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.archiver._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArchiverConnector</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.directory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelDirectory</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.put_log</span><span class="w"> </span><span class="kn">import</span> <span class="n">PutLog</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.service_answers</span><span class="w"> </span><span class="kn">import</span> <span class="n">BackendSpec</span>
+
+    <span class="c1">#: What ``create_service`` returns: the base of the kind the spec names.</span>
+    <span class="n">_ServiceBackend</span> <span class="o">=</span> <span class="n">ChannelDirectory</span> <span class="o">|</span> <span class="n">AlarmState</span> <span class="o">|</span> <span class="n">AlarmLog</span> <span class="o">|</span> <span class="n">PutLog</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;BUILTIN_CONNECTORS&quot;</span><span class="p">,</span>
@@ -461,16 +474,43 @@
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;connector_factory&quot;</span><span class="p">)</span>
 
+<span class="c1">#: A service kind&#39;s name, as ``BackendSpec.kind`` spells it.</span>
+<span class="n">_ServiceKind</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;directory&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_state&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_log&quot;</span><span class="p">,</span> <span class="s2">&quot;put_log&quot;</span><span class="p">]</span>
+<span class="n">_SERVICE_KINDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_ServiceKind</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;directory&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_state&quot;</span><span class="p">,</span> <span class="s2">&quot;alarm_log&quot;</span><span class="p">,</span> <span class="s2">&quot;put_log&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_unknown_service_kind</span><span class="p">(</span><span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="ne">ValueError</span><span class="p">:</span>
+    <span class="k">return</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown service kind: </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s2">. Service kinds: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_SERVICE_KINDS</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Import the class a dotted out-of-tree type names.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: The module does not import, or has no such class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span> <span class="o">=</span> <span class="n">connector_type</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not import connector module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="ne">AttributeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39; has no class &#39;</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
 
 <div class="viewcode-block" id="ConnectorFactory">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">ConnectorFactory</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Factory for creating control system and archiver connectors.</span>
+<span class="sd">    Factory for control system and archiver connectors and the service backends.</span>
 
 <span class="sd">    Provides centralized management of available connectors. Connectors are</span>
 <span class="sd">    registered automatically through the Osprey registry system during</span>
-<span class="sd">    framework initialization.</span>
+<span class="sd">    framework initialization. A control system or archiver is built from a</span>
+<span class="sd">    config dict and connected; a service backend (kind ``directory``,</span>
+<span class="sd">    ``alarm_state``, ``alarm_log`` or ``put_log``) is built from a ``BackendSpec``</span>
+<span class="sd">    by :meth:`create_service` and connects nothing.</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; # Using default config</span>
@@ -483,6 +523,8 @@
 
     <span class="n">_control_system_connectors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="n">_archiver_connectors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">ArchiverConnector</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="c1">#: Service backend classes by kind, then by the type name a spec selects them by.</span>
+    <span class="n">_service_backends</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{</span><span class="n">kind</span><span class="p">:</span> <span class="p">{}</span> <span class="k">for</span> <span class="n">kind</span> <span class="ow">in</span> <span class="n">_SERVICE_KINDS</span><span class="p">}</span>
 
 <div class="viewcode-block" id="ConnectorFactory.register_control_system">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_control_system">[docs]</a>
@@ -514,6 +556,27 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">connector_class</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Registered archiver connector: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ConnectorFactory.register_service">
+<a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_service">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_service</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">backend_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Register a service backend under the type name a ``BackendSpec`` selects it by.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            kind: ``directory``, ``alarm_state``, ``alarm_log`` or ``put_log``.</span>
+<span class="sd">            name: The type name.</span>
+<span class="sd">            backend_class: A subclass of that kind&#39;s base.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: *kind* is not one of the four.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">registry</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_service_backends</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">kind</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">registry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_unknown_service_kind</span><span class="p">(</span><span class="n">kind</span><span class="p">)</span>
+        <span class="n">registry</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">backend_class</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Registered </span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2"> backend: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ConnectorFactory.build_control_system_connector">
@@ -593,16 +656,7 @@
 
         <span class="k">if</span> <span class="ow">not</span> <span class="n">connector_class</span><span class="p">:</span>
             <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">connector_type</span><span class="p">:</span>
-                <span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span> <span class="o">=</span> <span class="n">connector_type</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_path</span><span class="p">)</span>
-                    <span class="n">connector_class</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
-                <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Could not import connector module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
-                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
-                <span class="k">except</span> <span class="ne">AttributeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39; has no class &#39;</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_control_system_connectors</span><span class="p">[</span><span class="n">connector_type</span><span class="p">]</span> <span class="o">=</span> <span class="n">connector_class</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">if</span> <span class="n">connector_type</span> <span class="ow">in</span> <span class="n">types</span><span class="o">.</span><span class="n">RETIRED_CONTROL_SYSTEM_TYPES</span><span class="p">:</span>
@@ -751,16 +805,7 @@
 
         <span class="k">if</span> <span class="ow">not</span> <span class="n">connector_class</span><span class="p">:</span>
             <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">connector_type</span><span class="p">:</span>
-                <span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span> <span class="o">=</span> <span class="n">connector_type</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_path</span><span class="p">)</span>
-                    <span class="n">connector_class</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
-                <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Could not import connector module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
-                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
-                <span class="k">except</span> <span class="ne">AttributeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39; has no class &#39;</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="p">[</span><span class="n">connector_type</span><span class="p">]</span> <span class="o">=</span> <span class="n">connector_class</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">available</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
@@ -782,6 +827,46 @@
 
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created archiver connector: </span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">connector</span></div>
+
+
+<div class="viewcode-block" id="ConnectorFactory.create_service">
+<a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.create_service">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_service</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">BackendSpec</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">seams</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_ServiceBackend</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the service backend a spec names. Backends connect nothing here: no I/O.</span>
+
+<span class="sd">        The kind is ``spec.kind``. The builtins are registered first: the panel and</span>
+<span class="sd">        the directory MCP server never register them themselves, and registration</span>
+<span class="sd">        converges, so every create call can afford to.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            spec: The backend to build, from ``service_targets`` or written by hand.</span>
+<span class="sd">            project_dir: The rendered config&#39;s directory.</span>
+<span class="sd">            **seams: Test seams, passed on only when not ``None``.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The kind is not one of the four, the type is unknown, or a</span>
+<span class="sd">                dotted type does not resolve.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">registry</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_service_backends</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">kind</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">registry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_unknown_service_kind</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">kind</span><span class="p">)</span>
+        <span class="n">register_builtin_connectors</span><span class="p">()</span>
+        <span class="n">backend_class</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">backend_class</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Unknown </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">kind</span><span class="si">}</span><span class="s2"> type: &#39;</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Available types: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;Use a dotted module path for custom connectors.&quot;</span>
+                <span class="p">)</span>
+            <span class="n">backend_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
+            <span class="n">registry</span><span class="p">[</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">]</span> <span class="o">=</span> <span class="n">backend_class</span>
+        <span class="n">given</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">seam</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">seam</span> <span class="ow">in</span> <span class="n">seams</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">seam</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+        <span class="n">backend</span><span class="p">:</span> <span class="n">_ServiceBackend</span> <span class="o">=</span> <span class="n">backend_class</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">project_dir</span><span class="o">=</span><span class="n">project_dir</span><span class="p">,</span> <span class="o">**</span><span class="n">given</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">backend</span></div>
 
 
 <div class="viewcode-block" id="ConnectorFactory.list_control_systems">
@@ -917,10 +1002,79 @@
 <span class="n">_BUILTIN_ARCHIVERS</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">BUILTIN_CONNECTORS</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;archiver&quot;</span><span class="p">)</span>
 
 
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_ServiceBuiltin</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One service backend this package ships.</span>
+
+<span class="sd">    Apart from :class:`BuiltinConnector` because the framework registry reads</span>
+<span class="sd">    that table, and these kinds must never reach a framework that predates them.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1">#: The type name a ``BackendSpec`` selects it by, and the key it registers under.</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="n">_ServiceKind</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Import the module and return the backend class.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
+
+
+<span class="c1">#: Every built-in service backend, in registration order. ``simulator_view``</span>
+<span class="c1">#: and ``alarm_replay`` are internal: ``service_targets`` selects them, and the</span>
+<span class="c1">#: framework&#39;s section resolver refuses them as a configured ``type``.</span>
+<span class="n">_SERVICE_BUILTINS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_ServiceBuiltin</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;channelfinder&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;directory&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.directory._channelfinder&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ChannelFinderDirectory&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ChannelFinder directory service&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;simulator_view&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;directory&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.directory._simulator&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;SimulatorDirectory&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Every PV the virtual accelerator serves, from the build&#39;s simulator view&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;phoebus_alarm_logger&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alarm_log&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.alarm_log._phoebus&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PhoebusAlarmLogger&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Phoebus alarm logger service&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;phoebus_alarm_server&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alarm_state&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.alarm_state._phoebus_kafka&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;PhoebusAlarmState&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Phoebus alarm server state, from its Kafka topic (requires aiokafka)&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;alarm_replay&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alarm_state&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.alarm_state._replay&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ReplayAlarmState&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Alarm state replayed from a file, for the simulator&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">_ServiceBuiltin</span><span class="p">(</span>
+        <span class="s2">&quot;caputlog&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;put_log&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;osprey_connectors.put_log._caputlog&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;CaPutLog&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;caPutLog put history service&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+
+
 <div class="viewcode-block" id="register_builtin_connectors">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.register_builtin_connectors">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">register_builtin_connectors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all built-in control system and archiver connectors.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all built-in control system and archiver connectors and service backends.</span>
 
 <span class="sd">    Safe to call multiple times and convergent: every call ensures each</span>
 <span class="sd">    built-in name is registered, and an existing registration under one of</span>
@@ -936,7 +1090,12 @@
     <span class="n">missing_archivers</span> <span class="o">=</span> <span class="p">[</span>
         <span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_BUILTIN_ARCHIVERS</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">_archiver_connectors</span>
     <span class="p">]</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">missing_control_systems</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">missing_archivers</span><span class="p">:</span>
+    <span class="n">missing_service_rows</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">row</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">_SERVICE_BUILTINS</span>
+        <span class="k">if</span> <span class="n">row</span><span class="o">.</span><span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">_service_backends</span><span class="p">[</span><span class="n">row</span><span class="o">.</span><span class="n">kind</span><span class="p">]</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">missing_control_systems</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">missing_archivers</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">missing_service_rows</span><span class="p">:</span>
         <span class="k">return</span>
 
     <span class="c1"># The DOOCS and MongoDB connectors import their optional drivers (doocs4py,</span>
@@ -957,7 +1116,11 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;built-in connector </span><span class="si">{</span><span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> has unknown kind </span><span class="si">{</span><span class="n">builtin</span><span class="o">.</span><span class="n">kind</span><span class="si">!r}</span><span class="s2">&quot;</span>
-            <span class="p">)</span></div>
+            <span class="p">)</span>
+
+    <span class="c1"># Their optional client (aiokafka) is imported on start, not at module scope.</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">missing_service_rows</span><span class="p">:</span>
+        <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">_service_backends</span><span class="p">[</span><span class="n">row</span><span class="o">.</span><span class="n">kind</span><span class="p">][</span><span class="n">row</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">row</span><span class="o">.</span><span class="n">load</span><span class="p">()</span></div>
 
 </pre></div>
 

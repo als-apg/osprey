@@ -581,7 +581,9 @@ support common control-room workflows.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
 <td><p>A browser split-pane UI with logbook and channel-finder panels
-(documented separately — see <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>).</p></td>
+(documented separately — see <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>).
+The Channels panel’s <strong>All PVs</strong> view lists every PV the simulator
+serves (<a class="reference internal" href="../how-to/use-channel-finder.html#channel-finder-all-pvs"><span class="std std-ref">All PVs: the Control System’s Directory</span></a>).</p></td>
 </tr>
 </tbody>
 </table>
@@ -637,7 +639,7 @@ scheme:</p>
 transformer); the second resolves to the <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:*:CURRENT:SP</span></code> family.</p>
 <p><strong>How it works.</strong> The preset runs the <code class="docutils literal notranslate"><span class="pre">graph</span></code> channel finder. It answers
 from the facility knowledge graph that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from the
-facility file. The channel-finder agent works with five tools:</p>
+facility file. The channel-finder agent works with twelve tools:</p>
 <ul class="simple">
 <li><p><strong>Keyword lookup.</strong> <code class="docutils literal notranslate"><span class="pre">search_channels</span></code> reads the search index that
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives from the graph. It matches your words against each
@@ -650,9 +652,13 @@ the graph’s labels and properties with <code class="docutils literal notransla
 with <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code>.</p></li>
 <li><p><strong>The rules.</strong> <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> tells the agent how addresses are spelled and
 which tool fits which question.</p></li>
+<li><p><strong>All PVs.</strong> When the graph has no answer, <code class="docutils literal notranslate"><span class="pre">directory_search</span></code>,
+<code class="docutils literal notranslate"><span class="pre">directory_properties</span></code>, <code class="docutils literal notranslate"><span class="pre">pv_record</span></code>, <code class="docutils literal notranslate"><span class="pre">ioc_record</span></code>, <code class="docutils literal notranslate"><span class="pre">active_alarms</span></code>,
+<code class="docutils literal notranslate"><span class="pre">alarm_state</span></code> and <code class="docutils literal notranslate"><span class="pre">alarm_config</span></code> read the simulator’s own directory and its
+replayed alarms.</p></li>
 </ul>
 <p>The agent <strong>never fabricates PV names</strong>: every address it returns is one the
-graph holds. For the other search strategies, see
+graph or the directory holds. For the other search strategies, see
 <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
 </section>
 <section id="step-4-search-the-electronic-logbook">

@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -488,10 +489,13 @@
 <p>The factory that builds a connector from its type name, the type names
 themselves, and the readers every connector shares for its connection block and
 its call bound.</p>
-<p id="module-osprey_connectors.factory">Connector factory for creating control system and archiver connectors.</p>
+<p id="module-osprey_connectors.factory">Connector factory for control system and archiver connectors and the service backends.</p>
 <p>Provides centralized factory for instantiating and configuring connectors
 based on configuration. Connectors are registered through the Osprey registry
-system for unified component management and lazy loading.</p>
+system for unified component management and lazy loading. The four read-only
+service kinds (<code class="docutils literal notranslate"><span class="pre">directory</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_state</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_log</span></code>, <code class="docutils literal notranslate"><span class="pre">put_log</span></code>) are
+registered and built through one kind-keyed pair, <a class="reference internal" href="#osprey_connectors.factory.ConnectorFactory.register_service" title="osprey_connectors.factory.ConnectorFactory.register_service"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ConnectorFactory.register_service()</span></code></a>
+and <a class="reference internal" href="#osprey_connectors.factory.ConnectorFactory.create_service" title="osprey_connectors.factory.ConnectorFactory.create_service"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ConnectorFactory.create_service()</span></code></a>.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.factory.BUILTIN_CONNECTORS">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.factory.</span></span><span class="sig-name descname"><span class="pre">BUILTIN_CONNECTORS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#osprey_connectors.factory.BuiltinConnector" title="osprey_connectors.factory.BuiltinConnector"><span class="pre">BuiltinConnector</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">(BuiltinConnector(name='epics',</span> <span class="pre">kind='control_system',</span> <span class="pre">module_path='osprey_connectors.control_system._epics_connector',</span> <span class="pre">class_name='EPICSConnector',</span> <span class="pre">description='EPICS</span> <span class="pre">Channel</span> <span class="pre">Access</span> <span class="pre">control</span> <span class="pre">system</span> <span class="pre">connector'),</span> <span class="pre">BuiltinConnector(name='virtual_accelerator',</span> <span class="pre">kind='control_system',</span> <span class="pre">module_path='osprey_connectors.control_system._va_connector',</span> <span class="pre">class_name='VirtualAcceleratorConnector',</span> <span class="pre">description='Virtual</span> <span class="pre">Accelerator</span> <span class="pre">connector</span> <span class="pre">for</span> <span class="pre">PyAT-backed</span> <span class="pre">soft-IOC</span> <span class="pre">simulations'),</span> <span class="pre">BuiltinConnector(name='doocs',</span> <span class="pre">kind='control_system',</span> <span class="pre">module_path='osprey_connectors.control_system._doocs_connector',</span> <span class="pre">class_name='DOOCSConnector',</span> <span class="pre">description='DOOCS</span> <span class="pre">control</span> <span class="pre">system</span> <span class="pre">connector</span> <span class="pre">(requires</span> <span class="pre">doocs4py)'),</span> <span class="pre">BuiltinConnector(name='tango',</span> <span class="pre">kind='control_system',</span> <span class="pre">module_path='osprey_connectors.control_system._tango_connector',</span> <span class="pre">class_name='TangoConnector',</span> <span class="pre">description='TANGO</span> <span class="pre">Controls</span> <span class="pre">control</span> <span class="pre">system</span> <span class="pre">connector</span> <span class="pre">(requires</span> <span class="pre">PyTango)'),</span> <span class="pre">BuiltinConnector(name='live_standin',</span> <span class="pre">kind='control_system',</span> <span class="pre">module_path='osprey_connectors.control_system._epics_connector',</span> <span class="pre">class_name='EPICSConnector',</span> <span class="pre">description='Live</span> <span class="pre">stand-in</span> <span class="pre">connector:</span> <span class="pre">the</span> <span class="pre">facility-shaped</span> <span class="pre">soft</span> <span class="pre">IOC</span> <span class="pre">a</span> <span class="pre">deployment</span> <span class="pre">runs</span> <span class="pre">for</span> <span class="pre">itself,</span> <span class="pre">served</span> <span class="pre">over</span> <span class="pre">Channel</span> <span class="pre">Access'),</span> <span class="pre">BuiltinConnector(name='mock_archiver',</span> <span class="pre">kind='archiver',</span> <span class="pre">module_path='osprey_connectors.archiver._mock_archiver_connector',</span> <span class="pre">class_name='MockArchiverConnector',</span> <span class="pre">description='Mock</span> <span class="pre">archiver</span> <span class="pre">connector</span> <span class="pre">for</span> <span class="pre">development</span> <span class="pre">and</span> <span class="pre">testing'),</span> <span class="pre">BuiltinConnector(name='epics_archiver',</span> <span class="pre">kind='archiver',</span> <span class="pre">module_path='osprey_connectors.archiver._epics_archiver_connector',</span> <span class="pre">class_name='EPICSArchiverConnector',</span> <span class="pre">description='EPICS</span> <span class="pre">Archiver</span> <span class="pre">Appliance</span> <span class="pre">connector'),</span> <span class="pre">BuiltinConnector(name='mongodb_archiver',</span> <span class="pre">kind='archiver',</span> <span class="pre">module_path='osprey_connectors.archiver._mongodb_archiver_connector',</span> <span class="pre">class_name='MongoDBArchiverConnector',</span> <span class="pre">description='MongoDB</span> <span class="pre">archiver</span> <span class="pre">connector</span> <span class="pre">for</span> <span class="pre">time-series</span> <span class="pre">PV</span> <span class="pre">data'),</span> <span class="pre">BuiltinConnector(name='doocs_archiver',</span> <span class="pre">kind='archiver',</span> <span class="pre">module_path='osprey_connectors.archiver._doocs_archiver_connector',</span> <span class="pre">class_name='DOOCSArchiverConnector',</span> <span class="pre">description='DOOCS</span> <span class="pre">local</span> <span class="pre">history</span> <span class="pre">connector</span> <span class="pre">(requires</span> <span class="pre">doocs4py)'),</span> <span class="pre">BuiltinConnector(name='mya_archiver',</span> <span class="pre">kind='archiver',</span> <span class="pre">module_path='osprey_connectors.archiver._mya_archiver_connector',</span> <span class="pre">class_name='MYAArchiverConnector',</span> <span class="pre">description='MYA</span> <span class="pre">archiver</span> <span class="pre">connector,</span> <span class="pre">read</span> <span class="pre">over</span> <span class="pre">the</span> <span class="pre">myquery</span> <span class="pre">HTTP</span> <span class="pre">service</span> <span class="pre">(requires</span> <span class="pre">jlab-archiver-client)'))</span></span><a class="headerlink" href="#osprey_connectors.factory.BUILTIN_CONNECTORS" title="Link to this definition">#</a></dt>
@@ -559,10 +563,13 @@ its entries from here rather than restating the private paths.</p>
 <dt class="sig sig-object py" id="osprey_connectors.factory.ConnectorFactory">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.factory.</span></span><span class="sig-name descname"><span class="pre">ConnectorFactory</span></span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#ConnectorFactory"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.ConnectorFactory" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>Factory for creating control system and archiver connectors.</p>
+<p>Factory for control system and archiver connectors and the service backends.</p>
 <p>Provides centralized management of available connectors. Connectors are
 registered automatically through the Osprey registry system during
-framework initialization.</p>
+framework initialization. A control system or archiver is built from a
+config dict and connected; a service backend (kind <code class="docutils literal notranslate"><span class="pre">directory</span></code>,
+<code class="docutils literal notranslate"><span class="pre">alarm_state</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_log</span></code> or <code class="docutils literal notranslate"><span class="pre">put_log</span></code>) is built from a <code class="docutils literal notranslate"><span class="pre">BackendSpec</span></code>
+by <a class="reference internal" href="#osprey_connectors.factory.ConnectorFactory.create_service" title="osprey_connectors.factory.ConnectorFactory.create_service"><code class="xref py py-meth docutils literal notranslate"><span class="pre">create_service()</span></code></a> and connects nothing.</p>
 <p class="rubric">Example</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Using default config</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">cs_connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">()</span>
@@ -580,7 +587,7 @@ framework initialization.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> (<em>str</em>) – Unique name for the connector (e.g., ‘epics’, ‘tango’)</p></li>
-<li><p><strong>connector_class</strong> (<em>type</em><em>[</em><a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system._base.ControlSystemConnector"><em>ControlSystemConnector</em></a><em>]</em>) – Connector class implementing ControlSystemConnector</p></li>
+<li><p><strong>connector_class</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type"><em>type</em></a><em>[</em><a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system._base.ControlSystemConnector"><em>ControlSystemConnector</em></a><em>]</em>) – Connector class implementing ControlSystemConnector</p></li>
 </ul>
 </dd>
 </dl>
@@ -594,8 +601,26 @@ framework initialization.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> (<em>str</em>) – Unique name for the connector (e.g., ‘epics_archiver’, ‘mock_archiver’)</p></li>
-<li><p><strong>connector_class</strong> (<em>type</em><em>[</em><a class="reference internal" href="contracts.html#osprey_connectors.archiver.ArchiverConnector" title="osprey_connectors.archiver.ArchiverConnector"><em>ArchiverConnector</em></a><em>]</em>) – Connector class implementing ArchiverConnector</p></li>
+<li><p><strong>connector_class</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type"><em>type</em></a><em>[</em><a class="reference internal" href="contracts.html#osprey_connectors.archiver.ArchiverConnector" title="osprey_connectors.archiver.ArchiverConnector"><em>ArchiverConnector</em></a><em>]</em>) – Connector class implementing ArchiverConnector</p></li>
 </ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.factory.ConnectorFactory.register_service">
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">register_service</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kind</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backend_class</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#ConnectorFactory.register_service"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.ConnectorFactory.register_service" title="Link to this definition">#</a></dt>
+<dd><p>Register a service backend under the type name a <code class="docutils literal notranslate"><span class="pre">BackendSpec</span></code> selects it by.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>kind</strong> (<em>str</em>) – <code class="docutils literal notranslate"><span class="pre">directory</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_state</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_log</span></code> or <code class="docutils literal notranslate"><span class="pre">put_log</span></code>.</p></li>
+<li><p><strong>name</strong> (<em>str</em>) – The type name.</p></li>
+<li><p><strong>backend_class</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type"><em>type</em></a><em>[</em><em>Any</em><em>]</em>) – A subclass of that kind’s base.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – <em>kind</em> is not one of the four.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -747,6 +772,31 @@ read when settings is absent; both at once raise ValueError.</p></li>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.factory.ConnectorFactory.create_service">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">create_service</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spec</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">seams</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#ConnectorFactory.create_service"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.ConnectorFactory.create_service" title="Link to this definition">#</a></dt>
+<dd><p>Build the service backend a spec names. Backends connect nothing here: no I/O.</p>
+<p>The kind is <code class="docutils literal notranslate"><span class="pre">spec.kind</span></code>. The builtins are registered first: the panel and
+the directory MCP server never register them themselves, and registration
+converges, so every create call can afford to.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>spec</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec" title="osprey_connectors.service_answers.BackendSpec"><em>BackendSpec</em></a>) – The backend to build, from <code class="docutils literal notranslate"><span class="pre">service_targets</span></code> or written by hand.</p></li>
+<li><p><strong>project_dir</strong> (<em>Path</em><em> | </em><em>None</em>) – The rendered config’s directory.</p></li>
+<li><p><strong>**seams</strong> (<em>Any</em>) – Test seams, passed on only when not <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – The kind is not one of the four, the type is unknown, or a
+    dotted type does not resolve.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>_ServiceBackend</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.factory.ConnectorFactory.list_control_systems">
 <span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">list_control_systems</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#ConnectorFactory.list_control_systems"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.ConnectorFactory.list_control_systems" title="Link to this definition">#</a></dt>
 <dd><p>List available control system connector types.</p>
@@ -773,7 +823,7 @@ read when settings is absent; both at once raise ValueError.</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.factory.register_builtin_connectors">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.factory.</span></span><span class="sig-name descname"><span class="pre">register_builtin_connectors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#register_builtin_connectors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.register_builtin_connectors" title="Link to this definition">#</a></dt>
-<dd><p>Register all built-in control system and archiver connectors.</p>
+<dd><p>Register all built-in control system and archiver connectors and service backends.</p>
 <p>Safe to call multiple times and convergent: every call ensures each
 built-in name is registered, and an existing registration under one of
 those names is never replaced. A registry holding only part of the
@@ -2318,9 +2368,11 @@ block are both covered.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.register_control_system"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_control_system()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.register_archiver"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_archiver()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.register_service"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_service()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.build_control_system_connector"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.build_control_system_connector()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.create_control_system_connector"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.create_control_system_connector()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.create_archiver_connector"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.create_archiver_connector()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.create_service"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.create_service()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.list_control_systems"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.list_control_systems()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.factory.ConnectorFactory.list_archivers"><code class="docutils literal notranslate"><span class="pre">ConnectorFactory.list_archivers()</span></code></a></li>
 </ul>

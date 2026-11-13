@@ -416,6 +416,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/services.html">Directory, alarms and put log</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
 </ul>
 </details></li>
@@ -571,17 +572,25 @@ entry by entry.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">alarm_state</span></code></p></td>
+<td><p>A channel address, as asked</p></td>
+<td><p>The alarm service’s reason for having no state for it</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_read</span></code></p></td>
 <td><p>A channel address</p></td>
 <td><p>The connector’s error, as <code class="docutils literal notranslate"><span class="pre">&quot;&lt;ExceptionType&gt;:</span> <span class="pre">&lt;message&gt;&quot;</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code></p></td>
 <td><p>An entry id</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">null</span></code>: the logbook does not hold the id and gives no text</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code></p></td>
 <td><p>A corrector setpoint address</p></td>
 <td><p>The engine’s text</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_record</span></code></p></td>
+<td><p>A channel address, as asked, that no section answered</p></td>
+<td><p>The directory section’s reason</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code></p></td>
 <td><p>A stepped setpoint address, or the measurement kind when none is left</p></td>
