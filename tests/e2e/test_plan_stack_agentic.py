@@ -3382,6 +3382,31 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _report_deploy_timings(
+    up: subprocess.CompletedProcess, *, up_seconds: float, ready_seconds: float
+) -> None:
+    """Report how long the deploy took, phase by phase, on a green run too.
+
+    The deploy is the largest and least steady part of this lane, and
+    ``osprey up`` times each of its phases in its own output, which ``_run``
+    captures and only a failure prints. The lane runs pytest without ``-s``, so
+    ``$GITHUB_STEP_SUMMARY`` is the channel that shows it on a green run (as in
+    test_dockerfile_e2e.py), and is simply absent locally.
+    """
+    headline = (
+        f"scan stack deploy: osprey up {up_seconds:.0f} s, "
+        f"then bridge health and worker environment {ready_seconds:.0f} s"
+    )
+    print(headline)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"### {headline}\n\n<details><summary>osprey up -d --dev output</summary>\n\n"
+                f"```\n{up.stdout}\n{up.stderr}\n```\n\n</details>\n"
+            )
+
+
 #: The pyAML skill a render ships only for a facility with measurement models.
 _PYAML_SKILL = "pyaml-tools"
 
@@ -3482,6 +3507,7 @@ def deployed_scan_stack(
         _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
+    deploy_started = time.monotonic()
     try:
         try:
             up = _run(
@@ -3516,6 +3542,7 @@ def deployed_scan_stack(
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
+        up_done = time.monotonic()
         if forced_model() is not None:
             record_images_built(IMAGES_STAMP, revision)
         try:
@@ -3532,6 +3559,11 @@ def deployed_scan_stack(
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
+        _report_deploy_timings(
+            up,
+            up_seconds=up_done - deploy_started,
+            ready_seconds=time.monotonic() - up_done,
+        )
 
         # AFTER `osprey up`, never before: the deploy path can re-render the Claude
         # Code artifacts and would discard an earlier edit to settings.json.
