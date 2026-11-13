@@ -336,10 +336,10 @@ class ConnectorInterface:
         One ``write_multiple_channels`` call, so the set is one write call
         and, under a write authorization, one step: judged whole before any
         put, so an unlisted channel or a value out of range writes nothing.
-        Each result is then read in order and the first that is not
-        confirmed (or unrequested) raises.
+        The first result that is not confirmed (or unrequested) raises, a
+        refused write before the ones its batch held back.
         """
-        from osprey_connectors.control_system import raise_for_write_result
+        from osprey_connectors.control_system import raise_for_write_results
         from osprey_connectors.errors import (
             ChannelError,
             ChannelLimitsViolationError,
@@ -354,8 +354,7 @@ class ConnectorInterface:
         names = ", ".join(channel for channel, _ in operations)
         try:
             results = self._bridge.run(connector.write_multiple_channels(operations))
-            for result in results:
-                raise_for_write_result(result)
+            raise_for_write_results(results)
         except ChannelLimitsViolationError as exc:
             # The base batch loop lets a limits refusal out of the channel it
             # concerns; it is a refusal like any other.

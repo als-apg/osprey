@@ -696,6 +696,39 @@ class VAInProcessConnector(ControlSystemConnector):
             value, record.get("value_type"), record.get("options"), record.get("shape")
         )
 
+    def _write_precheck(
+        self, channel_address: str, value: Any
+    ) -> tuple[str, ChannelWriteResult | None]:
+        """Refuse an address outside the view and a channel that is no writable setpoint."""
+        if self._composite is None:
+            raise ConnectorUnavailableError(NOT_CONNECTED)
+        if channel_address not in self._served:
+            unknown = ChannelNotFoundError(channel_address)
+            logger.warning(f"In-process write refused: {channel_address}: {unknown}")
+            return channel_address, ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=ChannelNotFoundError.reason,
+                error_message=str(unknown),
+            )
+        self._sync()
+        if self._composite.supported_variables[channel_address].read_only:
+            return channel_address, self._refused(
+                channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
+            )
+        return channel_address, None
+
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+        """What the simulated control system holds: read in process, no thread."""
+        held: dict[str, Any] = {}
+        for address in channel_addresses:
+            try:
+                held[address] = self._held_value(address)
+            except Exception as exc:
+                held[address] = exc
+        return held
+
     async def write_channel(
         self,
         channel_address: str,
@@ -725,23 +758,9 @@ class VAInProcessConnector(ControlSystemConnector):
             ChannelLimitsViolationError: If limits validation fails (when enabled)
             ConnectorUnavailableError: The connector is not connected.
         """
-        if self._composite is None:
-            raise ConnectorUnavailableError(NOT_CONNECTED)
-        if channel_address not in self._served:
-            unknown = ChannelNotFoundError(channel_address)
-            logger.warning(f"In-process write refused: {channel_address}: {unknown}")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=ChannelNotFoundError.reason,
-                error_message=str(unknown),
-            )
-        self._sync()
-        if self._composite.supported_variables[channel_address].read_only:
-            return self._refused(
-                channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
-            )
+        channel_address, refusal = self._write_precheck(channel_address, value)
+        if refusal is not None:
+            return refusal
 
         # Validate limits (FAIL CLOSED). A limits violation propagates
         # unchanged; any other error means the check could not be made, and an

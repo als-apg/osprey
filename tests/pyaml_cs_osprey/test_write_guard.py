@@ -362,12 +362,28 @@ class TestMovedListsOnlyWhatMoved:
 
         machine = serve(_BatchConnector(answer))
 
-        with pytest.raises(OspreyWriteRefused) as info:
+        with pytest.raises(OspreyWriteFailed) as info:
             _batch().set([10.0, 20.0, 30.0])
 
         assert info.value.channel_address == middle
+        assert f"also sent in this batch: {BATCH[0]}, {BATCH[2]}" in str(info.value)
         assert machine._state[BATCH[0]] == 10.0, "the first channel went out"
         assert guarded.moved == {BATCH[0]: 1.0, BATCH[2]: 3.0}
+
+    def test_writes_turned_off_midway_name_the_channel_already_sent(
+        self, serve: Any, guarded: RunRecord
+    ) -> None:
+        def answer(address: str, value: Any) -> ChannelWriteResult | None:
+            return None if address == BATCH[0] else _refused(address, value, "WRITES_DISABLED")
+
+        serve(_BatchConnector(answer))
+
+        with pytest.raises(OspreyWriteFailed) as info:
+            _batch().set([10.0, 20.0, 30.0])
+
+        assert info.value.channel_address == BATCH[1]
+        assert str(info.value).endswith(f"also sent in this batch: {BATCH[0]}")
+        assert guarded.moved == {BATCH[0]: 1.0}
 
     def test_a_refusal_raised_midway_through_a_batch_lists_every_channel_but_the_refused_one(
         self, serve: Any, guarded: RunRecord
