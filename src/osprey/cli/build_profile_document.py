@@ -1199,8 +1199,10 @@ def normalize_retired_panel(raw: dict[str, Any], source: str) -> dict[str, Any]:
 
     Every repo materialized from the demo preset selects it, and a
     tab that no longer exists has nothing to protect, so each spelling — the
-    ``web_panels`` entry, a ``default_panel`` naming it, and its ``config:``
-    keys — warns once per *source* and is dropped.
+    ``web_panels`` entry and its ``config:`` keys — warns once per *source* and
+    is dropped. A ``default_panel`` naming it is judged on the resolved profile
+    (:func:`drop_retired_default_panel`): the lattice application's panel has the
+    same id, and one document cannot tell whether the deployment runs it.
 
     Args:
         raw: One raw profile mapping, mutated in place.
@@ -1213,14 +1215,34 @@ def normalize_retired_panel(raw: dict[str, Any], source: str) -> dict[str, Any]:
     if isinstance(panels, list) and RETIRED_PANEL_ID in panels:
         raw["web_panels"] = [panel for panel in panels if panel != RETIRED_PANEL_ID]
         _warn_retired_panel(source, f"web_panels: {RETIRED_PANEL_ID}")
-    if raw.get("default_panel") == RETIRED_PANEL_ID:
-        del raw["default_panel"]
-        _warn_retired_panel(source, f"default_panel: {RETIRED_PANEL_ID}")
     config = raw.get("config")
     if isinstance(config, dict):
         for prefix in _RETIRED_PANEL_CONFIG:
             for spelled in _drop_config_path(config, prefix):
                 _warn_retired_panel(source, f"config: {spelled}")
+    return raw
+
+
+def drop_retired_default_panel(raw: dict[str, Any]) -> dict[str, Any]:
+    """Drop a ``default_panel`` naming the retired LATTICE panel from a resolved profile.
+
+    The lattice application's panel carries the retired panel's id, so the key
+    stays when the resolved ``apps:`` block names that application; whether this
+    login shows it is the profile's validation.
+
+    Args:
+        raw: The resolved profile mapping, mutated in place.
+
+    Returns:
+        ``raw``.
+    """
+    if raw.get("default_panel") != RETIRED_PANEL_ID:
+        return raw
+    apps = raw.get("apps")
+    if isinstance(apps, dict) and RETIRED_PANEL_ID in apps:
+        return raw
+    del raw["default_panel"]
+    _warn_retired_panel("the profile", f"default_panel: {RETIRED_PANEL_ID}")
     return raw
 
 
