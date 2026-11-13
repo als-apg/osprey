@@ -1,0 +1,7 @@
+# Adds to profile.yml: writes, the notebook panel, without the hand tool server.
+name: Six Logins (readwrite)
+web_panels:
+  - jupyter
+config:
+  control_system.writes: allowed
+  claude_code.servers.controls_admin.enabled: false

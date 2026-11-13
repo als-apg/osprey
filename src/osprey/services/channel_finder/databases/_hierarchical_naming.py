@@ -7,9 +7,13 @@ into the flat channel map, and building channels from explicit selections.
 """
 
 import itertools
+from collections.abc import Iterator
 from typing import Any
 
 from ._hierarchical_base import _HierarchicalBase
+
+#: Most selection combinations ``build_existing_channels`` lists as holding no channel.
+INVALID_EXAMPLE_LIMIT = 10
 
 
 class _HierarchicalNamingMixin(_HierarchicalBase):
@@ -293,29 +297,79 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         Works with any number of levels - uses Cartesian product.
         Only includes levels that are referenced in the naming pattern.
         Handles optional levels by treating missing levels as empty strings.
-        Respects _separator overrides from tree nodes.
+        Each combination is walked through the tree on its own, so it takes the
+        ``_channel_part`` and ``_separator`` values of its own branch. A name is
+        built for every combination, whether or not it is a channel; see
+        :meth:`build_existing_channels` for the ones that are.
 
         Args:
             selections: Dict mapping level names to selected values (strings or lists)
 
         Returns:
-            List of complete channel names
+            List of complete channel names, one per combination
+        """
+        return [channel for _, channel in self._build_selection_combinations(selections)]
+
+    def build_existing_channels(self, selections: dict[str, Any]) -> dict[str, Any]:
+        """Build the channels a selection holds and count the combinations that hold none.
+
+        Args:
+            selections: Dict mapping level names to selected values (strings or lists)
+
+        Returns:
+            ``channels``: the built names that are channels of this database, each
+            once, in first-seen order. ``total``: their count. ``invalid_count``:
+            the number of distinct selection combinations whose name is not a
+            channel. ``invalid_examples``: at most
+            :data:`INVALID_EXAMPLE_LIMIT` of those combinations, each a dict of
+            level name to selected value.
+
+        Raises:
+            ValueError: If a required level of the naming pattern is missing.
+        """
+        channels: dict[str, None] = {}
+        invalid: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for combination, channel in self._build_selection_combinations(selections):
+            if channel in self.channel_map:
+                channels[channel] = None
+            else:
+                invalid.setdefault(tuple(combination.values()), combination)
+        return {
+            "channels": list(channels),
+            "total": len(channels),
+            "invalid_count": len(invalid),
+            "invalid_examples": list(itertools.islice(invalid.values(), INVALID_EXAMPLE_LIMIT)),
+        }
+
+    def _build_selection_combinations(
+        self, selections: dict[str, Any]
+    ) -> Iterator[tuple[dict[str, Any], str]]:
+        """Yield each selection combination with the channel name it builds.
+
+        The product runs over every level that is in the naming pattern or has a
+        selection, in hierarchy order, so a multi-value selection at a level the
+        pattern leaves out is still walked value by value.
+
+        Args:
+            selections: Dict mapping level names to selected values (strings or lists)
+
+        Yields:
+            ``(combination, channel)``: the selected value of each level the
+            caller selected, and the name built from them.
+
+        Raises:
+            ValueError: If a required level of the naming pattern is missing.
         """
         # Get levels that appear in naming pattern (may be subset of all hierarchy levels)
         pattern_levels = self._get_pattern_levels()
 
-        # Convert selections for pattern levels to lists for uniform handling
-        selection_lists = []
-        for level in pattern_levels:
-            if level in selections:
-                # Level provided in selections
-                values = self._ensure_list(selections.get(level, []))
-            else:
-                # Level not in selections - check if it's optional
-                level_config = self.hierarchy_config["levels"][level]
-                is_optional = level_config.get("optional", False)
-
-                if is_optional:
+        levels: list[str] = []
+        selection_lists: list[list[Any]] = []
+        for level in self.hierarchy_levels:
+            if level in pattern_levels:
+                if level in selections:
+                    values = self._ensure_list(selections[level])
+                elif self.hierarchy_config["levels"][level].get("optional", False):
                     # Optional level not provided - use empty string
                     values = [""]
                 else:
@@ -326,65 +380,38 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                         f"All required levels must be provided: {pattern_levels}. "
                         f"Received: {list(selections.keys())}"
                     )
-
+            elif level in selections:
+                # Navigation only: an empty selection is no selection, not an empty product
+                values = self._ensure_list(selections[level]) or [""]
+            else:
+                continue
+            levels.append(level)
             selection_lists.append(values)
 
-        # Collect separator overrides by navigating the tree with selections
-        separator_overrides = self._collect_separator_overrides(selections)
-
-        # Generate Cartesian product of all selections
-        channels = []
-        for combination in itertools.product(*selection_lists):
-            # Build channel name with separator overrides
-            params = dict(zip(pattern_levels, combination, strict=False))
-            params = self._resolve_channel_parts(params, selections)
+        for values_of_levels in itertools.product(*selection_lists):
+            combination = dict(zip(levels, values_of_levels, strict=True))
+            parts, separator_overrides = self._walk_selections(combination)
+            params = {level: parts.get(level, combination[level]) for level in pattern_levels}
             channel = self._build_channel_with_separators(params, separator_overrides)
+            yield {level: combination[level] for level in levels if level in selections}, channel
 
-            channels.append(channel)
-
-        return channels
-
-    def _resolve_channel_parts(
-        self, params: dict[str, str], selections: dict[str, Any]
-    ) -> dict[str, str]:
-        """Replace each selected tree key with the channel part its node names.
-
-        A selection names tree keys, the names ``get_options_at_level`` offers;
-        the channel is built from the nodes' ``_channel_part`` values. The walk
-        follows tree-typed levels from the root while each selected key is a
-        child of the current node; an empty selection leaves the node in place,
-        and from the first level the walk cannot follow, values stay as given.
+    def _separator_binding(self, node: dict, level_idx: int) -> tuple[tuple[str, str], str] | None:
+        """Return the level pair a node's ``_separator`` binds to, with the separator.
 
         Args:
-            params: Pattern level names mapped to one selected value each.
-            selections: The full selections, which supply navigation-only levels.
+            node: Tree node, possibly carrying ``_separator``.
+            level_idx: Index in ``hierarchy_levels`` of the level the node sits at.
 
         Returns:
-            ``params`` with every followed tree key replaced by its channel part.
+            ``((level, next_tree_level), separator)``, or None when the node sets
+            no separator or no tree level follows it.
         """
-        resolved = dict(params)
-        node: dict | None = self.tree
-        for level in self.hierarchy_levels:
-            if node is None:
-                break
-            if level in params:
-                value = params[level]
-            else:
-                value = self._get_single_value(selections.get(level, ""))
-            if not value:
-                continue
-            child = (
-                node.get(value) if isinstance(value, str) and not value.startswith("_") else None
-            )
-            if self.hierarchy_config["levels"][level]["type"] != "tree" or not isinstance(
-                child, dict
-            ):
-                node = None
-                continue
-            if level in params:
-                resolved[level] = self._get_channel_part(child, value)
-            node = child
-        return resolved
+        if "_separator" not in node or level_idx >= len(self.hierarchy_levels):
+            return None
+        for next_level in self.hierarchy_levels[level_idx + 1 :]:
+            if self.hierarchy_config["levels"][next_level]["type"] == "tree":
+                return (self.hierarchy_levels[level_idx], next_level), node["_separator"]
+        return None
 
     def _build_channel_map(self) -> dict[str, dict]:
         """
@@ -410,22 +437,11 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             # Create a NEW dict for this subtree to avoid polluting siblings
             local_overrides = separator_overrides.copy()
 
-            if "_separator" in node and level_idx > 0:
-                # Get current level (where this node is assigned)
-                current_level_idx = level_idx - 1
-                if current_level_idx < len(self.hierarchy_levels):
-                    current_level = self.hierarchy_levels[current_level_idx]
-
-                    # Find next tree level for children
-                    for next_idx in range(level_idx, len(self.hierarchy_levels)):
-                        next_config = self.hierarchy_config["levels"][
-                            self.hierarchy_levels[next_idx]
-                        ]
-                        if next_config["type"] == "tree":
-                            next_level = self.hierarchy_levels[next_idx]
-                            # Store the custom separator in LOCAL copy
-                            local_overrides[(current_level, next_level)] = node["_separator"]
-                            break
+            # The node sits at the level before ``level_idx``; the root sits at none
+            binding = self._separator_binding(node, level_idx - 1) if level_idx > 0 else None
+            if binding is not None:
+                # Store the custom separator in LOCAL copy
+                local_overrides[binding[0]] = binding[1]
 
             # Check for leaf nodes (supports optional hierarchy levels)
             if self._is_leaf_node(node, level_idx):
@@ -587,7 +603,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         Collect separator overrides from tree nodes based on selections.
 
         Navigates through the tree following the provided selections and collects
-        all _separator overrides encountered along the path.
+        all _separator overrides encountered along the path. A multi-value
+        selection is followed by its first value.
 
         Args:
             selections: Dict mapping level names to selected values
@@ -595,6 +612,29 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         Returns:
             Dict mapping (current_level, next_level) tuples to separator strings
         """
+        return self._walk_selections(selections)[1]
+
+    def _walk_selections(
+        self, selections: dict[str, Any]
+    ) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
+        """Follow one selection per level down the tree, as the expansion descends it.
+
+        A selection names tree keys and instance names, the names
+        ``get_options_at_level`` offers; ``_build_channel_map`` builds the
+        channel from each node's ``_channel_part`` and the ``_separator``
+        overrides on the way. The walk collects both for the levels it can
+        follow. It skips an optional level with no selection and stops at the
+        first level it cannot follow; from there on, values stay as given.
+
+        Args:
+            selections: Dict mapping level names to selected values; a list is
+                followed by its first value.
+
+        Returns:
+            The channel part of each followed tree key, by level, and the dict
+            mapping (current_level, next_level) tuples to separator strings.
+        """
+        channel_parts: dict[str, str] = {}
         separator_overrides = {}
         current_node = self.tree
 
@@ -624,9 +664,15 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             # Handle different level types
             if level_config["type"] == "tree":
                 # Navigate using the tree key
-                if selection in current_node:
+                child = (
+                    current_node.get(selection)
+                    if isinstance(selection, str) and not selection.startswith("_")
+                    else None
+                )
+                if isinstance(child, dict):
                     # Direct match - navigate to this node
-                    current_node = current_node[selection]
+                    channel_parts[level] = self._get_channel_part(child, selection)
+                    current_node = child
                 else:
                     # No direct match - check if selection is an expanded instance
                     # (e.g., selection="CH-1" but tree has "CH" with _expansion)
@@ -686,14 +732,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                     break
 
             # After navigating to the node, check if it has a separator override for its children
-            if "_separator" in current_node:
-                # This node's separator applies to the connection between current level and next tree level
-                # Find the next tree level
-                for next_idx in range(level_idx + 1, len(self.hierarchy_levels)):
-                    next_config = self.hierarchy_config["levels"][self.hierarchy_levels[next_idx]]
-                    if next_config["type"] == "tree":
-                        next_level = self.hierarchy_levels[next_idx]
-                        separator_overrides[(level, next_level)] = current_node["_separator"]
-                        break
+            binding = self._separator_binding(current_node, level_idx)
+            if binding is not None:
+                separator_overrides[binding[0]] = binding[1]
 
-        return separator_overrides
+        return channel_parts, separator_overrides

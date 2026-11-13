@@ -40,6 +40,7 @@ from osprey_connectors.simulation.archive import (
 )
 from osprey_connectors.simulation.texture import TextureModel
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
+from tests._container_support import require_container_runtime
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -177,7 +178,7 @@ def test_a_moved_driver_moves_live_as_the_pulse_says(demo_view):
 # ---------------------------------------------------------------------------
 
 
-def _client(container):
+def _client(container, **options):
     from pymongo import MongoClient
 
     return MongoClient(
@@ -186,7 +187,14 @@ def _client(container):
         username=container["username"],
         password=container["password"],
         authSource=container["auth_db"],
+        **options,
     )
+
+
+def _ping(container) -> None:
+    """One short ask of the store, raising while it does not answer."""
+    with _client(container, serverSelectionTimeoutMS=1000) as client:
+        client.admin.command("ping")
 
 
 @pytest.fixture
@@ -232,10 +240,13 @@ def connector_config(mongodb_container, store, monkeypatch):
 
 
 @pytest.fixture
-async def connector(connector_config):
+async def connector(connector_config, mongodb_container):
     """A connected ``MongoDBArchiverConnector`` on the store."""
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
+    # The session's store answered once, at its start; the runtime under a
+    # sweep's load may not now, and that is the runtime's failure, said as such.
+    require_container_runtime(lambda: _ping(mongodb_container), "mongodb")
     archiver = MongoDBArchiverConnector()
     await archiver.connect(connector_config)
     try:

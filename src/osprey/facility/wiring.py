@@ -19,6 +19,13 @@ the deck repeats it, ``engine-invalid`` when the deck lacks it
 ``FacilityBuildError`` that carries ``element`` and ``count`` (0 absent, above 1
 repeated). Every engine stop on a wiring record names the file that states the
 record as its source.
+
+Once the records are described, the stage marks each command channel
+``command: true``: a setpoint whose vocabulary signal is a command word
+(:func:`osprey.facility.pairing.is_command_signal`), or a channel some model's
+engine marks ``command``. A channel whose signal is a command word that an
+engine describes without the mark stops (``engine-invalid``). Whatever fires or
+judges a command reads this mark and no rule of its own.
 """
 
 from __future__ import annotations
@@ -104,7 +111,50 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
                 model, validated.facility_dir, engines, channels, limits, setpoint_of, pairs
             )
         )
+    errors.extend(_mark_commands(document))
     return sorted(errors, key=lambda error: error.record_id)
+
+
+def _mark_commands(document: dict[str, Any]) -> list[FacilityBuildError]:
+    """Mark every command channel ``command: true``; stop where the vocabulary and an engine differ."""
+    from osprey.facility.pairing import is_command_signal
+    from osprey.facility.schema import core
+
+    command = core.WiringMarkEnum.command.value
+    marked: set[str] = set()
+    unmarked: dict[str, Mapping[str, Any]] = {}
+    for model in document.get("models", []):
+        for record in model.get("wiring", []):
+            if "engine_role" not in record:
+                continue
+            if command in (record.get(_MARKS_KEY) or []):
+                marked.add(str(record["address"]))
+            else:
+                unmarked.setdefault(str(record["address"]), model)
+    errors: list[FacilityBuildError] = []
+    for channel in document.get("channels", []):
+        address = str(channel["id"])
+        by_signal = _role(channel) == "setpoint" and is_command_signal(channel.get("signal"))
+        if by_signal and address in unmarked and address not in marked:
+            model = unmarked[address]
+            errors.append(
+                FacilityBuildError(
+                    "engine-invalid",
+                    str(model["name"]),
+                    stating_files(model, None, fallback=_MODELS_FILE),
+                    f"make the engine's describe() mark {address} {command}, or give "
+                    f"{address} a signal that is no {command} word",
+                    record_kind="model",
+                    detail=(
+                        f"{address}'s signal {channel['signal']} makes it a {command}; the "
+                        f"engine describes it without the {command} mark"
+                    ),
+                )
+            )
+        elif by_signal or address in marked:
+            channel["command"] = True
+            channel["provenance"] = add_defaults(channel.get("provenance", {}), ("command",))
+    return errors
 
 
 def _fill_model(

@@ -5,6 +5,11 @@ wrappers around these service-layer functions.  Each function accepts a
 raw config dict (from ``get_config_value("ariel", {})``) and returns a
 structured result; the CLI layer handles Click decorators, output
 formatting, and ``SystemExit`` translation.
+
+Every operation that opens the store takes ``store_deadline_s``: the seconds its
+caller gives the store to answer. It holds no number of its own; it hands the
+caller's on to the open, and to every operation it calls. ``None`` means the
+caller states none.
 """
 
 from __future__ import annotations
@@ -692,7 +697,9 @@ async def _coverage(
     return await repository.get_enhancement_coverage(context)
 
 
-async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> dict:
+async def get_status(
+    config_dict: dict, *, config_dir: Path | None = None, store_deadline_s: float | None = None
+) -> dict:
     """Return ARIEL service status as a plain dict.
 
     Args:
@@ -748,7 +755,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         image_embedding_marker,
         status_expander,
     )
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ConfigurationError, StoreSilentError
 
     # Computed first and unconditionally: the vocabulary line must survive a
     # database that is down and a config that will not parse. The same parse
@@ -766,7 +773,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
     expander, vocabulary_unusable = status_expander(config)
 
     try:
-        service = await create_ariel_service(config)
+        service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
         async with service:
             healthy, message = await service.health_check()
             # A configuration the host contradicts is one error line; the
@@ -873,6 +880,8 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 "coverage": coverage,
             }
 
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
+        raise
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():
@@ -888,6 +897,8 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
 async def run_migrate(
     config_dict: dict,
     progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
 ) -> list[str]:
     """Run database migrations, waiting for any other session migrating.
 
@@ -903,7 +914,7 @@ async def run_migrate(
     if progress:
         progress(f"Connecting to database: {config.database.uri.split('@')[-1]}")
 
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
 
     try:
         if progress:
@@ -920,6 +931,8 @@ async def run_sync(
     config_dict: dict,
     limit: int | None = None,
     progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
 ) -> SyncResult:
     """Sync ARIEL database: migrate, incremental ingest, enhance.
 
@@ -952,7 +965,7 @@ async def run_sync(
     if progress:
         progress("Running migrations...")
 
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
     try:
         migrated = await run_migrations_detailed(pool, config)
         migrations_applied = len(migrated.applied)
@@ -965,7 +978,7 @@ async def run_sync(
         await pool.close()
 
     # Step 2: Incremental ingest via scheduler
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         scheduler = IngestionScheduler(config=config, repository=service.repository)
         if progress:
@@ -990,6 +1003,7 @@ async def run_sync(
         stop_event=asyncio.Event(),
         progress=progress,
         config=config,
+        store_deadline_s=store_deadline_s,
     )
 
     return SyncResult(
@@ -1040,6 +1054,8 @@ async def run_ingest(
     limit: int | None,
     dry_run: bool,
     progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
 ) -> IngestResult:
     """Ingest logbook entries from a source.
 
@@ -1101,7 +1117,7 @@ async def run_ingest(
             enhancer_names=enhancer_names,
         )
 
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         source_system = adapter_instance.source_system_name
         run_id = await service.repository.start_ingestion_run(source_system)
@@ -1159,6 +1175,7 @@ async def run_watch(
     install_signal_handlers: bool = True,
     stop_reason_out: list[str] | None = None,
     initial_busy_skipped: Sequence[str] | None = (),
+    store_deadline_s: float | None = None,
 ) -> WatchOnceResult | None:
     """Watch a source for new logbook entries.
 
@@ -1221,7 +1238,7 @@ async def run_watch(
         )
     _resolve_entry_expander(config, progress)
 
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         scheduler = IngestionScheduler(
             config=config,
@@ -1293,7 +1310,9 @@ async def run_watch(
             poll_start = time.monotonic()
             if busy is None or busy:
                 await _retry_busy_migrations()
-            await resync_qmd_mirror_best_effort(config_dict, progress, config=config)
+            await resync_qmd_mirror_best_effort(
+                config_dict, progress, config=config, store_deadline_s=store_deadline_s
+            )
             result = await inner_poll_once(*args, **kwargs)
             try:
                 await run_catchup(
@@ -1302,6 +1321,7 @@ async def run_watch(
                     stop_event=scheduler._stop_event,
                     progress=progress,
                     config=config,
+                    store_deadline_s=store_deadline_s,
                 )
             except Exception as e:  # cleanup is not an ingestion failure.
                 get_logger("ariel").warning(f"Enhance cleanup failed, continuing: {e}")
@@ -1318,6 +1338,8 @@ async def run_watch(
 async def run_sync_watch(
     config_dict: dict,
     progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
 ) -> StopReason | None:
     """Sync once, then watch the source until a signal or the failure cap.
 
@@ -1355,7 +1377,9 @@ async def run_sync_watch(
     async def _sync_then_watch() -> StopReason | None:
         busy_skipped: list[str] | None
         try:
-            synced = await run_sync(config_dict, progress=progress)
+            synced = await run_sync(
+                config_dict, progress=progress, store_deadline_s=store_deadline_s
+            )
             busy_skipped = list(synced.busy_skipped)
         except ModuleConfigError:  # a configuration no retry can fix.
             raise
@@ -1379,6 +1403,7 @@ async def run_sync_watch(
             install_signal_handlers=False,
             stop_reason_out=reasons,
             initial_busy_skipped=busy_skipped,
+            store_deadline_s=store_deadline_s,
         )
         return StopReason(reasons[0]) if reasons else None
 
@@ -1681,6 +1706,7 @@ async def run_qmd_resync(
     progress: _ProgressCb = None,
     *,
     config: ARIELConfig | None = None,
+    store_deadline_s: float | None = None,
 ) -> QmdResyncResult | None:
     """Re-export entries whose rows changed outside the enhancement loop.
 
@@ -1750,7 +1776,7 @@ async def run_qmd_resync(
     highest: datetime | None = None
     cursor_key: tuple[datetime, str] | None = None
 
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
     try:
         async with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             while True:
@@ -1818,12 +1844,15 @@ async def resync_qmd_mirror_best_effort(
     progress: _ProgressCb = None,
     *,
     config: ARIELConfig | None = None,
+    store_deadline_s: float | None = None,
 ) -> QmdResyncResult | None:
-    """Run :func:`run_qmd_resync` as a pre-step that cannot fail its caller.
+    """Run :func:`run_qmd_resync` as a pre-step whose mirror problems do not fail its caller.
 
     Ingest and watch run this before doing their own work. Their job is getting
     entries into Postgres; a mirror that cannot be written is worth a warning,
-    not an aborted ingestion.
+    not an aborted ingestion. A store that does not answer within the caller's
+    deadline is not a mirror problem: the caller's own open would wait on the
+    same store, so it stops the caller.
 
     Args:
         config_dict: Raw ``ariel`` config section.
@@ -1832,14 +1861,17 @@ async def resync_qmd_mirror_best_effort(
 
     Returns:
         The pass result, or ``None`` when the module is disabled or the pass
-        failed.
+        failed. A silent store returns nothing: :class:`StoreSilentError`
+        stops the caller.
     """
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
+    from osprey.services.ariel_search.exceptions import ModuleConfigError, StoreSilentError
     from osprey_connectors.logger import get_logger
 
     try:
-        result = await run_qmd_resync(config_dict, config=config)
+        result = await run_qmd_resync(config_dict, config=config, store_deadline_s=store_deadline_s)
     except ModuleConfigError:  # a configuration problem stops the caller too.
+        raise
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
         raise
     except Exception as e:  # a mirror problem must not stop ingestion.
         get_logger("ariel").warning(f"qmd mirror resync failed, continuing: {e}")
@@ -1927,6 +1959,7 @@ async def _run_entry_enhance(
     progress: _ProgressCb,
     *,
     stop_event: asyncio.Event | None,
+    store_deadline_s: float | None = None,
 ) -> EnhanceResult:
     """Re-run ``module`` for one entry, the ``enhance --module M --entry ID`` path.
 
@@ -1944,7 +1977,7 @@ async def _run_entry_enhance(
     from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         repository = service.repository
         entry = await repository.get_entry(entry_id)
@@ -1968,7 +2001,9 @@ async def _run_entry_enhance(
     if progress:
         progress(f"{module}: re-running entry {entry_id} ({state})")
     if state == "failed":
-        await retry_failed_entries(config, module, progress, entry_id=entry_id)
+        await retry_failed_entries(
+            config, module, progress, entry_id=entry_id, store_deadline_s=store_deadline_s
+        )
     if picture:
         modules = _build_image_modules(config, [module], progress)
         if not modules:
@@ -1980,10 +2015,18 @@ async def _run_entry_enhance(
             stop_event=stop_event,
             progress=progress,
             entry_id=entry_id,
+            store_deadline_s=store_deadline_s,
         )
         return EnhanceResult(entries_processed=walked, module_names=[m.name for m in modules])
     return await _run_text_enhance(
-        config, module, False, 1, progress, stop_event=stop_event, entry_id=entry_id
+        config,
+        module,
+        False,
+        1,
+        progress,
+        stop_event=stop_event,
+        entry_id=entry_id,
+        store_deadline_s=store_deadline_s,
     )
 
 
@@ -1998,6 +2041,7 @@ async def run_enhance(
     retry_failed: bool = False,
     refresh_stale: bool = False,
     entry_id: str | None = None,
+    store_deadline_s: float | None = None,
 ) -> EnhanceResult:
     """Run enhancement modules on entries.
 
@@ -2036,7 +2080,14 @@ async def run_enhance(
     if entry_id is not None:
         if not module:
             raise EntryRerunRefused(ENTRY_NEEDS_MODULE)
-        return await _run_entry_enhance(config, module, entry_id, progress, stop_event=stop_event)
+        return await _run_entry_enhance(
+            config,
+            module,
+            entry_id,
+            progress,
+            stop_event=stop_event,
+            store_deadline_s=store_deadline_s,
+        )
     if module and _runs_in_catchup(module):
         if force:
             raise ValueError(FORCE_REFUSAL)
@@ -2044,16 +2095,22 @@ async def run_enhance(
         if not modules:
             return EnhanceResult(entries_processed=0, module_names=[])
         if retry_failed:
-            await retry_failed_entries(config, module, progress)
+            await retry_failed_entries(config, module, progress, store_deadline_s=store_deadline_s)
         if refresh_stale and module == "image_caption":
-            await refresh_stale_captions(config, progress)
+            await refresh_stale_captions(config, progress, store_deadline_s=store_deadline_s)
         walked = await _drive_image_modules(
-            config, modules, budget=None, stop_event=stop_event, progress=progress, limit=limit
+            config,
+            modules,
+            budget=None,
+            stop_event=stop_event,
+            progress=progress,
+            limit=limit,
+            store_deadline_s=store_deadline_s,
         )
         return EnhanceResult(entries_processed=walked, module_names=[m.name for m in modules])
 
     if module and retry_failed:
-        await retry_failed_entries(config, module, progress)
+        await retry_failed_entries(config, module, progress, store_deadline_s=store_deadline_s)
     image_names = [] if module else _catchup_module_names(config)
     text = await _run_text_enhance(
         config,
@@ -2063,6 +2120,7 @@ async def run_enhance(
         progress,
         stop_event=stop_event,
         report_empty=not image_names,
+        store_deadline_s=store_deadline_s,
     )
     if not image_names:
         return text
@@ -2075,7 +2133,13 @@ async def run_enhance(
     walked = 0
     if modules:
         walked = await _drive_image_modules(
-            config, modules, budget=None, stop_event=stop_event, progress=progress, limit=limit
+            config,
+            modules,
+            budget=None,
+            stop_event=stop_event,
+            progress=progress,
+            limit=limit,
+            store_deadline_s=store_deadline_s,
         )
     return EnhanceResult(
         entries_processed=text.entries_processed + walked,
@@ -2126,6 +2190,7 @@ async def _run_text_enhance(
     report_empty: bool = True,
     stale_budget_s: float | None = None,
     entry_id: str | None = None,
+    store_deadline_s: float | None = None,
 ) -> EnhanceResult:
     """Run the text modules (``runs_inline=True``) entry-major over their owed entries.
 
@@ -2188,7 +2253,7 @@ async def _run_text_enhance(
         stored_marker = stored.get("marker") if isinstance(stored, Mapping) else None
         return marker_stale(name, stored_marker, markers.get(name))
 
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         try:
             await _stamp_baseline_markers(config, service.repository, markers)
@@ -2365,6 +2430,7 @@ async def _drive_image_modules(
     progress: _ProgressCb,
     limit: int | None = None,
     entry_id: str | None = None,
+    store_deadline_s: float | None = None,
 ) -> int:
     """Drive each picture module once, module-major, under its advisory lock.
 
@@ -2383,7 +2449,7 @@ async def _drive_image_modules(
     logger = get_logger("ariel")
     walked = 0
     started = time.monotonic()
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         repository = service.repository
         if entry_id is not None:
@@ -2531,7 +2597,12 @@ AND EXISTS (
 
 
 async def retry_failed_entries(
-    config: ARIELConfig, module: str, progress: _ProgressCb, *, entry_id: str | None = None
+    config: ARIELConfig,
+    module: str,
+    progress: _ProgressCb,
+    *,
+    entry_id: str | None = None,
+    store_deadline_s: float | None = None,
 ) -> int:
     """Give ``module``'s failed entries a new set of attempts.
 
@@ -2591,7 +2662,7 @@ async def retry_failed_entries(
             return 0
 
     retried: set[str] = set()
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         pool = service.repository.pool
         async with _module_lock(pool, module) as held:
@@ -2719,7 +2790,9 @@ ORDER BY e.entry_id
 """
 
 
-async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> int:
+async def refresh_stale_captions(
+    config: ARIELConfig, progress: _ProgressCb, *, store_deadline_s: float | None = None
+) -> int:
     """Mark the captions made with another prompt to be made again.
 
     A caption under the current model whose ``prompt_sha256`` differs from the
@@ -2752,7 +2825,7 @@ async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> 
         return 0
     prompt = caption_prompt_sha256(config.get_enhancement_module_config(module) or {})
     marked = 0
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         pool = service.repository.pool
         async with _module_lock(pool, module) as held:
@@ -2929,6 +3002,7 @@ async def run_catchup(
     stop_event: asyncio.Event | None,
     progress: _ProgressCb = None,
     config: ARIELConfig | None = None,
+    store_deadline_s: float | None = None,
 ) -> EnhanceResult:
     """Run one catch-up pass: the text modules, then the picture modules.
 
@@ -2969,7 +3043,14 @@ async def run_catchup(
     names = _catchup_module_names(config)
     stale_share = None if budget_s is None else (budget_s / 2 if names else budget_s)
     text = await _run_text_enhance(
-        config, None, False, 1000, progress, stop_event=stop_event, stale_budget_s=stale_share
+        config,
+        None,
+        False,
+        1000,
+        progress,
+        stop_event=stop_event,
+        stale_budget_s=stale_share,
+        store_deadline_s=store_deadline_s,
     )
     if not names:
         return text
@@ -2984,7 +3065,12 @@ async def run_catchup(
     async def _image_stage() -> None:
         nonlocal walked
         walked = await _drive_image_modules(
-            config, modules, budget=image_budget, stop_event=stop_event, progress=progress
+            config,
+            modules,
+            budget=image_budget,
+            stop_event=stop_event,
+            progress=progress,
+            store_deadline_s=store_deadline_s,
         )
 
     if image_budget is None:
@@ -3009,12 +3095,12 @@ async def run_catchup(
     )
 
 
-async def list_models(config_dict: dict) -> list[dict]:
+async def list_models(config_dict: dict, *, store_deadline_s: float | None = None) -> list[dict]:
     """Return embedding model info as a list of dicts."""
     from osprey.services.ariel_search import create_ariel_service
 
     config = _ariel_config(config_dict)
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         tables = await service.repository.get_embedding_tables()
         return [
@@ -3047,7 +3133,14 @@ def _entry_summary(entry: dict) -> dict:
     }
 
 
-async def run_search(config_dict: dict, query: str, mode: str | None, limit: int) -> dict:
+async def run_search(
+    config_dict: dict,
+    query: str,
+    mode: str | None,
+    limit: int,
+    *,
+    store_deadline_s: float | None = None,
+) -> dict:
     """Execute a search query and return the result as a dict.
 
     Args:
@@ -3063,7 +3156,7 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
         Result dict, or ``{"error": ...}`` when the search could not run.
     """
     from osprey.services.ariel_search import create_ariel_service
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ConfigurationError, StoreSilentError
     from osprey.services.ariel_search.models import normalize_search_mode
 
     if not config_dict:
@@ -3079,7 +3172,7 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
             return {"error": str(e)}
 
     try:
-        service = await create_ariel_service(config)
+        service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
         async with service:
             result = await service.search(
                 query=query,
@@ -3105,6 +3198,8 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
     except ConfigurationError as e:
         # A configuration refusal names its own fix.
         return {"error": f"{e.message}. {e.remedy}" if e.remedy else e.message}
+    except StoreSilentError:  # the caller's deadline passed: its caller reports it
+        raise
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():
@@ -3188,6 +3283,8 @@ async def run_reembed(
     dry_run: bool,
     force: bool,
     progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
 ) -> ReembedResult:
     """Re-embed entries with a new or existing model.
 
@@ -3225,7 +3322,7 @@ async def run_reembed(
             progress(f"  Force overwrite: {force}")
         return ReembedResult(processed=0, skipped=0, errors=0, dry_run=True)
 
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         tables = await service.repository.get_embedding_tables()
         table_exists = any(t.table_name == table_name for t in tables)
@@ -3413,6 +3510,7 @@ async def run_quickstart(
     progress: _ProgressCb = None,
     *,
     project_dir: Path | None = None,  # noqa: ARG001 - part of the CLI-facing signature
+    store_deadline_s: float | None = None,
 ) -> QuickstartResult:
     """Run the complete ARIEL quickstart sequence.
 
@@ -3446,7 +3544,7 @@ async def run_quickstart(
     if progress:
         progress("Checking database connection...")
 
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
 
     if progress:
         progress("  Database: connected")
@@ -3471,7 +3569,9 @@ async def run_quickstart(
         if not config.ingestion or not config.ingestion.source_url:
             if progress:
                 progress("\nNo ingestion source configured. Skipping data ingestion.")
-            enhanced_count = await _quickstart_enhance_existing(config_dict, progress)
+            enhanced_count = await _quickstart_enhance_existing(
+                config_dict, progress, store_deadline_s=store_deadline_s
+            )
         else:
             if progress:
                 progress(f"Ingesting data from: {config.ingestion.source_url}")
@@ -3482,7 +3582,7 @@ async def run_quickstart(
             if enhancers and progress:
                 progress(f"  Enhancement modules: {[e.name for e in enhancers]}")
 
-            service = await create_ariel_service(config)
+            service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
             async with service:
                 async with _ingest_copy_run(
                     service.repository, adapter_instance, config
@@ -3534,7 +3634,9 @@ async def run_quickstart(
     )
 
 
-async def _quickstart_enhance_existing(config_dict: dict, progress: _ProgressCb) -> int:
+async def _quickstart_enhance_existing(
+    config_dict: dict, progress: _ProgressCb, *, store_deadline_s: float | None = None
+) -> int:
     """Run the enhancement pass over the entries the logbook already holds.
 
     A deploy seeds the active scenarios' narrative as rows and pictures with no
@@ -3546,22 +3648,24 @@ async def _quickstart_enhance_existing(config_dict: dict, progress: _ProgressCb)
     Returns:
         The number of entries the enhancement pass processed.
     """
-    held = await logbook_entry_count(config_dict)
+    held = await logbook_entry_count(config_dict, store_deadline_s=store_deadline_s)
     if not held:
         return 0
     if progress:
         progress(f"Enhancing the {held} entries the logbook holds")
-    enhanced = await run_enhance(config_dict, None, False, held, progress)
+    enhanced = await run_enhance(
+        config_dict, None, False, held, progress, store_deadline_s=store_deadline_s
+    )
     return enhanced.entries_processed
 
 
-async def get_purge_info(config_dict: dict) -> PurgeInfo:
+async def get_purge_info(config_dict: dict, *, store_deadline_s: float | None = None) -> PurgeInfo:
     """Get current counts for purge confirmation display."""
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.repository import image_embedding_table_names
 
     config = _ariel_config(config_dict)
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
 
     try:
         async with pool.connection() as conn, conn.cursor() as cur:
@@ -3633,12 +3737,18 @@ async def _unrecord_embedding_migration(cur) -> None:
     )
 
 
-async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _ProgressCb = None):
+async def execute_purge(
+    config_dict: dict,
+    embeddings_only: bool,
+    progress: _ProgressCb = None,
+    *,
+    store_deadline_s: float | None = None,
+):
     """Execute the actual purge operation."""
     from osprey.services.ariel_search.database.connection import create_connection_pool
 
     config = _ariel_config(config_dict)
-    pool = await create_connection_pool(config.database)
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
 
     try:
         async with pool.connection() as conn, conn.cursor() as cur:
@@ -3674,7 +3784,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
         await pool.close()
 
 
-async def logbook_entry_count(config_dict: dict) -> int:
+async def logbook_entry_count(config_dict: dict, *, store_deadline_s: float | None = None) -> int:
     """How many entries the logbook currently holds.
 
     The question a caller has to answer before writing anything it did not
@@ -3692,7 +3802,7 @@ async def logbook_entry_count(config_dict: dict) -> int:
     from osprey.services.ariel_search import create_ariel_service
 
     config = _ariel_config(config_dict)
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         return await service.repository.count_entries()
 
@@ -3703,6 +3813,7 @@ async def seed_logbook_entries(
     progress: _ProgressCb = None,
     *,
     pictures: Mapping[str, Sequence[Path]] | None = None,
+    store_deadline_s: float | None = None,
 ) -> int:
     """Bulk-upsert pre-built logbook entries into the ARIEL database.
 
@@ -3737,7 +3848,7 @@ async def seed_logbook_entries(
     from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 
     config = _ariel_config(config_dict)
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     pictures = pictures or {}
     count = 0
     async with service:
@@ -4366,6 +4477,7 @@ async def run_backfill(
     wait: bool = False,
     retry_decoder_failed: bool = False,
     progress: _ProgressCb = None,
+    store_deadline_s: float | None = None,
 ) -> BackfillResult:
     """Run ``osprey ariel attachments backfill`` against the configured store.
 
@@ -4387,7 +4499,7 @@ async def run_backfill(
 
     config = _ariel_config(config_dict)
     adapter = get_adapter(config)
-    service = await create_ariel_service(config)
+    service = await create_ariel_service(config, store_deadline_s=store_deadline_s)
     async with service:
         return await backfill_store(
             service.repository,

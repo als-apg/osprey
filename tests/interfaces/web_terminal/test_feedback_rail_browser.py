@@ -27,6 +27,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -80,6 +81,7 @@ def _open_hub_page(browser: Browser, url: str) -> Page:
     """
     page = browser.new_page(viewport=_SMALL_VIEWPORT)
     page.goto(url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     # The page ships the Agent row disabled; the rail render enables it.
     expect(
         page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')

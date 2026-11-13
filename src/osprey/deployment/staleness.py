@@ -25,7 +25,7 @@ Two readings of the same provenance live here, and they differ in severity:
   ``UNRESOLVABLE`` so a start verb refuses rather than guessing. ``--as-built``
   is the documented escape from both refusals — ``build/`` is self-contained,
   so starting it as rendered stays a valid, knowing choice. A render stamped by
-  a release older than the tiers/apps vocabulary is refused the same way,
+  a release older than the login vocabulary is refused the same way,
   ahead of the fingerprint, because an old-spelled profile hashes identically
   to its rewrite and the hash alone would call that render clean.
 
@@ -386,8 +386,8 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     Splitting the fold per input lets the message name ``tiers/readonly.yml``
     — the file that actually changed.
 
-    Each input is folded with the same label and the same
-    :func:`~osprey.cli.build_profile_merge._fold_source_tree` call the build's
+    Each input is folded by the same
+    :meth:`~osprey.cli.build_profile_merge.ProfileInput.fold` the build's
     material fold uses, into its own hash rather than a shared one, so the value
     here answers "did *this* input move" independently. Diagnostic only:
     nothing decides drift by reading these keys.
@@ -405,20 +405,12 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     """
     import hashlib
 
-    from osprey.cli.build_profile_merge import _fold_source_tree
-
     digests: dict[str, str] = {}
     for entry in inputs:
         if entry.label is None:
             continue
         digest = hashlib.sha256()
-        _fold_source_tree(
-            digest,
-            entry.label,
-            entry.path,
-            skip_runtime_output=entry.skips_runtime_output,
-            skip=entry.build_output,
-        )
+        entry.fold(digest)
         digests[f"{MATERIAL_PREFIX}{entry.key}"] = digest.hexdigest()
     return digests
 
@@ -532,7 +524,7 @@ def _version_skew(stamped: Any) -> VersionSkew | None:
 
 
 def predates_vocabulary(stamped: Any) -> TypeGuard[str]:
-    """Whether a render stamped *stamped* was made before the tiers/apps vocabulary.
+    """Whether a render stamped *stamped* was made before the login vocabulary.
 
     The vocabulary release is the profile-schema floor
     (:data:`~osprey.cli.build_profile_load._PROFILE_SCHEMA_MIN_OSPREY`). The
@@ -569,8 +561,8 @@ def predates_vocabulary(stamped: Any) -> TypeGuard[str]:
 
 
 def pre_vocabulary_message(stamped: str) -> str:
-    """The refusal sentence for a render that predates the tiers/apps vocabulary."""
-    return f"rendered by osprey {stamped} before tiers/apps; run osprey build"
+    """The refusal sentence for a render that predates the login vocabulary."""
+    return f"rendered by osprey {stamped} before the login vocabulary; run osprey build"
 
 
 def check_drift(repo_root: Path) -> DriftReport:
@@ -639,7 +631,7 @@ def check_drift(repo_root: Path) -> DriftReport:
     stamped_version = creation.get("osprey_version")
     if predates_vocabulary(stamped_version):
         # Judged before the fingerprint on purpose: a profile spelled the
-        # retired way hashes identically to its tiers/apps rewrite, so the hash
+        # retired way hashes identically to its login-vocabulary rewrite, so the hash
         # would read CLEAN over a render whose config still says the old words.
         return report(
             DriftState.UNRESOLVABLE,

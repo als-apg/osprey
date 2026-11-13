@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ def _open(browser: Browser, url: str) -> Page:
     """Open the hub at 1280×800 and wait for the sidebar to be wired."""
     page = browser.new_page(viewport=_VIEWPORT)
     page.goto(url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator("#sidebar-resize[aria-valuetext]")).to_be_attached(timeout=10_000)
     return page
 
@@ -106,6 +108,7 @@ def test_drag_sets_the_width_and_a_reload_keeps_it(tmp_path, chromium_browser):
             assert abs(_sidebar_width(page) - dragged) <= _TOLERANCE_PX
 
             page.reload(wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             # The pre-paint restore: the property is on <html> before any module runs.
             assert (
                 page.evaluate(

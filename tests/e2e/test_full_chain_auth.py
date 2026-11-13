@@ -210,6 +210,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._render_stub import stub_render_image
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
+from tests.interfaces._browser import wait_for_page_ready
 
 # See "CI HONESTY" in the module docstring: this marker is what keeps the build
 # out of the shared fast e2e glob and what the wiring guard scans for.
@@ -2253,7 +2254,7 @@ def test_history_an_unauthenticated_visit_signs_in_on_the_terminals_and_returns_
         browser = playwright.chromium.launch()
         try:
             page = browser.new_page()
-            page.goto(target, wait_until="load")
+            page.goto(target, wait_until="load")  # page-ready: the subject is where it lands
             landed = urllib.parse.urlsplit(page.url)
             assert f"{landed.scheme}://{landed.netloc}" == history_page["terminal"], page.url
             assert landed.path == ENTRY_PATH, page.url
@@ -2299,6 +2300,7 @@ def _browser_sign_in(page: Any, history_page: dict[str, Any], user: str) -> None
     """Sign *user* in in a real browser the way a signed-out visitor is: via the page."""
     target = history_page["reader"] + HISTORY_PATH
     page.goto(target, wait_until="load")
+    wait_for_page_ready(page)
     page.fill("#username", user)
     page.fill("#password", _PASSWORDS[user])
     with page.expect_navigation(url=target):
@@ -2320,7 +2322,8 @@ def test_history_an_artifact_under_u_cannot_read_a_history_response(
         try:
             page = browser.new_page()
             _browser_sign_in(page, history_page, HEADER_USER)
-            page.goto(_artifact_url(history_page, HEADER_USER, "read"), wait_until="load")
+            probe = _artifact_url(history_page, HEADER_USER, "read")
+            page.goto(probe, wait_until="load")  # page-ready: the test's own probe page
             page.wait_for_function(
                 "window.__osprey_artifact && window.__osprey_artifact !== 'pending'",
                 timeout=15_000,
@@ -2390,7 +2393,8 @@ def test_history_an_iframe_and_an_image_from_an_artifact_run_no_read(
                 ),
             )
             logged = len(_history_page_statuses())
-            page.goto(_artifact_url(history_page, HEADER_USER, "embed"), wait_until="load")
+            probe = _artifact_url(history_page, HEADER_USER, "embed")
+            page.goto(probe, wait_until="load")  # page-ready: the test's own probe page
             _settled(lambda: sorted(sent), lambda seen: len(seen) >= 2)
             assert sorted(sent) == ["document", "image"], (
                 f"the artifact's iframe and image never reached /history/: sent {sent}"
@@ -2409,6 +2413,7 @@ def test_history_an_iframe_and_an_image_from_an_artifact_run_no_read(
             # The positive control: the same browser opening the page is
             # answered by it, as the person, from the record.
             response = page.goto(reader_history, wait_until="load")
+            wait_for_page_ready(page)
             assert response is not None and response.status == 200, page.content()[:400]
             assert page.locator("strong.person").inner_text() == HEADER_USER
             assert history_page["sessions"][HEADER_USER] in page.content()

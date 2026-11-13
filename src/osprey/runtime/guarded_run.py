@@ -123,11 +123,6 @@ _FILE_MODE = 0o664
 #: The audit surface every :func:`command_write` call files one record on.
 SURFACE_COMMAND_WRITE = "command_write"
 
-#: The trailing word of a vocabulary signal that makes a setpoint a command
-#: (the write word :data:`osprey.facility.pairing.WRITE_WORDS` pairs no
-#: readback with, ``*_command`` in the facility vocabulary).
-_COMMAND_WORD = "command"
-
 
 class OspreyWriteRefused(Exception):
     """A write was refused and no value of the call was written.
@@ -774,8 +769,8 @@ def _facility_commands() -> frozenset[str]:
     """The command channels of the rendered facility definition.
 
     ``facility.json`` of the render this process reads its config from: every
-    channel whose role is ``setpoint`` and whose vocabulary signal ends in the
-    word ``command``. A channel with no role is a readback and never a command.
+    channel the build marked ``command: true`` (a setpoint whose vocabulary
+    signal is a command word, or one a model's engine marks ``command``).
 
     Raises:
         OspreyWriteRefused: There is no rendered facility definition, or it
@@ -798,10 +793,7 @@ def _facility_commands() -> frozenset[str]:
     channels = document.get("channels") if isinstance(document, dict) else None
     commands: set[str] = set()
     for channel in channels if isinstance(channels, list) else ():
-        if not isinstance(channel, dict) or channel.get("role") != "setpoint":
-            continue
-        signal = channel.get("signal")
-        if isinstance(signal, str) and signal.rpartition("_")[2] == _COMMAND_WORD:
+        if isinstance(channel, dict) and channel.get("command") is True:
             commands.add(str(channel.get("id")))
     return frozenset(commands)
 
@@ -922,9 +914,9 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
 
     A command is a setpoint whose write acts and holds no setting (arming a
     monitor, requesting a shot). Command-ness is the facility definition's,
-    never the caller's: a command is a channel of the rendered facility
-    definition whose role is ``setpoint`` and whose signal ends in
-    ``command``. The batch is refused whole, before anything is written,
+    never the caller's: a command is a channel the rendered facility
+    definition marks ``command``, as the build decides it from the vocabulary
+    and the models' engines. The batch is refused whole, before anything is written,
     unless every one of these holds:
 
     * this process holds a run lock with an :class:`ActionContext`;

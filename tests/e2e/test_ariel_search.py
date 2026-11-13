@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._session_database import dev_server_url, own_database
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -42,11 +43,6 @@ TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_log
 # Uses minimal test config with als-apg gateway access
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
-# Dev database URL - uses port 5432 (ariel-postgres container)
-# Also try port 5433 (ariel-dev-db from docker/ariel-dev.yml)
-DEV_DATABASE_URL_5432 = "postgresql://ariel:ariel@localhost:5432/ariel_e2e_test"
-DEV_DATABASE_URL_5433 = "postgresql://ariel:ariel@localhost:5433/ariel_e2e_test"
-
 
 def is_ollama_available() -> bool:
     """Check if Ollama is available for tests."""
@@ -57,32 +53,6 @@ def is_ollama_available() -> bool:
         return response.status_code == 200
     except Exception:
         return False
-
-
-def is_dev_database_available() -> tuple[bool, str]:
-    """Check if a dev database is running (tries 5432 then 5433).
-
-    Returns:
-        Tuple of (available, url) - url is the working database URL
-    """
-    import psycopg
-
-    for dev_url in [DEV_DATABASE_URL_5432, DEV_DATABASE_URL_5433]:
-        try:
-            with psycopg.connect(
-                dev_url.replace("/ariel_e2e_test", "/ariel"), autocommit=True
-            ) as conn:
-                conn.execute("SELECT 1")
-                try:
-                    conn.execute("CREATE DATABASE ariel_e2e_test")
-                    logger.info("Created ariel_e2e_test database")
-                except psycopg.errors.DuplicateDatabase:
-                    pass
-            return True, dev_url
-        except Exception as e:
-            logger.debug(f"Dev database at {dev_url} not available: {e}")
-            continue
-    return False, ""
 
 
 # =============================================================================
@@ -99,22 +69,24 @@ def e2e_database_url(request: pytest.FixtureRequest) -> str:
     2. Existing docker-compose dev database
     3. Testcontainers
 
-    Only the testcontainers branch owns a container, so teardown is registered
-    with ``request.addfinalizer`` on that branch alone. A ``yield`` would turn
-    all three exits into generator paths and make the two that return an
-    externally managed URL fail with "did not yield a value".
+    The first two exits reach a server the module did not start, so it works in
+    a database of its own there (``own_database``), dropped when the module
+    ends; the third owns the whole container. Teardown is registered with
+    ``request.addfinalizer`` on each branch that holds a resource. A ``yield``
+    would turn all three exits into generator paths and make a skip raised
+    before any resource exists fail with "did not yield a value".
     """
     # Check env var
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
     if env_url:
-        logger.info("Using database from ARIEL_TEST_DATABASE_URL")
-        return env_url
+        logger.info("Using the server ARIEL_TEST_DATABASE_URL names")
+        return own_database(request, env_url, "ariel_e2e_test")
 
     # Try dev database
-    available, dev_url = is_dev_database_available()
-    if available:
-        logger.info(f"Using docker dev database for e2e tests: {dev_url.split('@')[-1]}")
-        return dev_url
+    server_url = dev_server_url()
+    if server_url is not None:
+        logger.info(f"Using docker dev database server for e2e tests: {server_url.split('@')[-1]}")
+        return own_database(request, server_url, "ariel_e2e_test")
 
     # Fall back to testcontainers
     if not is_docker_available():

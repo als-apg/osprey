@@ -528,6 +528,7 @@ class TestOverTheWire:
         assert result["held"] == [], "a name that never connected is never held down"
         assert result["stale"] is False
 
+    @pytest.mark.wallclock
     def test_a_kill_and_restart_reports_stale_exactly_once(self, ioc):
         result = run_client(ioc, "kill_restart")
         assert result["before_kill"] is False

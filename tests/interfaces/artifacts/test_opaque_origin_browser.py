@@ -48,6 +48,7 @@ from osprey.interfaces import vendor
 from osprey.interfaces._serving import run_app_server
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces._panel_launch import publish_artifact_url
@@ -506,7 +507,9 @@ def _open_in_new_tab(page: PanelHost) -> Page:
                 "theme": page.evaluate("() => document.documentElement.getAttribute('data-theme')"),
             },
         )
-    return popup_info.value
+    popup = popup_info.value
+    wait_for_page_ready(popup)
+    return popup
 
 
 def artifact_frame(page: Page, artifact_id: str) -> Frame:
@@ -532,6 +535,7 @@ def artifact_frame(page: Page, artifact_id: str) -> Frame:
             continue
         try:
             frame.wait_for_url(f"**{artifact_id}**", timeout=TIMEOUT)
+            wait_for_page_ready(frame)
             frame.wait_for_load_state("load", timeout=TIMEOUT)
             # The loaded frame must answer a script before it is handed out.
             frame.evaluate("() => 0")
@@ -582,7 +586,7 @@ def _print_popup(page: PanelHost) -> Page:
     page.evaluate(_LIFT_READY_BUDGET_JS, 4 * TIMEOUT)
     with page.expect_popup(timeout=TIMEOUT) as popup:
         _request_print(page)
-    return popup.value
+    return popup.value  # page-ready: print.js writes some print windows itself (about:blank)
 
 
 def _wait_printed(target: Page | Frame) -> None:
@@ -681,6 +685,7 @@ def test_direct_navigation_to_artifact_route_is_opaque(hub, chromium_browser):
     opaque too: the sandbox comes from the response, not from the frame."""
     page = chromium_browser.new_page()
     response = page.goto(f"{hub.base_url}{hub.paths[ATTACK_TITLE]}")
+    wait_for_page_ready(page)
     assert response is not None and response.ok
     csp = response.headers.get("content-security-policy", "")
     assert csp.startswith("sandbox") and "allow-same-origin" not in csp

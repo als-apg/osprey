@@ -1,6 +1,6 @@
 """``osprey init --revalidate``: bring an existing deployment repo to this OSPREY, in place.
 
-A repo made before tiers and apps spells its roster with the retired keys
+A repo made before logins spells its roster with the retired keys
 (the ``RETIRED_*`` constants of :mod:`osprey.cli.build_profile_document`), keeps
 its per-card files in the retired layer directory and runs the logbook and
 knowledge cards as fake users pinned to a tier. This module rewrites such a repo
@@ -12,19 +12,18 @@ in place, with the round-trip writer so every comment the operator kept survives
    ``default_tier``, ``users[].tier`` and ``authorization.roles.<r>.tier`` where
    they stand, in ``profile.yml`` and every variant overlay; the retired render
    catalog is dropped and the ``extra_mounts``, ``seed_base``
-   and ``image`` it carried move to the top of the tier or app file they name.
+   and ``image`` it carried move to the top of the login file they name.
 3. A file made from a retired preset and never edited (its data and its text
    below ``name:``, comments included, hash to what the previous release
-   emitted) is re-emitted from the bundled source: a tier as
-   ``tiers/<n>.yml``, the logbook and knowledge cards as the bundled app in
-   ``apps/``. The users that pinned such an app leave the roster and the app
-   joins ``shared:``. An edited file stays where it is, and the step left to
+   emitted) is re-emitted from the bundled login as ``tiers/<n>.yml``; the
+   users that pinned the logbook or knowledge login leave the roster and that
+   login joins ``shared:``. An edited file stays where it is, and the step left to
    do by hand is printed, as it is for every catalog field, role or pin the
    rewrite cannot carry over.
 4. The retired write-posture keys (``control_system.writes_enabled`` and every
    ``control_system.connector.<type>.writes_enabled``) become the tier key
    ``control_system.writes`` by the rule the build applies at parse, in the
-   profile, every overlay and every tier or app file kept. A comment stanza the
+   profile, every overlay and every login file kept. A comment stanza the
    previous release shipped about them is replaced by the bundled preset's
    current one, a commented retired-key example is dropped, and any other
    prose about them, or a connector block the rewrite empties, is printed as a
@@ -1912,7 +1911,7 @@ def _resolve_preset(document: Any, preset: str | None, profile_path: Path) -> st
     existed has.
 
     ``--preset`` does not fall through: a preset the operator named and this
-    OSPREY does not ship — or a tier or app, which is no deployment — is a
+    OSPREY does not ship — or a login, which is no deployment — is a
     refusal, not a reason to quietly fill from something else. The two
     file-borne sources DO fall through to each other, which is how a profile
     from a release that shipped a preset this one dropped still fills from its
@@ -1928,7 +1927,7 @@ def _resolve_preset(document: Any, preset: str | None, profile_path: Path) -> st
         A bundled preset name in the on-disk spelling, or ``None``.
 
     Raises:
-        BuildProfileError: ``--preset`` names a tier or app, or a preset this
+        BuildProfileError: ``--preset`` names a login, or a preset this
             installation does not ship.
     """
     from .build_profile_presets import (

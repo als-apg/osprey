@@ -129,7 +129,11 @@ from osprey_connectors.dotenv import (
     parse_dotenv_file,
 )
 from osprey_connectors_tests._harness._ports import reserved_port
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import (
+    docker_cli_unavailable_reason_once,
+    require_container_runtime,
+    runtime_command,
+)
 from tests._renders import tier_render
 from tests.deployment.web_terminals._sidecar_http import wait_for_http
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
@@ -198,8 +202,12 @@ are never named here — see :func:`_declared_specs`.
 # differently from a host with no engine (#820).
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
+# xdist_group("docker"): the stack runs four containers through the runtime's
+# CLI, and the group keeps them on the worker that starts every other
+# container, so the sweep does not load the runtime from two workers at once.
 pytestmark = [
     pytest.mark.dockerbuild,
+    pytest.mark.xdist_group("docker"),
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
@@ -268,12 +276,7 @@ def _build_harness_image(tmp_path: Path) -> str:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-auth-serving-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if (
-        subprocess.run(
-            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
-        ).returncode
-        == 0
-    ):
+    if runtime_command("image", "inspect", tag, capture_output=True).returncode == 0:
         return tag
 
     context = tmp_path / "harness"
@@ -304,9 +307,7 @@ def _ensure_image(reference: str) -> None:
     Pulling up front with a bounded retry keeps a registry hiccup from being
     reported as a failure of the perimeter.
     """
-    present = subprocess.run(
-        ["docker", "image", "inspect", reference], capture_output=True, timeout=60
-    )
+    present = runtime_command("image", "inspect", reference, capture_output=True)
     if present.returncode == 0:
         return
     pulled = None
@@ -455,7 +456,7 @@ class Stack:
         are untouched, so cookies minted before the recreate still verify — which
         is what makes "this session is refused *now*" mean something.
         """
-        subprocess.run(["docker", "rm", "-f", self.auth_container], capture_output=True, timeout=60)
+        runtime_command("rm", "-f", self.auth_container, capture_output=True)
         started = subprocess.run(self.auth_run_argv, capture_output=True, text=True, timeout=180)
         assert started.returncode == 0, started.stderr
         wait_for_http(
@@ -650,6 +651,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     rendered artifacts, same replay; the only additions are the provider, its
     published port, and the two client-credential lines in ``.env.auth``.
     """
+    require_container_runtime()
     image = _build_harness_image(tmp_path)
     auth_method = "oidc" if oidc else "password"
 
@@ -794,7 +796,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
             )
             if started.returncode == 0:
                 break
-            subprocess.run(["docker", "rm", "-f", stub_name], capture_output=True, timeout=60)
+            runtime_command("rm", "-f", stub_name, capture_output=True)
         else:
             raise AssertionError(f"the stub upstream never started:\n{started.stderr}")
 
@@ -961,7 +963,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # networking still leaves the container behind, and the next attempt
         # would collide with its name.
         for name in names:
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+            runtime_command("rm", "-f", name, capture_output=True)
         held.close()
 
 

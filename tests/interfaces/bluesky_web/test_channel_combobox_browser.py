@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.bluesky_web.conftest import DEFAULT_CHANNEL_CATALOG
 
 try:
@@ -125,6 +126,7 @@ def _panel_page(browser: Browser, base_url: str) -> Iterator[Page]:
     page.on("pageerror", lambda err: pageerrors.append(str(err)))
     try:
         page.goto(f"{base_url}/bluesky/", wait_until="load")
+        wait_for_page_ready(page)
         yield page
     finally:
         page.close()
@@ -410,6 +412,7 @@ def test_no_catalog_variant_renders_baseline_dom_with_no_console_errors(
         page.on("console", _on_console)
         try:
             page.goto(f"{base_url}/bluesky/", wait_until="load")
+            wait_for_page_ready(page)
             target = _plan_form_target(page)
             add = page.locator(CHANNEL_ADD)
 

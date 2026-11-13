@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -80,6 +81,7 @@ def test_the_tools_field_names_the_granted_tools(
             f"{dashboard_url}/?view=trigger&name={trigger_name}",
             wait_until="domcontentloaded",
         )
+        wait_for_page_ready(page)
         cell = "#trigger-detail .field-label:text-is('Tools') + .field-value"
         page.wait_for_selector(cell, timeout=10_000)
         assert page.inner_text(cell) == expected

@@ -29,6 +29,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
@@ -712,15 +713,16 @@ function requireEl(id) {
       // Seed a history entry with the target id so browser back/forward returns
       // to the deep-linked concept (popstate reads ev.state.id).
       history.replaceState({ id: params.concept }, '', '#' + params.concept);
-      loadConcept(params.concept);
-    } else {
-      loadStructure({ push: false });
+      return loadConcept(params.concept);
     }
+    return loadStructure({ push: false });
   }
 
-  loadTree();
+  const treeLoaded = loadTree();
   loadBundleHealth();
-  bootFromParams();
+  // Ready once the contents list and the first reader content are drawn, or
+  // failed to be (index.html declares the mark pending until then).
+  void Promise.allSettled([treeLoaded, bootFromParams()]).then(() => markPageReady());
   // Embedded: the tile bar's subtitle (on a page) and its ⋯ entry.
   contributeHeader([{ kind: 'menu', ...PANEL_MENU }]);
 })();

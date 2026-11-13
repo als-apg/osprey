@@ -3,14 +3,11 @@
 Nothing here is autouse, so the other modules under ``tests/integration/`` are
 unaffected by this file's existence.
 
-Why this lane owns its own Postgres rather than reusing
-``tests/services/ariel_search/conftest.py``: that fixture prefers a *developer's
-running dev database* when one is listening on 5432 or 5433, and one behaviour
-proven here is ``osprey ariel purge``, which issues ``TRUNCATE enhanced_entries
-CASCADE`` and drops every embedding table. Pointing that at a dev database would
-destroy real local data; pointing it at the shared ``ariel_test`` database would
-destroy whatever else the docker group had seeded. So this lane starts its own
-container and hands each module its own database inside it.
+This lane starts its own Postgres container and hands each module its own
+database inside it. One behaviour proven here is ``osprey ariel purge``, which
+issues ``TRUNCATE enhanced_entries CASCADE`` and drops every embedding table, so
+no two modules may share a database; ``tests/services/ariel_search/conftest.py``
+is not a conftest of this directory, so its ``database_url`` is not in reach.
 """
 
 from __future__ import annotations
