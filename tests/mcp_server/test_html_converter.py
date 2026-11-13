@@ -1,15 +1,17 @@
 """Tests for the HTML-to-image converter module."""
 
+import asyncio
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.mcp_server.export import converter as converter_mod
 from osprey.mcp_server.export.converter import (
+    PageNotLoadedError,
     PlaywrightNotInstalledError,
     PlotNotDrawnError,
     convert_html_to_image,
@@ -340,7 +342,8 @@ class TestPlotlyInjection:
         assert content.startswith("<html><head>" + base)
         assert base + script in content
         assert content.index(script) < content.index("Plotly.newPlot")
-        assert seen["kwargs"] == {"wait_until": "load", "timeout": 10_000}
+        # The load gets the export deadline less the draw budget.
+        assert seen["kwargs"] == {"wait_until": "load", "timeout": 50_000}
 
     async def test_injected_render_waits_for_drawn_plot(self, tmp_path):
         mock_mod, mock_page, _ = _make_playwright_mock()
@@ -351,8 +354,7 @@ class TestPlotlyInjection:
         assert ".js-plotly-plot" in expr
         assert "_fullLayout" in expr
         assert "_transitioning" in expr
-        timeout = mock_page.wait_for_function.call_args.kwargs["timeout"]
-        assert 0 <= timeout <= 10_000
+        assert mock_page.wait_for_function.call_args.kwargs["timeout"] == 10_000
         # Two animation frames after the draw, before the screenshot.
         mock_page.evaluate.assert_called_once()
         assert mock_page.evaluate.call_args[0][0].count("requestAnimationFrame") == 2
@@ -382,14 +384,64 @@ class TestPlotlyInjection:
         # No temp copy and no image left behind.
         assert list((tmp_path / "out").iterdir()) == []
 
-    async def test_goto_timeout_raises_and_writes_no_image(self, tmp_path):
-        mock_mod, mock_page, _ = _make_playwright_mock()
+    async def test_goto_timeout_raises_the_load_refusal_and_writes_no_image(self, tmp_path):
+        """A page that did not load is refused as such, never as a plot that did not draw."""
+        mock_mod, mock_page, mock_browser = _make_playwright_mock()
         mock_page.goto.side_effect = FakePlaywrightTimeoutError("load timed out")
 
-        with pytest.raises(PlotNotDrawnError):
+        with pytest.raises(PageNotLoadedError, match=r"did not load within 50000 ms") as info:
             await self._run(tmp_path, mock_page, mock_mod=mock_mod)
 
+        assert not isinstance(info.value, PlotNotDrawnError)
+        assert isinstance(info.value.__cause__, FakePlaywrightTimeoutError)
+        mock_page.wait_for_function.assert_not_called()
         mock_page.screenshot.assert_not_called()
+        mock_browser.close.assert_awaited_once()
+        assert list((tmp_path / "out").iterdir()) == []
+
+    async def test_a_page_that_never_loads_ends_within_the_deadline(self, tmp_path, monkeypatch):
+        """A subresource that never answers holds the load forever; the export still ends,
+        with the load refusal, once the deadline is spent."""
+        monkeypatch.setattr(converter_mod, "_EXPORT_DEADLINE_MS", 300)
+        monkeypatch.setattr(converter_mod, "_PLOTLY_BUDGET_MS", 100)
+        mock_mod, mock_page, _ = _make_playwright_mock()
+
+        async def _never_loads(_url, *, timeout, **_kwargs):
+            # Playwright's contract: no load event, so the wait ends at its timeout
+            # (and never, were the timeout 0).
+            if timeout <= 0:
+                await asyncio.Event().wait()
+            await asyncio.sleep(timeout / 1000)
+            raise FakePlaywrightTimeoutError(f"Timeout {timeout}ms exceeded.")
+
+        mock_page.goto.side_effect = _never_loads
+        with pytest.raises(PageNotLoadedError, match=r"did not load within 200 ms"):
+            await asyncio.wait_for(self._run(tmp_path, mock_page, mock_mod=mock_mod), 5)
+
+        assert list((tmp_path / "out").iterdir()) == []
+
+    async def test_a_plain_page_that_never_settles_ends_within_the_deadline(
+        self, tmp_path, monkeypatch
+    ):
+        """A page with no plot to inject is held to the same deadline: one that
+        never goes network-idle ends with the load refusal, and no image."""
+        monkeypatch.setattr(converter_mod, "_EXPORT_DEADLINE_MS", 300)
+        mock_mod, mock_page, mock_browser = _make_playwright_mock()
+
+        async def _never_settles(_url, *, timeout=0, **_kwargs):
+            if timeout <= 0:
+                await asyncio.Event().wait()
+            await asyncio.sleep(timeout / 1000)
+            raise FakePlaywrightTimeoutError(f"Timeout {timeout}ms exceeded.")
+
+        mock_page.goto.side_effect = _never_settles
+        html = "<html><head></head><body>no plot here</body></html>"
+        with pytest.raises(PageNotLoadedError, match=r"did not load within 300 ms") as info:
+            await asyncio.wait_for(self._run(tmp_path, mock_page, html=html, mock_mod=mock_mod), 5)
+
+        assert isinstance(info.value.__cause__, FakePlaywrightTimeoutError)
+        mock_page.screenshot.assert_not_called()
+        mock_browser.close.assert_awaited_once()
         assert list((tmp_path / "out").iterdir()) == []
 
     async def test_non_timeout_error_still_removes_copy(self, tmp_path):
@@ -408,7 +460,8 @@ class TestPlotlyInjection:
         html_file, _, _, seen = await self._run(tmp_path, mock_page, html=html, mock_mod=mock_mod)
 
         assert seen["path"] == html_file
-        assert seen["kwargs"] == {"wait_until": "networkidle"}
+        # The whole export deadline: there is no draw to leave a budget for.
+        assert seen["kwargs"] == {"wait_until": "networkidle", "timeout": 60_000}
         mock_page.wait_for_function.assert_not_called()
 
     async def test_page_without_head_injects_after_html(self, tmp_path):
@@ -419,13 +472,14 @@ class TestPlotlyInjection:
         assert seen["content"].startswith("<html><base href=")
         assert f'<script src="{_FAKE_PLOTLY_SRC}"></script><body>' in seen["content"]
 
-    async def test_exhausted_budget_never_disables_the_plot_wait(self, tmp_path, monkeypatch):
-        """A slow load leaves a positive plot-wait timeout (0 means wait forever)."""
+    async def test_the_load_and_the_draw_are_both_held_to_the_export_deadline(self, tmp_path):
+        """The draw is timed from the page's load with its whole budget, the load gets
+        the rest, and together they never exceed the export's deadline."""
         mock_mod, mock_page, _ = _make_playwright_mock()
-        ticks = iter([0.0, 11.0])
-        # Replace only the converter's clock; the event loop keeps the real one.
-        monkeypatch.setattr(converter_mod, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
 
         await self._run(tmp_path, mock_page, mock_mod=mock_mod)
 
-        assert mock_page.wait_for_function.call_args.kwargs["timeout"] == 1
+        load_ms = mock_page.goto.call_args.kwargs["timeout"]
+        draw_ms = mock_page.wait_for_function.call_args.kwargs["timeout"]
+        assert load_ms > 0 and draw_ms == converter_mod._PLOTLY_BUDGET_MS
+        assert load_ms + draw_ms == converter_mod._EXPORT_DEADLINE_MS

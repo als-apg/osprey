@@ -11,6 +11,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import { createEventSource, pageEventsUrl } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
@@ -81,3 +82,8 @@ export function wireActivityStrip(strip) {
 // second strip to the shared mount.
 const activityStrip = bootActivityStrip();
 if (activityStrip) wireActivityStrip(activityStrip);
+
+// The page is ready once the first read of the session (or the state that says
+// it could not be read) is drawn; session.html declares the mark pending until
+// then.
+void page.ready.finally(() => markPageReady());

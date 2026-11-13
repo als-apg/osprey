@@ -39,6 +39,7 @@ check from there, so they cannot disagree about what a check is.
 | `uv run python scripts/check.py quick --changed origin/main` | Before creating a PR | Scopes the tier to `origin/main...HEAD`, runs the checks that judge a range (changelog fragment and plugin version) and names the CI lanes the diff touches; with `--worktree` the tier and the range checks judge the working tree |
 | `uv run python scripts/check.py run ID...` | To run one check as CI does | Execution flags after `--` reach pytest |
 | `uv run python scripts/check.py list` | To see what a tier runs | `--tier quick` or `--tier full` narrows it, `--json` prints the declaration |
+| `uv run python scripts/check.py failures DIR` | After a run given `--reports-dir DIR` (any tier or `run`; `DIR` missing or empty) | Every failing test id the run left, one per line, from the reader the verdict uses; a check stopped at its bound with no ids reads `no verdict, host bound`, a failed one with no ids `failed, no ids`; `--json` adds each check's state |
 
 `--changed BASE --worktree` judges the working tree instead of `HEAD`, for the
 runners and every range check alike, so staged, unstaged and untracked files

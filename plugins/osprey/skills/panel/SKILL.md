@@ -40,8 +40,11 @@ the validator checks three of these lines:
 1. `theme-boot.js` **FIRST** in `<head>` — a plain (non-module) script that
    resolves and applies `data-theme` before first paint, so the panel never
    flashes the wrong theme. It reads the `?theme=` query param for free.
-2. The `tokens.css` stylesheet — the `var(--…)` custom properties everything
-   styles against.
+2. The three design-system sheets, in this order: `tokens.css` (the `var(--…)`
+   custom properties everything styles against), `base.css`, and `primitives.css`
+   (the shared `osprey-*` components — buttons, cards, chips, banners, fields;
+   `interfaces/design_system/DESIGN.md` §9, §12 and §13 under the same package
+   root).
 3. The `fonts.css` stylesheet — the shared web fonts; without it the panel
    falls back to system fonts.
 4. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
@@ -60,6 +63,8 @@ module:
      paint (reads ?theme=), so the panel never flashes the wrong theme. -->
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>My Panel</title>
@@ -120,6 +125,13 @@ If you need a color that isn't in this list, look it up in
 `interfaces/design_system/static/css/tokens.css` under that same package root —
 never invent a hex value. A `--…-tint-NN` token is a low-opacity fill of the base color (e.g.
 `--success-tint-08`), useful for badge/pill backgrounds.
+
+---
+
+Reach for an `osprey-*` class from `primitives.css` before writing your own: a
+button is `osprey-btn`, a card `osprey-card`, a status pill `osprey-chip`. Every
+class the panel sets must be defined, in the panel's own `*.css` or one of the
+three linked sheets.
 
 ---
 
@@ -186,7 +198,7 @@ If it raises, fix each reported `PanelRule` and re-run until it is silent:
 | `MANIFEST_MISSING` | no `manifest.json` in the dir | add it (Step 4) |
 | `MANIFEST_INVALID` | bad JSON, missing/empty/wrong-typed field, or `id` not a kebab slug | fix the manifest (Step 4) |
 | `ENTRY_MISSING` | the `entry` file doesn't exist on disk | create it, or fix the `entry` value |
-| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link `tokens.css` | add the `<link>` (Step 1) |
+| `MISSING_DESIGN_SYSTEM_LINK` | entry HTML doesn't link all three sheets: `tokens.css`, `base.css`, `primitives.css` | add the missing `<link>` (Step 1) |
 | `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
 | `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
 | `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
@@ -197,6 +209,13 @@ all hex digits and exactly 3/4/6/8 long (e.g. `href="#abc"` or
 the fragment — never loosen the token-only rule.
 
 The panel is complete when the one-liner raises nothing.
+
+A panel that belongs to an application (`apps/<name>/panel/`) is also judged by
+`osprey app check`, which says exactly what `osprey build` would: it refuses a
+panel that does not link all three sheets (`design_system_css`) and any class the
+panel's HTML or JS sets that no rule in its own `*.css` or a linked design-system
+sheet defines (`undefined_class`). Run it from the deployment and fix until it
+passes.
 
 ---
 
@@ -220,7 +239,9 @@ remains the robust path and is what you should build against.
 
 Do NOT:
 
-- Reorder the head — `theme-boot.js` must be first, before `tokens.css`.
+- Reorder the head — `theme-boot.js` must be first, then `tokens.css`,
+  `base.css`, `primitives.css`.
+- Set a class no stylesheet defines — `osprey app check` refuses it.
 - Convert the boot script to `type="module"` — it must run synchronously,
   pre-paint.
 - Use any raw hex color literal, anywhere, in HTML/CSS/JS — always a `var(--…)`.

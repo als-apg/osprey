@@ -13,6 +13,7 @@ directory seems to satisfy. Each collects every violation and raises one
 
 from __future__ import annotations
 
+import dataclasses
 import keyword
 import posixpath
 import sys
@@ -21,13 +22,16 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote, urlparse
 
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import AppManifest, launch_token_env
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS, QUEUE_TOOLS
 from osprey.utils.workspace import PROFILE_FILENAME
+
+if TYPE_CHECKING:
+    from osprey.apps.origin import AppOrigin
 
 __all__ = [
     "HOOK_DISPATCHED_TOOLS",
@@ -42,6 +46,7 @@ __all__ = [
     "fixed_names",
     "framework_pins",
     "refuse_shadowed_packages",
+    "shadows_installed",
     "taken_package",
     "validate",
 ]
@@ -79,15 +84,20 @@ APPROVED_TARGET = "approved_target"
 
 @dataclass(frozen=True)
 class AppSelection:
-    """One login's choice for one application.
+    """One login's choice for one application: whether it is shown, and to whom.
 
     Attributes:
-        shown: Whether the card shows the application.
+        shown: Whether the login's card shows the application.
+        access: Who on the login sees and opens its panel, as the wire value of
+            the set the build resolved (``user:`` and ``domain:`` members only);
+            ``None`` when the entry spells no ``access:``, which is every user of
+            the login. It never decides a write: the tier does.
         panel_hidden: Whether its panel stays off the sidebar until someone
             adds it.
     """
 
     shown: bool
+    access: str | None = None
     panel_hidden: bool = False
 
 
@@ -130,6 +140,9 @@ class Reserved:
         names: :func:`fixed_names`.
         roster_users: The ``modules.web_terminals`` roster's user names, each
             a per-user spool and state directory an audit identity may not take.
+        installed: The applications installed distributions declare, by name
+            (:func:`~osprey.apps.origin.installed_apps`): a deployment
+            application may not take one of their names.
     """
 
     services: frozenset[str]
@@ -137,6 +150,7 @@ class Reserved:
     servers: frozenset[str]
     names: frozenset[str]
     roster_users: frozenset[str] = frozenset()
+    installed: Mapping[str, AppOrigin] = dataclasses.field(default_factory=dict)
 
 
 @lru_cache(maxsize=1)
@@ -154,6 +168,36 @@ def fixed_names() -> frozenset[str]:
     return (
         frozenset(FRAMEWORK_SERVERS) | BUILTIN_PANELS | UNIVERSAL_PANELS | bundled_service_names()
     )
+
+
+def shadows_installed(
+    directories: Iterable[str], installed: Mapping[str, AppOrigin]
+) -> list[Violation]:
+    """Refuse each ``apps/<name>/`` directory that has an installed application's name.
+
+    Listed or not: a name means one application in a deployment, so listing the
+    directory later cannot change what the name means without a word.
+
+    Args:
+        directories: The names of the deployment's ``apps/`` directories.
+        installed: The installed applications, by name.
+    """
+    out: list[Violation] = []
+    for name in directories:
+        origin = installed.get(name)
+        if origin is None:
+            continue
+        out.append(
+            Violation(
+                name,
+                "",
+                "shadows_installed",
+                f"apps/{name}/ has the name of the application {name} that "
+                f"{origin.installer} installs; rename the directory and its app.yml name",
+                source=f"apps/{name}/",
+            )
+        )
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -187,7 +231,8 @@ def validate(
     identity_owner: dict[str, str] = {}
     for manifest in manifests:
         found.extend(_check_app(manifest, reserved, container_owner, panel_owner, seen_names))
-        found.extend(_check_audit_identity(manifest, reserved, identity_owner))
+        if manifest.containers:
+            found.extend(_check_audit_identity(manifest, reserved, identity_owner))
     found.extend(_check_arming(manifests, logins))
     if found:
         raise AppManifestError.from_violations(found)
@@ -209,8 +254,8 @@ def _check_arming(
             writes = m.tools is not None and bool(m.tools.approval)
             if writes and not any(c.drives_target for c in m.containers.values()):
                 out.append(
-                    Violation(
-                        m.name,
+                    _violation(
+                        m,
                         "containers",
                         "armed_drives_target",
                         f"login {login} arms {m.name}, whose write tools need a container "
@@ -234,10 +279,11 @@ def _check_arming(
 def _check_audit_identity(
     m: AppManifest, reserved: Reserved, identity_owner: dict[str, str]
 ) -> list[Violation]:
-    """An application's audit identity names its own spool and state directories.
+    """An application's audit identity names its containers' spool and state directories.
 
     So it may not be a service's own identity, another application's, or a
-    roster user's: each of those already writes there.
+    roster user's: each of those already writes there. An application with no
+    container writes under no identity and is not checked.
     """
     from osprey.deployment.web_terminals.render import _RESERVED_AUDIT_IDENTITY_RE
 
@@ -253,7 +299,15 @@ def _check_audit_identity(
     else:
         identity_owner[identity] = m.name
         return []
-    return [Violation(m.name, "audit_identity", rule, message)]
+    return [_violation(m, "audit_identity", rule, message)]
+
+
+def _violation(m: AppManifest, field: str, rule: str, message: str) -> Violation:
+    """A violation of *m*'s manifest, naming the file it was read from."""
+    origin = m.origin
+    return Violation(
+        m.name, field, rule, message, source=origin.manifest_source if origin else None
+    )
 
 
 def _check_app(
@@ -264,18 +318,43 @@ def _check_app(
     seen_names: set[str],
 ) -> list[Violation]:
     out: list[Violation] = []
+    installed = m.origin is not None and m.origin.installed
 
     def refuse(field: str, rule: str, message: str) -> None:
-        out.append(Violation(m.name, field, rule, message))
+        out.append(_violation(m, field, rule, message))
 
     if m.name in seen_names:
         refuse("name", "name_unique", f"another application is also named {m.name!r}")
     seen_names.add(m.name)
     if m.name in reserved.names:
         refuse("name", "reserved_name", f"{m.name!r} is a name OSPREY keeps for itself")
+    if not installed:
+        out.extend(shadows_installed([m.name], reserved.installed))
+    elif m.origin is not None and m.origin.module is not None:
+        package = m.origin.module.split(".")[0]
+        if taken_package(package):
+            refuse(
+                "",
+                "taken_package",
+                f"the entry point's package {package!r} would be a keyword or shadow a "
+                "standard-library or OSPREY module",
+            )
 
+    if not m.containers and m.audit_identity_spelled:
+        refuse(
+            "audit_identity",
+            "audit_identity_container",
+            "audit_identity names a container's spool; this application has none",
+        )
     for key, container in m.containers.items():
         at = f"containers.{key}"
+        if installed and container.image is not None:
+            refuse(
+                f"{at}.image",
+                "installed_image_container",
+                "an installed application's containers run runtime: osprey; carry an image "
+                "container as a service of the deployment's profile",
+            )
         if container.drives_target and container.runtime != "osprey":
             refuse(
                 f"{at}.drives_target",
@@ -302,11 +381,12 @@ def _check_app(
     panel = m.panel
     if panel is not None:
         if panel.container not in m.containers:
+            declared = ", ".join(m.containers) or "it declares no container"
             refuse(
                 "panel.container",
                 "panel_container",
                 f"the panel is served by {panel.container!r}, which is not a container "
-                f"of this application ({', '.join(m.containers)})",
+                f"of this application ({declared})",
             )
         if panel.id in reserved.panels:
             refuse("panel.id", "panel_id_unique", f"{panel.id!r} is already a web panel")
@@ -352,7 +432,7 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
     out: list[Violation] = []
 
     def refuse(field: str, rule: str, message: str) -> None:
-        out.append(Violation(m.name, field, rule, message))
+        out.append(_violation(m, field, rule, message))
 
     if m.name in reserved.servers:
         refuse(
@@ -364,7 +444,16 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
     if tools.shown_when == "panel" and m.panel is None:
         refuse("tools.shown_when", "shown_when_panel", "shown_when: panel needs a panel")
     package = tools.module.split(".")[0]
-    if taken_package(package):
+    origin = m.origin
+    if origin is not None and origin.installed:
+        own = origin.module or ""
+        if tools.module != own and not tools.module.startswith(f"{own}."):
+            refuse(
+                "tools.module",
+                "tools_module_outside_package",
+                f"an installed application's tool server is a module of its own package {own!r}",
+            )
+    elif taken_package(package):
         refuse(
             "tools.module",
             "taken_package",

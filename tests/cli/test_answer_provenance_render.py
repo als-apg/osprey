@@ -84,7 +84,7 @@ def control_project(tmp_path_factory) -> Path:
 
 @pytest.fixture(scope="module")
 def ariel_project(control_project: Path) -> Path:
-    """The demo build's logbook-app render, where the ARIEL render lands."""
+    """The demo build's logbook-login render, where the ARIEL render lands."""
     render = control_project / f"{control_project.parent.name}-logbook"
     assert render.is_dir(), f"logbook render not built: {render}"
     return render

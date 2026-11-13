@@ -52,7 +52,7 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
         browser = p.chromium.launch()
         try:
             page = browser.new_page(viewport={"width": 800, "height": 800})
-            page.goto(page_path.as_uri())
+            page.goto(page_path.as_uri())  # page-ready: a file:// fixture, not an OSPREY page
             page.wait_for_function("() => !!document.querySelector('.js-plotly-plot')._fullLayout")
             page.wait_for_timeout(500)
             before = video_probes.camera_azimuth(page.main_frame)

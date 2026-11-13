@@ -52,9 +52,17 @@ def _orm(**changes: Any) -> dict[str, Any]:
 
 
 def test_a_completed_orm_reads_its_shape_names_and_steps():
-    result = parse_measure_result("noise\n" + _line(**_orm()), "orm")
+    result = parse_measure_result("noise\n" + _line(**_orm()), "orm", matrix=True)
 
     assert result == _orm()
+
+
+def test_a_kinds_result_shape_is_its_blocks_matrix_flag_not_its_name():
+    line = _orm(kind="registry_kind", data_file="/exec/pyaml_measure_registry_kind.json")
+
+    assert parse_measure_result(_line(**line), "registry_kind", matrix=True) == line
+    with pytest.raises(MeasureResultError, match="chromaticity"):
+        parse_measure_result(_line(**_orm()), "orm", matrix=False, scalar="chromaticity")
 
 
 def test_the_stepping_and_what_sized_each_step_are_carried():
@@ -71,8 +79,8 @@ def test_the_stepping_and_what_sized_each_step_are_carried():
     )
     crm = _orm(kind="crm", e_delta_used=1e-3, rf_span_hz=40.0, rf_limited_by="SR:RF:SP")
 
-    assert parse_measure_result(_line(**group), "trm") == group
-    parsed = parse_measure_result(_line(**crm), "crm")
+    assert parse_measure_result(_line(**group), "trm", matrix=True) == group
+    parsed = parse_measure_result(_line(**crm), "crm", matrix=True)
     assert (parsed["e_delta_used"], parsed["rf_span_hz"], parsed["rf_limited_by"]) == (
         1e-3,
         40.0,
@@ -82,7 +90,7 @@ def test_the_stepping_and_what_sized_each_step_are_carried():
 
 def test_a_limit_that_is_not_an_address_is_refused():
     with pytest.raises(MeasureResultError, match="delta_limited_by"):
-        parse_measure_result(_line(**_orm(delta_limited_by=3)), "orm")
+        parse_measure_result(_line(**_orm(delta_limited_by=3)), "orm", matrix=True)
 
 
 def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
@@ -97,11 +105,31 @@ def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
         missing={},
     )
 
-    result = parse_measure_result(line, "chromaticity_monitor")
+    result = parse_measure_result(line, "chromaticity_monitor", matrix=False, scalar="chromaticity")
 
     assert result["chromaticity"] == [1.5, -2.5]
     assert result["missing"] == {}
     assert "deltas" not in result
+
+
+def test_a_completed_scalar_kind_reads_the_field_its_plan_names():
+    line = _line(
+        kind="registry_kind",
+        model="SR",
+        sha256=SHA,
+        completed=True,
+        coupling=[0.25, -0.5],
+        data_file="/exec/c.json",
+        moved=[],
+        missing={},
+    )
+
+    result = parse_measure_result(line, "registry_kind", matrix=False, scalar="coupling")
+
+    assert result["coupling"] == [0.25, -0.5]
+    assert "chromaticity" not in result
+    with pytest.raises(MeasureResultError, match="'tilt'"):
+        parse_measure_result(line, "registry_kind", matrix=False, scalar="tilt")
 
 
 def _stopped_orm() -> dict[str, Any]:
@@ -112,8 +140,8 @@ def _stopped_orm() -> dict[str, Any]:
 
 
 def test_every_result_carries_what_it_moved():
-    completed = parse_measure_result(_line(**_orm()), "orm")
-    stopped = parse_measure_result(_line(**_stopped_orm()), "orm")
+    completed = parse_measure_result(_line(**_orm()), "orm", matrix=True)
+    stopped = parse_measure_result(_line(**_stopped_orm()), "orm", matrix=True)
 
     assert completed["moved"] == [["SCOR:H:SP", 0.25]]
     assert completed["missing"] == {}
@@ -134,7 +162,7 @@ def test_a_line_without_a_required_field_is_an_error(completed: bool, field: str
     del line[field]
 
     with pytest.raises(MeasureResultError, match=match):
-        parse_measure_result(_line(**line), "orm")
+        parse_measure_result(_line(**line), "orm", matrix=True)
 
 
 @pytest.mark.parametrize(
@@ -142,13 +170,13 @@ def test_a_line_without_a_required_field_is_an_error(completed: bool, field: str
 )
 def test_a_moved_that_is_not_address_value_pairs_is_an_error(moved: Any):
     with pytest.raises(MeasureResultError, match="moved"):
-        parse_measure_result(_line(**_orm(moved=moved)), "orm")
+        parse_measure_result(_line(**_orm(moved=moved)), "orm", matrix=True)
 
 
 def test_a_stopped_line_names_what_stopped_it_in_missing():
     line = _stopped_orm() | {"missing": {"SCOR:V:SP": "KeyboardInterrupt"}}
 
-    result = parse_measure_result(_line(**line), "orm")
+    result = parse_measure_result(_line(**line), "orm", matrix=True)
 
     assert result["missing"] == {"SCOR:V:SP": "KeyboardInterrupt"}
     assert "error" not in result
@@ -161,20 +189,20 @@ def test_a_stopped_line_whose_missing_is_not_a_text_map_is_an_error(missing: Any
     line = _stopped_orm() | {"missing": missing}
 
     with pytest.raises(MeasureResultError, match="'missing'"):
-        parse_measure_result(_line(**line), "orm")
+        parse_measure_result(_line(**line), "orm", matrix=True)
 
 
 def test_a_completed_line_that_names_something_missing_is_an_error():
     line = _orm(missing={"SCOR:V:SP": None})
 
     with pytest.raises(MeasureResultError, match="'missing'"):
-        parse_measure_result(_line(**line), "orm")
+        parse_measure_result(_line(**line), "orm", matrix=True)
 
 
 def test_a_non_finite_before_value_is_spelled():
     moved = [["SCOR:H:SP", "nan"], ["SCOR:V:SP", "-inf"], ["RF:SP", 5.0e8]]
 
-    result = parse_measure_result(_line(**_orm(moved=moved)), "orm")
+    result = parse_measure_result(_line(**_orm(moved=moved)), "orm", matrix=True)
 
     assert result["moved"] == moved
 
@@ -188,20 +216,22 @@ def test_a_stopped_run_with_no_partial_column_names_the_kind():
         "missing": {"chromaticity_monitor": "the tune readback went away"},
     }
 
-    result = parse_measure_result(_line(**stopped, moved=[]), "chromaticity_monitor")
+    result = parse_measure_result(
+        _line(**stopped, moved=[]), "chromaticity_monitor", matrix=False, scalar="chromaticity"
+    )
 
     assert result["missing"] == {"chromaticity_monitor": "the tune readback went away"}
 
 
 def test_a_refusal_is_returned_as_the_refusal():
-    result = parse_measure_result(_line(kind="orm", refused="view changed"), "orm")
+    result = parse_measure_result(_line(kind="orm", refused="view changed"), "orm", matrix=True)
 
     assert result == {"kind": "orm", "refused": "view changed"}
 
 
 def test_the_last_result_line_wins():
     first = _line(**_orm(sha256="b" * 64))
-    result = parse_measure_result(first + _line(**_orm()), "orm")
+    result = parse_measure_result(first + _line(**_orm()), "orm", matrix=True)
 
     assert result["sha256"] == SHA
 
@@ -221,7 +251,7 @@ def test_the_last_result_line_wins():
 )
 def test_a_malformed_result_is_an_error(stdout: str, match: str):
     with pytest.raises(MeasureResultError, match=match):
-        parse_measure_result(stdout, "orm")
+        parse_measure_result(stdout, "orm", matrix=True)
 
 
 @pytest.mark.parametrize(
@@ -230,7 +260,7 @@ def test_a_malformed_result_is_an_error(stdout: str, match: str):
 def test_every_plane_spelling_reads_back_as_x_or_y(plane: str, read: str):
     line = _line(**_orm(observables=[["SR_BPM1", plane], ["SR_BPM1", "y"]]))
 
-    result = parse_measure_result(line, "orm")
+    result = parse_measure_result(line, "orm", matrix=True)
 
     assert result["observables"] == [["SR_BPM1", read], ["SR_BPM1", "y"]]
 
@@ -255,11 +285,11 @@ def test_an_observable_without_a_usable_name_or_plane_is_refused(observables, ma
     line = _line(**_orm(observables=observables))
 
     with pytest.raises(MeasureResultError, match=match):
-        parse_measure_result(line, "orm")
+        parse_measure_result(line, "orm", matrix=True)
 
 
 def test_bytes_are_read_as_text():
-    result = parse_measure_result(_line(**_orm()).encode(), "orm")
+    result = parse_measure_result(_line(**_orm()).encode(), "orm", matrix=True)
 
     assert result["model"] == "SR"
 

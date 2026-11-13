@@ -305,12 +305,18 @@ LANE_LEAVING_MARKERS = (
                 "-m wallclock",
             ),
             # The image-free budgets, on every event: the step selects the
-            # marker in the files under the tree, minus the directories with
-            # hosts of their own, that a scan finds carrying it
-            # (tests/_wallclock_files.py; the root conftest holds the scan to
-            # what pytest marks).
+            # marker in the files under every root the sweep collects, minus
+            # the directories with hosts of their own, that a scan finds
+            # carrying it (tests/_wallclock_files.py; the root conftest holds
+            # the scan to what pytest marks).
             SerialHost(
                 SERIAL_SUITES_JOB, "Run the wall-clock budgets serially", "tests/", "-m wallclock"
+            ),
+            SerialHost(
+                SERIAL_SUITES_JOB,
+                "Run the wall-clock budgets serially",
+                "packages/osprey-connectors/tests",
+                "-m wallclock",
             ),
         ),
     ),
@@ -2749,7 +2755,10 @@ def test_the_full_tier_runs_what_the_sweep_deselects__mutation_parallelizes_it(
 
 @pytest.mark.parametrize(
     ("marker", "jobs"),
-    [("pty", [SERIAL_SUITES_JOB]), ("wallclock", ["qmd-sidecar-e2e", SERIAL_SUITES_JOB])],
+    [
+        ("pty", [SERIAL_SUITES_JOB]),
+        ("wallclock", ["qmd-sidecar-e2e", SERIAL_SUITES_JOB, SERIAL_SUITES_JOB]),
+    ],
 )
 def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
     marker: str, jobs: list[str], workflow: dict[str, Any]

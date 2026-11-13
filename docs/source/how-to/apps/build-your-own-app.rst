@@ -88,6 +88,9 @@ violation with the app and the field it is in. The scaffold passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs ``npm`` and network access once.
 
+An app an installed package ships (:doc:`index`) is checked the same way, and
+its violations name the distribution (``<dist>:<module path>/<file>``).
+
 4. Build and start
 ------------------
 
@@ -173,9 +176,11 @@ The first three blocks describe one part each:
 Each block is optional, and so are ``skills`` and ``agents``; an ``app.yml``
 with none of the five is refused. Without ``panel`` the app has no sidebar
 row. Without ``containers`` it has no backend: a ``panel`` is refused, and so
-is a write tool (an ``approval`` entry), which needs a container with
-``drives_target: true``; the tool server only reads or computes and keeps
-nothing between calls. Anything that holds state is a backend.
+is a write tool (an ``approval`` entry) on a login whose tier writes, since it
+needs a container with ``drives_target: true``; a ``config:`` block under the
+app's entry is refused too, since only a backend reads it. The tool server only
+reads or computes and keeps nothing between calls. Anything that holds state is
+a backend.
 
 Every key is listed under `Manifest keys`_. Unknown keys are refused, and a
 key that belongs to the container's compose file (``volumes``, ``ports``,
@@ -211,6 +216,13 @@ verdict (tier, switch, session), applies the limits and records the write —
 your code does none of that. A refusal arrives as ``ChannelWriteBlockedError``
 and the backend passes its sentence on.
 
+A route that must tell the agent from the operator calls
+``caller_kind(request.headers)``, which answers ``agent`` or ``panel``. The
+terminal sets that header itself and drops any ``X-Osprey-Caller`` a request
+arrives with. ``caller_kind`` trusts it only beside the launch token the
+terminal adds (``launch_token: true``, on a login that arms the app) and
+raises ``ValueError`` without it.
+
 The scaffold adds one check of its own, and it is the pattern for every
 write you add: the write request carries the readback the operator saw on the
 card (``readback``), and the backend re-reads the channel and refuses when the
@@ -222,7 +234,13 @@ channel, ``read_multiple_channels``. The facility description — which elements
 exist, their channels, a model's BPMs and correctors — comes from the SDK
 (``facility_file``, ``read_facts``, ``model_members``,
 ``model_response_matrix``), so the app carries no facility knowledge of its
-own and moves to another facility with the deployment.
+own and moves to another facility with the deployment. The Bluesky bridges the
+deployment runs for a target come from ``bridges_for_target(target)``: lane
+name to bridge URL, empty when none.
+
+A backend that writes its own audit records files them under
+``audit_surface()``: the app's name, which its tool server's records already
+carry.
 
 The tool server
 ===============
@@ -230,7 +248,9 @@ The tool server
 ``corrector_trim/tools.py`` runs beside the agent as an MCP server. ``register``
 adds one function per tool; the function's docstring is the tool description
 the agent reads, so write it for the agent: what the tool does, what each
-argument means, what it answers.
+argument means, what it answers. ``serve_tools(register)`` serves them; an
+app that holds something for the server's lifetime (a session, say) passes
+``on_shutdown=``, which runs once when the server stops, returned or raised.
 
 A tool does not import the backend. It calls the backend's routes through the
 terminal (``_panel_call``), at ``/panel/<app>/<route>``, with the headers
@@ -269,6 +289,12 @@ does, and the terminal refuses the request on a login that does not arm the
 app, before it reaches the backend. Show that state rather than hiding the
 control: have the backend's state say whether writes are on, and the panel
 say *Writes are off*.
+
+The page says when it can be driven, which a browser test or a recording
+waits for: ``index.html`` carries ``<html data-page-ready="pending">``, and
+``panel.js`` imports ``markPageReady`` from
+``/design-system/js/page-ready.js`` and calls it once the first refresh has
+drawn, error or not. ``osprey app check`` refuses a panel without the import.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
@@ -311,10 +337,14 @@ tool server's ``writes:``, so every call is judged as a write, in this order:
       Values of the state copied into the call as ``approved_*`` fields: the
       readback the person saw, the plan id, a digest of the setpoints. The
       tool sends these to the backend, and the backend refuses when they no
-      longer match what it holds.
+      longer match what it holds. A key may be a dotted path into nested
+      state (``step.digest``); one that names nothing leaves its field
+      unbound.
    ``bind.input_digests``
       A digest over named call arguments, so the arguments the agent sends
-      after approval must be the ones that were approved.
+      after approval must be the ones that were approved. An app recomputes
+      a digest only through the SDK's ``canonical_json`` and
+      ``input_digest``, the recipe the check itself uses.
    ``require``
       The ``approved_*`` fields a call must carry (``all_of``, or exactly one
       of each ``one_of`` group). A ``one_of`` group holds readback
@@ -353,6 +383,14 @@ write with them:
 - a **shared** login (``logbook``, ``knowledge``, ``channel-finder`` in the
   preset) arms nothing, whatever its file says.
 
+A login's ``apps.<name>.access`` says who on that login sees and opens the
+panel, in the words a shared roster card uses (``self``, ``roster``,
+``user:``, ``domain:``, ``tier:``); without it, every user of the login does.
+A user it does not admit does not see the panel in the list and is answered
+as for an unpublished one, and the build refuses a set no browser user can
+match. The agent is judged by the login alone, so the login keeps the app's
+tools and skill. The key never decides a write.
+
 Hide an app from one login in that login's file:
 
 .. code-block:: yaml
@@ -382,13 +420,17 @@ and write ``skills/<name>/SKILL.md`` in the app's directory. The scaffold
 ships one, which ``osprey app new`` renames with the app. The build installs
 it into every login that shows the app, so the agent that has the tools also
 has the instructions. A listed skill without its file, or a skill name two
-apps share, fails the build.
+apps share, fails the build. So does ``hooks`` in a listed skill's
+frontmatter, or a frontmatter that does not close on a line that is exactly
+``---``: an app ships no hook code.
 
 **The parity rule.** Everything the operator sees in the panel, the agent can
 read through a tool; everything the operator can press, the agent can do
 through a tool or an argument. The panel and the tool server are two front
 ends to one backend, so parity needs no second implementation: each panel
 element maps to a backend route, and each route the panel uses has a tool.
+A route can still tell the two apart: an agent's tool call arrives as
+``agent`` and a panel call as ``panel`` (`The backend`_).
 
 .. raw:: html
    :file: ../../_diagrams/app-parity.html
@@ -524,6 +566,51 @@ An app needs neither a skill nor a subagent. Use a skill when the main agent
 should do the task itself and needs to know how; use a subagent when the task
 is better done out of the main conversation; an app may carry both.
 
+Test your app
+=============
+
+The app's own tests build a deployment the way ``osprey build`` does and run
+the backend against one login's render. Installing the framework gives them
+two pytest fixtures from ``osprey.apps.sdk.testing``: ``synthetic_deployment``
+makes a deployment, ``rendered_tree`` makes one and builds it. Both take:
+
+- ``apps`` — each app's name and its source directory;
+- ``facility`` — the ``data/facility`` tree. The default, ``plain_tree()``, is
+  one quadrupole and one BPM; ``measured_tree()`` is two models wired for the
+  built-in measurement kinds, for a test to extend with its own kind's records;
+- ``logins`` — each login and its ``control_system.writes`` ceiling, one
+  ``tiers/`` file each (default: ``operator`` at ``asked``);
+- ``profile`` — profile keys laid over the generated ``profile.yml``, such as
+  the app's ``config:``.
+
+Every login runs on the simulator served in process. ``serve(login)`` gives
+the app container's environment on that login's render; build the backend
+inside it and call it with the header the terminal sends:
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   from corrector_trim.server import create_app
+   from fastapi.testclient import TestClient
+
+   APP_DIR = Path(__file__).resolve().parents[1]
+
+
+   def test_state_reads_the_configured_channel(synthetic_deployment):
+       deployment = synthetic_deployment(
+           apps={"corrector-trim": APP_DIR},
+           profile={"apps": {"corrector-trim": {"config": {"channel": "Q1:RB"}}}},
+       )
+       served = deployment.serve("operator")
+       with served.environment(), TestClient(create_app()) as client:
+           state = client.get("/api/state", headers=served.headers()).json()
+       assert (state["channel"], state["target"]) == ("Q1:RB", "va")
+
+The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
+test with the build's own message. Run pytest with the app's directory
+on the import path, so the test can import the app's package.
+
 Dependencies
 ============
 
@@ -540,6 +627,13 @@ delete ``panel/`` or ``skills/``, delete its line there too.
 Manifest keys
 =============
 
+An app ships no hook code; it declares facts in ``app.yml`` and OSPREY's
+hooks act on them: ``tools.approval`` for a write, ``tools.deny_in_jobs`` for
+a job-only refusal, ``tools.errors`` for the agent's guidance. ``osprey app
+check`` and the build refuse a ``hooks`` key, a ``hooks/`` directory at the
+app's root and a ``.claude/`` directory anywhere in it, each with rule
+``no_hooks``.
+
 Every level refuses unknown keys. Defaults in brackets.
 
 .. list-table::
@@ -554,7 +648,8 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``summary``
      - One sentence about the app.
    * - ``containers``
-     - Optional. Required by ``panel`` and by any ``tools.approval`` entry.
+     - Optional. Required by ``panel``, and by a ``tools.approval`` entry on
+       a login whose tier writes.
    * - ``containers.<key>``
      - One container; the key is its service name. Exactly one of
        ``runtime: osprey`` (the app's package on the project image) or
@@ -583,6 +678,11 @@ Every level refuses unknown keys. Defaults in brackets.
      - The sidebar row's icon, one of the names the terminal draws (see
        :doc:`../web-terminal/panels`). Without it the row wears the generic
        one.
+   * - ``panel.description``
+     - The sentence the sidebar row's tooltip shows under its text.
+   * - ``panel.help``
+     - The panel's Help page: a path under the deployment's docs root
+       (no ``..``), or an ``https://`` URL.
    * - ``panel.container``
      - The container that serves the panel.
    * - ``panel.entry`` [``/``]
@@ -612,6 +712,9 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``tools.errors.unreachable``, ``tools.errors.refused``
      - The sentences the agent sees for a backend that does not answer, and
        for a refused call.
+   * - ``audit_identity`` [``name``]
+     - The name the containers' spool and state directories file under;
+       refused on an app with no container.
    * - ``vendor``
      - Files fetched into the app at build: ``{url, into, sha256}`` or
        ``{package, version, file, into, sha256}`` (an npm package through

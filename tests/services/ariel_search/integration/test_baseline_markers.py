@@ -296,7 +296,7 @@ class TestBaselineMarkerAbortsTextStage:
         enhancer = _FakeEnhancer()
         repo = _FakeRepo(fail=True)
 
-        async def _service(_config: Any) -> _FakeService:
+        async def _service(_config: Any, *, store_deadline_s=None) -> _FakeService:  # noqa: ARG001 - the signature it stands in for
             return _FakeService(repo)
 
         monkeypatch.setattr(ariel_search, "create_ariel_service", _service)

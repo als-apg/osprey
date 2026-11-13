@@ -1086,11 +1086,23 @@ keys:
       (`notes.application_families`).
     default: no-fallback
     default_note: only a login showing an application with a panel has one
+  web.panels.<app-panel>.access:
+    rendered: false
+    evidence: 'panel\["access"\] = _panel_access\('
+    note: >-
+      Who on the login sees and opens the panel, written only for a login whose
+      `apps.<name>.access` narrows it below every user of the login, which needs
+      an auth method that forwards an identity; the guard's fixture deployment
+      has none.
+    default: no-fallback
+    default_note: absent, every user of the login sees the panel
   web.panels.<app-panel>.agent_routes: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.description: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.description; the guard's fixture application declares none"}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
-  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.help: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.help; the guard's fixture application declares none"}
+  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.icon; the guard's fixture application declares none"}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
@@ -1277,7 +1289,7 @@ keys:
     evidence: 'RETIRED_WRITES_LEAF = "writes_enabled"'
     note: >-
       Retired spelling of the write posture, replaced by `control_system.writes`.
-      No preset, tier or app ships it. A profile that still states it is read
+      No preset or login ships it. A profile that still states it is read
       once, at the single parse point in `build_profile_document`, which turns
       a literal `true` into `allowed` and anything else into `never`, writes
       `control_system.writes` in its place and refuses a document that states
@@ -1595,9 +1607,9 @@ keys:
     evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
       Retired per-connector-type spelling of the write posture, replaced by
-      the target-blind `control_system.writes`. No preset, tier or app ships
-      it: the tiers state `control_system.writes`, and an app render is pinned
-      `never` by the composer. A profile that still states it is read once, at
+      the target-blind `control_system.writes`. No preset or login ships
+      it: the logins state `control_system.writes`, and a shared login's render
+      is pinned `never` by the composer. A profile that still states it is read once, at
       the single parse point in `build_profile_document`, which folds every
       retired leaf into one `control_system.writes` answer (`allowed` only when
       one of them is a literal `true`) and drops them. The evidence is the
@@ -1612,7 +1624,7 @@ keys:
     note: >-
       The same retired leaf reached through the epics block, read by the same
       single parse point and normalized into `control_system.writes` the same
-      way. No shipped preset, tier or app states it.
+      way. No shipped preset or login states it.
     default: derived
     default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.doocs.writes_enabled:
@@ -3754,7 +3766,7 @@ keys:
     default: false
 
   # ── Multi-user web terminals ────────────────────────────────────────
-  # The roster, its tiers and apps, and the landing page. Preset-side throughout
+  # The roster, its logins, and the landing page. Preset-side throughout
   # (only demo ships a block), and read by
   # deployment/web_terminals/ rather than by anything in a container.
   deploy: {evidence: 'as_dict\(root\.get\("deploy"\)\)', default: {}}
@@ -4125,8 +4137,8 @@ deleted:
 - control_system.write_verification.default_tolerance_percent
   # Ledger 33
 - approval.tools.channel_limits
-  # The write switch's slider decides for a governed tool, so no preset, tier
-  # or app spells a per-tool policy for one.
+  # The write switch's slider decides for a governed tool, so no preset or
+  # login spells a per-tool policy for one.
 - approval.tools.channel_write
 - approval.tools.execute
   # Ledger 7 / 9 / 10 / 11 / 15

@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 
-from osprey.apps.manifest import launch_token_env
+from osprey.apps.manifest import help_page_refusal, launch_token_env
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
@@ -37,6 +37,7 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import is_offline, vendor_url
+from osprey.interfaces.web_auth import JudgeGrants, panel_registry_of
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.config_view import (
     UNREADABLE,
@@ -64,7 +65,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
-from osprey.interfaces.web_terminal.routes.proxy import application_panels
+from osprey.interfaces.web_terminal.routes.proxy import application_panels, panel_withheld
 from osprey.interfaces.web_terminal.routes.safety_switches import router as safety_switch_router
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
@@ -732,9 +733,36 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             # only when the block writes it.
             if "read_timeout_s" in spec:
                 panel["readTimeoutS"] = _panel_read_timeout(panel_id, spec["read_timeout_s"])
+            # Who on this login sees and opens the panel (routes/proxy.py
+            # `caller_opens_panel`). Never sent to the browser: GET /api/panels
+            # drops it from each row. Absent: every user of the login.
+            if "access" in spec:
+                panel["access"] = _panel_access(panel_id, spec["access"])
+            # The sidebar row's tooltip and help page, carried only when the
+            # block writes them. Its glyph (``icon``) is not a field of this
+            # dict: the page stamps every panel's (``panel_icons``).
+            for key in ("description", "help"):
+                if key in spec:
+                    panel[key] = _panel_presentation(panel_id, key, spec[key])
             custom.append(panel)
 
     return enabled, custom, default_panel
+
+
+def _panel_presentation(panel_id: str, key: str, value: object) -> str:
+    """Validate a panel's ``description`` or ``help`` value.
+
+    Raises:
+        ValueError: The value is not a non-empty string, or a ``help`` page
+            outside the docs root that is not an https:// URL. The message names
+            the config key.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"web.panels.{panel_id}.{key} must be a non-empty string")
+    refusal = help_page_refusal(value) if key == "help" else None
+    if refusal is not None:
+        raise ValueError(f"web.panels.{panel_id}.{key}: {refusal}")
+    return value
 
 
 def _hold_panel_launch_tokens(app: FastAPI, custom_panels: list[dict]) -> None:
@@ -825,6 +853,30 @@ def _panel_read_timeout(panel_id: str, value: object) -> float | None:
     return value
 
 
+def _panel_access(panel_id: str, value: object) -> tuple[str, ...]:
+    """Read a panel's ``access``: the build's wire value of ``user:``/``domain:`` members.
+
+    Args:
+        panel_id: The panel id, for the refusal message.
+        value: The raw ``web.panels.<id>.access`` value.
+
+    Raises:
+        ValueError: When the value is not a JSON list of ``user:``/``domain:`` members.
+    """
+    try:
+        members = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        members = None
+    if not isinstance(members, list) or not all(
+        isinstance(m, str) and m.startswith(("user:", "domain:")) for m in members
+    ):
+        raise ValueError(
+            f"web.panels.{panel_id}.access must be the build's list of 'user:' and "
+            f"'domain:' members, got {value!r}; rebuild the deployment"
+        )
+    return tuple(members)
+
+
 def _state_panel_labels(request: Request) -> dict[str, str]:
     """The built-in panel labels the lifespan resolved, or the registry's own.
 
@@ -835,13 +887,23 @@ def _state_panel_labels(request: Request) -> dict[str, str]:
     return labels if labels is not None else panel_labels()
 
 
+def _listed_panel_blocks(request: Request) -> dict[str, Any]:
+    """The ``web.panels`` blocks of the panels this caller is listed.
+
+    A panel whose ``access`` does not admit the caller is left out, as it is
+    from ``/api/panels``: a stamp on the page would otherwise name it.
+    """
+    blocks = getattr(request.app.state, "panels_config", None) or {}
+    return {pid: spec for pid, spec in blocks.items() if not panel_withheld(request, str(pid))}
+
+
 def _state_authored_labels(request: Request) -> list[str]:
     """The panel labels this deployment wrote, which the sidebar shows as written.
 
-    The config's ``web.panels.<id>.label`` lines the lifespan read, and the
-    label each discovered panel's manifest states.
+    The config's ``web.panels.<id>.label`` lines, and the label each discovered
+    panel's manifest states.
     """
-    labels = set(getattr(request.app.state, "authored_panel_labels", []) or [])
+    labels = set(authored_panel_labels(_listed_panel_blocks(request)))
     discovered = getattr(request.app.state, "discovered_panel_dirs", {}) or {}
     labels.update(panel.label for panel in discovered.values() if panel.label)
     return sorted(labels)
@@ -1181,10 +1243,15 @@ def _start_watchdogs(app: FastAPI, view: TerminalConfigView) -> None:
 
     A build that runs watchdogs registers them as one runtime safety switch; the
     runner asks it before every hold, and the intake route before every run.
+
+    ``app.state.judge_grants`` holds the read tokens of the judge runs in flight,
+    which the gate admits on their applications' read routes. Built here, before
+    the panel registry exists, so it reads the registry only when asked.
     """
     os.environ.pop(HOLD_DIR_ENV_VAR, None)
     app.state.session_hold_root = None
     app.state.watchdog_runner = None
+    app.state.judge_grants = JudgeGrants(lambda: panel_registry_of(app))
     config_file = view.path
     if config_file is None:
         return
@@ -1214,6 +1281,7 @@ def _start_watchdogs(app: FastAPI, view: TerminalConfigView) -> None:
         config=config,
         build_dir=build_dir,
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
+        judge_grants=app.state.judge_grants,
     )
 
 
@@ -1905,12 +1973,13 @@ def _create_lifespan(
         app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
         app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
         app.state.visible_panels = panel_runtime.visible_panels
-        # What this deployment calls its built-in panels and which glyph each
-        # panel's sidebar row wears (web.panels.<id>.label / .icon). Resolved
-        # once: the page stamps both, and /api/panels answers from the same.
+        # What this deployment calls its built-in panels (web.panels.<id>.label),
+        # resolved once: the page stamps the labels, and /api/panels answers
+        # from the same. The blocks themselves are kept for the two stamps read
+        # per request, because a panel's `access` decides whose page names it:
+        # each panel's glyph (.icon) and the labels shown as written.
         app.state.panel_labels = panel_labels(panel_runtime.panels_config)
-        app.state.panel_icons = panel_icons(panel_runtime.panels_config)
-        app.state.authored_panel_labels = authored_panel_labels(panel_runtime.panels_config)
+        app.state.panels_config = panel_runtime.panels_config
         app.state.sidecar_panel_descriptors = sidecar_panel_descriptors(panel_runtime.panels_config)
 
         # Config-defined panel presets ("Layouts"): named sets of panel ids a
@@ -2253,7 +2322,7 @@ def create_app(
                 # module's array is built, so it cannot seed the roster.
                 "builtin_panel_labels": _state_panel_labels(request),
                 # The glyph each web.panels.<id>.icon names, for the same reason.
-                "panel_icons": getattr(request.app.state, "panel_icons", {}),
+                "panel_icons": panel_icons(_listed_panel_blocks(request)),
                 # The labels the deployment wrote, shown as written (no title case).
                 "authored_panel_labels": _state_authored_labels(request),
                 # The sidecar panels' descriptors, from the same registry: the
@@ -2294,7 +2363,7 @@ def create_app(
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
                 "builtin_panel_labels": _state_panel_labels(request),
-                "panel_icons": getattr(request.app.state, "panel_icons", {}),
+                "panel_icons": panel_icons(_listed_panel_blocks(request)),
                 # The labels the deployment wrote, shown as written (no title case).
                 "authored_panel_labels": _state_authored_labels(request),
                 "sidecar_panels": _state_sidecar_descriptors(request),

@@ -20,7 +20,9 @@ server registers only on some renders is added by a ``register(server)``
 function in its tools package, called by ``create_server()`` when the render
 qualifies (the pyAML tools of ``python_executor``); every such function is
 called here on a throwaway FastMCP, and the registry's
-``ServerDefinition.optional_tools`` must all be found that way.
+``ServerDefinition.optional_tools`` must all be found that way. A registrar
+that reads the render (``register(server, render_root)``) is handed an empty
+directory: the tool's name does not depend on what the render holds.
 ``create_server()`` itself is not called: it does config and workspace startup.
 """
 
@@ -29,8 +31,10 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib
+import inspect
 import pkgutil
 import re
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -81,8 +85,12 @@ def _registrable_tools(module: str) -> frozenset[str]:
     names = _names(server_mod.mcp)
     if registrars:
         probe = FastMCP(f"{module}-inventory-probe")
-        for register in registrars:
-            register(probe)
+        with tempfile.TemporaryDirectory() as empty_render:
+            for register in registrars:
+                if "render_root" in inspect.signature(register).parameters:
+                    register(probe, Path(empty_render))
+                else:
+                    register(probe)
         names |= _names(probe)
     return frozenset(names)
 

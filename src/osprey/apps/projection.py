@@ -13,9 +13,10 @@ what it returns through the same path a profile's ``services:`` entry takes.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from osprey.apps.agents import AppAgent
 from osprey.apps.errors import AppManifestError
 from osprey.apps.manifest import AppManifest, Container, Tools, launch_token_env
 from osprey.apps.rules import LoginSelection
@@ -40,6 +41,10 @@ APP_NAME_ENV = "OSPREY_APP_NAME"
 #: The condition of a ``shown_when: panel`` tool server is this prefix and the
 #: panel id: the render context key true when the render shows that panel.
 PANEL_CONDITION_PREFIX = "panel:"
+
+#: The panel keys that dress its sidebar row (glyph, tooltip, help page), the
+#: same three a sidecar panel's registry entry carries. Projected when declared.
+PANEL_PRESENTATION_KEYS = ("icon", "description", "help")
 
 #: The agent's interpreter, resolved by the registry when the server is rendered.
 _AGENT_PYTHON = "{current_python_env}"
@@ -92,7 +97,8 @@ def project_deployment(
                 "",
                 "missing_manifest",
                 f"the profile's apps: block names {name!r} but no "
-                f"{_APPS_DIR}/{name}/app.yml exists",
+                f"{_APPS_DIR}/{name}/app.yml exists and no installed package declares an "
+                "application of that name",
             )
         selected.append((manifest, profile_app or {}))
 
@@ -196,10 +202,30 @@ def login_skills(
     return pairs
 
 
+def login_agents(
+    manifests: Iterable[AppManifest],
+    agents: Mapping[str, Sequence[AppAgent]],
+    selection: LoginSelection,
+) -> list[tuple[str, AppAgent]]:
+    """The ``(application, agent)`` pairs one login's render carries.
+
+    An application's subagents reach the agent where its skills do: in each
+    render whose login shows the application.
+    """
+    pairs: list[tuple[str, AppAgent]] = []
+    for manifest in manifests:
+        shown = selection.apps.get(manifest.name)
+        if shown is not None and shown.shown:
+            pairs.extend((manifest.name, agent) for agent in agents.get(manifest.name, ()))
+    return pairs
+
+
 def project_login(
     manifests: Iterable[AppManifest],
     config: Mapping[str, Any],
     selection: LoginSelection,
+    *,
+    agents: Mapping[str, Sequence[AppAgent]] | None = None,
 ) -> dict[str, Any]:
     """Return what one login's render carries of its shown applications.
 
@@ -215,7 +241,8 @@ def project_login(
     audience, ``agent_routes`` lists every declared route and ``launch_token_env``
     names the panel's launch token when the manifest asks for one; on any other
     login ``agent_routes`` lists the safe-method routes only and no launch token
-    is named.
+    is named. ``access`` (who on the login sees and opens the panel, resolved at
+    build) is carried only when the login's entry spells one.
 
     Every shown application with ``tools:`` is projected as one facility server
     (``mcp_servers.<name>``, so its tools are ``mcp__<name>__<tool>``) running
@@ -229,11 +256,18 @@ def project_login(
     may not run: every tool of a ``deny_in_jobs`` application and every
     approval tool that binds fetched state. That list is always present.
 
+    Every shown application with subagents (*agents*, as
+    :func:`~osprey.apps.loader.check_deployment` read them) carries
+    ``apps.<name>.agents.<agent>: {description, delegation}``, the delegation
+    note with its delegated tools named in the brief's form; an application of
+    subagents and no tools carries that key alone.
+
     Args:
         manifests: The deployment's validated manifests.
         config: The rendered-config mapping, holding ``services.<key>.port`` for
             each projected container.
         selection: This login's selection.
+        agents: Each application's checked subagents, by application name.
 
     Returns:
         ``{"web": {"panels": {<id>: dict}}, "web_panels": [<id>, ...],
@@ -268,8 +302,6 @@ def project_login(
             "url": f"http://{_LOOPBACK}:{port}",
             "path": panel.entry,
         }
-        if panel.icon is not None:
-            block["icon"] = panel.icon
         if shown.panel_hidden:
             block["hidden"] = True
         health = manifest.containers[panel.container].health
@@ -285,14 +317,30 @@ def project_login(
             block["launch_token_env"] = launch_token_env(manifest.name)
         if "read_timeout_s" in panel.model_fields_set:
             block["read_timeout_s"] = panel.read_timeout_s
+        for key in PANEL_PRESENTATION_KEYS:
+            value = getattr(panel, key)
+            if value is not None:
+                block[key] = value
+        if shown.access is not None:
+            block["access"] = shown.access
         panels[panel.id] = block
     servers: dict[str, Any] = {}
     apps: dict[str, Any] = {}
     denied: list[str] = []
+    shown_agents: dict[str, dict[str, Any]] = {}
+    for app, agent in login_agents(manifests, agents or {}, selection):
+        shown_agents.setdefault(app, {})[agent.name] = {
+            "description": agent.description,
+            "delegation": agent.brief_note(),
+        }
     for manifest in manifests:
         tools = manifest.tools
         shown = selection.apps.get(manifest.name)
-        if tools is None or shown is None or not shown.shown:
+        if shown is None or not shown.shown:
+            continue
+        if tools is None:
+            if manifest.name in shown_agents:
+                apps[manifest.name] = {"agents": shown_agents[manifest.name]}
             continue
         servers[manifest.name] = _project_server(manifest, tools)
         errors = _tool_errors(tools)
@@ -312,6 +360,8 @@ def project_login(
             },
             "tools": {"read": list(tools.read), "errors": errors},
         }
+        if manifest.name in shown_agents:
+            apps[manifest.name]["agents"] = shown_agents[manifest.name]
         denied.extend(f"mcp__{manifest.name}__{tool}" for tool in _denied_in_jobs(tools))
     return {
         "web": {"panels": panels},

@@ -40,6 +40,8 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
+from tests.interfaces._browser import wait_for_page_ready
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
@@ -131,6 +133,7 @@ def page(context):
 
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f"{_TREE} .osprey-tree-session").first).to_be_visible(timeout=_TIMEOUT_MS)
 
 
@@ -414,6 +417,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
 
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
 
 
@@ -458,9 +462,13 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     _wait_for(lambda: any(t.prompt == "Check the beam current." for t in hub.chat.turns))
     (first,) = [t for t in hub.chat.turns if t.prompt == "Check the beam current."]
     before = first.transcript_id
+    # The new session's first summary is read before the upload and answered only
+    # after the upload's frames reached the tree: an answer older than the frames.
+    held = _hold_first_summary(page, known={before, *(s.transcript_id for s in SEEDED_SESSIONS)})
     _send(page, "/clear")
     _wait_for(lambda: any(t.prompt.startswith("/clear") for t in hub.chat.turns))
     (cleared,) = [t for t in hub.chat.turns if t.prompt.startswith("/clear")]
+    _until_held(page, held)
 
     png = tmp_path / "screen.png"
     png.write_bytes(_PNG)
@@ -477,6 +485,17 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
 
     sid = cleared.transcript_id
     expect(_session(page, sid)).to_have_count(1, timeout=_TIMEOUT_MS)
+    # The turn's reply and the upload, counted from their frames alone.
+    expect(_session(page, sid).locator(".osprey-tree-n")).to_have_text("2", timeout=_TIMEOUT_MS)
+    (route, answer) = held
+    assert answer.json()["counts"][sid]["total"] == 0, "the held answer was read before the upload"
+    # The stale answer does not undo the frames: the session is asked again.
+    with page.expect_request(
+        lambda r: r.url.endswith("/api/artifacts/session-summary") and sid in (r.post_data or ""),
+        timeout=_TIMEOUT_MS,
+    ):
+        route.fulfill(response=answer)
+    expect(_session(page, sid).locator(".osprey-tree-n")).to_have_text("2", timeout=_TIMEOUT_MS)
     _open_session(page, sid)
     _open_group(page, sid, "images")
     image = page.locator(f'{_TREE} [data-session-box="{sid}"] .osprey-list-row', has_text="screen")
@@ -492,6 +511,34 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     _open_all(page)
     old = page.locator(f'{_TREE} [data-session-box="{before}"] .osprey-list-row', has_text="screen")
     expect(old).to_have_count(0)
+
+
+def _hold_first_summary(page: Page, known: set[str]) -> list:
+    """Hold the first session summary that names a session outside *known*.
+
+    The summary is read from the server when it is asked, and the page gets that
+    answer only when the test fulfils it; every other summary goes straight
+    through. The list fills with ``(route, answer)`` once one is held.
+    """
+    held: list = []
+
+    def handle(route) -> None:  # runs while the test is inside a page call
+        sessions = set(json.loads(route.request.post_data or "{}").get("sessions", []))
+        if held or not sessions - known:
+            route.continue_()
+            return
+        held.extend((route, route.fetch()))
+
+    page.route("**/api/artifacts/session-summary", handle)
+    return held
+
+
+def _until_held(page: Page, held: list) -> None:
+    """Stay in page calls, so the route handler runs, until a summary is held."""
+    deadline = time.monotonic() + _TIMEOUT_MS / 1000
+    while not held:
+        assert time.monotonic() < deadline, "the new session's summary was never asked"
+        page.wait_for_timeout(100)
 
 
 def _wait_for(predicate, timeout_s: float = 20.0) -> None:
@@ -536,6 +583,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     # Reload: the same session, the artifact shown in the docked panel.
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
     expect(_row(page, profile.id)).to_have_attribute("aria-selected", "true", timeout=_TIMEOUT_MS)
 
@@ -562,6 +610,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     page.evaluate("() => localStorage.removeItem('osprey-pty-session')")
     authorize_browser_context(page.context)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
 
     # The pen button opens a new session, and a reload stays on it.
@@ -572,6 +621,7 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     minted = _pointer(page)
     _settle_pointer(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
 
 
@@ -592,6 +642,7 @@ def test_without_a_docked_artifacts_panel_page_load_only_reveals(hub, page):
     _remove_artifacts_from_rail(page)
     page.wait_for_timeout(1500)  # the layout and the pointer are written debounced
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
     # The layout is left as it was: the Artifacts tile is not docked again.
     page.wait_for_timeout(1000)
@@ -866,6 +917,7 @@ def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
     with page.expect_popup() as info:
         page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
     popup = info.value
+    wait_for_page_ready(popup)
     frame = popup.frame_locator(_ARTIFACTS_FRAME)
     expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(frame.locator("#preview-empty")).to_be_hidden()
@@ -915,7 +967,9 @@ def test_the_window_shows_the_viewer_even_when_the_type_registry_answers_last(hu
     page.context.route("**/api/type-registry", _registry_last)
     with page.expect_popup() as info:
         page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
-    frame = info.value.frame_locator(_ARTIFACTS_FRAME)
+    window = info.value
+    wait_for_page_ready(window)
+    frame = window.frame_locator(_ARTIFACTS_FRAME)
     expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
 
 
@@ -988,6 +1042,7 @@ def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
     assert _store(hub).get_entry(profile.id) is None
 
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )

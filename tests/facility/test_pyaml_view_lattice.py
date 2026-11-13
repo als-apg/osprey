@@ -18,12 +18,10 @@ import numpy as np
 import pytest
 import yaml
 
+from osprey.apps.sdk.testing import calibrated_setting, measured_sr_deck, model
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
 from tests.facility._pyaml_trees import (
-    _setting,
-    _sr,
-    _sr_deck,
     measured_tree,
     view_inputs,
     with_correctors,
@@ -157,7 +155,7 @@ def _sr_deck_with_a_thin_multipole(kick: tuple[float, float]) -> Deck:
     """SR's deck with TCOR, a zero-length multipole kicking by ``kick``, after SCOR."""
 
     def elements(at: Any) -> list[Any]:
-        found = _sr_deck().elements(at)
+        found = measured_sr_deck().elements(at)
         (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
         thin = at.ThinMultipole("TCOR", [0.0, 0.0], [0.0, 0.0], KickAngle=list(kick))
         return [*found[:after], thin, *found[after:]]
@@ -184,9 +182,9 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
     for group in tree["records/groups.yaml"]:
         if group["id"] in ("SR/HCM", "SR/VCM"):
             group["members"].append("SR/COR2")
-    _sr(tree)["wiring"] += [
-        _setting("TCOR:H:SP", "KickAngle", 0, element="TCOR"),
-        _setting("TCOR:V:SP", "KickAngle", 1, element="TCOR"),
+    model(tree, "SR")["wiring"] += [
+        calibrated_setting("TCOR:H:SP", "KickAngle", 0, element="TCOR"),
+        calibrated_setting("TCOR:V:SP", "KickAngle", 1, element="TCOR"),
     ]
 
     directory, _ = write_view(tmp_path, tree)

@@ -13,7 +13,12 @@ import json
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from osprey.cli.validate_claude_artifacts import (
+    _normalised_text,
+    _parse_frontmatter,
+    _unreadable_frontmatter,
     agent_file_models,
     agent_model_pin_errors,
     validate_agent_tools_against_permissions,
@@ -228,3 +233,174 @@ def test_a_pin_on_an_agent_file_with_no_model_line_is_refused(tmp_path):
 
     assert len(errors) == 1
     assert "(it has no model: line)" in errors[0]
+
+
+# --- the frontmatter block: it closes on a line that is exactly --- ---------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "---\nname: a\n---\nbody\n",
+        "---\nname: a\n---",
+        "---\nname: a\n---\nbody\n\n---\n\nmore\n",
+    ],
+    ids=["plain", "close-at-end-of-file", "horizontal-rule-in-body"],
+)
+def test_the_block_closes_on_an_exact_line(text):
+    assert _parse_frontmatter(text) == {"name": "a"}
+    assert not _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "line", ["---x: 1", "--- x: 1", "----"], ids=["dashes-then-text", "dashes-space-text", "four"]
+)
+def test_a_line_starting_with_dashes_does_not_close_the_block(line):
+    text = f"---\nname: a\n{line}\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) != {"name": "a"}
+    assert _unreadable_frontmatter(text)
+
+
+def test_a_block_no_exact_line_closes_is_unreadable():
+    text = "---\nname: a\nhooks: 1\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize("text", ["# title\n\nbody\n", "body\n---\nname: a\n---\n", ""])
+def test_text_that_opens_no_block_has_none(text):
+    assert _parse_frontmatter(text) is None
+    assert not _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "first",
+    ["----", "---x: 1", "\ufeff---", "---\u00a0", "---\f", "---\v", "---\r", " ---"],
+    ids=[
+        "four",
+        "dashes-then-text",
+        "byte-order-mark",
+        "no-break-space",
+        "form-feed",
+        "vertical-tab",
+        "carriage-return",
+        "leading-space",
+    ],
+)
+def test_a_first_line_a_looser_reader_opens_on_is_unreadable(first):
+    text = f"{first}\nname: a\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "line", ["---\u00a0", " ---", "---\f", "\u00a0---"], ids=["nbsp", "space", "ff", "nbsp-first"]
+)
+def test_a_closing_candidate_inside_the_block_is_unreadable(line):
+    text = f"---\nname: a\n{line}\nhooks: 1\n---\nbody\n"
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["--- \nname: a\n---\nbody\n", "---\nname: a\n---\t\nbody\n---\nmore\n"],
+    ids=["opening-trailing-space", "closing-trailing-tab"],
+)
+def test_a_delimiter_with_trailing_blanks_is_unreadable(text):
+    assert _unreadable_frontmatter(text)
+
+
+def _read_back(tmp_path: Path, raw: bytes) -> str:
+    path = tmp_path / "SKILL.md"
+    path.write_bytes(raw)
+    return _normalised_text(path)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"---\rhooks: {}\n---\n",
+        b"---\nname: x\rhooks: {}\n---\nbody\n",
+        b"---\nname: x\n---\rhooks: {}\n---\nbody\n",
+    ],
+    ids=["opening-line", "inside-the-block", "closing-line"],
+)
+def test_a_lone_carriage_return_in_the_frontmatter_is_unreadable(tmp_path, raw):
+    """The check sees the characters the copy carries: a lone CR is not a line end to it."""
+    assert _unreadable_frontmatter(_read_back(tmp_path, raw))
+
+
+def test_crlf_line_endings_with_exact_delimiters_read(tmp_path):
+    text = _read_back(tmp_path, b"---\r\nname: a\r\nmodel: m\r\n---\r\nbody\r\n")
+    assert not _unreadable_frontmatter(text)
+    assert _parse_frontmatter(text) == {"name": "a", "model": "m"}
+
+
+@pytest.mark.parametrize(
+    "body", [b"one\rtwo\n", b"--- \nmore\n"], ids=["lone-carriage-return", "trailing-blanks"]
+)
+def test_the_body_after_a_closed_block_stays_readable(tmp_path, body):
+    text = _read_back(tmp_path, b"---\nname: a\n---\n" + body)
+    assert not _unreadable_frontmatter(text)
+    assert _parse_frontmatter(text) == {"name": "a"}
+
+
+def test_an_agent_file_with_a_byte_order_mark_is_audited(tmp_path):
+    """The audit reads the frontmatter the loader reads, byte-order mark or not."""
+    project = _write_project(
+        tmp_path, allow=[], ask=[], agent_tools="mcp__nonexistent__phantom, Read"
+    )
+    agent = project / ".claude" / "agents" / "specialist.md"
+    agent.write_bytes(b"\xef\xbb\xbf" + agent.read_bytes().replace(b"\n", b"\r\n"))
+
+    errors = validate_agent_tools_against_permissions(project)
+
+    assert any("mcp__nonexistent__phantom" in e for e in errors), errors
+    assert agent_file_models(agent.parent) == {"specialist": None}
+
+
+def test_an_agent_file_with_unreadable_frontmatter_is_reported(tmp_path):
+    project = _write_project(tmp_path, allow=[], ask=[], agent_tools="Read")
+    agent = project / ".claude" / "agents" / "specialist.md"
+    agent.write_text(
+        "---\u00a0\nname: specialist\ntools: mcp__nonexistent__phantom\n---\n", encoding="utf-8"
+    )
+
+    errors = validate_agent_tools_against_permissions(project)
+
+    assert len(errors) == 1, errors
+    assert "specialist.md" in errors[0] and "does not parse as a YAML mapping" in errors[0]
+
+
+@pytest.mark.parametrize(
+    "lead",
+    ["\n", "\n\n", " \n", " \n", "﻿\n", "\t\n  "],
+    ids=["blank-line", "two-blank-lines", "spaces", "no-break-space", "byte-order-mark", "mixed"],
+)
+def test_a_block_a_stripping_reader_opens_is_unreadable(lead):
+    """A reader that strips the file first opens a block after leading blank lines."""
+    text = f"{lead}---\nname: a\nhooks: 1\n---\nbody\n"
+    assert _parse_frontmatter(text) is None
+    assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "char",
+    ["\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", " ", " "],
+    ids=["vt", "ff", "fs", "gs", "rs", "nel", "line-separator", "paragraph-separator"],
+)
+def test_a_line_break_other_than_newline_in_the_block_is_unreadable(char):
+    """A reader that splits on every line break sees other lines than this one does."""
+    text = f"---\nname: a{char}hooks: 1\n---\nbody\n"
+    assert _unreadable_frontmatter(text)
+
+
+def test_a_line_break_other_than_newline_in_the_body_is_readable():
+    text = "---\nname: a\n---\nbody more\fend\n"
+    assert _parse_frontmatter(text) == {"name": "a"}
+    assert not _unreadable_frontmatter(text)
+
+
+def test_a_markdown_rule_after_text_stays_readable():
+    text = "# title\n\nbody\n\n---\n\nmore\n"
+    assert not _unreadable_frontmatter(text)

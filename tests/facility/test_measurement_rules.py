@@ -394,26 +394,35 @@ def test_a_kind_is_carried_into_the_facility_file_as_authored(tmp_path: Path) ->
 
 
 def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> None:
-    """Every kind, group, instrument and step key the schema allows, the view reads; and no other.
+    """Every step key the schema allows, a built-in kind reads; every shipped role, one uses.
 
-    The schema states what a measurement file may say and the pyAML view writer
-    states what it reads; a word one has and the other lacks is either a
-    measurement nobody can run or one nobody can author.
+    The schema states what a measurement file may say and the built-in kinds
+    state what they read; a word one has and the other lacks is either a
+    measurement nobody can run or one nobody can author. ``kinds``, ``groups``
+    and ``instruments`` are open slots the registry judges: the schema lists
+    no kind and no role, the view ships its roles' sorts and a registered kind
+    states its own.
     """
     import yaml
 
-    from osprey.facility.views.pyaml import GROUP_ROLES, KIND_MEMBERS, TOOL_KEYS
+    from osprey.facility.kinds import SHIPPED_SORTS, builtin_kinds
+    from osprey.facility.views.pyaml import GROUP_ROLES
 
     schema_path = Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/core.yaml"
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     measurement = schema["classes"]["Measurement"]["attributes"]
-    kinds = set(schema["enums"]["measurement_kind_enum"]["permissible_values"])
-    groups = set(schema["classes"]["MeasurementGroups"]["attributes"])
-    instruments = set(schema["classes"]["MeasurementInstruments"]["attributes"])
-    keys = set(measurement) - {"kinds", "groups", "instruments"}
+    keys = set(measurement) - {"kinds", "groups", "instruments", "kind_blocks"}
+    declared = builtin_kinds()
 
-    members = {member for needed in KIND_MEMBERS.values() for member in needed}
-    assert kinds == set(KIND_MEMBERS) == set(TOOL_KEYS)
-    assert groups == set(GROUP_ROLES)
-    assert instruments == members - set(GROUP_ROLES)
-    assert keys == {key for needed in TOOL_KEYS.values() for key in needed}
+    members = {member for kind in declared.values() for member in kind.members}
+    for slot in ("kinds", "groups", "instruments"):
+        assert measurement[slot].get("range") in (None, "Any"), slot
+    assert not any(
+        name.startswith("Measurement") and name != "Measurement" for name in schema["classes"]
+    )
+    assert not any("kind" in name for name in schema["enums"])
+    assert set(declared) == {"orm", "dispersion", "trm", "crm", "chromaticity_monitor"}
+    assert members == set(SHIPPED_SORTS)
+    assert not any(kind.member_sorts for kind in declared.values())
+    assert set(GROUP_ROLES) == {r for r, sort in SHIPPED_SORTS.items() if sort != "instrument"}
+    assert keys == {key for kind in declared.values() for key in kind.tool_keys}

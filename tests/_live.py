@@ -28,21 +28,25 @@ __all__ = ["async_wait_until", "wait_until"]
 def wait_until(
     probe: Callable[[], T],
     *,
-    timeout: float = 10.0,
+    timeout: float | None = 10.0,
     interval: float = 0.05,
     what: str = "condition",
 ) -> T:
     """Call *probe* until it returns a truthy value, and return that value.
 
+    ``timeout=None`` waits with no wall-clock budget, for a state the code under
+    test reaches on its own however slowly a loaded host runs it (a child that
+    exits, a supervisor that gives up); the per-test timeout is the hang breaker.
+
     Raises:
         AssertionError: *probe* stayed falsy for *timeout* seconds.
     """
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout is None else time.monotonic() + timeout
     while True:
         value = probe()
         if value:
             return value
-        if time.monotonic() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             raise AssertionError(f"{what} not reached within {timeout:g} s (last: {value!r})")
         time.sleep(interval)
 
