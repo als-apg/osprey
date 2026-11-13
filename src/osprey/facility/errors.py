@@ -69,6 +69,7 @@ WARNING_KINDS: tuple[str, ...] = (
     "part-cycle",
     "relation-stub",
     "place-unplaced",
+    "members-disagree",
 )
 
 

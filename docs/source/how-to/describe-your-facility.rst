@@ -253,7 +253,10 @@ the fields its source states.
 The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
 field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
-settles it (see `Fixes`_).
+settles it (see `Fixes`_). A group's ``members`` are the exception: the group
+carries every member any layer states, and layers that state different members
+get a ``members-disagree`` warning naming which source states which member,
+until they agree or a ``set`` fix names ``members``.
 
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
@@ -423,8 +426,8 @@ replaced. The rules:
   ``BR/RK01`` above, so one name may repeat under several parents. The build
   reports a place created top-level with no citation with ``place-unplaced``.
 * **Members.** The members table creates a group no other source has. A row
-  for another source's group is accepted only when that group already holds
-  the member, and changes nothing.
+  naming a member another source's group lacks adds it: the layer then states
+  that group too, with every member its rows name.
 * **Names.** The names table names only the stub devices and the places this
   layer creates. A name for a record the authored file or another layer
   states, or for a group, is refused.

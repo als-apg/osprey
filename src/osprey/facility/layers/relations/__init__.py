@@ -25,9 +25,9 @@ locator or the ``imported`` date (p5-r5); the import never reads the clock.
 
 The ``places`` table creates places under the authored places and its own rows,
 never under another imported layer's places (p5-r1). The ``members`` table
-creates a group no other source has; a row for another source's group is
-accepted only when that group already holds the member, and is written
-nowhere (p5-r3). The ``names`` table names only the stub devices and places
+creates a group no other source has; a row naming a member another source's
+group lacks makes the layer state that group too, and the group carries every
+member any source states. The ``names`` table names only the stub devices and places
 this layer creates (p5-r4). Every end and name resolves against the whole
 facility bar the layer being replaced.
 

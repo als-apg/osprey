@@ -1204,6 +1204,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility:place/<id>``, no place), prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   A group whose sources state different members prints one
+   ``members-disagree`` warning naming which source states which member; the
+   group carries them all.
    Relation claims print, in both commands and with the exit code unchanged,
    one ``relation-contested`` warning per key a dispute leaves unsettled, one
    ``relation-coarse`` per relation type with coarse claims, one

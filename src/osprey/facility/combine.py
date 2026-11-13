@@ -9,7 +9,9 @@ list.
 
 Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
 the conflict check runs over what is left: two present unequal values on a
-field no ``set`` names stop the build (``layer-conflict``). Last, the schema
+field no ``set`` names stop the build (``layer-conflict``), but a group carries
+every member any source states (``UNIONED``), and ``members-disagree`` warns
+when the sources differ. Last, the schema
 defaults are filled and recorded in each record's provenance: a channel that
 states no description but names a signal is given one composed from its
 owner, its signal and its unit, recorded as a default; a setpoint that
@@ -48,14 +50,14 @@ does not depend on the order of fixes.yaml.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import add_defaults, build_provenance
 from osprey.facility.sources import (
@@ -77,6 +79,7 @@ __all__ = [
     "FIXES_FILE",
     "FIXES_HEADER",
     "SET_VALUED",
+    "UNIONED",
     "CombineResult",
     "combine",
 ]
@@ -93,6 +96,10 @@ SET_VALUED: dict[str, frozenset[str]] = {
     - COMPUTED_SLOTS[kind]
     for kind in RECORD_FILES.values()
 }
+
+#: The set slots a layer adds to, per record kind: the record carries every
+#: entry any source states, where every other field must agree across sources.
+UNIONED: dict[str, frozenset[str]] = {"group": frozenset({"members"})}
 
 _OPS = ("set", "add", "drop")
 _KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
@@ -171,11 +178,14 @@ class CombineResult:
         dropped: ``(kind, id)`` of each record a ``drop`` removed, to the fix
             that removed it (a channel's or model's wiring records name the
             channel's or model's fix).
+        warnings: One ``members-disagree`` per group whose sources state
+            different members, sorted by group id.
     """
 
     document: dict[str, Any]
     errors: list[FacilityBuildError]
     dropped: dict[tuple[str, str], dict[str, Any]]
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
 
 
 def combine(sources: Sources) -> CombineResult:
@@ -189,7 +199,9 @@ def combine(sources: Sources) -> CombineResult:
         ``fix-stale``, ``fix-duplicate``, ``fix-computed``, ``fix-authored``,
         ``fix-referenced``, ``layer-conflict``, ``source-invalid`` for a
         fixes.yaml entry of the wrong shape, and ``value-invalid`` for a kind's
-        settings transform that fails or patches a setting already stated.
+        settings transform that fails or patches a setting already stated. A
+        group's ``members`` are the union of what its sources state; sources
+        that differ warn ``members-disagree`` unless a fix names the field.
     """
     return _Combiner(sources).run()
 
@@ -264,6 +276,20 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     return value, frozenset()
 
 
+def _unioned(kind: str, name: str, values: Sequence[_Value]) -> bool:
+    """Whether the sources' values of a field are joined: a ``UNIONED`` slot stated as lists."""
+    return name in UNIONED.get(kind, ()) and all(isinstance(v.value, list) for v in values)
+
+
+def _union(kind: str, name: str, values: Sequence[_Value]) -> Any:
+    """Every entry any source states, each once, in the slot's compared order."""
+    entries: dict[str, Any] = {}
+    for stated in values:
+        for entry in stated.value:
+            entries.setdefault(f"{type(entry).__name__}:{entry!r}", entry)
+    return _normalize(kind, name, list(entries.values()))[0]
+
+
 def _id_key(kind: str) -> str:
     return "name" if kind == "model" else "id"
 
@@ -274,6 +300,7 @@ class _Combiner:
         self.errors: list[FacilityBuildError] = []
         self.records: dict[tuple[str, str], _Record] = {}
         self.dropped: dict[tuple[str, str], dict[str, Any]] = {}
+        self.warnings: list[FacilityBuildWarning] = []
 
     def run(self) -> CombineResult:
         fixes = self._parse_fixes()
@@ -294,7 +321,7 @@ class _Combiner:
         document = self._emit()
         if not self.errors:
             self._patch_settings(document)
-        return CombineResult(document, self.errors, self.dropped)
+        return CombineResult(document, self.errors, self.dropped, self.warnings)
 
     # --- fixes.yaml shape -----------------------------------------------------
 
@@ -730,6 +757,9 @@ class _Combiner:
                 values = record.values[name]
                 if all(_same(values[0].value, v.value) for v in values[1:]):
                     continue
+                if _unioned(record.kind, name, values):
+                    self._members_disagree(record, values)
+                    continue
                 shown = "; ".join(f"{v.layer}={_show(v.value)}" for v in values)
                 self.errors.append(
                     FacilityBuildError(
@@ -742,6 +772,33 @@ class _Combiner:
                     )
                 )
 
+    def _members_disagree(self, record: _Record, values: list[_Value]) -> None:
+        """Warn that a group's sources state different members, naming who states which."""
+        stated = {v.file or FIXES_FILE: {str(member) for member in v.value} for v in values}
+        files = sorted(stated)
+        differing = []
+        for member in sorted(set().union(*stated.values())):
+            has = [file for file in files if member in stated[file]]
+            lacks = [file for file in files if member not in stated[file]]
+            if lacks:
+                differing.append(f"{member} in {', '.join(has)}, not in {', '.join(lacks)}")
+        total = len(set().union(*stated.values()))
+        self.warnings.append(
+            FacilityBuildWarning(
+                kind="members-disagree",
+                record_kind=record.kind,
+                record_id=record.id,
+                detail=(
+                    f"sources state different `members`: {'; '.join(differing)}; "
+                    f"the group carries all {total}"
+                ),
+                remedy=(
+                    "state the same members in each source, or add a `set` fix for "
+                    "`members` to fixes.yaml"
+                ),
+            )
+        )
+
     # --- emission ---------------------------------------------------------------
 
     def _merged(self, record: _Record) -> tuple[dict[str, Any], set[str]]:
@@ -750,7 +807,10 @@ class _Combiner:
         for name in sorted(set(record.values) | set(record.set_fields)):
             chosen = record.set_fields.get(name)
             candidates = [chosen] if chosen is not None else record.values[name]
-            fields[name] = copy.deepcopy(candidates[0].value)
+            if chosen is None and _unioned(record.kind, name, candidates):
+                fields[name] = _union(record.kind, name, candidates)
+            else:
+                fields[name] = copy.deepcopy(candidates[0].value)
             if name == "slices" and frozenset.intersection(*(c.filled for c in candidates)):
                 defaults.add("slices.weight")
         return fields, defaults

@@ -126,6 +126,26 @@ class TestWrite:
         assert "cables" in result.sources.relations_layers
 
 
+class TestMemberOfAnotherSourcesGroup:
+    def test_the_layer_states_the_group_and_the_build_carries_the_union(
+        self, tmp_path: Path
+    ) -> None:
+        facility = _tree(tmp_path)
+        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,PS1\n")
+        import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", members=members)
+        written = yaml.safe_load((facility / "imported/cables/groups.yaml").read_text())
+        assert written == [{"id": "QUADS", "members": ["PS1"]}]
+        from osprey.facility.combine import combine
+        from osprey.facility.sources import load_sources
+
+        loaded = load_sources(facility)
+        assert loaded.errors == []
+        combined = combine(loaded.sources)
+        assert combined.errors == []
+        assert combined.document["groups"][0]["members"] == ["PS1", "QF1", "QF2"]
+        assert [w.kind for w in combined.warnings] == ["members-disagree"]
+
+
 class TestReplace:
     def test_stale_file_of_the_previous_import_is_gone(self, tmp_path: Path) -> None:
         facility = _tree(tmp_path)
@@ -209,12 +229,12 @@ class TestRefused:
         facility = _tree(tmp_path)
         before = _snapshot(facility)
         bad = _relations(tmp_path, "powered_by,NOSUCH,PS1,,,,,,\n")
-        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,PS1\n")
+        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,NOPE\n")
         with pytest.raises(LayerSourceInvalid) as caught:
             import_relations(bad, facility, "cables", members=members)
         text = "\n".join(e.format_message() for e in caught.value.errors)
         assert "NOSUCH" in text
-        assert "QUADS" in text or "PS1" in text
+        assert "NOPE" in text
         assert _snapshot(facility) == before
 
 
