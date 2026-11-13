@@ -175,7 +175,8 @@ def page_references(bundle: Any, records: Any) -> dict[tuple[str, str], list[str
 
     Returns:
         ``{(kind, id): [concept id, ...]}`` for every record a page's facility
-        link resolves to, the concept ids sorted. A page that cannot be read
+        link resolves to (a ``place/<id>`` link to its place), the concept ids
+        sorted. A page that cannot be read
         names nothing.
     """
     from osprey.facility.references import find_facility_links
@@ -187,10 +188,8 @@ def page_references(bundle: Any, records: Any) -> dict[tuple[str, str], list[str
         except Exception:  # an unreadable page names nothing; the reader reports it.
             continue
         for link in find_facility_links(body, records):
-            for record in records.describe(link.target) or ():
-                pages.setdefault((str(record["kind"]), str(record["id"])), set()).add(
-                    entry.concept_id
-                )
+            for record in records.resolve_link(link.target):
+                pages.setdefault((record.kind, record.id), set()).add(entry.concept_id)
     return {key: sorted(found) for key, found in pages.items()}
 
 

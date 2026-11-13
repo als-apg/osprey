@@ -3,7 +3,8 @@
 A page under ``data/facility/knowledge`` links the facility two ways. The
 ``device_id`` key of its frontmatter names a device, and a
 ``[label](facility:ADDRESS)`` link in its body names a channel id or a device
-id. Every link resolves through :class:`~osprey.facility.records.FacilityRecords`;
+id, or a place as ``facility:place/<id>``. Every link resolves through
+:class:`~osprey.facility.records.FacilityRecords`;
 a frontmatter id that is no device id, or a body link that resolves to no
 record, is a dangling link: the build names it and goes on. A page whose
 frontmatter does not parse links nothing.
@@ -18,7 +19,7 @@ from typing import Any, Literal
 
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import PLACE_LINK_PREFIX, FacilityRecords
 from osprey.facility.references import LINK_SCHEME, FacilityReference, find_facility_links
 from osprey.facility.validate import Validated, need
 
@@ -99,7 +100,7 @@ def check_knowledge_links(validated: Validated) -> list[FacilityBuildError]:
 
     Both link forms warn the same kind: a frontmatter ``device_id`` that is no
     device id, and a body ``[label](facility:ADDRESS)`` link whose target is no
-    channel id or device id. The stage warns and never stops: each dangling
+    channel id or device id, or whose ``place/<id>`` names no place. The stage warns and never stops: each dangling
     link appends one ``link-dangling`` warning to ``validated.warnings``, in
     page order.
 
@@ -120,6 +121,11 @@ def check_knowledge_links(validated: Validated) -> list[FacilityBuildError]:
         else:
             named = f"{LINK_SCHEME}:{link.target}"
             remedy = "link a channel id or a device id of the facility file, or remove the link"
+            if link.target.startswith(PLACE_LINK_PREFIX):
+                remedy = (
+                    f"link a place id of the facility file as {LINK_SCHEME}:"
+                    f"{PLACE_LINK_PREFIX}<id>, or remove the link"
+                )
         validated.warnings.append(
             FacilityBuildWarning(
                 kind="link-dangling",

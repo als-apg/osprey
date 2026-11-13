@@ -170,6 +170,24 @@ def test_pages_are_attached_to_the_nodes_they_name(ttl, tmp_path):
     assert "pages" not in nodes["M/Q1"]
 
 
+def test_a_place_link_attaches_its_page_to_the_place(ttl, tmp_path):
+    bundle_dir = tmp_path / "bundle"
+    (bundle_dir / "places").mkdir(parents=True)
+    (bundle_dir / "places" / "sector.md").write_text(
+        "---\ntype: place\ntitle: Sector\ndescription: A sector.\n---\n\n"
+        "In [sector 1](facility:place/M/S1), not [S9](facility:place/M/S9).\n",
+        encoding="utf-8",
+    )
+    from osprey.services.facility_knowledge.okf.bundle import OKFBundle
+
+    pages = page_references(OKFBundle(bundle_dir), FacilityRecords(_doc()))
+
+    assert pages == {("place", "M/S1"): ["places/sector"]}
+    nodes = _by_label(attach_pages(read_graph(ttl), pages))
+    assert nodes["M/S1"]["pages"] == ["places/sector"]
+    assert "pages" not in nodes["M"]
+
+
 # ---------------------------------------------------------------------------
 # The panel serving it
 # ---------------------------------------------------------------------------
