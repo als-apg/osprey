@@ -742,7 +742,8 @@ def test_a_name_arrives_live_and_rename_reverts_and_the_switcher_switches(hub, p
     row = _active(page)
     expect(row).to_contain_text("naming…", timeout=_TIMEOUT_MS)
     title = row.locator(".osprey-tree-title")
-    expect(title).to_have_text("Named: Measure the beam lifetime", timeout=_TIMEOUT_MS)
+    # The seam answers "Named:" and four words of the prompt; the namer keeps four words.
+    expect(title).to_have_text("Named: Measure the beam", timeout=_TIMEOUT_MS)
     expect(row).not_to_contain_text("naming…")
     hub.naming.delay_s = 0.0
 
@@ -759,7 +760,7 @@ def test_a_name_arrives_live_and_rename_reverts_and_the_switcher_switches(hub, p
     rename.press("Enter")
     expect(title).to_have_text("Beam check", timeout=_TIMEOUT_MS)
     _menu(page, row, "Use automatic name")
-    expect(title).to_have_text("Named: Measure the beam lifetime", timeout=_TIMEOUT_MS)
+    expect(title).to_have_text("Named: Measure the beam", timeout=_TIMEOUT_MS)
 
     # The switcher lists the sessions and switches the Agent.
     page.locator("span.op-session-label").click()
@@ -926,7 +927,7 @@ def test_palette_find_enters_a_session_and_delete_asks_first(hub, page):
     _boot(page, hub)
     # Named or still under its first prompt, the session's title carries this text;
     # the name arriving live is test_a_name_arrives_live_..., not this test's subject.
-    title = "Check the RF cavity"
+    title = "Check the RF"
     expect(_session(page, _RF_FIRST.transcript_id).locator(".osprey-tree-title")).to_contain_text(
         title, timeout=_TIMEOUT_MS
     )
