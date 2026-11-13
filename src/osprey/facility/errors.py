@@ -68,6 +68,8 @@ WARNING_KINDS: tuple[str, ...] = (
     "identity-ambiguous",
     "part-cycle",
     "relation-stub",
+    "place-parents-disagree",
+    "place-unplaced",
 )
 
 

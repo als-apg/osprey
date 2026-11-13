@@ -18,7 +18,7 @@ The tree the loader reads::
     imported/<layer>/         places, devices, channels, groups, relations and
                               models files written by one importer, beside the
                               layer's own files (mapping.yaml), which the build
-                              never reads
+                              never reads; a relations.csv marks a relations layer
 
 ``records/`` and ``models.yaml`` merge as the layer ``authored``; each directory
 under ``imported/`` is the layer of that name. A layer writes only the fields
@@ -52,6 +52,7 @@ __all__ = [
     "KIND_CLASS",
     "LAYER_OWN_FILES",
     "RECORD_FILES",
+    "RELATIONS_MARK",
     "SET_VALUED_SLOTS",
     "LoadResult",
     "SourceRecord",
@@ -79,6 +80,10 @@ RECORD_FILES: dict[str, str] = {
 #: The files a layer keeps for itself under its directory: a layer's own
 #: decisions file is read by that layer's importer, never by the build.
 LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
+
+#: The table the relations importer always copies into its layer; a layer
+#: directory holding it is a relations layer.
+RELATIONS_MARK = "relations.csv"
 
 #: The slots the build alone writes, per record kind.
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
@@ -398,6 +403,8 @@ class Sources:
         policy: ``policy.yaml`` without its header, or ``None`` when absent or
             holding nothing but a header or comments. Key- and value-checked
             against the declared document kinds; never written into the facility file.
+        relations_layers: The imported layers whose directory holds
+            ``relations.csv``, the relations importer's mark.
     """
 
     identity: dict[str, Any] | None = None
@@ -410,6 +417,7 @@ class Sources:
     fixes: Any = None
     documents: list[dict[str, Any]] = field(default_factory=list)
     policy: dict[str, Any] | None = None
+    relations_layers: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -562,6 +570,8 @@ class _Reader:
                 continue
             if path.name not in RECORD_FILES and path.name != "models.yaml":
                 self._path_error(self._rel(path), "is not a layer file", "remove or rename it")
+        if (layer_dir / RELATIONS_MARK).is_file():
+            self.sources.relations_layers |= {layer}
         self._read_layer(layer, layer_dir, layer_dir / "models.yaml")
 
     def _read_layer(self, layer: str, records_dir: Path, models_file: Path) -> None:

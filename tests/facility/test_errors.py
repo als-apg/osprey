@@ -211,9 +211,9 @@ class TestRelationKinds:
             "relation-stub",
         }
 
-    def test_the_place_warnings_wait_for_the_importer(self) -> None:
-        assert "place-parents-disagree" not in WARNING_KINDS
-        assert "place-unplaced" not in WARNING_KINDS
+    def test_the_place_warnings_are_registered_with_their_emitter(self) -> None:
+        assert "place-parents-disagree" in WARNING_KINDS
+        assert "place-unplaced" in WARNING_KINDS
 
     def test_warning_kinds_are_unique(self) -> None:
         assert len(WARNING_KINDS) == len(set(WARNING_KINDS))
