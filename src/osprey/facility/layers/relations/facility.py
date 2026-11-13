@@ -21,6 +21,7 @@ from pathlib import Path
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.places import resolve_place_name
 from osprey.facility.sources import AUTHORED, load_sources
 
 __all__ = ["FacilityIndex"]
@@ -113,7 +114,8 @@ class FacilityIndex:
         """Resolve a table cell to a place id.
 
         A cell holding ``/`` is a path and must equal an id. A flat cell matches
-        every id equal to it or ending in ``/<cell>``.
+        every id equal to it or ending in ``/<cell>``
+        (:func:`~osprey.facility.places.resolve_place_name`).
 
         Args:
             cell: The cell's text.
@@ -124,12 +126,4 @@ class FacilityIndex:
             The id for one match, the sorted candidates for several, ``None``
             for none.
         """
-        ids = (self.places if base is None else base) | extra
-        if "/" in cell:
-            return cell if cell in ids else None
-        matches = sorted(i for i in ids if i == cell or i.endswith("/" + cell))
-        if not matches:
-            return None
-        if len(matches) == 1:
-            return matches[0]
-        return matches
+        return resolve_place_name(cell, (self.places if base is None else base) | extra)
