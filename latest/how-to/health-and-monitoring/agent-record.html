@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 12, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 13, 2026"/>
   </head>
   
   
@@ -702,6 +702,37 @@ days it wrote.</p></li>
 </ul>
 <p>See <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a> for both.</p>
 </section>
+<section id="read-a-session">
+<span id="agent-record-read-a-session"></span><h2>Read a session<a class="headerlink" href="#read-a-session" title="Link to this heading">#</a></h2>
+<p>The Activity page shows what the agent did in one session and what was decided
+about each call. It reads the record, so a past session reads the same as the
+live one. In the web terminal, <strong>☰ More</strong> › <strong>Activity log</strong> opens it on the
+session in the terminal; its sidebar lists your sessions. It has four views:</p>
+<ul class="simple">
+<li><p><strong>Timeline</strong> — prompts, answers and tool calls in order, a subagent’s calls
+under the call that started it. Open a call for its arguments, its result
+and the safety decisions on it.</p></li>
+<li><p><strong>Tool calls</strong> — every call as a table, built-in tools included. Sort it, or
+narrow it to <strong>Control system and services</strong> or to <strong>Built in</strong>.</p></li>
+<li><p><strong>Safety</strong> — how many calls were allowed without asking and by what, how
+many asked the operator, and how many were refused without asking; each
+approval with what was asked and how long the answer took; and the calls a
+server gate filed an entry for.</p></li>
+<li><p><strong>Artifacts</strong> — what the session saved, each with the call that saved it.</p></li>
+</ul>
+<p>The chip in the toolbar says how much of this the record vouches for. Click it
+for the reason:</p>
+<ul class="simple">
+<li><p><strong>Record complete</strong> — the record returned the whole session.</p></li>
+<li><p><strong>Record incomplete</strong> — the read did not return the whole session. What is
+shown is correct, but entries may be missing.</p></li>
+<li><p><strong>Record unavailable</strong> — the session could not be read. The page keeps the
+last reading it has of that session and says so, offers <strong>Try again</strong>, and
+tries again by itself every 10 seconds.</p></li>
+</ul>
+<p>The session in the terminal is read again every 10 seconds. A session picked
+from the sidebar is read again only while it is live.</p>
+</section>
 <section id="permissions">
 <h2>Permissions<a class="headerlink" href="#permissions" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> is shared by two writers through its group, the same way
@@ -867,6 +898,7 @@ is not running.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-long-the-record-keeps-an-entry">How long the record keeps an entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-the-archive-on-and-off">Turn the archive on and off</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-it">Check it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-a-session">Read a session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#permissions">Permissions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-it">Read it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-files-from-before-the-record">Audit files from before the record</a></li>
