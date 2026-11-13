@@ -10,8 +10,9 @@ it. That one describes a general-purpose Cypher surface; this one describes a
 can talk to. So it carries the four things an agent cannot guess and would
 otherwise have to discover by running failing queries — how an address is
 spelled and where it comes from, which prose exists to match a phrase against
-and on which node, that synonyms are a list rather than a string, and how many
-rows a query may return before it is cut off.
+and on which node, that synonyms and record names are lists rather than strings
+and are matched differently, which edges join a device to its place and a place
+to its parent, and how many rows a query may return before it is cut off.
 
 Everything here is a fact about the *corpus convention*, never about the data:
 which corpus a deployment seeded is a store fact, so the manifest names the
@@ -35,6 +36,7 @@ from osprey.mcp_server.graph.server_context import (
     QUERY_TIMEOUT_CONFIG_KEY,
     get_server_context,
 )
+from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_graph.tools.capabilities")
 
@@ -163,6 +165,74 @@ _SYNONYMS: dict[str, object] = {
     ],
 }
 
+#: Places, devices and channels carry their names on the same list property a
+#: class carries its synonyms on, but a name is an identifier rather than a
+#: phrase. The rule string is the one every agent surface quotes, imported so the
+#: manifest cannot drift from it.
+_RECORD_NAMES: dict[str, object] = {
+    "property": "altLabel",
+    "carried_by": ["place", "device", "channel"],
+    "type": "list",
+    "match": RECORD_NAME_MATCH_RULE,
+    "notes": [
+        "A place, device or channel carries its names as a list altLabel; a "
+        "channel's names sit on its ChannelBinding. A record with no names has "
+        "no altLabel at all.",
+        "A name is an identifier, so the comparison is on the whole entry, "
+        "case-insensitively — never CONTAINS, which lets a short name match "
+        "every longer one that starts with it. NOT n:Class keeps class synonyms, "
+        "which share the property, out of a name lookup.",
+    ],
+}
+
+#: Every relationship type the corpus convention writes, as the loader spells
+#: it, with the kind of node at each end. Direction is the part an agent cannot
+#: guess: a pattern written the wrong way round matches nothing.
+_RELATIONSHIPS: tuple[dict[str, str], ...] = (
+    {
+        "type": "HASBINDING",
+        "from": "device or place",
+        "to": "binding",
+        "pattern": "(d)-[:HASBINDING]->(b:ChannelBinding)",
+    },
+    {
+        "type": "READSSIGNAL",
+        "from": "binding",
+        "to": "signal",
+        "pattern": "(b:ChannelBinding)-[:READSSIGNAL]->(s)",
+    },
+    {
+        "type": "WRITESSIGNAL",
+        "from": "binding",
+        "to": "signal",
+        "pattern": "(b:ChannelBinding)-[:WRITESSIGNAL]->(s)",
+    },
+    {
+        "type": "TYPE",
+        "from": "device",
+        "to": "class",
+        "pattern": "(d)-[:TYPE]->(c:Class)",
+    },
+    {
+        "type": "SUBCLASSOF",
+        "from": "class",
+        "to": "parent class",
+        "pattern": "(c:Class)-[:SUBCLASSOF]->(parent:Class)",
+    },
+    {
+        "type": "LOCATEDIN",
+        "from": "device",
+        "to": "place",
+        "pattern": "(d)-[:LOCATEDIN]->(p)",
+    },
+    {
+        "type": "PARTOF",
+        "from": "place",
+        "to": "parent place",
+        "pattern": "(p)-[:PARTOF]->(parent)",
+    },
+)
+
 _CORPUS: dict[str, object] = {
     "property": "facility",
     "carried_by": "device nodes",
@@ -204,7 +274,9 @@ def capabilities() -> str:
     surfaces a question belongs on, the order to use them in, and
     the corpus conventions a query has to respect: where an address comes from,
     which prose each kind of node carries for a phrase search, that class
-    synonyms are a list, and how a deployment says which corpus it seeded. The
+    synonyms and record names are lists matched in different ways, which
+    relationship joins which kinds of node and in which direction, and how a
+    deployment says which corpus it seeded. The
     row cap and the query deadline are this deployment's, with the config keys
     that set them.
 
@@ -215,7 +287,9 @@ def capabilities() -> str:
     Returns:
         JSON object with ``paradigm``, ``server``, ``description``, ``tools``
         (list of ``{name, purpose}``), ``workflow``, ``addresses``,
-        ``description_predicates``, ``synonyms``, ``corpus``, ``limits`` and
+        ``description_predicates``, ``synonyms``, ``record_names``,
+        ``relationships`` (list of ``{type, from, to, pattern}``), ``corpus``,
+        ``limits`` and
         ``notes``.
     """
     try:
@@ -231,6 +305,8 @@ def capabilities() -> str:
                 "addresses": _ADDRESSES,
                 "description_predicates": _DESCRIPTION_PREDICATES,
                 "synonyms": _SYNONYMS,
+                "record_names": _RECORD_NAMES,
+                "relationships": [dict(rel) for rel in _RELATIONSHIPS],
                 "corpus": _CORPUS,
                 "limits": {
                     "timeout_s": context.query_timeout_s,

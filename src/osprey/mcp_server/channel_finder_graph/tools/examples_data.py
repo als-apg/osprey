@@ -36,17 +36,22 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
   is **no ``:Device`` label**: a device is reached as ``:Resource`` plus the
   properties only a device carries, or through its ``narad_sem`` class;
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
-  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
+  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``, plus ``:LOCATEDIN`` (device to
+  its place) and ``:PARTOF`` (place to its parent place);
 * property names keep their ``narad_p:`` local spelling — ``.fullPv``,
   ``.deviceId``, ``.sectionCode``, ``.description``, ``.system``,
   ``.rawType``;
 * a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
-  too, so a query that means devices keeps the rows whose ``.rawType`` is set,
-  which only a device carries;
+  too. Every device carries ``.deviceId`` and no place does; ``.rawType`` is set
+  only on a device with a class, so the queries that walk from a class keep the
+  rows whose ``.rawType`` is set;
 * ``skos:altLabel`` arrives as a **list**, because the store is configured with
-  ``handleMultival: ARRAY`` for that predicate. Synonym matching therefore uses
-  list semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
-  against ``altLabel`` would be a bug, not a shortcut.
+  ``handleMultival: ARRAY`` for that predicate. A class carries its synonyms
+  there, and a place, device or channel its names. Matching therefore uses list
+  semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
+  against ``altLabel`` itself would be a bug, not a shortcut. A record name is
+  matched on the whole entry, case-insensitively, over nodes that are not
+  ``:Class``.
 
 Corpora
 -------

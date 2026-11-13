@@ -11,16 +11,21 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 * node labels are the RDF class local names — ``:Resource`` on every node,
   plus ``:ChannelBinding``, ``:Class``, and one device-class label per device;
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
-  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
+  ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``, plus ``:LOCATEDIN`` (device to
+  its place) and ``:PARTOF`` (place to its parent place);
 * property names keep their ``narad_p:`` local spelling — ``.uri``,
   ``.deviceId``, ``.fullPv``, ``.sourceName``, ``.sectionCode``, ``.rawType``,
   ``.sPositionM``, ``.ordinalInPlace``;
 * a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
-  too, so a query that means devices keeps the rows whose ``.rawType`` is set,
-  which only a device carries.
+  too. Every device carries ``.deviceId`` and no place does; ``.rawType`` is set
+  only on a device with a class, so the census queries that count by class keep
+  the rows whose ``.rawType`` is set;
+* ``.altLabel`` is a list: a class's synonyms, or the names of a place, device
+  or channel.
 
 Those uppercase relationship names belong to the *graph projection* only. The
-Turtle corpus itself spells them ``narad_p:hasBinding`` and friends.
+Turtle corpus itself spells them ``narad_p:hasBinding``, ``narad_p:locatedIn``,
+``narad_p:partOf`` and friends.
 
 The queries are corpus-agnostic: nothing about a particular facility is baked
 into the Cypher, only into the parameter values. Each example carries one

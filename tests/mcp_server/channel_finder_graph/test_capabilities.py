@@ -29,6 +29,7 @@ from osprey.mcp_server.graph.server_context import (
     QUERY_MAX_ROWS_CONFIG_KEY,
     QUERY_TIMEOUT_CONFIG_KEY,
 )
+from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn, registered_tool_names
 
 capabilities_fn = get_tool_fn(mod.capabilities)
@@ -119,6 +120,8 @@ class TestManifestShape:
             "addresses",
             "description_predicates",
             "synonyms",
+            "record_names",
+            "relationships",
             "corpus",
             "limits",
             "notes",
@@ -277,6 +280,34 @@ class TestGraphVocabulary:
         assert synonyms["node_label"] == "Class"
         assert synonyms["type"] == "list"
         assert synonyms["match"].startswith("ANY(")
+
+    def test_record_names_carry_the_record_name_rule_verbatim(self, payload):
+        names = payload["record_names"]
+
+        assert names["property"] == "altLabel"
+        assert names["type"] == "list"
+        assert set(names["carried_by"]) == {"place", "device", "channel"}
+        # The one rule string every surface quotes, not a paraphrase of it.
+        assert names["match"] == RECORD_NAME_MATCH_RULE
+
+    def test_record_names_say_why_a_name_is_not_matched_with_contains(self, payload):
+        notes = " ".join(payload["record_names"]["notes"])
+
+        assert "CONTAINS" in notes
+        assert "whole" in notes
+
+    def test_the_manifest_names_both_place_relationships_with_their_direction(self, payload):
+        by_type = {rel["type"]: rel for rel in payload["relationships"]}
+
+        assert by_type["LOCATEDIN"]["from"] == "device"
+        assert by_type["LOCATEDIN"]["to"] == "place"
+        assert by_type["PARTOF"]["from"] == "place"
+        assert by_type["PARTOF"]["to"] == "parent place"
+
+    def test_every_relationship_is_spelled_as_the_loader_spells_it(self, payload):
+        for rel in payload["relationships"]:
+            assert rel["type"] == rel["type"].upper(), rel
+            assert f"[:{rel['type']}]" in rel["pattern"], rel
 
     def test_corpus_identity_is_the_facility_property(self, payload):
         corpus = payload["corpus"]
