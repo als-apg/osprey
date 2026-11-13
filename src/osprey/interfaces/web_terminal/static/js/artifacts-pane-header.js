@@ -42,6 +42,7 @@
 import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { withPrefix } from './api.js';
+import { queryAllDocuments } from './attached-window.js';
 import { panelIdOf } from './dock-apply.js';
 import { managedIframe } from './dock-iframe.js';
 import { fmtBytes } from './session-helpers.js';
@@ -57,11 +58,14 @@ import { artifactOrigin, onOriginChange } from './artifact-origin.js';
  */
 
 /**
- * The bar of the tile showing `panelKey`: the docked tile's, else the fallback bar.
+ * The bar of the tile showing `panelKey`: the docked tile's (its dockview id),
+ * a pane window's (the window bar carries the bare key, pane-window.js), else
+ * the fallback bar.
  * @param {string} panelKey  `artifacts`, or an artifact tile's key
  */
 const barSelector = (panelKey) =>
-  `.tile-tab[data-panel-id="${CSS.escape(panelIdOf(panelKey))}"], .fallback-tile-bar`;
+  `.tile-tab[data-panel-id="${CSS.escape(panelIdOf(panelKey))}"], ` +
+  `.tile-tab[data-panel-id="${CSS.escape(panelKey)}"], .fallback-tile-bar`;
 
 /**
  * The bar items, in their order on the bar. `notice`: the shown artifact's
@@ -211,15 +215,20 @@ export function infoContent(entry, dir, origin = null) {
 
 /**
  * The element the Info popover hangs from: the bar's Info icon, or the bar
- * itself while a narrow tile has folded the icon into ⋯.
+ * itself while a narrow tile has folded the icon into ⋯. The bar is looked up
+ * in the hub and in every pane window (attached-window.js
+ * `queryAllDocuments`): a popped-out tile's bar is in its window, and the
+ * popover opens in the anchor's document.
  * @param {string} panelKey
  * @returns {HTMLElement | null}
  */
 function infoAnchor(panelKey) {
-  const bar = document.querySelector(barSelector(panelKey));
-  if (!(bar instanceof HTMLElement)) return null;
-  const icon = bar.querySelector('[data-contrib-key="icon:info"]');
-  if (icon instanceof HTMLElement && !icon.classList.contains('contrib-hidden')) return icon;
+  const [bar] = /** @type {HTMLElement[]} */ (queryAllDocuments(barSelector(panelKey)));
+  if (!bar) return null;
+  const icon = /** @type {HTMLElement | null} */ (
+    bar.querySelector('[data-contrib-key="icon:info"]')
+  );
+  if (icon && !icon.classList.contains('contrib-hidden')) return icon;
   return bar;
 }
 

@@ -235,6 +235,23 @@ describe('Info', () => {
   });
 });
 
+test('a popped-out tile: Info anchors to its window bar, which carries the bare key', () => {
+  // pane-window.js builds a window's bar with `data-panel-id` set to the key
+  // itself; the docked tile it left is gone from the hub.
+  document.body.innerHTML = `
+    <div class="tile-tab" data-panel-id="artifact:a1">
+      <div class="tile-tab-contrib">
+        <button class="osprey-icon-btn contrib-icon" data-contrib-key="icon:info" type="button"></button>
+      </div>
+    </div>`;
+  const icon = /** @type {HTMLElement} */ (
+    document.querySelector('[data-contrib-key="icon:info"]')
+  );
+  header.showArtifactInfo(plot, 'artifact:a1');
+  expect(icon.getAttribute('aria-expanded')).toBe('true');
+  expect(popover().hidden).toBe(false);
+});
+
 describe('the session an artifact comes from', () => {
   /**
    * The origin of an artifact from another session, as artifact-origin.js
