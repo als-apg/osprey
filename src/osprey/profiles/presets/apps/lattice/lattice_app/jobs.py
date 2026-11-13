@@ -28,6 +28,7 @@ from typing import Any
 
 from lattice_app.catalog import ANALYSES, JOB_SCHEMA, RESULT_SCHEMA, normalize_result
 from lattice_app.config import Model
+from osprey_connectors.safety_file import atomic_replace
 
 #: How much of a failed worker's stderr the error carries.
 STDERR_TAIL = 2000
@@ -234,9 +235,8 @@ class Jobs:
                     "job": dict(request.job),
                     **normalize_result(analysis, raw),
                 }
-            scratch = self._path(key).with_suffix(".tmp")
-            scratch.write_text(json.dumps(document), encoding="utf-8")
-            os.replace(scratch, self._path(key))  # whole or absent: no reader sees half
+            # Whole or absent: no reader sees half a result.
+            atomic_replace(self._path(key), json.dumps(document).encode("utf-8"), mode=0o644)
         except (WorkerFailed, ValueError, OSError) as exc:
             self._failed[key] = str(exc)
         finally:
