@@ -413,7 +413,7 @@ the texture's.
 
 Every served model, ``texture`` included, also has read-only IOC health
 channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
-the IOC pages of All PVs read (:doc:`/how-to/use-pv-directory`).
+the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
 
 **A model may read another model's records.** A model record's ``inputs``
 lists records other models of the facility wire, each an ``address`` and an

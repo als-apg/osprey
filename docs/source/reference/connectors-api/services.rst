@@ -4,7 +4,7 @@ Directory, alarms and put log
 =============================
 
 The read-only contracts of the directory, alarm and put-log backends behind All
-PVs (:doc:`/how-to/use-pv-directory`), and which source answers each kind on
+PVs (:ref:`channel-finder-all-pvs`), and which source answers each kind on
 each control target.
 
 .. automodule:: osprey_connectors.service_answers

@@ -152,7 +152,7 @@ same safety hooks, then adds production capabilities. The most visible additions
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
        The Channels panel's **All PVs** view lists every PV the simulator
-       serves (:doc:`../how-to/use-pv-directory`).
+       serves (:ref:`channel-finder-all-pvs`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer

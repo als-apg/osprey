@@ -125,14 +125,8 @@ Facility services
       :link-type: doc
 
       Search, filter, and explore control system channels using the Channel Finder
-      service and its web interface.
-
-   .. grid-item-card:: Look Up Any PV
-      :link: use-pv-directory
-      :link-type: doc
-
-      Find a PV the curated channels do not hold, with a page per PV and IOC
-      for its alarms, recorded writes and logbook mentions.
+      service and its web interface, including every PV the control system
+      announces.
 
    .. grid-item-card:: Facility Knowledge
       :link: facility-knowledge/index
@@ -174,7 +168,6 @@ Facility services
    describe-your-facility
    measure-with-pyaml
    use-channel-finder
-   use-pv-directory
    import-mml-export
    facility-knowledge/index
    ariel/index

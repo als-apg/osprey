@@ -10,6 +10,12 @@ or "RF cavity voltage", into control system addresses, such as
 demo preset. It uses LLM-based pipelines, so a query can use
 everyday terms rather than exact channel names.
 
+The pipelines search the *curated* channels: the ones the facility description
+declares and describes. A PV name met in an alarm, a script or a logbook entry
+is often not one of them. For those the Channel Finder also reads the control
+system's own directory, which lists every PV the control system announces: see
+:ref:`channel-finder-all-pvs`.
+
 .. seealso::
 
    Hellert et al. (2025), *From Natural Language to Control Signals*,
@@ -251,6 +257,40 @@ index rather than browsing a channel tree, and the device card reads the store.
 See `Web Interface`_ below.
 
 
+.. _channel-finder-all-pvs:
+
+All PVs: the Control System's Directory
+=======================================
+
+Whichever pipeline runs, it answers only for the curated channels. The
+directory answers for the rest. It is the control system's own record of every
+PV and IOC, such as a ChannelFinder service, or the virtual accelerator's PV
+list in the ``demo`` preset. Its names, descriptions and properties are shown
+as the control system records them; nothing in it is curated, and nothing that
+reads it can write.
+
+The directory is on when ``config.yml`` has a ``pv_directory`` section; the
+``demo`` preset ships one. The same section can name an alarm server, an alarm
+log and a put log. :ref:`config-pv-directory` has the keys and how to switch
+the section off.
+
+**For the agent** the section adds the ``pv-directory`` MCP server: search the
+directory, read a PV's or an IOC's record and, where their source is
+configured, the alarms and recorded writes. Every tool is a read and runs
+without an approval prompt. The agent's prompt tells it to check the curated
+channels first and to say when a name is the control system's own.
+:doc:`/architecture/mcp-servers` lists the tools.
+
+**For the operator** it adds the All PVs, Alarms and Archive views of the
+panel: see `All PVs, Alarms and Archive`_.
+
+Every answer comes from the machine the control-target chip shows: the
+simulator's own PVs and replayed alarm feed on *Simulator*, the facility's
+services on *Live* and *Rehearsal*. An answer with no source for the current
+target reads ``Not available for this target``.
+:doc:`/reference/connectors-api/services` has the table of sources per target.
+
+
 Web Interface
 =============
 
@@ -334,9 +374,47 @@ channel-suggestion typeahead in the web panels still works in graph mode:
 ``osprey build`` reads the channel names from the facility file and writes them
 into the snapshot the panels use.
 
+All PVs, Alarms and Archive
+---------------------------
+
+With a ``pv_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
+gains **All PVs**, which searches the directory. In the ``demo`` preset:
+
+1. Click **All PVs**, type ``cavity temperature`` into the search box and press
+   Enter. The rows are the cavities' temperature readbacks, each with its
+   description, current value, alarm severity, record type and IOC.
+2. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its PV page. A banner
+   shows a latched alarm from the demo's replayed alarm feed, with its
+   guidance.
+
+Words match descriptions first, and names only when no description matched;
+every word must match. A word holding ``*`` or ``?`` matches names as a glob,
+and a leading ``=`` asks for the exact name. The sidebar filters the result,
+and **show request** reveals the request that ran.
+
+Each row carries one of two marks:
+
+- ◆ **Curated**: the facility description declares the PV.
+- ◇ **Control system only**: the control system announces it and the facility
+  description does not.
+
+The search words carry over from the Curated view: a ``Not here?`` line under
+its results opens All PVs with the same words, and a curated search with no
+hits offers to search the whole directory instead. The names of ticked rows
+can be copied, sent to the assistant or, when CANOPY serves Trace, plotted.
+
+A **PV page** has one card per answer: Value, Alarm, Put history, Directory,
+Archive and Logbook. A card whose service is not configured is one dashed
+line. Clicking an IOC opens its **IOC page**: its PVs, the alarms on it, its
+health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.
+
+Two more views appear when their service is configured. Neither writes:
+
+- **Alarms** lists what is in alarm now on the control target, worst first.
+  Acknowledge in the alarm server's own client.
+- **Archive** says what the control target's archive records: how many of the
+  directory's PVs, and its newest sample.
+
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to
 the agent, are in :doc:`/reference/contracts/channel-finder`.
-
-A PV the curated channels do not hold is in the All PVs view, which lists every
-PV the control system announces: see :doc:`use-pv-directory`.
