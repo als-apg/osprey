@@ -11,11 +11,12 @@ ruling is written. File formats are in `decision-files.md`.
 
 ## Contents
 
-- [Sources disagree](#sources-disagree): `layer-conflict`, `layer-duplicate`
+- [Sources disagree](#sources-disagree): `layer-conflict`, `members-disagree`,
+  `layer-duplicate`
 - [Relation claims](#relation-claims): `relation-contested`, `relation-coarse`,
   `relation-invalid`, `relation-stub`, `part-cycle`
 - [Identity and names](#identity-and-names): `alias-shared`, `identity-ambiguous`
-- [Places](#places): `place-unplaced`, `place-parents-disagree`, `place-conflict`,
+- [Places](#places): `place-unplaced`, `place-conflict`,
   `place-wrapped`, `span-invalid`
 - [References](#references): `reference-missing`, `link-dangling`
 - [Decision files](#decision-files): `fix-stale`, `fix-missing`, `fix-duplicate`,
@@ -48,10 +49,20 @@ per record, each with `was` listing every layer's value. There is no policy for 
 conflicts; a rule the person states ("the MML export is right for roles") goes into each
 fix's `why`.
 
-Note: two sources stating one group with different members is reported under this kind
-in some versions and as a warning in others. Either way the question is the same: which
-members does the group really have, and is the difference a stale list or two groups
-sharing a name.
+### members-disagree
+
+A warning: two or more sources state one group with different members. The build
+carries the union; the detail names each source and the members only it states.
+
+Look at: the members each source adds, their class and place, and whether the group's
+other members look like them.
+
+Usual causes: one list is stale; one source uses the name for a wider or narrower set;
+two different groups share a name.
+
+Ask which members the group really has. One list right: a `set` fix for `members`, or
+correct the wrong table and re-import. Two groups: rename one at its source. The union
+is right: leave it.
 
 ### layer-duplicate
 
@@ -190,16 +201,6 @@ Look at: the layer's places table, and existing places with the same last segmen
 Usually the table lacks a parent column for that row. The remedy is in the layer's
 places table (parent or citation), then a re-import. A similarly named existing place
 is evidence to show, not a parent to assume.
-
-### place-parents-disagree
-
-Relations layers create a place of one flat name under several parents. Place ids keep
-their parent path and nothing merges places, so this may be one place stated two ways
-or two places with one name. This kind is being retired; if the build does not print
-it, there is nothing to do.
-
-Ask whether it is one place or two. One: correct the parent in the table that is wrong.
-Two: nothing to merge; give each its own name if the person wants the warning gone.
 
 ### place-conflict
 
