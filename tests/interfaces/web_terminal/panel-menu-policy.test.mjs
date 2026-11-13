@@ -348,7 +348,12 @@ describe('the Sessions row', () => {
 
   test('offers the session tree’s menu, not the pane verbs', () => {
     expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Artifacts by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual([
+      'New session',
+      'Artifacts by',
+      'Show pinned sessions',
+      'Expand all',
+    ]);
     expect(document.querySelector('.rail-context-menu')?.getAttribute('aria-label')).toBe(
       'Sessions actions'
     );

@@ -3463,7 +3463,12 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Artifacts by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual([
+      'New session',
+      'Artifacts by',
+      'Show pinned sessions',
+      'Expand all',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
