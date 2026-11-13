@@ -67,8 +67,8 @@ async def artifact_export(
     # Convert HTML → image via Playwright
     try:
         from osprey.mcp_server.export.converter import (
+            ExportDeadlineError,
             PlaywrightNotInstalledError,
-            PlotNotDrawnError,
             convert_html_to_image,
         )
     except ImportError:
@@ -105,7 +105,7 @@ async def artifact_export(
                 "Install browser: playwright install chromium",
             ],
         )
-    except PlotNotDrawnError as exc:
+    except ExportDeadlineError as exc:
         return make_error(
             "conversion_error",
             str(exc),

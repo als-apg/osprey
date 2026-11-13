@@ -1,0 +1,17 @@
+control_system.writes: never
+web.panels: {}
+claude_code.servers: {}
+apps: {}
+dispatch.denied_app_tools: []
+settings.json:
+  hooks: {}
+  permissions: {}
+hook_config.json: {}
+panel_token_routes: []
+reach:
+  consumers:
+  - name: The orbit-bump panel
+    'on': false
+    resolves: false
+    dial: null
+  credentials_held: []

@@ -27,6 +27,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces.web_terminal._control_context import read_record
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
@@ -593,6 +594,7 @@ def settled_chip(
     if init_script:
         page.add_init_script(init_script)
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
     expect(page.locator(CHIP)).to_have_attribute(

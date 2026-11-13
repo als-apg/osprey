@@ -7,6 +7,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
@@ -40,28 +41,34 @@ let _initialized = false;
 async function init() {
   if (_initialized) return;
   _initialized = true;
-  initToolbar();
-  // Load pipeline info
   try {
-    const info = await fetchJSON('/api/info');
-    state.setPipelineInfo(info.pipeline_type, info.metadata);
-    state.availablePipelines = info.available_pipelines || [info.pipeline_type];
-    state.dbPath = info.db_path || null;
-    state.setGraphInfo(info.tools, info.graph_store);
-    renderProvenance();
-    updatePipelineBadge(info.pipeline_type);
-    buildPipelineDropdown();
-  } catch (e) {
-    console.error('Failed to load pipeline info:', e);
-    showToast('Failed to connect to API', 'error');
+    initToolbar();
+    // Load pipeline info
+    try {
+      const info = await fetchJSON('/api/info');
+      state.setPipelineInfo(info.pipeline_type, info.metadata);
+      state.availablePipelines = info.available_pipelines || [info.pipeline_type];
+      state.dbPath = info.db_path || null;
+      state.setGraphInfo(info.tools, info.graph_store);
+      renderProvenance();
+      updatePipelineBadge(info.pipeline_type);
+      buildPipelineDropdown();
+    } catch (e) {
+      console.error('Failed to load pipeline info:', e);
+      showToast('Failed to connect to API', 'error');
+    }
+
+    // Load stats badges
+    refreshStatsBadges();
+
+    // Route to initial view
+    routeFromHash();
+    window.addEventListener('hashchange', routeFromHash);
+  } finally {
+    // Ready once start-up settled, whatever it drew (index.html declares the
+    // mark pending until then).
+    markPageReady();
   }
-
-  // Load stats badges
-  refreshStatsBadges();
-
-  // Route to initial view
-  routeFromHash();
-  window.addEventListener('hashchange', routeFromHash);
 }
 
 // ---- Routing ----

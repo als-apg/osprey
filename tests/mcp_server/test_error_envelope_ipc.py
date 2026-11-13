@@ -168,7 +168,10 @@ async def _spawn(control_system: dict, config_file: Path, cwd: Path):
     )
     await process.stdin.drain()
 
-    frame = await asyncio.wait_for(_next_frame(process.stdout), TIMEOUT_S)
+    # No budget: a child's start is interpreter and import time, which a loaded
+    # host stretches. It ends in its first frame or in a closed pipe, and the
+    # per-test timeout breaks a wedge.
+    frame = await _next_frame(process.stdout)
     assert isinstance(frame, frames.ResultFrame), f"the child refused to start: {frame!r}"
     assert frame.request_id == request_id
     return process, ConnectorHostProxy.from_process(process)

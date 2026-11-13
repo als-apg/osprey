@@ -64,7 +64,12 @@ import {
 } from './dock-iframe.js';
 import { initPanelPlacement, landDroppedPanel } from './panel-placement.js';
 import { createPanelIframe, framePanel } from './panel-iframe-factory.js';
-import { PANELS, TERMINAL_RAIL_ID, DEFAULT_PANEL_FALLBACK, titleCase } from './panel-catalog.js';
+import {
+  PANELS,
+  TERMINAL_RAIL_ID,
+  DEFAULT_PANEL_FALLBACK,
+  customPanelEntry,
+} from './panel-catalog.js';
 import {
   initDockSync,
   withEchoSuppressed,
@@ -447,13 +452,7 @@ export async function initPanelManager(panelId) {
     // Add custom panels
     for (const cp of panelConfig.custom || []) {
       if (!activePanels.some((p) => p.id === cp.id)) {
-        activePanels.push({
-          id: cp.id,
-          label: titleCase(cp.label || cp.id.toUpperCase()),
-          configEndpoint: null,
-          healthEndpoint: cp.healthEndpoint, // null = skip health polling
-          path: cp.path || '/', // subpath for iframe (e.g. "/panel/")
-        });
+        activePanels.push(customPanelEntry(cp));
       }
     }
 

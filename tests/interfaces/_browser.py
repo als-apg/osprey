@@ -10,10 +10,12 @@ known-benign noise.
 
 ``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
 finished arranging the shell, for any suite that drives or photographs the
-web-terminal hub. ``open_hub_page`` is the hub's own entry point — it opens the
-page and waits, through ``wait_for_hub_ready``, for the panel manager's ready
-mark and the dock grid together — and ``rail_entry`` builds the locator for one
-of that rail's buttons.
+web-terminal hub. ``wait_for_page_ready`` is the one wait every browser test
+makes after it navigates: it blocks until the page sets its ready mark
+(``html[data-page-ready="true"]``), whatever the page, frame or popped-out
+window. ``open_hub_page`` is the hub's own entry point — it opens the page and
+waits through it — and ``rail_entry`` builds the locator for one of that rail's
+buttons.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from playwright.sync_api import expect
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from playwright.sync_api import Browser, Page
+    from playwright.sync_api import Browser, Frame, FrameLocator, Page
 
 # Bounded settle wait after `load` fires. Some interfaces (e.g. the web
 # terminal's SSE-backed panels) hold long-lived connections, so `networkidle`
@@ -38,11 +40,11 @@ _NETWORK_IDLE_TIMEOUT_MS = 5000
 _SCRIPT_STYLESHEET_RESOURCE_TYPES = ("script", "stylesheet")
 _SCRIPT_STYLESHEET_EXTENSIONS = (".js", ".css")
 
-# Bounds the hub's first render: the rail's fetch chain (/api/panels, then each
-# panel's config endpoint) and the dockview grid's first group, on a loaded
-# runner. Not a correctness gate -- a bound on a wait that would otherwise hang
-# the suite.
-_HUB_READY_TIMEOUT_MS = 10_000
+# Bounds a page's start-up up to its ready mark -- for the hub, the rail's fetch
+# chain (/api/panels, then each panel's config endpoint) and the dockview grid's
+# first group -- on a loaded runner. Not a correctness gate: a bound on a wait
+# that would otherwise hang the suite.
+_PAGE_READY_TIMEOUT_MS = 10_000
 
 
 def _same_origin(url: str, origin: tuple[str, str | None, int | None]) -> bool:
@@ -130,7 +132,9 @@ def assert_page_loads_clean(
     if capture_console:
         page.on("console", _on_console)
 
-    page.goto(url, wait_until="load")
+    # The subject is whether the page loads at all: a page whose module 404s never
+    # reaches its ready mark, and waiting for it would hide the 404 behind a timeout.
+    page.goto(url, wait_until="load")  # page-ready: the subject is the load itself
     # best-effort settle only — see module docstring
     with contextlib.suppress(PlaywrightTimeoutError):
         page.wait_for_load_state("networkidle", timeout=_NETWORK_IDLE_TIMEOUT_MS)
@@ -224,22 +228,22 @@ def rail_entry(page: Page, panel_id: str, *, enabled_only: bool = False):
     return page.locator(f"{selector}:not(.disabled)" if enabled_only else selector)
 
 
-def wait_for_hub_ready(page: Page) -> None:
-    """Wait until the panel manager has finished its start-up and the dock grid is up.
+def wait_for_page_ready(target: Page | Frame | FrameLocator) -> None:
+    """Wait until a page OSPREY serves says it can be driven.
 
-    Both waits are needed and neither implies the other: ``panel-manager.js``
-    builds the sidebar asynchronously (it fetches ``/api/panels``, renders the
-    rail and wires the header controls) and sets ``html[data-panels-ready]`` as
-    its last step, while ``dock-workspace.js`` builds the dockview grid. The
-    mark is the one fact only the finished panel manager produces: the page
-    ships rail rows of its own, so a row on screen says nothing about whether
-    the ``+`` button or the row menus are wired yet.
+    Every such page sets ``data-page-ready="true"`` on its ``<html>`` once, from
+    one writer (``design-system/js/page-ready.js``): the shared start-up for a
+    plain page, the page itself for one with late dressing (the hub once its
+    rail, direct visit and dock grid are up; a popped-out window once the hub
+    has dressed it). Ready means "can be driven", not "has data": a test that
+    needs data waits for the data after this.
 
     Args:
-        page: A page already navigated to the hub.
+        target: The page, frame or frame locator to wait on.
     """
-    expect(page.locator("html[data-panels-ready]")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
-    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+    expect(target.locator('html[data-page-ready="true"]')).to_be_attached(
+        timeout=_PAGE_READY_TIMEOUT_MS
+    )
 
 
 def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
@@ -255,9 +259,9 @@ def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = No
 
     Returns:
         A page whose panel manager has finished start-up and whose dockview
-        grid is on screen (``wait_for_hub_ready``).
+        grid is on screen (``wait_for_page_ready``).
     """
     page = browser.new_page(viewport=viewport) if viewport else browser.new_page()
     page.goto(base_url, wait_until="domcontentloaded")
-    wait_for_hub_ready(page)
+    wait_for_page_ready(page)
     return page

@@ -51,8 +51,13 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "apps/loader.py",
-        "what build and check read of a deployment: skills, config keys, services",
+        "what build and check read of a deployment: skills, agents, config keys, services",
         "Product rules (the app's skill); step 2; step 7",
+    ),
+    (
+        "apps/agents.py",
+        "an app's subagent file: frontmatter keys, refused keys, the delegation note",
+        "Product rules (the app's skill); step 7",
     ),
     (
         "apps/boundary.py",
@@ -73,6 +78,16 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
         "apps/scaffold-app/",
         "the scaffold osprey app new copies",
         "step 2; the file layout and every pattern steps 3-7 build on",
+    ),
+    (
+        "interfaces/design_system/panels/validator.py",
+        "the panel stylesheet rule osprey app check applies",
+        "step 6 (panel)",
+    ),
+    (
+        "interfaces/design_system/static/css/primitives.css",
+        "the design-system primitive classes a panel may use",
+        "step 6 (panel)",
     ),
 )
 
@@ -511,7 +526,10 @@ def summarize_cli(package: Path) -> None:
         shown = " ".join(sorted(parameters, key=lambda p: p.startswith("--")))
         print(f"  osprey app {command} {shown}".rstrip())
         print(_wrap(_doc_line(node), "      "))
-    for line in _constants(tree, ("PANEL_STYLESHEETS", "_JS_TEST_SUFFIXES", "_NOT_AUTHORED_DIRS")):
+    for line in _constants(tree, ("_JS_TEST_SUFFIXES", "_NOT_AUTHORED_DIRS")):
+        print(line)
+    validator = _parse(package / "interfaces" / "design_system" / "panels" / "validator.py")
+    for line in _constants(validator, ("PANEL_STYLESHEETS",)) if validator is not None else []:
         print(line)
     sheet = package / "interfaces" / "design_system" / "static" / "css" / "primitives.css"
     if sheet.is_file():

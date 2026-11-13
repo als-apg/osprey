@@ -370,7 +370,7 @@ def _web_terminal_group(
 def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The rendered ``config.yml`` facts the registry's two gates read, for one render.
 
-    ``delta`` is a tier or app file laid over the host, as the build lays it:
+    ``delta`` is a login file laid over the host, as the build lays it:
     its flat dotted ``config:`` bag folded over the host's, deeper key winning,
     and its ``web_panels`` added to the host's selection. Only the subtrees the
     gates read are assembled — ``services`` (the graph store), ``deployment``
@@ -455,7 +455,7 @@ def _enabled_mcp_servers(
     context the render builds (:func:`_registry_context`), plus the profile's
     own ``mcp_servers:`` declarations.
 
-    Resolved once for the host and once per tier or app render, and listed as
+    Resolved once for the host and once per login render, and listed as
     the union in first-seen order: the deployment summary the panels row
     gives, so a server only the write-armed tiers ship (the event dispatcher,
     gated on the EVENTS panel those tiers add) is on the card.

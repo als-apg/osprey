@@ -1,0 +1,5 @@
+# Adds to profile.yml: read-only, without the hand tool server.
+name: Six Logins (readonly)
+config:
+  control_system.writes: never
+  claude_code.servers.controls_admin.enabled: false

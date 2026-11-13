@@ -78,7 +78,7 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
-from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._browser import wait_for_dock_settled, wait_for_page_ready
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import (
     UNSERVED,
@@ -747,6 +747,109 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
         page.close()
 
 
+def test_hide_made_before_the_event_stream_opens_reaches_the_rail(tmp_path, chromium_browser):
+    """A panel hidden while the page's event stream is still connecting leaves the rail.
+
+    The page is ready to drive before its stream is open, and SSE has no replay:
+    the ``panel_visibility`` frame of a change made in that window is never
+    delivered. The read the page makes when the stream opens is what applies it.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = chromium_browser.new_page()
+        held = []
+        page.route("**/api/files/events*", lambda route: held.append(route))
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
+        assert held, "the event stream opened before the hide could be made"
+
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(data_viz_rail).to_have_count(1)
+
+        for route in held:
+            route.continue_()
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
+
+        page.close()
+
+
+def test_hide_that_overtakes_the_stream_open_read_stays_applied(tmp_path, chromium_browser):
+    """A panel hidden while the page re-reads the panel list stays off the rail.
+
+    When its event stream opens the page reads ``/api/panels`` to pick up what it
+    missed. A hide made after the server answered that read, whose frame the page
+    applies before the answer arrives, is newer than the answer: the answer still
+    lists the panel, and applying it would put the entry back for good.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = chromium_browser.new_page()
+        stream = []
+        page.route("**/api/files/events*", lambda route: stream.append(route))
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
+        wait_for_dock_settled(page)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
+        assert stream, "the event stream opened before its read could be held"
+
+        # Every read of the panel list from here on is the stream-open one. The
+        # first is answered by the server at once and its answer held back.
+        answered = []
+
+        def hold_first_read(route):
+            if answered:
+                route.continue_()
+            else:
+                answered.append((route, route.fetch()))
+
+        page.route("**/api/panels", hold_first_read)
+        with page.expect_request("**/api/panels", timeout=10_000):
+            for route in stream:
+                route.continue_()
+        # Stay in page calls, so the route handler runs, until the answer is held.
+        deadline = time.monotonic() + 10
+        while not answered:
+            assert time.monotonic() < deadline, "the stream-open read was never answered"
+            page.wait_for_timeout(50)
+        route, stale = answered[0]
+        assert "data-viz" in stale.json()["visible"]
+
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
+
+        # The held answer arrives now, older than the frame just applied. The
+        # page reads the list again instead of applying it.
+        with page.expect_request("**/api/panels", timeout=10_000):
+            route.fulfill(response=stale)
+        page.evaluate("() => fetch('/api/panels').then((r) => r.json())")
+        expect(data_viz_rail).to_have_count(0)
+
+        page.close()
+
+
 def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser):
     """CF-2/CC-3: panel_register adds a rail entry but does NOT auto-dock it.
 
@@ -1209,6 +1312,7 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
         expect(_service_tab(page, "OPS")).to_have_count(0)
 
         page.reload()
+        wait_for_page_ready(page)
         expect(page.locator('#panel-rail [data-panel-id="ops"]')).to_have_count(1)
         assert _rail_order(page) == after
 
@@ -1542,6 +1646,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch to project B and reload — a different key, no stored layout.
         app.state.project_cwd = cwd_b
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1558,6 +1663,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         # Switch back to A — its arrangement (terminal left) returns.
         app.state.project_cwd = cwd_a
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1650,6 +1756,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         # And the reset persists across a reload (custom arrangement is gone).
         page.wait_for_timeout(500)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
         groups = _dock_groups(page)
@@ -1698,6 +1805,7 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
         # Corrupt it and reload.
         page.evaluate("(k) => localStorage.setItem(k, '{ not valid json')", key)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
 
@@ -1930,6 +2038,7 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
 
             page = chromium_browser.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
 
             # The visible, healthy panel is the one docked and on screen.
@@ -1980,6 +2089,7 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
 
             page = chromium_browser.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
 
             # The premise: data-viz's health poll really reaches the live stub
@@ -2304,6 +2414,9 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
+        # The boot layout replaces the default arrangement; a rectangle or sash
+        # read before that is one of the arrangement about to be dropped.
+        wait_for_dock_settled(page)
 
         before = page.evaluate(_ALIGN_JS, "artifacts")
         assert before is not None, "artifacts placeholder/iframe missing"
@@ -2325,8 +2438,17 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
         page.mouse.down()
         try:
             page.mouse.move(sash["x"] - 150, sash["y"], steps=8)
-            # One rAF/RO tick to let the live follower re-apply geometry.
-            page.wait_for_timeout(150)
+            # Wait, button still down, for the group to have resized and the
+            # live follower to have re-applied the overlay's geometry to it.
+            page.wait_for_function(
+                f"""async ([sid, w0]) => {{
+                    const r = await ({_ALIGN_JS})(sid);
+                    return !!r && Math.abs(r.contentW - w0) >= 100
+                        && Math.abs(r.iframeLeft - r.contentLeft) <= 2
+                        && Math.abs(r.iframeW - r.contentW) <= 2;
+                }}""",
+                arg=["artifacts", before["contentW"]],
+            )
 
             mid = page.evaluate(_ALIGN_JS, "artifacts")
             assert mid is not None, "alignment probe lost mid-drag"
@@ -2511,6 +2633,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
             page.route("**/dockview-core*", lambda route: route.abort())
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             rail = page.locator('button.panel-rail-button[data-panel-id="contrib-demo"]')
             expect(rail).not_to_have_class(re.compile(r"\bdisabled\b"), timeout=15_000)
             assert (
@@ -3421,6 +3544,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         page = chromium_browser.new_page()
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
         # The Agent tile's header is re-parented while the dock boots; a press
         # landing between the two moves opens no menu.
@@ -3469,7 +3593,7 @@ def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path,
         held = []
         page.route("**/api/panels", lambda route: held.append(route))
         arm_terminal_tab(page)
-        page.goto(base_url, wait_until="domcontentloaded")
+        page.goto(base_url, wait_until="domcontentloaded")  # page-ready: its panel list is held
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
         assert held, "the panel list was answered before the menu could be tried"
 
@@ -3744,6 +3868,7 @@ def _palette_reload(page: Page) -> None:
     would race the rebuild rather than the behaviour it means to assert.
     """
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(_rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=10_000)
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
 
@@ -3885,6 +4010,7 @@ def test_palette_window_row_moves_the_panel_frame_on_its_proxied_url(tmp_path, c
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
+        wait_for_page_ready(popup)
         frame = popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')
         expect(frame).to_be_visible(timeout=10_000)
 

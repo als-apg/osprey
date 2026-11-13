@@ -12,6 +12,7 @@ import pytest
 from osprey import bluesky_tool_names
 from osprey.apps.errors import AppManifestError
 from osprey.apps.manifest import AppManifest, launch_token_env, parse_manifest
+from osprey.apps.origin import AppOrigin
 from osprey.apps.rules import (
     HOOK_DISPATCHED_TOOLS,
     QUEUE_TOOL_PREFIX,
@@ -24,6 +25,7 @@ from osprey.apps.rules import (
     fixed_names,
     framework_pins,
     refuse_shadowed_packages,
+    shadows_installed,
     validate,
 )
 
@@ -677,6 +679,36 @@ def test_an_audit_identity_a_roster_user_holds_is_refused() -> None:
     assert "roster" in str(err)
 
 
+# --- an application with no container ------------------------------------------------
+
+
+def test_a_panel_with_no_container_to_serve_it_is_refused() -> None:
+    err = _refused([_manifest(containers=_DROP, tools=_DROP)])
+    assert _rules(err) == ["panel_container"]
+    assert "it declares no container" in err.message
+
+
+def test_state_path_needs_a_panel_with_no_container_too() -> None:
+    m = _manifest(containers=_DROP, panel=_DROP, tools__shown_when="always")
+    assert _rules(_refused([m])) == ["state_path_panel"]
+
+
+def test_an_application_with_no_container_is_not_checked_for_its_audit_identity() -> None:
+    reserved = Reserved(
+        frozenset(), frozenset(), frozenset(), frozenset(), roster_users=frozenset({"guide"})
+    )
+    guide = _manifest({"name": "guide", "skills": ["guide"]})
+    validate([guide], logins={}, reserved=reserved)
+
+
+def test_an_audit_identity_spelled_with_no_container_is_refused() -> None:
+    guide = _manifest({"name": "guide", "skills": ["guide"], "audit_identity": "guide-audit"})
+    err = _refused([guide])
+    assert _rules(err) == ["audit_identity_container"]
+    assert err.field == "audit_identity"
+    assert "has none" in err.message
+
+
 def test_an_environment_package_an_unlisted_directory_declares_is_refused(
     tmp_path: Path,
 ) -> None:
@@ -717,3 +749,115 @@ def test_a_built_packages_build_requirement_an_unlisted_directory_declares_is_re
     assert _rules(err) == ["shadowed_package"]
     assert err.app == "knob"
     assert err.field == "build-system.requires.1"
+
+
+# --- installed applications -------------------------------------------------------------
+
+OWN_PACKAGE = "knob_dist.knob"
+OWN_MODULE = f"{OWN_PACKAGE}.tools"
+
+
+def _installed(**changes: Any) -> AppManifest:
+    """KNOB as an installed package ships it: its own tool module, no image container."""
+    changes = {"tools__module": OWN_MODULE, "containers__knob-cache": _DROP, **changes}
+    return _manifest(**changes).bind_origin(_origin())
+
+
+def _origin(module: str = OWN_PACKAGE) -> AppOrigin:
+    return AppOrigin(
+        kind="installed",
+        directory=Path("/site/knob"),
+        distribution="knob-dist",
+        version="1.2.3",
+        module=module,
+    )
+
+
+def _deployment_dir(root: Path, name: str) -> None:
+    (root / "apps" / name).mkdir(parents=True)
+    (root / "apps" / name / "app.yml").write_text(
+        f"name: {name}\ncontainers:\n  {name}:\n    runtime: osprey\n", encoding="utf-8"
+    )
+
+
+SHADOW_MESSAGE = (
+    "apps/knob/ has the name of the application knob that knob-dist 1.2.3 installs; "
+    "rename the directory and its app.yml name"
+)
+
+
+@pytest.mark.parametrize("names", [["knob"], []], ids=["listed", "unlisted"])
+def test_a_deployment_folder_named_like_an_installed_app_is_refused(
+    tmp_path: Path, names: list[str]
+) -> None:
+    from osprey.apps.loader import load
+
+    _deployment_dir(tmp_path, "knob")
+
+    with pytest.raises(AppManifestError) as info:
+        load(tmp_path, names, installed={"knob": _origin()})
+
+    assert _rules(info.value) == ["shadows_installed"]
+    assert info.value.message == SHADOW_MESSAGE
+
+
+def test_shadows_installed_names_each_folder_an_installed_app_names() -> None:
+    found = shadows_installed(["other", "knob"], {"knob": _origin()})
+
+    assert [(v.app, v.rule, v.message) for v in found] == [
+        ("knob", "shadows_installed", SHADOW_MESSAGE)
+    ]
+
+
+def test_a_deployment_manifest_named_like_an_installed_app_is_refused() -> None:
+    reserved = Reserved(
+        frozenset(), frozenset(), frozenset(), frozenset(), installed={"knob": _origin()}
+    )
+
+    assert _rules(_refused([_manifest()], reserved=reserved)) == ["shadows_installed"]
+    validate([_installed()], logins={}, reserved=reserved)
+
+
+def test_an_installed_apps_tool_module_lies_under_its_own_package() -> None:
+    validate([_installed()], logins={}, reserved=EMPTY)
+    err = _refused([_installed(tools__module="other_package.tools")])
+
+    assert _rules(err) == ["tools_module_outside_package"]
+    assert err.field == "tools.module"
+    assert err.violations[0].where.startswith(
+        "knob_dist/knob/app.yml (installed by knob-dist 1.2.3)"
+    )
+
+
+@pytest.mark.parametrize("package", ["osprey.apps.knob", "osprey_connectors.knob", "json.knob"])
+def test_an_installed_apps_package_in_a_taken_package_is_refused(package: str) -> None:
+    """One rule for both origins: no application's package lives under a framework root."""
+    installed = _manifest(tools__module=f"{package}.tools", **{"containers__knob-cache": _DROP})
+
+    err = _refused([installed.bind_origin(_origin(package))])
+
+    assert _rules(err) == ["taken_package"]
+    assert err.field == ""
+    assert package.split(".")[0] in err.message
+
+
+def test_an_installed_app_without_tools_is_refused_a_taken_package() -> None:
+    bare = _manifest(tools=_DROP, **{"containers__knob-cache": _DROP})
+
+    err = _refused([bare.bind_origin(_origin("osprey.knob"))])
+
+    assert _rules(err) == ["taken_package"]
+
+
+def test_an_installed_apps_image_container_is_refused() -> None:
+    image = {"image": "redis:7.2"}
+
+    err = _refused([_installed(**{"containers__knob-cache": image})])
+
+    assert _rules(err) == ["installed_image_container"]
+    assert err.field == "containers.knob-cache.image"
+    validate(
+        [_manifest(**{"tools__module": "knob.tools", "containers__knob-cache": image})],
+        logins={},
+        reserved=EMPTY,
+    )

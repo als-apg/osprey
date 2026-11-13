@@ -39,6 +39,7 @@
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 
 import {
   laneIsKnown,
@@ -487,4 +488,7 @@ async function loadLaneRoster() {
   renderLanePicker(roster);
 }
 
-void loadLaneRoster();
+// Ready once the first state is drawn: the plans form waits on the channel
+// catalog, the toolbar on the lane roster (index.html declares the mark pending
+// until then). Both settle on failure too.
+void Promise.allSettled([channelCatalogReady, loadLaneRoster()]).then(() => markPageReady());

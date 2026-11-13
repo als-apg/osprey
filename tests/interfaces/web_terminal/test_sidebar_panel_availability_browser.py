@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import live_chat_server
 
 if TYPE_CHECKING:
@@ -138,6 +139,7 @@ def _open(browser: Browser, base_url: str) -> tuple[Page, list[str]]:
     page.on("request", _on_request)
     page.add_init_script(_RECORD_SOURCES)
     page.goto(base_url, wait_until="load")
+    wait_for_page_ready(page)
     return page, asked
 
 

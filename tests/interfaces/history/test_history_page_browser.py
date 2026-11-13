@@ -35,6 +35,7 @@ from osprey.history import viewer
 from osprey.history.app import create_app
 from osprey.interfaces._serving import run_app_server
 from tests.agent_record.fakes import FakeRecordClient
+from tests.interfaces._browser import wait_for_page_ready
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -383,6 +384,7 @@ def _line(page: Page, selector: str) -> str:
 
 def test_the_session_list_is_one_column_newest_first(page: Page, history_url: str) -> None:
     page.goto(f"{history_url}/history/?as=alice")
+    wait_for_page_ready(page)
     rows = page.locator("ol.sessions li.session")
     assert rows.count() == 3
     texts = [" ".join(t.split()) for t in rows.all_inner_texts()]
@@ -399,6 +401,7 @@ def test_the_source_filter_starts_at_all_sources_and_narrows_the_list(
     page: Page, history_url: str
 ) -> None:
     page.goto(f"{history_url}/history/?as=alice")
+    wait_for_page_ready(page)
     select = page.locator(".list-head select")
     assert select.is_visible(), "the all-sources filter is not shown"
     assert select.locator("option:checked").inner_text() == "all sources"
@@ -421,8 +424,10 @@ def test_the_source_filter_starts_at_all_sources_and_narrows_the_list(
 
 def test_the_timeline_sits_below_the_chosen_session(page: Page, history_url: str) -> None:
     page.goto(f"{history_url}/history/?as=alice")
+    wait_for_page_ready(page)
     page.locator("ol.sessions li.session a.row").first.click()
     page.wait_for_url(re.compile(rf"/history/session/{SESSION}\?"))
+    wait_for_page_ready(page)
     current = page.locator(".session-list .session.current")
     assert " ".join(current.inner_text().split()).startswith("▾ 10:15 web · alice")
     order = page.evaluate(
@@ -437,6 +442,7 @@ def test_the_timeline_sits_below_the_chosen_session(page: Page, history_url: str
 
 def test_thinking_is_folded_to_one_line_until_shown(page: Page, history_url: str) -> None:
     page.goto(f"{history_url}/history/session/{SESSION}?as=alice")
+    wait_for_page_ready(page)
     thinking = page.locator("section.transcript > ol > li.entry.thinking").first
     fold = thinking.locator("details.thinking")
     assert fold.get_attribute("open") is None
@@ -451,6 +457,7 @@ def test_thinking_is_folded_to_one_line_until_shown(page: Page, history_url: str
 
 def test_every_tool_call_shows_its_decision_and_result(page: Page, history_url: str) -> None:
     page.goto(f"{history_url}/history/session/{SESSION}?as=alice")
+    wait_for_page_ready(page)
     calls = page.locator("section.transcript > ol > li.entry.tool_call > details.call > summary")
     lines = [" ".join(t.split()) for t in calls.all_inner_texts()]
     assert lines == [
@@ -472,6 +479,7 @@ def test_subagent_steps_nest_folded_under_the_call_that_started_them(
     page: Page, history_url: str
 ) -> None:
     page.goto(f"{history_url}/history/session/{SESSION}?as=alice")
+    wait_for_page_ready(page)
     agent = page.locator("section.transcript > ol > li.entry.tool_call:has(details.agent)")
     assert agent.count() == 1
     summary = agent.locator("details.agent > summary")
@@ -501,11 +509,13 @@ def test_a_long_session_pages_through_next_and_offers_a_reread_when_newer(
     page: Page, history_url: str, record: Record
 ) -> None:
     page.goto(f"{history_url}/history/session/{SESSION}?as=alice")
+    wait_for_page_ready(page)
     assert page.locator("li.entry.answer").count() == 0
     nxt = page.locator("nav.paging a.next")
     assert nxt.inner_text() == "later entries ↓"
     nxt.click()
     page.wait_for_url(re.compile(r"[?&]after=CURSOR-1(&|$)"))
+    wait_for_page_ready(page)
     assert record.timeline_calls()[-1] == {"session_id": SESSION, "after": CURSOR}
     assert "BPM 3 alone drifted" in page.locator("li.entry.answer pre.body").inner_text()
     assert page.locator("nav.paging a.next").count() == 0
@@ -514,6 +524,7 @@ def test_a_long_session_pages_through_next_and_offers_a_reread_when_newer(
     assert refresh.inner_text() == "Read from the start"
     refresh.click()
     page.wait_for_url(re.compile(rf"/history/session/{SESSION}\?as=alice$"))
+    wait_for_page_ready(page)
     assert record.timeline_calls()[-1] == {"session_id": SESSION, "after": None}
     _assert_links_keep(page, "alice")
 
@@ -527,9 +538,11 @@ def test_hostile_content_is_shown_as_text_and_runs_nothing(
     page: Page, watch: _Watch, history_url: str
 ) -> None:
     page.goto(f"{history_url}/history/session/{SESSION}?as=alice")
+    wait_for_page_ready(page)
     prompt = page.locator("li.entry.prompt pre.body").first
     assert prompt.inner_text() == HOSTILE
     page.goto(f"{history_url}/history/?as=alice")
+    wait_for_page_ready(page)
     assert HOSTILE[:20] in page.locator("ol.sessions li.session .prompt").first.inner_text()
     assert page.locator("main img").count() == 0, "the content became an element"
     assert page.locator("main script").count() == 0
@@ -546,6 +559,7 @@ def test_the_switcher_changes_who_the_page_is_viewed_as_and_every_link_keeps_it(
     page: Page, history_url: str
 ) -> None:
     page.goto(f"{history_url}/history/")
+    wait_for_page_ready(page)
     assert page.locator(".viewing-as .person").inner_text() == "alice"
     assert page.locator(".viewing-as .scope").inner_text() == "own"
     current = page.locator("nav.switcher .choice.current")
@@ -567,6 +581,7 @@ def test_the_switcher_changes_who_the_page_is_viewed_as_and_every_link_keeps_it(
 
     page.locator("nav.switcher a.choice", has_text="ops").click()
     page.wait_for_url(re.compile(r"[?&]as=ops(&|$)"))
+    wait_for_page_ready(page)
     assert page.locator(".viewing-as .person").inner_text() == "ops"
     assert page.locator(".viewing-as .scope").inner_text() == "all"
     assert page.locator("nav.switcher .choice.current").inner_text() == "ops"
@@ -574,12 +589,14 @@ def test_the_switcher_changes_who_the_page_is_viewed_as_and_every_link_keeps_it(
 
     page.locator("ol.sessions li.session a.row", has_text="bob's question").click()
     page.wait_for_url(re.compile(rf"/history/session/{BOB_SESSION}\?"))
+    wait_for_page_ready(page)
     assert _selection(page.url) == ["ops"]
     assert page.locator(".viewing-as .person").inner_text() == "ops"
     _assert_links_keep(page, "ops")
 
     page.locator("header h1 a").click()
     page.wait_for_url(re.compile(r"/history/\?as=ops$"))
+    wait_for_page_ready(page)
     assert page.locator(".viewing-as .scope").inner_text() == "all"
 
 

@@ -14,7 +14,7 @@ seeded into every web-terminal user's session; per-user additions live in
   are synthesized: fine for browsing and demos, but say so if a user asks
   whether readings are real.
 
-## Tiers and apps
+## Logins
 
 Each user's terminal runs the render of that user's tier, with its own
 capability set. The control-room tiers monitor, diagnose, and author and

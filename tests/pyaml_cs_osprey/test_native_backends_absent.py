@@ -253,7 +253,7 @@ class TestViolationDetectors:
             "accelerator-middle-layer==0.3.*",
             "pyaml-cs-osprey",
             "accelerator-middle-layer[docs]",
-            "accelerator-middle-layer-apg==0.3.1.post1",
+            "accelerator-middle-layer-apg==0.3.1.post2",
         ],
     )
     def test_allowed_requirement_passes(self, spec):

@@ -231,10 +231,13 @@ export function subscribePanelEvents(sseDeps) {
         const c = ctx();
 
         if (data.type === 'panel_visibility' && data.panel) {
+          membershipFrames += 1;
           applyPanelVisibility(data.panel, data.visible, data.source, data.index);
         } else if (data.type === 'rail_order' && Array.isArray(data.order)) {
+          membershipFrames += 1;
           applyRailOrder(data.order);
         } else if (data.type === 'panel_register' && data.id) {
+          membershipFrames += 1;
           // Seed membership before addPanel so the appended entry is a member
           c.memberSet.add(data.id);
           addPanel(data);
@@ -563,20 +566,35 @@ function recordAck(holder, sent, ack) {
 }
 
 /**
+ * How many rail frames (panel_visibility, rail_order, panel_register) the
+ * stream has delivered. {@link resyncPanelState} reads it around its fetch to
+ * tell whether a frame overtook the answer.
+ */
+let membershipFrames = 0;
+
+/**
  * Re-converge rail membership with the server after the SSE stream (re)opens.
  * The authoritative visible set is re-fetched and applied as a delta through
  * applyPanelVisibility — the same path the panel_visibility frames use.
  * Scope: membership of panels known to this page. A runtime panel whose
  * panel_register frame was missed entirely stays unknown until reload.
+ *
+ * The answer is applied only when no rail frame arrived while it was on its
+ * way. One that did may be newer than the answer, and the answer would undo
+ * it with nothing left to correct it, so the set is read again.
  */
 async function resyncPanelState() {
   const c = ctx();
   let config = null;
-  try {
-    config = await fetchJSON('/api/panels');
-  } catch {
-    return; // offline — the next reconnect retries
-  }
+  let framesAtRead;
+  do {
+    framesAtRead = membershipFrames;
+    try {
+      config = await fetchJSON('/api/panels');
+    } catch {
+      return; // offline — the next reconnect retries
+    }
+  } while (framesAtRead !== membershipFrames);
   if (!config || !Array.isArray(config.visible)) return;
   const serverVisible = new Set(config.visible);
   for (const id of serverVisible) {

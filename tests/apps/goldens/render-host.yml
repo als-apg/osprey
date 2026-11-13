@@ -1,0 +1,180 @@
+control_system.writes: asked
+web.panels:
+  orbit-bump:
+    label: Orbit bump
+    url: http://127.0.0.1:10900
+    path: /
+    health_endpoint: /health
+    app: orbit-bump
+    agent_routes:
+    - method: GET
+      path: /api/state
+    - method: GET
+      path: /api/approval
+    - method: POST
+      path: /api/recompute
+    - method: POST
+      path: /api/discard
+    - method: POST
+      path: /api/compute
+    - method: POST
+      path: /api/apply
+    launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
+    read_timeout_s: 90
+    enabled: true
+claude_code.servers:
+  orbit-bump:
+    command: '{current_python_env}'
+    args:
+    - -m
+    - orbit_bump.tools
+    env:
+      OSPREY_APP_NAME: orbit-bump
+      OSPREY_CONFIG: '{project_root}/build/config.yml'
+      CONFIG_FILE: '{project_root}/build/config.yml'
+    permissions:
+      allow:
+      - bump_state
+      - plan_bump
+      - discard_bump
+      - recompute_orm
+    writes:
+    - apply_bump
+    app: orbit-bump
+apps:
+  orbit-bump:
+    approval:
+      apply_bump:
+        prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).
+        panel_id: orbit-bump
+        state_path: /api/approval
+        display_lines_key: display_lines
+        bind:
+          state_fields:
+          - field: approved_plan_id
+            key: plan_id
+          - field: approved_setpoints
+            key: setpoint_digest
+          input_digests: []
+        require:
+          all_of:
+          - approved_target
+          - approved_plan_id
+          - approved_setpoints
+          one_of: []
+        errors:
+          unreachable: The orbit bump panel's backend is not answering; check its container with osprey
+            health.
+          refused: The bump was not applied. Compute it again and ask for a new approval.
+    tools:
+      read:
+      - bump_state
+      - plan_bump
+      - discard_bump
+      - recompute_orm
+      errors:
+        unreachable: The orbit bump panel's backend is not answering; check its container with osprey
+          health.
+        refused: The bump was not applied. Compute it again and ask for a new approval.
+dispatch.denied_app_tools:
+- mcp__orbit-bump__bump_state
+- mcp__orbit-bump__plan_bump
+- mcp__orbit-bump__discard_bump
+- mcp__orbit-bump__recompute_orm
+- mcp__orbit-bump__apply_bump
+settings.json:
+  hooks:
+    PreToolUse:
+    - matcher: mcp__orbit-bump__apply_bump
+      hooks:
+      - run: .claude/hooks/osprey_writes_check.py
+        timeout: 5
+      - run: .claude/hooks/osprey_approval.py --budget 30
+        timeout: 30
+    PostToolUse:
+    - matcher: mcp__orbit-bump__.*
+      hooks:
+      - run: .claude/hooks/osprey_error_guidance.py
+        timeout: 5
+    - matcher: mcp__orbit-bump__apply_bump
+      hooks:
+      - run: .claude/hooks/osprey_approval.py
+        timeout: 5
+    PostToolUseFailure:
+    - matcher: mcp__orbit-bump__apply_bump
+      hooks:
+      - run: .claude/hooks/osprey_approval.py
+        timeout: 5
+  permissions:
+    allow:
+    - mcp__orbit-bump__bump_state
+    - mcp__orbit-bump__plan_bump
+    - mcp__orbit-bump__discard_bump
+    - mcp__orbit-bump__recompute_orm
+hook_config.json:
+  server_prefixes:
+  - mcp__orbit-bump__
+  approval_prefixes:
+  - mcp__orbit-bump__
+  write_tools:
+  - mcp__orbit-bump__apply_bump
+  facility_write_tools:
+  - mcp__orbit-bump__apply_bump
+  governed_tools:
+  - mcp__orbit-bump__apply_bump
+  app_approvals:
+    mcp__orbit-bump__apply_bump:
+      app: orbit-bump
+      bind:
+        input_digests: []
+        state_fields:
+        - field: approved_plan_id
+          key: plan_id
+        - field: approved_setpoints
+          key: setpoint_digest
+      display_lines_key: display_lines
+      errors:
+        refused: The bump was not applied. Compute it again and ask for a new approval.
+        unreachable: The orbit bump panel's backend is not answering; check its container with osprey
+          health.
+      panel_id: orbit-bump
+      prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).
+      require:
+        all_of:
+        - approved_target
+        - approved_plan_id
+        - approved_setpoints
+        one_of: []
+      state_path: /api/approval
+  app_error_types:
+    orbit-bump.refused:
+      class: Safety
+      text: The bump was not applied. Compute it again and ask for a new approval.
+    orbit-bump.unreachable:
+      class: Connection
+      text: The orbit bump panel's backend is not answering; check its container with osprey health.
+  plan_mode_denied_tools:
+  - mcp__orbit-bump__apply_bump
+panel_token_routes:
+- - GET
+  - /panel/orbit-bump/api/approval
+- - GET
+  - /panel/orbit-bump/api/state
+- - POST
+  - /panel/orbit-bump/api/apply
+- - POST
+  - /panel/orbit-bump/api/compute
+- - POST
+  - /panel/orbit-bump/api/discard
+- - POST
+  - /panel/orbit-bump/api/recompute
+reach:
+  consumers:
+  - name: The orbit-bump panel
+    'on': true
+    resolves: true
+    dial:
+    - 127.0.0.1
+    - 10900
+  credentials_held:
+  - ORBIT_BUMP_LAUNCH_TOKEN

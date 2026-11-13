@@ -1,0 +1,1 @@
+`osprey build` no longer reports a deployment package's source directory (such as `./kinds/<name>` named under the profile's `dependencies`) as an unrecognized top-level entry; any other stray directory is still reported.

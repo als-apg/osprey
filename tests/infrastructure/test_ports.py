@@ -163,14 +163,17 @@ def _a_reservable_port() -> int:
 
 def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
     port = _a_reservable_port()
+    # The holder opens the lock file read-only, as the harness does: the lock
+    # directory is shared by every user of the host, so the file may belong
+    # to another user and grant this one no write.
     holder = subprocess.Popen(
         [
             sys.executable,
             "-c",
             textwrap.dedent(
                 f"""
-                import fcntl, sys
-                handle = open({str(lock_path(port))!r}, "a")
+                import fcntl, os, sys
+                handle = os.open({str(lock_path(port))!r}, os.O_RDONLY | os.O_CREAT, 0o644)
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 sys.stdout.write("held\\n")
                 sys.stdout.flush()

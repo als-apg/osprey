@@ -63,6 +63,7 @@ PROMOTED_PRIMITIVE_GROUPS: tuple[str, ...] = (
     "radius",
     "z",
     "duration",
+    "control",
 )
 
 #: CSS name prefixes no promoted primitive may emit. ``tokens.css`` is also

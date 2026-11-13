@@ -754,9 +754,19 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
     monkeypatch.setattr(jupyter_sidecar.sys, "executable", str(fake))
     sidecar = JupyterSidecar(shared_root, "", None)
     sidecar.spawn()
+    stand_in = sidecar.pid
+    assert stand_in is not None
     orphan: int | None = None
     try:
-        wait_until(pid_file.exists, timeout=10, what="the stand-in to report its orphan")
+        # No wall-clock budget: the stand-in reports its orphan or exits on its
+        # own however slowly a loaded host starts it; the per-test timeout is
+        # the hang breaker.
+        wait_until(
+            lambda: pid_file.exists() or pid_gone(stand_in, within=0.0),
+            timeout=None,
+            what="the stand-in to report its orphan or exit",
+        )
+        assert pid_file.exists(), f"the stand-in exited first:\n{sidecar.stderr_tail}"
 
         orphan = int(pid_file.read_text())
         assert pid_alive(orphan)

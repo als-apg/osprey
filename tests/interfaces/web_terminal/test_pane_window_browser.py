@@ -30,6 +30,7 @@ from contextlib import contextmanager, suppress
 import pytest
 from docs.screenshots.contact_sheet import hermetic_hub
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal.test_panels_browser import (
     _contributing_panel,
     _live_server,
@@ -88,6 +89,7 @@ def page(chromium_browser):
 
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_AGENT_TILE} .tile-tab-more")).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -126,6 +128,7 @@ def _detach_agent(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(_MENU).get_by_role("menuitem", name="Open in new window").click()
     popup = info.value
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 
@@ -134,6 +137,7 @@ def _detach_artifacts(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(f"{_ARTIFACTS_TILE} .tile-tab-window").click()
     popup = info.value
+    wait_for_page_ready(popup)
     expect(popup.locator(_ARTIFACTS_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 
@@ -231,6 +235,7 @@ def test_the_agent_tiles_own_button_pops_it_out_and_reattach_brings_it_back(hub,
     with page.expect_popup() as info:
         button.click()
     popup = info.value
+    wait_for_page_ready(popup)
     popup_requests: list[str] = []
     popup.on("request", lambda request: popup_requests.append(request.url))
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
@@ -265,6 +270,7 @@ def test_the_agent_tiles_own_button_pops_it_out_and_reattach_brings_it_back(hub,
     assert len(turns) == 2, turns
     assert not [url for url in popup_requests if "/api/chat" in url], popup_requests
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(_AGENT_TILE)).to_have_count(1)
     expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_have_count(1)
@@ -339,6 +345,7 @@ def test_a_hub_reload_closes_the_agent_window_and_docks_the_pane(hub, page):
     popup = _detach_agent(page)
 
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     page.wait_for_timeout(500)
@@ -400,6 +407,7 @@ def test_ariel_keeps_its_entry_and_after_its_window_closes_only_its_row_opens_it
         ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
         page = ctx.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(row)).not_to_have_class(
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
@@ -422,6 +430,7 @@ def test_ariel_keeps_its_entry_and_after_its_window_closes_only_its_row_opens_it
         with page.expect_popup() as info:
             page.locator(f"{tile} .tile-tab-window").click()
         popup = info.value
+        wait_for_page_ready(popup)
 
         # R1: the same frame, in the window, on the entry it showed.
         expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
@@ -444,6 +453,7 @@ def test_ariel_keeps_its_entry_and_after_its_window_closes_only_its_row_opens_it
         )
         assert "iframe:ariel" not in _tiles(page)
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(row)).not_to_have_class(
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
@@ -468,6 +478,7 @@ def test_the_hub_navigating_a_detached_frame_that_navigates_in_place_changes_its
         ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
         page = ctx.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(row)).not_to_have_class(
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
         )
@@ -475,6 +486,7 @@ def test_the_hub_navigating_a_detached_frame_that_navigates_in_place_changes_its
         with page.expect_popup() as info:
             page.get_by_role("menuitem", name="Open in new window").click()
         popup = info.value
+        wait_for_page_ready(popup)
         expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
         # Its document says it navigates in place, as ARIEL's router does; a router
         # takes the message only from its parent, which is no longer the hub.
@@ -519,6 +531,7 @@ def test_a_panel_with_no_tile_opens_in_a_window_from_its_row_and_reattaches(
         ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
         page = ctx.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(row)).not_to_have_class(
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
@@ -529,6 +542,7 @@ def test_a_panel_with_no_tile_opens_in_a_window_from_its_row_and_reattaches(
         with page.expect_popup() as info:
             page.get_by_role("menuitem", name="Open in new window").click()
         popup = info.value
+        wait_for_page_ready(popup)
 
         expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
         box = popup.locator(frame).bounding_box()
@@ -556,6 +570,7 @@ def test_a_hub_reload_docks_a_panel_that_left_with_no_tile_at_no_panels_cost(
         ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
         page = ctx.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(row)).not_to_have_class(
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
@@ -564,11 +579,13 @@ def test_a_hub_reload_docks_a_panel_that_left_with_no_tile_at_no_panels_cost(
         with page.expect_popup() as info:
             page.get_by_role("menuitem", name="Open in new window").click()
         popup = info.value
+        wait_for_page_ready(popup)
         expect(popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')).to_be_visible(
             timeout=_TIMEOUT_MS
         )
 
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         expect(page.locator(tile)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
@@ -586,6 +603,7 @@ def test_the_closed_agent_pane_opens_in_a_window_from_its_row_and_reattaches(hub
     with page.expect_popup() as info:
         page.get_by_role("menuitem", name="Open in new window").click()
     popup = info.value
+    wait_for_page_ready(popup)
 
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator("html")).to_have_attribute("data-agent", "detached")
@@ -603,6 +621,7 @@ def test_a_hub_reload_brings_a_detached_service_panel_back_docked(hub, page):
     assert "iframe:artifacts" not in _tiles(page)
 
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
 
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
@@ -656,6 +675,7 @@ def _panel_with_controls_in_a_window(tmp_path, chromium_browser):
             ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
             page = ctx.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
             _open_second_tile(page, base_url, "search-demo", "SEARCHY")
             tab = _service_tab(page, "SEARCHY")
@@ -663,6 +683,7 @@ def _panel_with_controls_in_a_window(tmp_path, chromium_browser):
             with page.expect_popup() as info:
                 tab.locator(".tile-tab-window").click()
             popup = info.value
+            wait_for_page_ready(popup)
             expect(popup.locator(f"{_BAR} .contrib-search-input")).to_be_visible(
                 timeout=_TIMEOUT_MS
             )
@@ -796,6 +817,7 @@ def test_reloading_a_service_panels_window_keeps_it_detached_on_its_page_with_it
             frame,
         )
         popup.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(popup)
 
         expect(popup.locator(f"{_BAR} .tile-tab-title")).to_have_text(
             "Searchy", timeout=_TIMEOUT_MS
@@ -833,6 +855,7 @@ def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattache
     popup.locator(f"{_BAR} .op-session-label").click()
     expect(popup.locator("#session-switcher-menu")).to_be_visible(timeout=5_000)
     popup.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(popup)
 
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(popup.locator(f"{_BAR} .op-session-bar .agent-bar-new")).to_be_visible(
@@ -884,6 +907,7 @@ _TRAIL = "[data-detached-trail]"
 def _boot_ariel_beside_artifacts(page: Page, base_url: str) -> None:
     """ARIEL docked in a tile of its own, right of the Artifacts tile."""
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(page.locator(_ARIEL_ROW)).not_to_have_class(
         re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
@@ -897,6 +921,7 @@ def _detach_ariel(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(f"{_ARIEL_TILE} .tile-tab-window").click()
     popup = info.value
+    wait_for_page_ready(popup)
     expect(popup.locator(_ARIEL_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 
@@ -1047,6 +1072,7 @@ def test_a_chat_message_and_an_approval_both_work_from_the_agent_window(hub, pag
 
 def _boot_custom_panel_row(page: Page, base_url: str, row: str) -> None:
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(page.locator(row)).not_to_have_class(re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS)
 
@@ -1073,7 +1099,7 @@ def _a_never_loaded_panel(tmp_path, chromium_browser):
             expect(item).not_to_have_attribute("aria-disabled", "true")
             with page.expect_popup() as info:
                 item.click()
-            popup = info.value
+            popup = info.value  # page-ready: the subject is the window before it is dressed
             # The window is open inside the gesture; the frame waits in the hub.
             page.wait_for_timeout(300)
             assert not popup.is_closed()
@@ -1149,6 +1175,7 @@ def test_close_window_in_the_windows_menu_closes_the_window_and_the_row_stays(
         expect(page.locator(_ARIEL_TILE)).to_have_count(0)
         # The window is gone from the pane's account too: a reload keeps it closed.
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         page.wait_for_timeout(1000)
         expect(page.locator(_ARIEL_TILE)).to_have_count(0)
@@ -1181,6 +1208,7 @@ def _saved_page(page: Page, panel_id: str, part: str) -> None:
 def _settled_after_reload(page: Page) -> None:
     """The hub reloaded, and session-layout's arrive plus SETTLE_MS (400 ms) have passed."""
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     page.wait_for_timeout(1200)
 

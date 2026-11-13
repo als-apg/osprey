@@ -1,4 +1,4 @@
-"""``check_drift`` refuses a render made before the tiers/apps vocabulary.
+"""``check_drift`` refuses a render made before the login vocabulary.
 
 A profile spelled with the retired roster keys hashes identically to its
 ``tier`` rewrite, so the fingerprint alone would call a render from an older
@@ -81,7 +81,7 @@ def test_render_before_the_vocabulary_release_is_refused(repo):
     assert report.refuses
     assert report.state is DriftState.UNRESOLVABLE
     assert report.message == (
-        f"rendered by osprey {PRE_VOCABULARY} before tiers/apps; run osprey build"
+        f"rendered by osprey {PRE_VOCABULARY} before the login vocabulary; run osprey build"
     )
     assert "--as-built" in report.remedy
 
@@ -103,7 +103,7 @@ def test_refusal_also_covers_a_drifted_profile(repo):
     report = staleness.check_drift(repo)
 
     assert report.refuses
-    assert "before tiers/apps" in report.message
+    assert "before the login vocabulary" in report.message
 
 
 def test_the_floor_itself_is_not_refused(repo):
@@ -149,7 +149,7 @@ def test_an_uncomparable_stamp_is_not_judged_too_old(repo, stamp):
 
     report = staleness.check_drift(repo)
 
-    assert "before tiers/apps" not in report.message
+    assert "before the login vocabulary" not in report.message
     assert report.state is DriftState.CLEAN
 
 

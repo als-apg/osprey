@@ -19,6 +19,8 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
+from tests.interfaces._browser import wait_for_page_ready
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
@@ -59,7 +61,9 @@ def page(context):
 
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f"{_TREE} .osprey-tree-session").first).to_be_visible(timeout=_TIMEOUT_MS)
+    wait_for_page_ready(page)
 
 
 def _session(page: Page, sid: str):

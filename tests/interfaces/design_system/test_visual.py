@@ -45,7 +45,7 @@ from fastapi.responses import HTMLResponse
 from PIL import Image
 
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._browser import wait_for_dock_settled, wait_for_page_ready
 from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
@@ -473,6 +473,7 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                 separator = "&" if "?" in target.path else "?"
                 url = f"{base_url}{target.path}{separator}theme={theme}"
                 page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+                wait_for_page_ready(page)
                 if target.wait_selector:
                     expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
                 if target.dock_shell:
@@ -525,6 +526,7 @@ def test_visual_multi_user_landing(tmp_path, chromium_browser, theme, pytestconf
         page = chromium_browser.new_page(viewport=VIEWPORT, color_scheme=theme)
         try:
             page.goto(base_url, wait_until="domcontentloaded", timeout=15_000)
+            wait_for_page_ready(page)
             # Both render-badged user cards must be present before the shot, so
             # the baseline is guaranteed to show the operator/physicist sublabels
             # (the app cards' are suppressed: roster name == render name), and the

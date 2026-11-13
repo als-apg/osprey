@@ -8,7 +8,9 @@ runs it in a deployment repository.
 
 Every import statement counts, including ones inside functions and under
 ``if TYPE_CHECKING:``; an ``importlib.import_module("...")`` string does not. A package's
-own modules and third-party imports are outside the rule.
+own modules and third-party imports are outside the rule. No application package lives
+under ``osprey`` or ``osprey_connectors``: an import under either is OSPREY's, whatever
+package holds it.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ def check_package(package: Path, *, app: str = "") -> list[Violation]:
     Args:
         package: The package's directory.
         app: The application the violations belong to, when the caller knows it.
+            A relative import is measured from *package*.
 
     Returns:
         Every violation, by file and then in source order. A violation's ``field`` is the

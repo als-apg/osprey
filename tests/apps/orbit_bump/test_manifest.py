@@ -17,6 +17,7 @@ from orbit_bump import server as backend
 from osprey.apps.manifest import AppManifest, launch_token_env, parse_manifest
 from osprey.apps.projection import project_login
 from osprey.apps.rules import AppSelection, LoginSelection, Reserved, fixed_names, validate
+from osprey.apps.sdk import launch_token_env as sdk_launch_token_env
 from osprey.mcp_server.startup import application_server
 from osprey.profiles import presets
 from tests.hooks.conftest import import_hook
@@ -81,8 +82,11 @@ def test_the_application_needs_no_network_to_build() -> None:
     assert not (APP_DIR / "panel" / "vendor").exists()
 
 
-def test_the_backend_reads_the_token_the_deployment_hands_it() -> None:
-    assert backend.LAUNCH_TOKEN_ENV == launch_token_env(APP_NAME)
+def test_the_backend_reads_the_token_the_deployment_hands_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    assert sdk_launch_token_env() == launch_token_env(APP_NAME)
 
 
 def test_the_backend_serves_the_routes_the_declaration_names() -> None:

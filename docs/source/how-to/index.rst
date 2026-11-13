@@ -48,6 +48,14 @@ Build & deploy
       A panel for the operator and tools for the agent over one backend:
       what an app is and how to make one.
 
+   .. grid-item-card:: Register a Measurement Kind
+      :link: register-a-measurement-kind
+      :link-type: doc
+
+      Add a measurement of your own from an installable package: its
+      declaration, its block in the measurement file, and what the build
+      refuses.
+
 Operate
 -------
 
@@ -150,6 +158,7 @@ Facility services
    deploy-project/index
    llm-providers/index
    apps/index
+   register-a-measurement-kind
    web-terminal/index
    agent-interfaces/index
    health-and-monitoring/index

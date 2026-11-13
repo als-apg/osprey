@@ -67,8 +67,12 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     )
 
-    def entry_points(**kwargs: Any) -> Any:
-        return found
+    real = metadata.entry_points
+
+    def entry_points(**selection: Any) -> Any:
+        if selection.get("group") == ENTRY_POINT_GROUP:
+            return found
+        return real(**selection)
 
     monkeypatch.setattr(metadata, "entry_points", entry_points)
     DESCRIBED.clear()

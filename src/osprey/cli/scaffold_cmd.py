@@ -788,7 +788,7 @@ def scaffold(ctx):
 
     The ci verb regenerates the repo's pipeline and health check from the
     profile's deploy: block, and the systemd verb writes a unit that starts
-    this deployment at boot. The tiers and apps verbs write the tier and app
+    this deployment at boot. The tiers verb writes the login
     files a preset's web-terminal roster names, and the pull verb copies a
     preset's packaged content (its app template's data and the facility it
     names) into this repo. The other

@@ -415,6 +415,21 @@ What the container keeps the same for every engine:
 ``tests/va/test_entrypoint.py`` pins what the shipped entrypoint reads and
 refuses. How to deploy a plug-in is in :ref:`va-serving-your-own-model`.
 
+.. _extending-measurement-kind:
+
+Measurement kind
+----------------
+
+A measurement kind is an ``osprey.facility.kinds.KindDeclaration`` registered
+under the ``osprey.facility.kinds`` entry-point group in its package's
+``pyproject.toml``; OSPREY's shipped kinds are entry points of the same group.
+The package is installed where ``osprey build`` runs and in the project image,
+through the profile's ``dependencies``. Pinning test:
+``tests/facility/test_fixture_kind_deployment.py``, whose package under
+``tests/facility/fixtures/fixture_kind/`` registers a kind and an engine. The
+contract: :doc:`/reference/contracts/facility-kinds`; step by step:
+:doc:`/how-to/register-a-measurement-kind`.
+
 .. _extending-agent-harness:
 
 Agent harness
