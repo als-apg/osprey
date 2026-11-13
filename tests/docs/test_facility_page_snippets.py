@@ -162,6 +162,7 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
     "- class: Undulator": ("classes.yaml", _by("class")),
+    "- name: taper_setpoint": ("signals.yaml", _by("name")),
     "BR:DIAG:DCCT:01:CURRENT:RB:": ("seeds.yaml", _update),
     "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
     "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),

@@ -49,7 +49,10 @@ from tests.facility._mml_built import (
 at = pytest.importorskip("at")
 
 #: The module's readers share one import per tree, which only holds on one worker.
-pytestmark = pytest.mark.xdist_group("mml_layer_seed_once")
+pytestmark = [
+    pytest.mark.xdist_group("mml_layer_seed_once"),
+    pytest.mark.usefixtures("entry_points_read_afresh"),
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -514,7 +517,7 @@ def test_a_measurement_file_carries_the_step_and_settle_keys(imported: _Imported
 
 def test_a_periodic_model_measures_orbit_response_and_dispersion(synthetic: Path) -> None:
     document = _load(synthetic / "measurement" / "SR.yaml")
-    assert document["kinds"] == ["orm", "dispersion"]
+    assert document["kinds"] == ["dispersion", "orm"]
     assert document["groups"] == {"bpm": "BPMx", "hcor": "HC", "vcor": "VC"}
     assert document["instruments"] == {"rf": "QK:RF:1:CUR:SP"}
 
@@ -544,13 +547,13 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
     assert document["instruments"]["tune"] == "MeasTune"
     assert document["groups"]["quad"] == ["QD", "QF"]
     assert document["groups"]["sext"] == ["SD", "SF"]
-    assert document["kinds"] == ["orm", "dispersion", "trm", "crm", "chromaticity_monitor"]
+    assert document["kinds"] == ["chromaticity_monitor", "crm", "dispersion", "orm", "trm"]
 
 
 def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
     imported: _Imported,
 ) -> None:
-    from osprey.facility.views.pyaml import KIND_MEMBERS, SINGLE_PASS_KINDS
+    from osprey.facility.kinds import builtin_kinds
 
     periodic = {
         model["name"]: (model.get("settings") or {}).get(model["engine"], {}).get("solve")
@@ -562,9 +565,31 @@ def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
         named = set(document["groups"]) | set(document.get("instruments", {}))
         assert document["kinds"] == [
             kind
-            for kind, members in KIND_MEMBERS.items()
-            if set(members) <= named and (periodic[path.stem] or kind in SINGLE_PASS_KINDS)
+            for kind, declaration in builtin_kinds().items()
+            if set(declaration.members) <= named
+            and (periodic[path.stem] or declaration.single_pass)
         ], path.name
+
+
+def test_the_import_seeds_no_kind_a_deployment_package_registers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An import cannot author a registered kind's sub-block, so it never lists one.
+
+    The SPEAR3 export names every member the fixture kind declares, so a seed
+    that offered every registered kind would list it.
+    """
+    from osprey.facility.kinds import registered
+    from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
+
+    install(monkeypatch)
+    declaration = registered()[REGISTRY_KIND]
+    imported = _Imported(tmp_path / "spear3", "spear3")
+    document = _load(imported.facility / "measurement" / "StorageRing.yaml")
+    named = set(document["groups"]) | set(document.get("instruments", {}))
+
+    assert {m for m, r in declaration.members.items() if r != "optional"} <= named
+    assert REGISTRY_KIND not in document["kinds"]
 
 
 def _measurement_lines(imported: _Imported) -> list[str]:

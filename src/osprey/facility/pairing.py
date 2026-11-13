@@ -14,7 +14,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-WRITE_WORDS = ("setpoint", "command")
+#: The write word of a command: a setpoint whose signal ends in it is one.
+COMMAND_WORD = "command"
+WRITE_WORDS = ("setpoint", COMMAND_WORD)
 READ_WORDS = ("readback", "status")
 
 _SAME_SLOTS = ("value_type", "options", "shape")
@@ -36,6 +38,15 @@ def signal_quantity(signal: str | None, role: str) -> str | None:
     head, _, word = str(signal).rpartition("_")
     words = WRITE_WORDS if role == "setpoint" else READ_WORDS
     return head if head and word in words else None
+
+
+def is_command_signal(signal: str | None) -> bool:
+    """Whether a setpoint's vocabulary signal makes it a command: it ends in :data:`COMMAND_WORD`.
+
+    Args:
+        signal: The channel's vocabulary signal, if any.
+    """
+    return bool(signal) and str(signal).rpartition("_")[2] == COMMAND_WORD
 
 
 def location(channel: Mapping[str, Any]) -> tuple[Any, ...]:

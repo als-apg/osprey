@@ -2,6 +2,10 @@
 {% set measured = facility_facts.measurement_models | default({}) -%}
 {% set solves = {} -%}
 {% for model in facility_facts.models | default([]) %}{% set _ = solves.update({model.name: model.solve}) %}{% endfor -%}
+{% set kinds = {} -%}
+{% for name, record in measured | dictsort %}{% for kind, block in (record.kinds | default({})) | dictsort %}{% set _ = kinds.setdefault(kind, block) %}{% endfor %}{% endfor -%}
+{% set correcting = kinds | dictsort | selectattr("1.corrector_roles") | map(attribute="0") | list -%}
+{% set grouping = kinds | dictsort | selectattr("1.takes_by") | map(attribute="0") | list -%}
 ---
 name: pyaml-tools
 description: >
@@ -31,16 +35,24 @@ configuration the build wrote; nothing else in the deployment edits it.
 - `pyaml_measure` steps the setpoints under the control target's run lock. Nothing is written back: a run that stops, fails or is interrupted leaves each setpoint where it stopped.
 - Every call asks for approval. The prompt shows the model, the kind, the pyAML view's digest and every setpoint it steps; the measurement runs only on that view.
 - Arguments:
-  - `kind`: `orm`, `dispersion`, `trm`, `crm` or `chromaticity_monitor`.
+  - `kind`: one of the kinds below.
   - `model`: the model; omit when only one model has a pyAML view.
-  - `correctors`: corrector setpoint addresses, for `orm` only; omit for every corrector.
-  - `modulation`: `bipolar` steps each setting to both sides of its present value, `unipolar` to one side; omit for bipolar, or for unipolar with `by: group`.
-  - `by`: `magnet` steps one magnet per column, `group` steps the whole group as one column; `trm` and `crm` only; omit for magnet.
+{% if correcting -%}
+{{ "  " }}- `correctors`: corrector setpoint addresses, for {{ correcting | map("tojson") | join(" and ") | replace('"', '`') }} only; omit for every corrector.
+{% endif -%}
+{{ "  " }}- `modulation`: `bipolar` steps each setting to both sides of its present value, `unipolar` to one side; omit for bipolar, or for unipolar with `by: group`.
+{% if grouping -%}
+{{ "  " }}- `by`: `magnet` steps one magnet per column, `group` steps the whole group as one column; {{ grouping | map("tojson") | join(" and ") | replace('"', '`') }} only; omit for magnet.
+{% endif -%}
+- The kinds the measurement files allow, each with the step and settle keys it reads from the model's measurement file:
+{% for kind, block in kinds | dictsort -%}
+{{ "  " }}- `{{ kind }}`: {{ block.description }}{% if block.tool_keys %}; {{ block.tool_keys | map("tojson") | join(", ") | replace('"', '`') }}{% endif %}.
+{% endfor -%}
 - A kind the model's measurement file does not allow is refused, naming the group or instrument it needs.
 
 ### Step sizes
 
-- Each step comes from the model's measurement file: `corrector_delta`, `frequency_delta`, `quad_delta`, `sextu_delta`.
+- Each step comes from the model's measurement file, under the step key its kind lists above.
 - The tool shrinks a step until no setpoint's largest single write exceeds half its `max_step` in `data/facility/limits.yaml`; the result names the setpoint that bounded it in `delta_limited_by` (`rf_limited_by` for the RF).
 - A setpoint with no `max_step` in limits.yaml is stepped by the measurement file's value.
 

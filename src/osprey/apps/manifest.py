@@ -9,7 +9,8 @@ instead: the application's compose fragment, or for ``network`` the profile's
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
+from urllib.parse import unquote
 
 from pydantic import (
     AfterValidator,
@@ -17,6 +18,7 @@ from pydantic import (
     ConfigDict,
     Discriminator,
     Field,
+    PrivateAttr,
     StrictBool,
     StrictInt,
     StringConstraints,
@@ -29,6 +31,9 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from osprey.apps.errors import AppManifestError, Violation
+
+if TYPE_CHECKING:
+    from osprey.apps.origin import AppOrigin
 
 APP_NAME_PATTERN = r"^[a-z0-9-]+$"
 
@@ -45,6 +50,13 @@ PACKAGE_URL_TEMPLATE = "https://cdn.jsdelivr.net/npm/{package}@{version}/{file}"
 _FRAGMENT_KEYS = ("binds", "volumes", "env_file", "depends_on", "ports")
 
 _PANEL_PREFIX = "/panel"
+
+#: Why an application may not carry a hook, and what it declares instead.
+NO_HOOKS_MESSAGE = (
+    "apps ship no hook code: declare the fact in app.yml "
+    "(`tools.approval` for a write, `tools.deny_in_jobs` for a job-only refusal, "
+    "`tools.errors` for the agent's guidance) and OSPREY's hooks act on it"
+)
 
 Slug = Annotated[str, StringConstraints(pattern=APP_NAME_PATTERN)]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
@@ -72,6 +84,37 @@ def _backend_path(value: str) -> str:
 
 
 BackendPath = Annotated[str, AfterValidator(_backend_path)]
+
+
+def help_page_refusal(value: str) -> str | None:
+    """Say why *value* is not a panel help page, or ``None`` when it is one.
+
+    A help page is either a path relative to the deployment's docs root, as the
+    built-in panels' pages are spelled (``how-to/apps/build-your-own-app.html``),
+    or an absolute ``https://`` URL. A relative path may not leave the docs root
+    (a ``..`` segment, percent-encoded or not), start at the host root (``/``) or carry a scheme.
+    """
+    if value.startswith("https://") and len(value) > len("https://"):
+        return None
+    if not value:
+        return "a help page may not be empty"
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value):
+        return f"{value!r} is a URL; a help page URL must be https://"
+    if value.startswith("/") or "\\" in value:
+        return f"{value!r} must be a path relative to the docs root, or an https:// URL"
+    if ".." in unquote(value.split("#", 1)[0]).split("/"):
+        return f"{value!r} leaves the docs root; a help page may not contain '..'"
+    return None
+
+
+def _help_page(value: str) -> str:
+    refusal = help_page_refusal(value)
+    if refusal is not None:
+        raise ValueError(refusal)
+    return value
+
+
+HelpPage = Annotated[str, AfterValidator(_help_page)]
 
 
 def launch_token_env(app_name: str) -> str:
@@ -163,11 +206,17 @@ class Panel(_Strict):
 
     id: Slug
     label: NonEmpty
-    icon: NonEmpty | None = None
     container: NonEmpty
     entry: BackendPath = "/"
     launch_token: StrictBool = False
     read_timeout_s: Annotated[StrictInt, Field(gt=0)] | None = None
+    #: The sidebar row's glyph, a name icons.js draws; absent, the row wears the
+    #: generic one.
+    icon: NonEmpty | None = None
+    #: The sidebar row's tooltip sentence.
+    description: NonEmpty | None = None
+    #: The panel's help page: relative to the docs root, or an https:// URL.
+    help: HelpPage | None = None
     agent_routes: list[AgentRoute] = Field(default_factory=list)
     roster_grant: RosterGrant | None = None
 
@@ -188,7 +237,9 @@ class Panel(_Strict):
 class StateField(_Strict):
     """Copy the fetched state's ``key`` into the stamp field ``field``.
 
-    A ``key`` absent from the state leaves the field unbound.
+    A dotted ``key`` (``step.digest``) is a path through nested mappings of the
+    state. A ``key`` the state does not hold, or a path that crosses a value
+    that is not a mapping, leaves the field unbound.
     """
 
     field: NonEmpty
@@ -308,13 +359,46 @@ class AppManifest(_Strict):
 
     name: Slug
     summary: NonEmpty | None = None
-    containers: dict[NonEmpty, Container] = Field(min_length=1)
+    #: The application's containers, by compose service name; none for an application
+    #: of a tool server, skills, subagents or any of them. A backend-less application keeps no state and
+    #: opens no deployment data store: its tool server runs beside the agent, and
+    #: keeping to that is the tool server author's duty, since no check can see it.
+    containers: dict[NonEmpty, Container] = Field(default_factory=dict)
     panel: Panel | None = None
     tools: Tools | None = None
-    audit_identity: NonEmpty
+    #: Names the containers' spool and state directories; defaults to ``name``.
+    audit_identity: NonEmpty = ""
     vendor: list[VendorEntry] = Field(default_factory=list)
     #: The agent skills the application carries, each ``skills/<name>/SKILL.md`` in its directory.
     skills: list[Slug] = Field(default_factory=list)
+    #: The subagents the application carries, each ``agents/<name>.md`` in its directory.
+    agents: list[Slug] = Field(default_factory=list)
+    _audit_identity_spelled: bool = PrivateAttr(default=False)
+
+    @property
+    def audit_identity_spelled(self) -> bool:
+        """Whether ``app.yml`` spells ``audit_identity`` rather than taking the default."""
+        return self._audit_identity_spelled
+
+    #: Where the loader found the manifest: a fact of discovery, never a key of ``app.yml``.
+    _origin: AppOrigin | None = PrivateAttr(default=None)
+
+    @property
+    def origin(self) -> AppOrigin | None:
+        """Where the application's directory is; ``None`` for a manifest no loader read."""
+        return self._origin
+
+    def bind_origin(self, origin: AppOrigin) -> AppManifest:
+        """Record where the loader found this manifest, and return it."""
+        self._origin = origin
+        return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_hooks(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "hooks" in data:
+            raise PydanticCustomError("no_hooks", NO_HOOKS_MESSAGE, {"at": "hooks"})
+        return data
 
     @model_validator(mode="before")
     @classmethod
@@ -323,11 +407,24 @@ class AppManifest(_Strict):
             return data
         name = data["name"]
         data = dict(data)
-        data.setdefault("audit_identity", name)
         panel = data.get("panel")
         if isinstance(panel, dict) and "id" not in panel:
             data["panel"] = {"id": name, **panel}
         return data
+
+    @model_validator(mode="after")
+    def _has_a_part(self) -> AppManifest:
+        if not (self.containers or self.panel or self.tools or self.skills or self.agents):
+            raise PydanticCustomError(
+                "app_has_part",
+                "an application declares at least one of containers, panel, tools, skills "
+                "or agents",
+                {"at": ""},
+            )
+        self._audit_identity_spelled = "audit_identity" in self.model_fields_set
+        if not self._audit_identity_spelled:
+            self.audit_identity = self.name
+        return self
 
     @field_validator("containers", mode="before")
     @classmethod
@@ -380,18 +477,23 @@ class AppManifest(_Strict):
         return value
 
 
-def parse_manifest(data: Any, *, app: str) -> AppManifest:
+def parse_manifest(data: Any, *, app: str, source: str | None = None) -> AppManifest:
     """Validate the parsed contents of one ``app.yml``.
 
     Args:
         data: The YAML document as loaded.
-        app: The application's directory name, used in the refusal.
+        app: The application's name, used in the refusal.
+        source: The file a refusal names when it is not ``apps/<app>/app.yml``:
+            an installed application's manifest
+            (:attr:`~osprey.apps.origin.AppOrigin.manifest_source`).
 
     Raises:
         AppManifestError: The manifest is refused; it carries every violation.
     """
     if not isinstance(data, dict):
-        raise AppManifestError(app, "", "mapping", "app.yml must be a mapping of keys")
+        raise AppManifestError.from_violations(
+            [Violation(app, "", "mapping", "app.yml must be a mapping of keys", source=source)]
+        )
     try:
         return AppManifest.model_validate(data)
     except ValidationError as exc:
@@ -399,5 +501,5 @@ def parse_manifest(data: Any, *, app: str) -> AppManifest:
         for error in exc.errors(include_url=False):
             ctx = error.get("ctx") or {}
             field = ctx.get("at") or ".".join(str(part) for part in error["loc"])
-            violations.append(Violation(app, field, error["type"], error["msg"]))
+            violations.append(Violation(app, field, error["type"], error["msg"], source=source))
         raise AppManifestError.from_violations(violations) from None

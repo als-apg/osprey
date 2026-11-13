@@ -47,7 +47,7 @@ def pool_factory(monkeypatch):
     """
     calls: list[tuple[str, int]] = []
 
-    async def _fake_create_pool(config, *, uri=None, max_size=10):
+    async def _fake_create_pool(config, *, uri=None, max_size=10, deadline_s=None):  # noqa: ARG001 - the create_connection_pool signature
         calls.append((uri if uri is not None else config.uri, max_size))
         return object()
 
@@ -141,7 +141,7 @@ async def test_a_refused_readonly_login_records_why_and_says_so(monkeypatch, cap
     """
     calls: list[str] = []
 
-    async def _fake_create_pool(config, *, uri=None, max_size=10):  # noqa: ARG001 - the create_connection_pool signature
+    async def _fake_create_pool(config, *, uri=None, max_size=10, deadline_s=None):  # noqa: ARG001 - the create_connection_pool signature
         dialed = uri if uri is not None else config.uri
         calls.append(dialed)
         if uri is not None:
@@ -240,6 +240,7 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
     """The MCP server registers ``sql_query``, so its build opens the read-only pool."""
     from unittest.mock import AsyncMock
 
+    from osprey.mcp_server.ariel import server_context
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     context = ARIELContext()
@@ -249,4 +250,7 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
 
     await context.service()
 
-    assert create.await_args.kwargs == {"serves_sql_tool": True}
+    assert create.await_args.kwargs == {
+        "serves_sql_tool": True,
+        "store_deadline_s": server_context._STORE_DEADLINE_S,
+    }

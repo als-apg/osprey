@@ -10,6 +10,17 @@ the second scan in :mod:`tests.facility.test_word_ratchet` matches it.
 ``SITE_EXAMPLE_WORD`` is the example deployment name that named a site, which no
 core text carries; the third scan in :mod:`tests.facility.test_word_ratchet`
 matches it.
+``RETIRED_TWO_KIND_PHRASE`` is the phrase that named two login kinds, which no
+core text carries; the fourth scan in :mod:`tests.facility.test_word_ratchet`
+matches it.
+``RETIRED_BUILT_IN_APP_PHRASE`` is the phrase that called a built-in feature an
+app, which no core text carries; the fifth scan in
+:mod:`tests.facility.test_word_ratchet` matches it.
+
+A row is a word or a phrase. A word row is a plain pattern string matched line
+by line. A phrase row is a :class:`Phrase`, matched over each file's text as
+:func:`fold_lines` folds it: prose wraps a phrase across lines, so a line break,
+the indent after it and one comment prefix after that read as one space.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
 terminology has exactly one source of truth. For the graph paradigm that source
@@ -41,7 +52,9 @@ constants and plain functions, not fixtures. Same convention as
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +68,77 @@ from osprey_connectors_tests._harness._vocabulary import REFUSAL_BAN_LIST  # noq
 #: for a file a build renders for the agent, named by its path under the
 #: render root.
 TextKey = tuple[str, str, str]
+
+
+class Phrase(str):
+    """A row that names several words: matched over :func:`fold_lines` text, not by line."""
+
+    __slots__ = ()
+
+
+#: The comment prefixes a fold drops after a line break and its indent, longest first.
+_FOLD_PREFIXES: tuple[str, ...] = ("//", "--", "..", "#", "*", ";", ">", "|")
+
+
+@dataclass(frozen=True)
+class FoldedText:
+    """A text with its wrapped lines folded, and where each original line starts in it."""
+
+    text: str
+    line_starts: tuple[int, ...]
+
+    def line_at(self, offset: int) -> int:
+        """The 1-based line of the original text that *offset* in :attr:`text` lies on."""
+        return bisect_right(self.line_starts, offset)
+
+    def lines(self) -> Iterator[tuple[int, str]]:
+        """Each line of :attr:`text` with its offset: a phrase is matched within one.
+
+        A break the fold kept is a paragraph break, and ``\\s`` in a pattern
+        must not cross it.
+        """
+        offset = 0
+        for line in self.text.split("\n"):
+            yield offset, line
+            offset += len(line) + 1
+
+
+def _line_content(line: str) -> str:
+    """*line* without its indent, one comment prefix after it, and the spaces after that."""
+    body = line.lstrip(" \t")
+    for prefix in _FOLD_PREFIXES:
+        if body.startswith(prefix):
+            return body[len(prefix) :].lstrip(" \t")
+    return body
+
+
+def fold_lines(text: str) -> FoldedText:
+    """*text* with each line break between two non-blank lines folded to one space.
+
+    A fold replaces the line break, the spaces or tabs after it and one comment
+    prefix after those (``#``, ``//``, ``*``, ``;``, ``--``, ``..``, ``>``,
+    ``|``) with a single space. A line that is blank, or holds only a prefix,
+    is not folded on either side, so a paragraph break stays a break. A list
+    bullet (``-``, ``+``) is not a prefix, so list items stay apart.
+    """
+    parts: list[str] = []
+    starts: list[int] = []
+    offset = 0
+    previous_blank = True
+    for index, raw in enumerate(text.split("\n")):
+        line = raw.removesuffix("\r")
+        content = _line_content(line).rstrip()
+        if index and not previous_blank and content:
+            piece = " " + _line_content(line)
+            starts.append(offset + 1)
+        else:
+            piece = ("\n" if index else "") + line
+            starts.append(offset + (1 if index else 0))
+        parts.append(piece)
+        offset += len(piece)
+        previous_blank = not content
+    return FoldedText("".join(parts), tuple(starts))
+
 
 #: The pyAT attributes a corrector or a strength writes and the ``axis`` key a
 #: monitor reads. Code outside the engine's zones reads a binding's ``role``
@@ -70,6 +154,27 @@ ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 #: impersonation) are not matches. A string for ``git grep -P``, as
 #: ``ENGINE_WORDS``; its own source line carries the scan's line marker.
 RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas?(?![a-z])|(?<![A-Za-z])PERSONAS?(?![A-Za-z])"  # retired-spelling
+
+#: The phrase that named two login kinds: a tier and an app, in any case, joined
+#: by ``or``, ``and`` or a slash, or opening a comma list. There is one kind, the
+#: login. The words ``tier`` and ``app`` on their own stay product words; only
+#: the pair is retired. A :class:`Phrase`, matched over folded text.
+RETIRED_TWO_KIND_PHRASE = Phrase(
+    r"(?i)\btiers?,?\s+(?:or|and|/)\s+(?:an?\s+)?apps?\b"
+    r"|\btiers?/apps?\b"
+    r"|(?<!,\s)\btiers?,\s+(?:an?\s+)?apps?\s+and\b"
+)
+
+#: The phrase that called a built-in feature an app: the channel finder, ARIEL,
+#: the logbook, facility knowledge or Bluesky followed by ``app`` or ``apps``, in
+#: any case. OSPREY ships no app of its own; prose says "the channel finder" for
+#: the feature and "the channel-finder login" for its render. Only white space
+#: joins the two words, so an identifier such as ``ariel-app`` is not a match,
+#: nor is the web framework's "application". A :class:`Phrase`, matched over
+#: folded text.
+RETIRED_BUILT_IN_APP_PHRASE = Phrase(
+    r"(?i)\b(?:channel[-\s]finder|ariel|logbook|knowledge|bluesky)\s+apps?\b"
+)
 
 #: The example deployment name that named a site; examples use ``my-assistant``.
 SITE_EXAMPLE_WORD = r"\bals-assistant\b"

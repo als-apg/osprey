@@ -168,6 +168,10 @@
       event.preventDefault();
       field.form.requestSubmit();
     }, true);
+    {#- The page-ready mark (design-system/js/page-ready.js). The sidecar
+        serves no static files, so the frame sets the one attribute itself,
+        as its last statement. #}
+    document.documentElement.setAttribute("data-page-ready", "true");
   </script>
 </body>
 </html>

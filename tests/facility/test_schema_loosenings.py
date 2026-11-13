@@ -37,6 +37,7 @@ FACILITY_SLOTS = [
     "schema",
     "identity",
     "classes",
+    "signals",
     "places",
     "devices",
     "channels",
@@ -210,8 +211,8 @@ def test_measurement_block(core: dict) -> None:
     assert list(measurement)[:3] == ["kinds", "groups", "instruments"]
     kinds = measurement["kinds"]
     assert kinds.get("multivalued") and not kinds.get("list_elements_ordered")
-    assert set(_attrs(core, "MeasurementGroups")) == {"bpm", "hcor", "vcor", "quad", "sext"}
-    assert set(_attrs(core, "MeasurementInstruments")) == {"tune", "rf"}
+    for slot in ("groups", "instruments"):
+        assert measurement[slot]["range"] == "Any" and not measurement[slot].get("multivalued")
     assert not any(slot and slot.get("required") for slot in measurement.values())
 
 

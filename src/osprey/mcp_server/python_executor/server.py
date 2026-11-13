@@ -77,9 +77,9 @@ def register_optional_tools(server: FastMCP, render_root: Path | None) -> None:
         server: The server to register on.
         render_root: The directory holding the rendered ``config.yml``.
     """
-    if not pyaml_view_present(render_root):
+    if render_root is None or not pyaml_view_present(render_root):
         return
     from osprey.mcp_server.python_executor.tools import model_response_matrix, pyaml_measure
 
-    pyaml_measure.register(server)
+    pyaml_measure.register(server, Path(render_root))
     model_response_matrix.register(server)

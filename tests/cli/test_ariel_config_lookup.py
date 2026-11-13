@@ -60,7 +60,7 @@ def test_status_reads_the_render_from_the_repo_root(
     monkeypatch.chdir(deployment)
     seen: dict = {}
 
-    async def _fake_status(config_dict, config_dir=None):
+    async def _fake_status(config_dict, config_dir=None, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         seen["config"] = config_dict
         seen["config_dir"] = config_dir
         return {"status": "error", "message": "database down", "vocabulary": None}

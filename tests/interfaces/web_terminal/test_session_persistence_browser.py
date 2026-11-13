@@ -50,6 +50,7 @@ import pytest
 
 from osprey.interfaces.common_middleware import session_cookie_name
 from osprey.interfaces.web_auth import get_web_credentials
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
@@ -96,6 +97,7 @@ def _log_in(context, base_url: str) -> dict:
     secret = get_web_credentials().operator_secret
     page = context.new_page()
     page.goto(f"{base_url}/?token={quote(secret, safe='')}", wait_until="load")
+    wait_for_page_ready(page)
     page.wait_for_selector(_TERMINAL_MARKER, timeout=10_000)
     # The secret is spent and gone from the address bar; the cookie took over.
     assert "token=" not in page.url
@@ -154,6 +156,7 @@ def test_login_cookie_survives_a_browser_restart(tmp_path, monkeypatch, chromium
 
             page = restarted.new_page()
             response = page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
             assert response is not None
             assert response.status == 200, "the restored cookie was not accepted"
             page.wait_for_selector(_TERMINAL_MARKER, timeout=10_000)
@@ -193,7 +196,9 @@ def test_logout_ends_the_persistent_session_on_both_sides(tmp_path, monkeypatch,
             # footer's Sign out row, then the dialog's confirm ---
             page.click("#logout-btn")
             page.click(".posture-modal-overlay:not([data-closing]) .posture-modal-confirm")
-            page.wait_for_url(lambda url: url.startswith(landing_url))
+            page.wait_for_url(
+                lambda url: url.startswith(landing_url),
+            )  # page-ready: the landing stand-in is this test's own page
             page.wait_for_selector("#landing-marker", timeout=10_000)
 
             # The ``Max-Age=0`` delete landed despite the prefix.
@@ -201,6 +206,7 @@ def test_logout_ends_the_persistent_session_on_both_sides(tmp_path, monkeypatch,
 
             # --- The return visit is refused ---
             response = page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             assert response is not None
             assert response.status == 401
             assert page.locator(_TERMINAL_MARKER).count() == 0
@@ -209,6 +215,7 @@ def test_logout_ends_the_persistent_session_on_both_sides(tmp_path, monkeypatch,
             context.add_cookies([cookie])
             assert [c["value"] for c in _session_cookies(context)] == [cookie["value"]]
             response = page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             assert response is not None
             assert response.status == 401, "the revoked session was still accepted"
             assert page.locator(_TERMINAL_MARKER).count() == 0

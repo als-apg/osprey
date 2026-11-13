@@ -95,6 +95,12 @@ tested:
     kind: runs
     what: DuckDB runs the query unchanged over a real record export
 
+  - test: tests/docs/test_measurement_kind_page.py
+    pages: [how-to/register-a-measurement-kind.rst]
+    languages: [literalinclude]
+    kind: checks
+    what: each include is a file of the fixture kind package test_fixture_kind_deployment builds, and each object it selects is in it
+
   - test: tests/docs/test_hello_world_addresses.py
     pages: [getting-started/hello-world-tutorial.rst]
     languages: [text, yaml, json]
@@ -546,6 +552,12 @@ tested:
     languages: [literal]
     kind: pins
     what: the image name order equals what resolve_image_defaults composes
+  - test: tests/apps/test_sdk_testing_fixture.py
+    pages: [how-to/apps/build-your-own-app.rst]
+    languages: [python]
+    kind: runs
+    contains: "synthetic_deployment"
+    what: runs the example test against a scaffold copy named corrector-trim, through the plugin's fixture
 
 not_counted:
   - test: tests/docs/test_no_model_tier_words.py

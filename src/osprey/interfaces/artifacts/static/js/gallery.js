@@ -15,6 +15,7 @@
  */
 import { getTheme, initTheme, subscribe } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import {
   getArtifacts,
   setArtifacts,
@@ -184,22 +185,26 @@ previewRenderer.renderPreview();
 // The viewer is created only once the type registry has loaded: creating it
 // tells the hub the frame is ready, and the hub answers with its selection at
 // once, so a registry still in flight would render an extension type through
-// the base view, and nothing renders it again when the registry lands.
-initTypeRegistry().then(() => {
-  createViewer({
-    getHeld: getArtifacts,
-    fetchEntry,
-    show: showInViewer,
-    update: applyUpdated,
-    remove: applyDeleted,
-    actions: {
-      print: printArtifact,
-      // No stream keeps the held list current here, and the composer's
-      // picker offers it, so it is fetched again first.
-      logbook: (a) => {
-        fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
+// the base view, and nothing renders it again when the registry lands. The
+// page is ready once the first list is drawn, or failed to be (index.html
+// declares the mark pending until then).
+initTypeRegistry()
+  .then(() => {
+    createViewer({
+      getHeld: getArtifacts,
+      fetchEntry,
+      show: showInViewer,
+      update: applyUpdated,
+      remove: applyDeleted,
+      actions: {
+        print: printArtifact,
+        // No stream keeps the held list current here, and the composer's
+        // picker offers it, so it is fetched again first.
+        logbook: (a) => {
+          fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
+        },
       },
-    },
-  });
-  fetchArtifacts();
-});
+    });
+    return fetchArtifacts();
+  })
+  .finally(() => markPageReady());

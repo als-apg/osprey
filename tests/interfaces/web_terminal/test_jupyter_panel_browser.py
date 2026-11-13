@@ -81,7 +81,7 @@ from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
-from tests.interfaces._browser import open_hub_page, rail_entry
+from tests.interfaces._browser import open_hub_page, rail_entry, wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app, hub_server
 from tests.interfaces.web_terminal._control_context import read_record
 
@@ -674,7 +674,8 @@ def _framed_notebook(browser, base_url: str, *, init_script: str | None = None) 
     page = browser.new_page(viewport=_VIEWPORT)
     if init_script:
         page.add_init_script(init_script)
-    response = page.goto(f"{_NOTEBOOK_URL.format(base_url)}?embedded=true", wait_until="load")
+    url = f"{_NOTEBOOK_URL.format(base_url)}?embedded=true"
+    response = page.goto(url, wait_until="load")  # page-ready: JupyterLab, not an OSPREY page
     expect(page.locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
     return page, response
 
@@ -704,10 +705,12 @@ def _detached_notebook(
         context.add_init_script(init_script)
     hub = context.new_page()
     hub.goto(_NOTEBOOK_URL.format(base_url), wait_until="domcontentloaded")
+    wait_for_page_ready(hub)
     expect(_lab(hub).locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
     with hub.expect_popup() as info:
         hub.locator('.tile-tab[data-panel-id="iframe:jupyter"] .tile-tab-window').click()
     window = info.value
+    wait_for_page_ready(window)
     frame = 'iframe.panel-iframe[data-panel-id="jupyter"]'
     expect(window.frame_locator(frame).locator(".jp-NotebookPanel")).to_be_visible(
         timeout=_LAB_BOOT_MS
@@ -1292,6 +1295,7 @@ def test_a_direct_lab_path_lands_in_the_terminal(tmp_path, monkeypatch, chromium
         page = chromium_browser.new_page(viewport=_VIEWPORT)
         try:
             page.goto(_NOTEBOOK_URL.format(base_url), wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             expect(_lab(page).locator(".jp-NotebookPanel")).to_be_visible(timeout=_LAB_BOOT_MS)
             expect(page).to_have_url(f"{base_url}/", timeout=TIMEOUT)
             src = page.locator('iframe.panel-iframe[data-panel-id="jupyter"]').get_attribute("src")

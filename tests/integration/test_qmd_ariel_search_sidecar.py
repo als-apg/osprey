@@ -442,11 +442,17 @@ def sidecar_world(request, tmp_path_factory, qmd_ariel_database_factory) -> _Wor
 
 @pytest.fixture
 def sidecar_client(sidecar_world: _World):
-    """A real ``QMDClient`` pointed at the container's published port."""
+    """A real ``QMDClient`` pointed at the container's published port.
+
+    Its requests wait for the sidecar's answer with no per-request budget
+    (``timeout=None`` reaches ``urlopen`` as "block"): a model-backed query in a
+    container on a loaded host answers on its own however slowly, and the
+    module's per-test timeout is the hang breaker.
+    """
     from osprey.deployment.qmd_service import QMDServiceConfig
     from osprey.services.qmd import QMDClient
 
-    return QMDClient(QMDServiceConfig(port=sidecar_world.port))
+    return QMDClient(QMDServiceConfig(port=sidecar_world.port), timeout=None)  # type: ignore[arg-type]
 
 
 @pytest.fixture

@@ -32,6 +32,12 @@ recorded as a default.
         record: {class: Quadrupole}  # add: the record's slots
         why: Missing from the export.
 
+Then each listed measurement kind's settings transform patches its model's
+engine settings (``settings.<engine>.<setting>``), once, so every later stage
+and view reads one settings map; a patched setting is recorded as a default.
+A patch of a setting a source states, or that another listed kind patches,
+stops the build naming both.
+
 Every list compares and emits in source order except the set-valued slots:
 a plain set compares and emits sorted by its string form, a keyed set
 (``scheme_names``, ``citations``) ordered by its key. Records emit sorted by id,
@@ -51,7 +57,7 @@ import yaml
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.pairing import derive_pairs
-from osprey.facility.provenance import build_provenance
+from osprey.facility.provenance import add_defaults, build_provenance
 from osprey.facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
@@ -156,7 +162,7 @@ class CombineResult:
 
     Attributes:
         document: The combined records in facility-file shape: ``identity``
-            (when a source states one), ``classes``, ``places``, ``devices``,
+            (when a source states one), ``classes``, ``signals``, ``places``, ``devices``,
             ``channels``, ``groups``, ``models`` (each with its ``wiring``),
             ``limits`` (when a source states one), ``scenarios``, and
             ``relations`` and ``documents`` (each when non-empty). Complete
@@ -181,8 +187,9 @@ def combine(sources: Sources) -> CombineResult:
     Returns:
         The combined document and every stop found: ``fix-missing``,
         ``fix-stale``, ``fix-duplicate``, ``fix-computed``, ``fix-authored``,
-        ``fix-referenced``, ``layer-conflict``, and ``source-invalid`` for a
-        fixes.yaml entry of the wrong shape.
+        ``fix-referenced``, ``layer-conflict``, ``source-invalid`` for a
+        fixes.yaml entry of the wrong shape, and ``value-invalid`` for a kind's
+        settings transform that fails or patches a setting already stated.
     """
     return _Combiner(sources).run()
 
@@ -285,6 +292,8 @@ class _Combiner:
         self._apply_drops(drops)
         self._check_conflicts()
         document = self._emit()
+        if not self.errors:
+            self._patch_settings(document)
         return CombineResult(document, self.errors, self.dropped)
 
     # --- fixes.yaml shape -----------------------------------------------------
@@ -782,6 +791,9 @@ class _Combiner:
         document["classes"] = sorted(
             copy.deepcopy(self.sources.classes), key=lambda row: str(row.get("class"))
         )
+        document["signals"] = sorted(
+            copy.deepcopy(self.sources.signals), key=lambda row: str(row.get("name"))
+        )
         for kind in ("place", "device", "channel", "group"):
             document[_PLURAL[kind]] = [rec for (k, _), rec in emitted.items() if k == kind]
         models = []
@@ -807,6 +819,123 @@ class _Combiner:
                 copy.deepcopy(self.sources.documents), key=lambda d: str(d["id"])
             )
         return document
+
+    # --- the measurement kinds' settings patches -------------------------------
+
+    def _patch_settings(self, document: dict[str, Any]) -> None:
+        """Apply each listed kind's settings patch to its model, in the registry's order.
+
+        A model whose ``settings`` or engine block is not a mapping is left for
+        the schema stage and the engine; an unregistered kind, or a registry the
+        build refuses, for the measurement stage.
+        """
+        measured = [
+            model
+            for model in document["models"]
+            if isinstance(model.get("measurement"), dict)
+            and isinstance(model["measurement"].get("kinds"), list)
+            and model["measurement"]["kinds"]
+        ]
+        if not measured:
+            return
+        from osprey.facility.kinds import KindRegistryError, registered
+
+        try:
+            declared = registered()
+        except KindRegistryError:
+            return
+        for model in measured:
+            self._patch_model(model, declared)
+
+    def _patch_model(self, model: dict[str, Any], declared: Mapping[str, Any]) -> None:
+        from osprey.facility.kinds import KindSettingsError, kind_source, settings_patch
+
+        name = str(model["name"])
+        engine = model.get("engine")
+        settings = model.get("settings")
+        if settings is not None and not isinstance(settings, dict):
+            return
+        hand = (settings or {}).get(engine)
+        if hand is not None and not isinstance(hand, dict):
+            return
+        hand = hand or {}
+        files = [f"measurement/{name}.yaml"]
+        listed = {str(kind) for kind in model["measurement"]["kinds"]}
+        patched: dict[str, tuple[str, Any]] = {}
+        stopped = False
+        for kind, declaration in declared.items():
+            if kind not in listed:
+                continue
+            try:
+                patch = settings_patch(declaration, model)
+            except KindSettingsError as failed:
+                self.errors.append(
+                    FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"make the settings transform of kind {kind} ({kind_source(kind)}) "
+                        "accept every block its measurement schema admits",
+                        record_kind="measurement",
+                        detail=(
+                            f"kind {kind}'s settings transform fails on this file's block: "
+                            f"{failed.cause}"
+                        ),
+                    )
+                )
+                return
+            for setting, value in patch.get(str(engine), {}).items():
+                slot = f"settings.{engine}.{setting}"
+                if setting in hand:
+                    stated = self._settings_files(name)
+                    self.errors.append(
+                        FacilityBuildError(
+                            "value-invalid",
+                            name,
+                            [*stated, *files],
+                            f"remove `{slot}` from {', '.join(stated)}, or remove {kind} "
+                            "from `kinds`",
+                            record_kind="model",
+                            detail=(
+                                f"kind {kind} ({kind_source(kind)}) sets `{slot}`, which "
+                                f"{', '.join(stated)} states by hand"
+                            ),
+                        )
+                    )
+                    stopped = True
+                elif setting in patched:
+                    first = patched[setting][0]
+                    self.errors.append(
+                        FacilityBuildError(
+                            "value-invalid",
+                            name,
+                            files,
+                            f"list one of {first} and {kind} in `kinds`",
+                            record_kind="measurement",
+                            detail=(
+                                f"kinds {first} ({kind_source(first)}) and {kind} "
+                                f"({kind_source(kind)}) both set `{slot}`"
+                            ),
+                        )
+                    )
+                    stopped = True
+                else:
+                    patched[setting] = (kind, copy.deepcopy(value))
+        if stopped or not patched:
+            return
+        values = {setting: value for setting, (_kind, value) in patched.items()}
+        model["settings"] = {**(settings or {}), str(engine): {**hand, **values}}
+        model["provenance"] = add_defaults(
+            model["provenance"], (f"settings.{engine}.{setting}" for setting in patched)
+        )
+
+    def _settings_files(self, model: str) -> list[str]:
+        """The files that state a model's ``settings``: fixes.yaml when a fix sets it."""
+        record = self.records[("model", model)]
+        if "settings" in record.set_fields:
+            return [FIXES_FILE]
+        stated = sorted({file for _layer, file, fields in record.sources if "settings" in fields})
+        return stated or record.files()
 
     # --- errors -----------------------------------------------------------------
 

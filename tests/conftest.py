@@ -1541,8 +1541,11 @@ def _memoized_entry_points():
     on each call — tens of milliseconds in this environment — and a build of
     the demo facility looks its simulation engines up a few hundred times, so
     the suite spent a large share of every build re-reading the same
-    ``entry_points.txt`` files. Nothing a test does installs a distribution, so
-    the answer for one selection is the same for the whole session.
+    ``entry_points.txt`` files. The answer for one selection is the same for the
+    whole session, unless a test installs a distribution: such a test clears
+    this reading through the shared helper (``read_entry_points_afresh`` in
+    ``tests/facility/_fixture_kind.py``, before and after it through the
+    ``entry_points_read_afresh`` fixture), so the next caller reads afresh.
 
     A test that hands the code a fake registry still does so by patching
     ``metadata.entry_points`` itself; its patch replaces this one for that test

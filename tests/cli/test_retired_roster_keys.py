@@ -445,7 +445,7 @@ def test_a_final_release_is_not_below_the_vocabulary_floor():
     """A final release tagged below the floor would refuse its own renders.
 
     Every render is stamped with its release; once that install is upgraded,
-    ``check_drift`` refuses any stamp below the floor as "before tiers/apps".
+    ``check_drift`` refuses any stamp below the floor as "before the login vocabulary".
     The release that carries the vocabulary must therefore be numbered at or
     above the floor — this guard fails the tag that is not.
     """

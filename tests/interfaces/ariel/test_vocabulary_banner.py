@@ -159,7 +159,9 @@ def _launch_ariel_with_config(
     monkeypatch.chdir(tmp_path)
 
     if with_service:
-        create_service = AsyncMock(side_effect=lambda config: _ServiceDouble(config))
+        create_service = AsyncMock(
+            side_effect=lambda config, *, store_deadline_s=None: _ServiceDouble(config)
+        )
     else:
         create_service = AsyncMock(side_effect=RuntimeError("connection refused"))
 

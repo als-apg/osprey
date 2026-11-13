@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.exceptions import ConfigurationError
+    from osprey.services.ariel_search.exceptions import ARIELException
     from osprey.services.ariel_search.service import ARIELSearchService
 
 logger = logging.getLogger("osprey.mcp_server.ariel.server_context")
@@ -27,6 +27,14 @@ logger = logging.getLogger("osprey.mcp_server.ariel.server_context")
 #: a :class:`VocabularyError`, so the surface that catches it can name the
 #: vocabulary remedy rather than a generic one.
 _VOCABULARY_KEY_PREFIX = "ariel.vocabulary"
+
+#: Seconds the first tool call gives the ARIEL store to answer when it opens
+#: the service. A silent store is refused like a configuration error, and
+#: nothing is cached, so the next call asks the store again.
+_STORE_DEADLINE_S = 10.0
+
+#: The suggestion a refusal for a silent store carries.
+_STORE_SILENT_REMEDY = "check that the ARIEL database is running and not overloaded"
 
 
 def _config_key_of(error: str) -> str:
@@ -162,27 +170,30 @@ class ARIELContext:
         )
 
     @staticmethod
-    def _refuse(error: ConfigurationError, *, refused: str = "start") -> ConfigurationError:
+    def _refuse(
+        error: ARIELException, *, refused: str = "start", remedy: str | None = None
+    ) -> ARIELException:
         """Log a refusal and hand the exception back to be raised.
 
         Args:
-            error: The ``ConfigurationError`` (or subclass) about to be raised.
+            error: The ARIEL exception about to be raised: a
+                ``ConfigurationError`` (or subclass), or a ``StoreSilentError``.
             refused: What the server refuses to do, completing "refusing to …".
+            remedy: The remedy to log when the exception carries none.
 
         Returns:
             The same exception, so the caller can ``raise`` it.
         """
         # Every validate() message already leads with its own dotted key, so the
         # key is not repeated here.
-        if error.remedy:
+        message = getattr(error, "message", str(error))
+        remedy = remedy or getattr(error, "remedy", None)
+        if remedy:
             logger.error(
-                "ARIEL MCP server refusing to %s: %s. Remedy: %s",
-                refused,
-                error.message,
-                error.remedy,
+                "ARIEL MCP server refusing to %s: %s. Remedy: %s", refused, message, remedy
             )
         else:
-            logger.error("ARIEL MCP server refusing to %s: %s", refused, error.message)
+            logger.error("ARIEL MCP server refusing to %s: %s", refused, message)
         return error
 
     @property
@@ -213,14 +224,16 @@ class ARIELContext:
                 the ``ConfigurationError`` the probe raised, and its remedy as
                 the suggestion when it names one: semantic search is enabled
                 for a model whose embedding table the database lacks. Nothing
-                is cached, so the next call probes again.
+                is cached, so the next call probes again. The same refusal,
+                carrying the store's name and the deadline, when the store does
+                not answer within :data:`_STORE_DEADLINE_S`.
             DatabaseQueryError: The database could not be asked for the table.
         """
         if self._service is not None:
             return self._service
 
         from osprey.mcp_server.errors import make_error
-        from osprey.services.ariel_search.exceptions import ConfigurationError
+        from osprey.services.ariel_search.exceptions import ConfigurationError, StoreSilentError
         from osprey.services.ariel_search.service import create_ariel_service
 
         async with self._service_lock:
@@ -230,7 +243,16 @@ class ARIELContext:
             # Call directly — NOT as context manager. shutdown() closes it.
             # This server registers sql_query, the read-only pool's one
             # consumer, so its build is the one that opens that pool.
-            service = await create_ariel_service(self.config, serves_sql_tool=True)
+            try:
+                service = await create_ariel_service(
+                    self.config, serves_sql_tool=True, store_deadline_s=_STORE_DEADLINE_S
+                )
+            except StoreSilentError as silent:
+                # No service exists yet, so there is nothing to close.
+                ARIELContext._refuse(
+                    silent, refused="open the ARIEL service", remedy=_STORE_SILENT_REMEDY
+                )
+                make_error("service_unavailable", str(silent), [_STORE_SILENT_REMEDY])
             try:
                 await service.verify_search_model_table()
             except BaseException as error:

@@ -32,7 +32,8 @@ Everything else on :class:`PanelHost` resolves first on the panel's
 page (``host.locator(...)``, ``host.evaluate(...)``, ``host.keyboard``,
 ``host.mouse``, ``host.close()``). Two page verbs a frame lacks are defined here:
 ``goto`` (keeps ``embedded=true``) and ``reload`` (reloads the frame, keeping its
-hash and the host page).
+hash and the host page). Both, like :func:`open_panel_host`, return once the panel
+has set its page-ready mark.
 """
 
 from __future__ import annotations
@@ -40,6 +41,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from tests.interfaces._browser import wait_for_page_ready
 
 if TYPE_CHECKING:
     from playwright.sync_api import Frame, Locator, Page
@@ -216,22 +219,29 @@ class PanelHost:
         self.page.evaluate("document.getElementById('panel-frame').focus()")
 
     def goto(self, url: str, **kwargs: Any) -> Any:
-        """Navigate the frame to *url*, keeping ``embedded=true``."""
+        """Navigate the frame to *url*, keeping ``embedded=true``; wait for its ready mark."""
         response = self.frame.goto(framed_url(url), **kwargs)
+        wait_for_page_ready(self.frame)
         self.focus_panel()
         return response
 
     def reload(self, **kwargs: Any) -> None:
-        """Reload the frame in place, hash included, leaving the host page up."""
+        """Reload the frame in place, hash included, leaving the host page up.
+
+        Returns once the reloaded panel has set its ready mark.
+        """
         frame = self.frame
         with self.page.expect_event("framenavigated", lambda f: f == frame):
             frame.evaluate("location.reload()")
         frame.wait_for_load_state(kwargs.get("wait_until", "load"))
+        wait_for_page_ready(frame)
         self.focus_panel()
 
 
 def open_panel_host(page: Page, url: str, *, wait_until: str = "load") -> PanelHost:
     """Frame the panel at *url* (with ``embedded=true``) in a fixture page on its origin.
+
+    Returns once the panel has set its page-ready mark (``wait_for_page_ready``).
 
     Install any network fakes on *page* first: the frame's first requests go out here.
     """
@@ -243,11 +253,12 @@ def open_panel_host(page: Page, url: str, *, wait_until: str = "load") -> PanelH
         host_url,
         lambda route: route.fulfill(status=200, content_type="text/html", body=html),
     )
-    page.goto(host_url, wait_until="commit")
+    page.goto(host_url, wait_until="commit")  # page-ready: the fixture host, not an OSPREY page
     handle = page.wait_for_selector("#panel-frame")
     frame = handle.content_frame()
     assert frame is not None, "the fixture page has no panel frame"
     frame.wait_for_url(lambda u: "embedded=true" in u)
+    wait_for_page_ready(frame)
     frame.wait_for_load_state(wait_until)
     host = PanelHost(page, frame)
     host.focus_panel()
