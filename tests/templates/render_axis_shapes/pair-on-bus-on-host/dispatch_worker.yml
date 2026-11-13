@@ -85,6 +85,16 @@ services:
       DISPATCH_BUS_CONNECT: "tcp://127.0.0.1:10050"
       DISPATCH_BUS_WORKER_NAME: dispatch-worker-1
       DISPATCH_BUS_ALIVE_FILE: /tmp/osprey-dispatch-bus-alive
+      # On the host namespace the worker's listening socket IS a host socket,
+      # so it binds the loopback interface rather than every interface: the
+      # dispatcher and the health probe both reach it as localhost, and nothing
+      # off this machine can. (On the compose bridge the default 0.0.0.0 is
+      # what makes the service reachable by its service name at all, and the
+      # network itself is the boundary — hence no bind line there.) On the bus
+      # the worker opens no port, but the line stays: `osprey up` reads a
+      # host-mode worker's reach from it, and a worker without one is reported
+      # reachable from the network.
+      DISPATCH_WORKER_BIND: "127.0.0.1"
       DISPATCH_TIMEOUT_SEC: "300"
       DISPATCH_INACTIVITY_SEC: "120"
       # The third budget: how many agentic turns one dispatched run may take
@@ -329,6 +339,16 @@ services:
       DISPATCH_BUS_CONNECT: "tcp://127.0.0.1:10050"
       DISPATCH_BUS_WORKER_NAME: dispatch-worker-2
       DISPATCH_BUS_ALIVE_FILE: /tmp/osprey-dispatch-bus-alive
+      # On the host namespace the worker's listening socket IS a host socket,
+      # so it binds the loopback interface rather than every interface: the
+      # dispatcher and the health probe both reach it as localhost, and nothing
+      # off this machine can. (On the compose bridge the default 0.0.0.0 is
+      # what makes the service reachable by its service name at all, and the
+      # network itself is the boundary — hence no bind line there.) On the bus
+      # the worker opens no port, but the line stays: `osprey up` reads a
+      # host-mode worker's reach from it, and a worker without one is reported
+      # reachable from the network.
+      DISPATCH_WORKER_BIND: "127.0.0.1"
       DISPATCH_TIMEOUT_SEC: "300"
       DISPATCH_INACTIVITY_SEC: "120"
       # The third budget: how many agentic turns one dispatched run may take

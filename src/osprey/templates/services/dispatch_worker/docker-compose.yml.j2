@@ -155,13 +155,16 @@ services:
 {%- else %}
       DISPATCH_WORKER_PORT: "{{ worker_port }}"
 {%- endif %}
-{%- if on_host and not on_bus %}
+{%- if on_host %}
       # On the host namespace the worker's listening socket IS a host socket,
       # so it binds the loopback interface rather than every interface: the
       # dispatcher and the health probe both reach it as localhost, and nothing
       # off this machine can. (On the compose bridge the default 0.0.0.0 is
       # what makes the service reachable by its service name at all, and the
-      # network itself is the boundary — hence no bind line there.)
+      # network itself is the boundary — hence no bind line there.) On the bus
+      # the worker opens no port, but the line stays: `osprey up` reads a
+      # host-mode worker's reach from it, and a worker without one is reported
+      # reachable from the network.
       DISPATCH_WORKER_BIND: "127.0.0.1"
 {%- endif %}
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"

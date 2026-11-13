@@ -700,6 +700,35 @@ def test_pair_on_host_narrows_both_bind_addresses() -> None:
     assert worker["DISPATCH_WORKER_BIND"] == "127.0.0.1"
 
 
+def test_pair_on_bus_on_host_reads_as_private_to_the_exposure_check(tmp_path: Path) -> None:
+    """``osprey up`` sees the bus pair on the host as bound to loopback.
+
+    On the bus a worker opens no port, but the exposure check reads a host-mode
+    worker's bind address out of its rendered environment, and one with none
+    fails closed: the deployment is reported reachable from the network and the
+    stricter service-token rules apply. Run the real check over the goldens.
+    """
+    from osprey.deployment.container_lifecycle import _host_network_bound_off_host
+    from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
+
+    scenario = _scenario("pair-on-bus-on-host")
+    compose_files = []
+    services = {}
+    for key in ("event_dispatcher", "dispatch_worker"):
+        compose_file = tmp_path / "services" / key / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(_golden_text(scenario, key), encoding="utf-8")
+        compose_files.append(str(compose_file))
+        binding = BUNDLED_HOST_BINDINGS[key].binding
+        services[key] = {
+            "path": f"./services/{key}",
+            "listens": binding.listens,
+            "bind_env": binding.bind_env,
+        }
+
+    assert _host_network_bound_off_host(compose_files, services) == []
+
+
 def test_pair_on_host_reaches_the_archiver_store_where_it_publishes() -> None:
     """The worker's dial address follows the topology, not the config block.
 
