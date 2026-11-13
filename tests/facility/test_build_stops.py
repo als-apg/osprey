@@ -660,7 +660,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     (
         "view_unsupported__hierarchical_two_level_words",
         "view-unsupported",
-        "two place level words at one depth",
+        "two level words at one depth among channel-holding places",
     ),
     (
         "view_unsupported__middle_layer_no_groups",
@@ -2492,12 +2492,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             put(
                 "records/places.yaml",
                 [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}],
-            )
+            ),
+            update("records/devices.yaml", 0, place="A"),
+            update("records/devices.yaml", 1, place="B"),
         ),
         (
             "facility: view-unsupported: place A — levels `line` and `machine` both first "
-            "appear at depth 0; fix: give the places at one depth one level word, or select "
-            "another channel_finder_mode"
+            "appear at depth 0 among the places that hold channels, in the trees `A` and `B`; "
+            "fix: use one level word per depth across the places of the trees `A` and `B` "
+            "that hold channels, keep channels out of one of them, or select another "
+            "channel_finder_mode"
         ),
     ),
     "view_unsupported__middle_layer_no_groups": (

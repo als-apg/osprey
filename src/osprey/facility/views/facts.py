@@ -2,9 +2,9 @@
 
 Written to ``<render>/data/``::
 
-    facility_facts.json   {schema: osprey.facility.facility_facts/2, identity,
-                           place_levels, places, unplaced_devices,
-                           device_classes, vocabulary, models,
+    facility_facts.json   {schema: osprey.facility.facility_facts/3, identity,
+                           place_levels, hierarchy_levels, places,
+                           unplaced_devices, device_classes, vocabulary, models,
                            measurement_models, measurement_kinds,
                            channel_count, snapshot}
     facility_facts.md     the same facts as one page, rendered once from
@@ -12,7 +12,12 @@ Written to ``<render>/data/``::
 
 ``identity`` is ``{code, name, description}``; a facility that authors no name
 takes the project's. ``place_levels`` is the distinct ``level`` words of the
-places, shallowest first. ``places`` has one entry per place, sorted by id:
+places, shallowest first. ``hierarchy_levels`` is the place levels of the
+hierarchical channel-finder index: the level words of the places that hold a
+channel or are an ancestor of one
+(:func:`osprey.facility.views.channel_finder.hierarchy_levels`), named in
+every channel_finder mode and never checked here. ``places`` has one entry
+per place, sorted by id:
 its ``level``, its ``names`` and the ``devices`` at or under it counted by
 class. ``unplaced_devices`` counts by class the devices that sit in no place.
 ``device_classes`` has one entry per class a device carries and per
@@ -59,6 +64,7 @@ from typing import Any
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, view_bytes
+from osprey.facility.views.channel_finder import hierarchy_levels
 
 __all__ = [
     "CONFIGURATION_FILE",
@@ -85,7 +91,7 @@ FACTS_FILE = "facility_facts.json"
 PYAML_DIR = "pyaml"
 CONFIGURATION_FILE = "configuration.yaml"
 FACTS_PAGE = "facility_facts.md"
-FACTS_SCHEMA = "osprey.facility.facility_facts/2"
+FACTS_SCHEMA = "osprey.facility.facility_facts/3"
 
 #: The class a classless device is counted under.
 NO_CLASS = "-"
@@ -296,6 +302,7 @@ def facts_document(
         "schema": FACTS_SCHEMA,
         "identity": _identity(records, project_name),
         "place_levels": _place_levels(records),
+        "hierarchy_levels": hierarchy_levels(records),
         "places": _places(records),
         "unplaced_devices": _unplaced_devices(records),
         "device_classes": _device_classes(records),
@@ -322,6 +329,7 @@ def zero_source_facts(identity: Mapping[str, Any]) -> dict[str, Any]:
         "schema": FACTS_SCHEMA,
         "identity": dict(identity),
         "place_levels": [],
+        "hierarchy_levels": [],
         "places": [],
         "unplaced_devices": {},
         "device_classes": {},

@@ -84,6 +84,7 @@ def test_every_render_writes_the_facts_and_their_page(
         assert sorted(facts) == [
             "channel_count",
             "device_classes",
+            "hierarchy_levels",
             "identity",
             "measurement_kinds",
             "measurement_models",
@@ -95,7 +96,7 @@ def test_every_render_writes_the_facts_and_their_page(
             "unplaced_devices",
             "vocabulary",
         ]
-        assert FACTS_SCHEMA == "osprey.facility.facility_facts/2"
+        assert FACTS_SCHEMA == "osprey.facility.facility_facts/3"
         assert facts["schema"] == FACTS_SCHEMA
         page = outputs.files[PAGE].decode("utf-8")
         assert page == render_facts_page(facts)
@@ -114,6 +115,7 @@ def test_the_facts_are_the_facility_files(built_demo: BuiltProject) -> None:
     }
     assert facts["identity"]["description"]
     assert facts["place_levels"] == ["machine", "sector"]
+    assert facts["hierarchy_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
     assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
     for model, record in facts["measurement_models"].items():
@@ -547,3 +549,32 @@ def test_no_measurement_view_is_an_empty_block_that_reads_no_file(tmp_path: Path
     facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
 
     assert hook_measurement(facts, tmp_path / "absent") == {}
+
+
+def test_hierarchy_levels_count_only_channel_holding_places_and_never_stop() -> None:
+    document = {
+        "identity": {"code": "lab"},
+        "places": [
+            {"id": "SR", "level": "machine"},
+            {"id": "SR/S1", "level": "sector"},
+            {"id": "HALL", "level": "building"},
+            {"id": "HALL/ROW3", "level": "row"},
+        ],
+        "devices": [{"id": "SR/Q1", "place": "SR/S1"}, {"id": "HALL/PS", "place": "HALL/ROW3"}],
+        "channels": [{"id": "Q1:SP", "on": {"device": "SR/Q1"}}],
+    }
+
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
+
+    assert facts["place_levels"] == ["building", "machine", "row", "sector"]
+    assert facts["hierarchy_levels"] == ["machine", "sector"]
+
+    document["channels"].append({"id": "PS:I", "on": {"device": "HALL/PS"}})
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
+
+    assert facts["place_levels"] == ["building", "machine", "row", "sector"]
+    assert facts["hierarchy_levels"] == ["building", "machine", "row", "sector"]
+
+
+def test_zero_source_facts_carry_no_hierarchy_level() -> None:
+    assert zero_source_facts({"code": "lab"})["hierarchy_levels"] == []

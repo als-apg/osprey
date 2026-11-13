@@ -4,8 +4,8 @@
 ### Database Profile
 
 This is a **hierarchical** channel database. The tree's levels, top to bottom,
-are {% for level in facility_facts.place_levels %}`{{ level }}` → {% endfor %}`class` → `device` → `leaf`.
-{% for level in facility_facts.place_levels %}
+are {% for level in facility_facts.hierarchy_levels %}`{{ level }}` → {% endfor %}`class` → `device` → `leaf`.
+{% for level in facility_facts.hierarchy_levels %}
 - `{{ level }}` holds this facility's places of that kind.
 {%- endfor %}
 - `class` holds the device classes.
@@ -33,7 +33,7 @@ rather than guessing.
 {%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
 | {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | `class` level: `{{ name }}` ({{ entry.count }} devices) |
 {%- endfor %}
-{%- for place in facility_facts.places if place.names and place.level %}
+{%- for place in facility_facts.places if place.names and place.level in facility_facts.hierarchy_levels %}
 | "{{ place.names | join('", "') }}" | `{{ place.level }}` level: `{{ place.id.split('/') | last }}` |
 {%- endfor %}
 | a place by number ("sector 3") | the level of that kind of place: pick the option whose id names it; `-` holds what sits in none |

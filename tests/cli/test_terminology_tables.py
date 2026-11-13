@@ -345,6 +345,41 @@ def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_d
     assert re.findall(r"`([^`]+)`", sentence.group(1)) == levels
 
 
+def test_the_hierarchical_table_never_names_a_level_the_hierarchy_dropped(tmp_path, built_demo):
+    """A level word only places holding no channel carry stays out of the table.
+
+    The facts' ``place_levels`` gains ``building`` and a named ``HALL`` place
+    of that level, as a rack tree beside the ring would add; ``hierarchy_levels``
+    does not, so neither the level sentence nor a place row names it.
+    """
+    document = hierarchical_document(FacilityRecords(built_demo.facility))
+    levels = [level["name"] for level in document["hierarchy"]["levels"]]
+    facts = json.loads(_demo_facts_path(built_demo).read_text(encoding="utf-8"))
+    assert facts["hierarchy_levels"] == levels[: -len(("class", "device", "leaf"))]
+    facts["place_levels"] = ["building", *facts["place_levels"]]
+    facts["places"] = [
+        {**facts["places"][0], "id": "HALL", "level": "building", "names": ["equipment hall"]},
+        *facts["places"],
+    ]
+    build_data = tmp_path / "build" / "data"
+    build_data.mkdir(parents=True)
+    (build_data / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
+    facility = built_demo.build_dir / FACILITY_FILE
+    if facility.is_file():
+        shutil.copyfile(facility, build_data.parent / FACILITY_FILE)
+
+    _manager, project_dir = _project(
+        tmp_path, "cf-tree-racks", "hierarchical", build_data / FACTS_FILE
+    )
+    section = _terminology_section(project_dir)
+
+    assert "building" not in section
+    assert "equipment hall" not in section
+    sentence = re.search(r"top to bottom,\s+are (.+?)\.\n", section, re.DOTALL)
+    assert sentence
+    assert re.findall(r"`([^`]+)`", sentence.group(1)) == levels
+
+
 @pytest.mark.parametrize("mode", ("in_context", "hierarchical"))
 def test_role_rows_come_from_the_records_roles(tmp_path, built_demo, mode):
     """Each role row lists exactly the signals the records give that role."""
