@@ -350,6 +350,35 @@ def test_write_channels_bulk():
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("clear_runtime_state")
+def test_write_channels_raises_for_the_refused_write_not_one_it_held_back():
+    """A checked batch raises for the write that refused it, wherever it stands."""
+
+    class Refusing(RecordingConnector):
+        async def write_multiple_channels(self, operations, **kwargs):
+            reasons = {"PV1": "BATCH_REFUSED", "PV2": "CHANNEL_NOT_FOUND", "PV3": "BATCH_REFUSED"}
+            return [
+                ChannelWriteResult(
+                    channel_address=address,
+                    value_written=value,
+                    outcome=WriteOutcome.REFUSED,
+                    refusal_reason=reasons[address],
+                    error_message=f"{address}: {reasons[address]}",
+                )
+                for address, value in operations
+            ]
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
+    ) as mock_factory:
+        mock_factory.return_value = Refusing()
+
+        with pytest.raises(ChannelWriteBlockedError) as info:
+            write_channels({"PV1": 1.0, "PV2": 2.0, "PV3": 3.0})
+
+    assert (info.value.channel_address, info.value.reason) == ("PV2", "CHANNEL_NOT_FOUND")
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
 async def test_cleanup_runtime():
     """Test cleanup_runtime properly releases resources."""
     import osprey.runtime as runtime

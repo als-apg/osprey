@@ -38,6 +38,7 @@ __all__ = [
     "apply_panel_selection",
     "panel_id_errors",
     "panel_leaf_spellings",
+    "panel_presentation_errors",
     "panel_selection_errors",
     "panel_selection_overrides",
     "panel_spelling_errors",
@@ -232,6 +233,41 @@ def panel_id_errors(config: Any) -> list[str]:
         for pid in sorted(_spelled_panel_ids(config))
         if (refusal := panel_id_refusal(pid)) is not None
     ]
+
+
+def panel_presentation_errors(config: Any) -> list[str]:
+    """Refuse a ``web.panels.<id>.label`` or ``.icon`` the terminal cannot show.
+
+    Both keys say how a panel presents itself, for a built-in and a declared
+    panel alike: ``label`` is its name in the sidebar and on its tile, ``icon``
+    the design-system glyph of its sidebar row. A label has to be text, and an
+    icon has to be a name ``icons.js`` draws: the browser falls back to the
+    panel's own glyph for a name it does not know, so a typo would otherwise
+    read as a setting that did nothing.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One error per unusable spelling, id order.
+    """
+    from osprey.interfaces.design_system.icons import icon_names
+
+    errors: list[str] = []
+    for pid in sorted(_spelled_panel_ids(config)):
+        for spelling, value in panel_leaf_spellings(config, pid, "label"):
+            if not isinstance(value, str) or not value.strip():
+                errors.append(
+                    f"{spelling}: {value!r} is not a label. Write the panel's name as "
+                    "text, or drop the line to keep the panel's own."
+                )
+        for spelling, value in panel_leaf_spellings(config, pid, "icon"):
+            if not isinstance(value, str) or value not in icon_names():
+                errors.append(
+                    f"{spelling}: {value!r} is not a design-system icon. The names are: "
+                    f"{', '.join(sorted(icon_names()))}."
+                )
+    return errors
 
 
 def _spelled_panel_ids(config: Any) -> set[str]:

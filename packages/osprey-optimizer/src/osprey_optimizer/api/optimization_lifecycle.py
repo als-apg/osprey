@@ -36,6 +36,7 @@ from osprey_optimizer.optimization.state import (
     get_optimization_reader,
     get_optimization_writer,
 )
+from osprey_optimizer.optimization.xopt_backend import start_cannot_move
 from osprey_optimizer.results import initialize_results_dir, model_file_under_results_root
 from osprey_optimizer.services.draft_resolution import resolve_draft_config
 from osprey_optimizer.services.plugin_registry import EnvironmentRegistry
@@ -81,7 +82,7 @@ def _materialize_objective_direction(
         config.objective_direction = observable.direction
 
 
-def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegistry) -> None:
+def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegistry) -> str | None:
     """Resolve the draft against live readbacks; 422 when resolution is impossible.
 
     The readbacks are the run's own target's: a window centred on the current
@@ -90,6 +91,10 @@ def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegis
 
     Runs before any persistence, so a failed create leaves no residue and a
     failed update keeps the previously stored config.
+
+    Returns the draft's start notice: a warning that its algorithm may not move
+    from those setpoints, or None. Judged here, once per draft, from the
+    setpoints just read; it warns and never holds the start.
     """
     name = config.environment_name
     if name is None:  # callers validate presence; keep the type narrow here
@@ -112,12 +117,13 @@ def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegis
     env = registry.load_environment(name, env_config)
     try:
         with env:
-            resolve_draft_config(config, env)
+            start = resolve_draft_config(config, env)
     except (ValueError, OptimizerConnectionError) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Cannot resolve draft against current machine state: {e}",
         ) from e
+    return start_cannot_move(config, start)
 
 
 def _require_environment(
@@ -179,11 +185,14 @@ def require_model_file_under_results(config: OptimizationConfig) -> None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
 
 
-def _prepare_draft(config: OptimizationConfig, registry: EnvironmentRegistry) -> None:
-    """Enrich + resolve a draft config in place (shared by create and update)."""
+def _prepare_draft(config: OptimizationConfig, registry: EnvironmentRegistry) -> str | None:
+    """Enrich + resolve a draft config in place (shared by create and update).
+
+    Returns the draft's start notice (see :func:`_resolve_draft_or_422`).
+    """
     require_model_file_under_results(config)
     _materialize_objective_direction(config, registry)
-    _resolve_draft_or_422(config, registry)
+    return _resolve_draft_or_422(config, registry)
 
 
 def create_optimization_job(
@@ -203,7 +212,7 @@ def create_optimization_job(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="objective_name is required to create an optimization.",
         )
-    _prepare_draft(config, registry)
+    start_notice = _prepare_draft(config, registry)
 
     job_id = str(uuid.uuid4())
     persist_created_job(
@@ -211,6 +220,7 @@ def create_optimization_job(
         job_id=job_id,
         payload_json=config.model_dump_json(),
         make_writer=get_optimization_writer,
+        start_notice=start_notice,
     )
 
     logger.info("Created optimization job %s (not started)", job_id)
@@ -234,9 +244,9 @@ def update_optimization_config(
     require_created_or_409(job_id, "update", get_optimization_reader(job_id).get_status())
     _require_environment(config, registry, action="update")
     _apply_preset(config, registry)
-    _prepare_draft(config, registry)
+    start_notice = _prepare_draft(config, registry)
 
-    store_created_config(job_id, config.model_dump_json())
+    store_created_config(job_id, config.model_dump_json(), start_notice)
 
     logger.info("Updated config for optimization job %s", job_id)
     return read_job_status(tracker, job_id)

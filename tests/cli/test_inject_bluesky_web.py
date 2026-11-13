@@ -109,7 +109,7 @@ def test_inject_bluesky_web_registers_the_web_panels(tmp_path: Path) -> None:
     bluesky = panels["bluesky"]
     assert bluesky["url"] == f"${{BLUESKY_WEB_URL:-http://localhost:{_WEB_PORT}}}"
     assert bluesky["path"] == "/bluesky/"
-    assert bluesky["label"] == "BLUESKY"
+    assert bluesky["label"] == "Bluesky"
     assert "health_endpoint" not in bluesky
 
 
@@ -148,7 +148,7 @@ def test_inject_bluesky_web_explicit_url_override_wins(tmp_path: Path) -> None:
     assert bluesky["url"] == "http://custom-host:1234"
     # But path/label are still filled in via setdefault (were absent before).
     assert bluesky["path"] == "/bluesky/"
-    assert bluesky["label"] == "BLUESKY"
+    assert bluesky["label"] == "Bluesky"
 
 
 def test_inject_bluesky_web_explicit_path_label_override_wins(tmp_path: Path) -> None:

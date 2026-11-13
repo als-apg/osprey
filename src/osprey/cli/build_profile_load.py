@@ -462,7 +462,8 @@ def _app_entry_key_problem(name: str, key: str, *, login: bool) -> str | None:
     if key in _APP_ENTRY_KEYS:
         return (
             f"{spelled} is legal only in the deployment's {PROFILE_FILENAME}: a login "
-            f"selects an application and sets only apps.{name}.shown."
+            f"selects an application and sets only apps.{name}.shown and "
+            f"apps.{name}.panel_hidden."
         )
     if key in _KNOWN_MCP_SERVER_KEYS:
         return (
@@ -511,6 +512,11 @@ def _app_block_problems(raw: Mapping[Any, Any], *, login: bool) -> list[str]:
         shown = entry.get("shown")
         if shown is not None and not isinstance(shown, bool):
             problems.append(f"apps.{name}.shown must be true or false (got {shown!r}).")
+        panel_hidden = entry.get("panel_hidden")
+        if panel_hidden is not None and not isinstance(panel_hidden, bool):
+            problems.append(
+                f"apps.{name}.panel_hidden must be true or false (got {panel_hidden!r})."
+            )
         if login:
             continue
         config = entry.get("config")
@@ -564,6 +570,7 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
                 for key, axes in (entry.get("services") or {}).items()
             },
             shown=entry.get("shown"),
+            panel_hidden=entry.get("panel_hidden"),
         )
     return parsed
 

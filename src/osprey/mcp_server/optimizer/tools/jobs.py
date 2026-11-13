@@ -94,7 +94,7 @@ async def create_draft(config: dict[str, Any]) -> str:
 
     Start from a preset where one fits (``list_presets``): name it in ``preset`` and set only what should differ. ``objective_name`` is always required, even with a preset and even when the environment declares a default objective. The fields that matter: ``environment_name``; ``preset``; ``variables`` (names to tune); ``variable_overrides`` (per variable: ``min``/``max``, or ``window_abs``/``window_fraction`` centred on the current setpoint, and ``step_size``); ``objective_name`` and ``objective_direction``; ``algorithm``; ``n_iterations``; ``n_initial_samples``; ``constraints`` (observable -> ``{"type", "value"}``); ``on_complete`` (``apply_best``, ``restore`` or ``hold``). The draft is for the session's control target: a config naming another is refused. The service resolves the bounds against that target's current setpoints and points its current job at the new draft.
 
-    Returns the new job (its ``job_id``, status ``created``) and the ``control_target`` the draft is for. Read the stored draft back with get_job_config before telling the operator what they would be starting.
+    Returns the new job (its ``job_id``, status ``created``) and the ``control_target`` the draft is for. Read the stored draft back with get_job_config before telling the operator what they would be starting. When the job carries a ``start_notice``, the algorithm may not move from the current setpoints: pass it on to the operator as advice; they may still start the draft.
 
     Args:
         config: The optimization config, as a JSON object.
@@ -108,7 +108,7 @@ async def create_draft(config: dict[str, Any]) -> str:
 async def update_draft(job_id: str, config: dict[str, Any]) -> str:
     """Replace a draft job's whole config. Refused once the job has started, and when the draft has expired.
 
-    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default. The draft stays on the session's control target: ``control_target`` may be left out, and a config naming another is refused. The stored draft holds every window already resolved to a fixed ``min``/``max`` around the setpoint it was written against: to change a variable's range, edit that ``min``/``max``; to re-centre on the current setpoint, drop them and give ``window_abs`` or ``window_fraction`` instead. Both at once is refused.
+    Read the current config with get_job_config, edit it, and send the whole of it back: a field left out returns to its default. The draft stays on the session's control target: ``control_target`` may be left out, and a config naming another is refused. The stored draft holds every window already resolved to a fixed ``min``/``max`` around the setpoint it was written against: to change a variable's range, edit that ``min``/``max``; to re-centre on the current setpoint, drop them and give ``window_abs`` or ``window_fraction`` instead. Both at once is refused. When the returned job carries a ``start_notice``, the algorithm may not move from the current setpoints: pass it on to the operator as advice; they may still start the draft.
 
     Args:
         job_id: Job id of a draft (status ``created``).

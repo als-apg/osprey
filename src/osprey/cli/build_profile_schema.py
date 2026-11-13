@@ -231,8 +231,8 @@ class AppEntry:
 
     Listing an application turns it on; there is no ``enabled`` key. Its tool
     server is projected by the build from its manifest, so no tool-server key
-    is written here. A login file spells only ``shown``; ``config`` and
-    ``services`` are the deployment's.
+    is written here. A login file spells only ``shown`` and ``panel_hidden``;
+    ``config`` and ``services`` are the deployment's.
     """
 
     config: dict[str, Any] = field(default_factory=dict)
@@ -242,10 +242,14 @@ class AppEntry:
     shown: bool | None = None
     """Whether the card shows the application; ``None`` takes the default its
     ``lists:`` mode gives (shown under ``add``, hidden under ``own``)."""
+    panel_hidden: bool | None = None
+    """Whether a card that shows the application keeps its panel off the
+    sidebar until someone adds it (the ``web.panels.<id>.hidden`` of a panel the
+    build projects); ``None`` gives the panel its sidebar row."""
 
 
 #: The keys a login may spell inside ``apps.<name>``.
-LOGIN_APP_ENTRY_KEYS = frozenset({"shown"})
+LOGIN_APP_ENTRY_KEYS = frozenset({"shown", "panel_hidden"})
 
 
 @dataclass

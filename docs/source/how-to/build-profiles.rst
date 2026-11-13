@@ -667,7 +667,8 @@ it.
 this login's card shows: ``apps: {<name>: {shown: true}}``. A listed
 application is shown under ``lists: add`` and hidden under ``lists: own``
 unless the entry says otherwise. Whether one is on is ``profile.yml``'s to say,
-never a login's. A shown application writes only where the login's tier arms
+never a login's. ``panel_hidden: true`` beside ``shown: true`` keeps the
+application's panel off the sidebar until someone adds it from "+ Add panel". A shown application writes only where the login's tier arms
 it — ``asked`` or ``allowed``, never ``never`` — and then only on a machine
 whose switch the operator has turned on; whether a write still asks for
 approval is decided per write at run time.

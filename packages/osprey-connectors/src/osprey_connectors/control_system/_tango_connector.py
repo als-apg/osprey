@@ -342,6 +342,16 @@ class TangoConnector(ControlSystemConnector):
 
         return read_current
 
+    def _write_precheck(
+        self, channel_address: str, value: Any
+    ) -> tuple[str, ChannelWriteResult | None]:
+        """In a batch an address that names no device and attribute is a refusal."""
+        try:
+            _split_address(channel_address)
+        except ValueError as exc:
+            return channel_address, self._validation_refusal(channel_address, value, exc)
+        return channel_address, None
+
     async def write_channel(
         self,
         channel_address: str,

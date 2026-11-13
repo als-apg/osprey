@@ -59,7 +59,7 @@ def test_injector_registers_the_bluesky_panel(project_path: Path) -> None:
     bluesky = _read_panels(project_path)["bluesky"]
     assert bluesky["url"] == f"${{BLUESKY_WEB_URL:-http://localhost:{default_port('bluesky_web')}}}"
     assert bluesky["path"] == "/bluesky/"
-    assert bluesky["label"] == "BLUESKY"
+    assert bluesky["label"] == "Bluesky"
 
 
 def test_injector_registers_exactly_one_panel(project_path: Path) -> None:

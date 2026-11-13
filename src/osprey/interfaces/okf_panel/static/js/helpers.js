@@ -13,6 +13,38 @@ import { facilityReferenceView } from '/design-system/js/facility-references.js'
 // concept id so popstate can tell the overview apart from a concept view.
 export const STRUCTURE_MARKER = '__structure';
 
+// History marker for the Graph view: `#__graph` is its overview and
+// `#__graph/<node id>` the neighbourhood of one node.
+export const GRAPH_MARKER = '__graph';
+
+/**
+ * The Graph view a hash names.
+ * @param {string} raw the hash, without its `#`
+ * @returns {{node: string | null} | null} the node whose neighbourhood it
+ *   names (null for the overview), or null for a hash that is not the Graph
+ *   view's
+ */
+export function graphTarget(raw) {
+  if (raw === GRAPH_MARKER) return { node: null };
+  if (!raw.startsWith(GRAPH_MARKER + '/')) return null;
+  const rest = raw.slice(GRAPH_MARKER.length + 1);
+  if (!rest) return { node: null };
+  try {
+    return { node: decodeURIComponent(rest) };
+  } catch {
+    return { node: rest };
+  }
+}
+
+/**
+ * The hash of the Graph view.
+ * @param {string | null} node the focus node's id, or null for the overview
+ * @returns {string} with its `#`
+ */
+export function graphHash(node) {
+  return '#' + GRAPH_MARKER + (node === null ? '' : '/' + encodeURIComponent(node));
+}
+
 /**
  * Create a DOM element with a flat string-valued attribute map and a list
  * of child nodes.
@@ -74,6 +106,8 @@ export function readPanelParams() {
     params.structure = true;
     return params;
   }
+  // The Graph view's hash names no concept.
+  if (graphTarget(hash)) return params;
   try {
     params.concept = decodeURIComponent(hash);
   } catch {

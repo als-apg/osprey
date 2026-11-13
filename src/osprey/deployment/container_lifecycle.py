@@ -7585,10 +7585,10 @@ def _start_as_built(
     The whole start runs with this repo's render anchored as the process config.
     A start is not only a sequence of ``compose`` invocations — it synthesizes
     and seeds an archive in THIS process, and that work reads the config through
-    unqualified lookups. Compose hands every container ``CONFIG_FILE``; without
-    the anchor the host is the one participant in that contract left resolving
-    against a working directory that holds no ``config.yml`` at all, and its
-    lookups degrade to defaults without failing. See
+    unqualified lookups. A container is handed its config or starts in its
+    project directory; a start pointed at another repo stands in neither, and
+    without the anchor its lookups would resolve against the working directory
+    and degrade to defaults without failing. See
     :func:`~osprey_connectors.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):

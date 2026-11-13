@@ -84,7 +84,20 @@ const CONTRACT_NAMES = [
   'text-search',
   'clock',
   'triangle-alert',
+  'monitor',
+  'camera',
+  'chart-column',
+  'users',
+  'radiation',
+  'cpu',
   'pin',
+  // The Activity page: decisions, the operator, tool calls and deep links.
+  'shield-check',
+  'user',
+  'wrench',
+  'circle-x',
+  'link',
+  'corner-down-right',
 ];
 
 describe('icons.js', () => {

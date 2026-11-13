@@ -15,7 +15,8 @@ import numbers
 import sys
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -731,6 +732,105 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
     )
 
 
+def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[ChannelWriteResult]:
+    """Enforce the denial contract on a batch's results.
+
+    :func:`raise_for_write_result` for each result in batch order, the writes
+    their batch only held back (``BATCH_REFUSED``) last: a batch stopped at its
+    checks raises for the write that was refused, wherever it stands.
+
+    Returns:
+        The results unchanged, when every one may be proceeded on.
+    """
+    held_back = [r for r in results if r.refusal_reason == RefusalReason.BATCH_REFUSED]
+    for result in (*(r for r in results if r not in held_back), *held_back):
+        raise_for_write_result(result)
+    return results
+
+
+def _limits_refusal(channel_address: str, value: Any, error: BaseException) -> ChannelWriteResult:
+    """The REFUSED result a batch answers for a write the limits refused.
+
+    One line per channel, the violation's type and reason, where a single
+    write raises the violation with its banner.
+    """
+    kind = getattr(error, "violation_type", None)
+    reason = getattr(error, "violation_reason", None)
+    said = f"({kind}): {reason}" if kind and reason else f": {error}"
+    return ChannelWriteResult(
+        channel_address=channel_address,
+        value_written=value,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason=RefusalReason.LIMITS,
+        error_message=f"Write to '{channel_address}' refused by the limits {said}",
+    )
+
+
+def _refused_batch(
+    named: list[tuple[str, Any]], refusals: list[ChannelWriteResult | None]
+) -> list[ChannelWriteResult]:
+    """One result per write of a batch that was not sent because a write was refused."""
+    refused = [refusal for refusal in refusals if refusal is not None]
+    first = refused[0]
+    others = f" and {len(refused) - 1} more" if len(refused) > 1 else ""
+    why = (
+        f"the write to '{first.channel_address}' was refused "
+        f"({first.refusal_reason}){others}. No write of the batch was sent."
+    )
+    return [
+        refusal
+        if refusal is not None
+        else ChannelWriteResult(
+            channel_address=name,
+            value_written=value,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason=RefusalReason.BATCH_REFUSED,
+            error_message=f"Write to '{name}' not sent: {why}",
+        )
+        for (name, value), refusal in zip(named, refusals, strict=True)
+    ]
+
+
+def _repeated_refusal(channel_address: str, value: Any, times: int) -> ChannelWriteResult:
+    """The refusal of one write to a channel its batch names more than once."""
+    return ChannelWriteResult(
+        channel_address=channel_address,
+        value_written=value,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason=RefusalReason.VALIDATION_ERROR,
+        error_message=(
+            f"Write to '{channel_address}' refused: the batch names this channel more than "
+            f"once ({times} writes). A batch writes a channel once; send the later value "
+            "in a batch of its own."
+        ),
+    )
+
+
+def _batch_send_verdict(channel_address: str, value: Any, error: Exception) -> ChannelWriteResult:
+    """The result of one write of a batch whose send raised, or the raise itself.
+
+    A limits refusal at send time is a ``LIMITS`` refusal. A channel that
+    could not be reached or did not answer in time is ``unconfirmed``: the
+    others of the batch are not recalled, and what this one holds is unknown.
+    Any other error is the connector's own and is raised.
+    """
+    from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
+
+    if isinstance(error, ChannelLimitsViolationError):
+        return _limits_refusal(channel_address, value, error)
+    if isinstance(error, ChannelUnreachableError | TimeoutError):
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.UNCONFIRMED,
+            error_message=(
+                f"Write to '{channel_address}' could not be confirmed, "
+                f"its outcome is unknown: {error}"
+            ),
+        )
+    raise error
+
+
 def _accepts_on_connection(subscribe: Callable[..., Any]) -> bool:
     """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
     parameters = inspect.signature(subscribe).parameters.values()
@@ -1220,15 +1320,54 @@ class ControlSystemConnector(ABC):
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         """
-        Write multiple channels. Override for atomic/batched behavior.
+        Write several channels as one batch: every write checked, then every write sent.
 
-        Default implementation writes sequentially via write_channel().
-        Subclasses can override to provide transactional semantics (e.g.,
-        disabling lattice recalculation between writes in a simulator).
+        What a batch means, on every connector:
+
+        1. **The checks are all-or-nothing.** Every write passes every check a
+           single :meth:`write_channel` makes before it sends: the write
+           verdict, the connector's own refusals and the limits, ``max_step``
+           included. The channels a step
+           is measured on are read together, once, before anything is sent. If
+           one write is refused there, **no write of the batch is sent**, and every
+           channel gets a ``refused`` result: a refused write its own reason,
+           each other write ``BATCH_REFUSED`` naming a refused one.
+        2. **Past the checks every write is sent and verified on its own.** One
+           result per channel, with the outcome a single write would report. A
+           write that fails, mismatches or stays unconfirmed does not recall
+           the others, which may already hold their values. The batch has
+           failed unless every result may be proceeded on
+           (:func:`raise_for_write_result`).
+
+        The promise covers what is known before the send. A refusal the control
+        system gives only at the send (a connector with no
+        :meth:`_write_precheck`, a value the target coerces or a read-only
+        channel it rejects) can come after earlier writes of the batch went
+        out; each result still says what happened to its own channel.
+
+        A batch names a channel once. One that names a channel more than once
+        is refused whole: a later write to it could only be checked against an
+        earlier one that may never land.
+
+        The write verdict is asked again right before the send, so a switch
+        turned off, a hold or a stop that arrives while the batch is checked
+        refuses every write not yet sent.
+
+        A batch never raises ``ChannelLimitsViolationError``: a limits refusal
+        is a ``refused`` result with reason ``LIMITS``. A channel whose send
+        raised ``ChannelUnreachableError`` or timed out is ``unconfirmed``. An
+        error of the connector itself (``ConnectorUnavailableError``) is
+        raised, and the batch's outcome is then unknown.
+
+        This method is the batch on every connector. A connector changes how a
+        batch is checked or sent through :meth:`_write_precheck`,
+        :meth:`_current_values` and :meth:`_send_batch`, not by overriding it.
+        A refusal a connector makes only inside its own :meth:`write_channel`
+        is not known before the send: it belongs in :meth:`_write_precheck`.
 
         Args:
             operations: List of (channel_address, value) tuples
-            timeout: Optional timeout in seconds
+            timeout: Optional timeout in seconds, given to each write
             confirm: Whether every channel in the batch is confirmed, or ``None``
                 to let each channel resolve its own policy
 
@@ -1236,41 +1375,190 @@ class ControlSystemConnector(ABC):
             List of ChannelWriteResult in the same order as operations
 
         Note:
-            A batch carries one ``confirm`` for every channel in it, so an omitted
-            ``confirm`` is *not* resolved here — the keyword is simply left off
-            each per-channel ``write_channel()`` call, and each channel then
-            resolves its own policy from the limits database as documented on
-            :meth:`write_channel`. That is what makes a batch write behave like a
-            sequence of single writes.
+            An omitted ``confirm`` is not resolved here: each channel resolves
+            its own policy from the limits database, as :meth:`write_channel`
+            documents. An explicit ``confirm``, ``False`` as much as ``True``,
+            reaches every channel unchanged.
 
-            An explicit ``confirm`` — ``False`` every bit as much as ``True`` — is
-            forwarded unchanged to every channel, which is why the guard below
-            tests ``is not None`` rather than the value's truth.
+            In a process that names a program's write authorization the whole
+            call is judged and its one step spent before anything is checked
+            or sent; a batch the limits then refuse has still spent it.
+        """
+        batch = list(operations)
+        authorization = write_authorization.named_authorization()
+        refused: WriteVerdict | None
+        if authorization is not None:
+            refused = _authorized_refusal(self, batch, authorization)
+        else:
+            # Every write is judged, as a single write is, before any is sent.
+            # The first refusal answers for the batch: every result of a
+            # refused batch tells the same story about why.
+            refused = None
+            for _ in batch:
+                self._last_verdict = None
+                if not self._writes_enabled:
+                    refused = self._last_verdict or _monitor_verdict(self._control_target)
+                else:
+                    refused = posture_store.session_hold_refusal()
+                if refused is not None:
+                    break
+        if refused is not None:
+            return [_verdict_refusal(address, value, refused) for address, value in batch]
+        if not batch:
+            return []
+        with open_door():
+            named, refusals = await self._check_batch(batch)
+            if any(refusal is not None for refusal in refusals):
+                return _refused_batch(named, refusals)
+            return await self._send_batch(named, timeout, confirm)
 
-            In a process that names a program's write authorization this is
-            every batch, a subclass's own batch included: the whole call is
-            judged and its one step spent first, and each operation is then
-            written past the guard.
+    def _write_precheck(
+        self,
+        channel_address: str,
+        value: Any,  # noqa: ARG002 - a connector's refusal carries the value
+    ) -> tuple[str, ChannelWriteResult | None]:
+        """One write's name, and the refusal this connector answers before the limits.
+
+        The checks :meth:`write_channel` makes without touching the control
+        system, ahead of limits validation. The name is the one the limits,
+        the send and the result use for the channel.
+        """
+        return channel_address, None
+
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+        """What the named channels hold now, for a batch's ``max_step`` checks.
+
+        ``None`` when the connector has no reader, and the step checks then
+        fail closed. A channel that could not be read maps to the exception
+        its read raised, or to ``None``. The default reads through
+        :meth:`current_value_reader` in one worker thread for the whole batch.
+        """
+        reader = self.current_value_reader()
+        if reader is None:
+            return None
+
+        def read_all() -> dict[str, Any]:
+            held: dict[str, Any] = {}
+            for address in channel_addresses:
+                try:
+                    held[address] = reader(address)
+                except Exception as exc:
+                    held[address] = exc
+            return held
+
+        return await asyncio.to_thread(read_all)
+
+    async def _check_batch(
+        self, batch: list[tuple[str, Any]]
+    ) -> tuple[list[tuple[str, Any]], list[ChannelWriteResult | None]]:
+        """Check every write of a batch; nothing is sent.
+
+        Returns the writes under the names :meth:`_write_precheck` gave them,
+        and one entry per write: its refusal, or ``None`` when it passed.
+        """
+        from osprey_connectors.errors import ChannelLimitsViolationError
+
+        named: list[tuple[str, Any]] = []
+        refusals: list[ChannelWriteResult | None] = []
+        for address, value in batch:
+            name, refusal = self._write_precheck(address, value)
+            named.append((name, value))
+            refusals.append(refusal)
+
+        times = Counter(name for name, _ in named)
+        for index, (name, value) in enumerate(named):
+            if times[name] > 1 and refusals[index] is None:
+                refusals[index] = _repeated_refusal(name, value, times[name])
+
+        validator = self._limits_validator
+        if not validator:
+            return named, refusals
+
+        def measured(name: str) -> bool:
+            try:
+                return bool(validator.measures_step(name))
+            except Exception:
+                return True  # cannot tell: read it
+
+        stepped = [
+            name
+            for (name, _), refusal in zip(named, refusals, strict=True)
+            if refusal is None and measured(name)
+        ]
+        held = await self._current_values(stepped) if stepped else {}
+
+        def read_current(name: str) -> Any:
+            current = held.get(name) if held is not None else None
+            if isinstance(current, BaseException):
+                raise current
+            return current
+
+        reader = None if held is None else read_current
+        for index, (name, value) in enumerate(named):
+            if refusals[index] is not None:
+                continue
+            try:
+                validator.validate(name, value, read_current=reader)
+            except ChannelLimitsViolationError as exc:
+                refusals[index] = _limits_refusal(name, value, exc)
+            except Exception as exc:
+                # The check could not be made, which is not permission to write.
+                refusals[index] = self._validation_refusal(name, value, exc)
+        return named, refusals
+
+    def _send_refusal(self, batch: list[tuple[str, Any]]) -> "WriteVerdict | None":
+        """The verdict refusing what a checked batch has not sent yet, or ``None``.
+
+        The batch was judged before its checks, and the checks take time: a
+        switch turned off, a hold or a stop since then must not be outrun by
+        the send. This asks again what the write guard asks of a single write.
+        In a process that names an authorization the call is judged again
+        without spending; ``auth_exhausted`` alone is no refusal here, since
+        the step this batch spent may have been the last.
+        """
+        authorization = write_authorization.named_authorization()
+        self._last_verdict = None
+        if authorization is None:
+            if not self._writes_enabled:
+                return self._last_verdict or _monitor_verdict(self._control_target)
+            return posture_store.session_hold_refusal()
+        if _overrides_writes_enabled(self) and not self._writes_enabled:
+            return self._last_verdict or _monitor_verdict(self._control_target)
+        verdict = write_authorization.authorized_execution_verdict(
+            _monitor_section(), self._control_target, batch, authorization=authorization
+        )
+        return None if verdict.allowed or verdict.reason == "auth_exhausted" else verdict
+
+    async def _send_batch(
+        self,
+        batch: list[tuple[str, Any]],
+        timeout: float | None,
+        confirm: bool | None,
+    ) -> list[ChannelWriteResult]:
+        """Send a batch that passed every check: one result per write, in order.
+
+        The default sends one write after the other through the connector's
+        own :meth:`write_channel`, past the guard that already judged the
+        batch, and asks :meth:`_send_refusal` before each: once it refuses,
+        every write not yet sent is refused by that verdict. A connector whose
+        control system takes concurrent puts sends them together, and asks
+        once, immediately before the puts start.
         """
         kwargs: dict[str, Any] = {"timeout": timeout}
         if confirm is not None:
             kwargs["confirm"] = confirm
-        authorization = write_authorization.named_authorization()
-        if authorization is None:
-            return [
-                await self.write_channel(address, value, **kwargs) for address, value in operations
-            ]
-        # One write call under a program's authorization: judged whole and its
-        # one step spent before any put; a refusal writes nothing. Each
-        # operation then meets the connector's own checks, limits included,
-        # without being judged or spent again.
-        batch = list(operations)
-        refused = _authorized_refusal(self, batch, authorization)
-        if refused is not None:
-            return [_verdict_refusal(address, value, refused) for address, value in batch]
         write = type(self)._unguarded_write_channel
-        with open_door():
-            return [await write(self, address, value, **kwargs) for address, value in batch]
+        results: list[ChannelWriteResult] = []
+        for index, (address, value) in enumerate(batch):
+            refused = self._send_refusal(batch)
+            if refused is not None:
+                results.extend(_verdict_refusal(*held, refused) for held in batch[index:])
+                break
+            try:
+                results.append(await write(self, address, value, **kwargs))
+            except Exception as exc:
+                results.append(_batch_send_verdict(address, value, exc))
+        return results
 
     @abstractmethod
     async def subscribe(

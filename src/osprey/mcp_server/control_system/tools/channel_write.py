@@ -776,6 +776,11 @@ def _check_execution_window(entry: tuple[str, int] | None) -> None:
         )
 
 
+#: The reason of a write that passed its own checks and was not sent because
+#: another write of its batch was refused.
+_HELD_BACK = "BATCH_REFUSED"
+
+
 def _all_refused_headline(results: list[dict]) -> str:
     """Return the headline of a batch whose every write was refused.
 
@@ -832,6 +837,11 @@ async def channel_write(
       limits grounds and never sent it to the machine, or the control system
       itself denied the write (`refusal_reason` `CONTROL_SYSTEM_REFUSED`), or
       the address is not a channel of this facility (`CHANNEL_NOT_FOUND`).
+      A write refused by the checks stops the whole call: every write is
+      checked before any is sent, and the others come back `refused` with
+      `BATCH_REFUSED`. Report the write that carries its own reason as the
+      cause. A refusal the control system gives only at the send does not
+      undo writes already sent; each row says what happened to its channel.
     - `failed` — sent to the machine, which did not take it.
     - `confirmed` — a re-read of the channel holds the value sent. An alarm on
       the channel does not change that: report `alarm_status` and
@@ -1106,13 +1116,17 @@ async def channel_write(
                 # The envelope's reason and channel come from the first row
                 # that names a refuser: an address that is not a channel must
                 # not stand in for a limits or policy refusal on another row.
+                # A row its batch only held back never speaks for the batch.
+                causes = [
+                    entry for entry in results if entry["refusal_reason"] != _HELD_BACK
+                ] or results
                 first = next(
                     (
                         entry
-                        for entry in results
+                        for entry in causes
                         if ChannelWriteBlockedError.refuser(entry["refusal_reason"])
                     ),
-                    results[0],
+                    causes[0],
                 )
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
