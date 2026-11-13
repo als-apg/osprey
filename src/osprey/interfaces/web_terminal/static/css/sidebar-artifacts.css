@@ -142,8 +142,9 @@
   color: var(--text-muted);
 }
 
-/* A session's rows scroll in their own box, fading at the bottom edge. No
-   height cap: the box shrinks to the room its tree is given. */
+/* A session's rows scroll in their own box, fading at the bottom edge while
+   there is more to scroll to (`data-overflows`, sidebar-artifact-paging.js).
+   No height cap: the box shrinks to the room its tree is given. */
 .osprey-tree-box {
   flex: 0 1 auto;
   min-height: 0;
@@ -152,6 +153,9 @@
   margin: 0 0 2px;
   padding-bottom: 2px;
   scrollbar-width: thin;
+}
+
+.osprey-tree-box[data-overflows] {
   mask-image: linear-gradient(to bottom, black calc(100% - 14px), transparent);
 }
 
