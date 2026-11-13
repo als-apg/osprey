@@ -2269,6 +2269,22 @@ def _content_dir(roots: FacilityRoots) -> Path | None:
     return roots.content if roots.mounted else None
 
 
+def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
+    """The measurement kinds the deployment's listed packages declare, by distribution.
+
+    Read from the project file of each listed ``apps/<name>/`` and each
+    local-path ``dependencies`` entry; nothing is built or imported.
+    """
+    from osprey.apps.rules import deployment_packages
+    from osprey.facility.kinds import listed_kinds
+
+    return listed_kinds(
+        deployment_packages(
+            repo_root, list(build_profile.dependencies or []), apps=build_profile.apps or {}
+        )
+    )
+
+
 def _stated_machine_route(profile_path: Path) -> str | None:
     """The ``machine:`` the profile file states, as a remedy names it (``<machine>/``).
 

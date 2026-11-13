@@ -1168,16 +1168,22 @@ def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
     return shipped
 
 
-def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
+def refuse_unshipped_kinds(
+    requirements: Iterable[str], *, listed: Mapping[str, str] | None = None
+) -> None:
     """Refuse a registered measurement kind the project image would not install.
 
     Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
     declaring it. That distribution has to be one the image installs: the
-    framework itself, or a distribution *requirements* names (an index
-    requirement, or a built deployment package by its name).
+    framework itself, a distribution *requirements* names (an index
+    requirement, or a built deployment package by its name), or a listed
+    package whose project file declares that kind (*listed*), which stands for
+    the wheel a caller that builds nothing does not have.
 
     Args:
         requirements: The dependency list the image installs, beside the framework.
+        listed: ``{kind: distribution}`` as
+            :func:`osprey.facility.kinds.listed_kinds` reads it.
 
     Raises:
         BuildProfileError: Naming each kind whose package is not installed.
@@ -1191,7 +1197,10 @@ def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
     for kind in entry_points(group=FACILITY_KINDS_GROUP):
         dist = getattr(kind, "dist", None)
         dist_name = getattr(dist, "name", None)
-        if dist_name is None or canonicalize_name(dist_name) not in shipped:
+        canonical = None if dist_name is None else canonicalize_name(dist_name)
+        if canonical is None or (
+            canonical not in shipped and (listed or {}).get(kind.name) != canonical
+        ):
             refused.append(f"{kind.name!r} (package {dist_name or 'unknown'})")
     if refused:
         raise BuildProfileError(

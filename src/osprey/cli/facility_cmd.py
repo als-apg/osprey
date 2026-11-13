@@ -169,6 +169,7 @@ def _build_in_memory(
 
     from .build_cmd import (
         _content_dir,
+        _listed_kinds,
         _render_project,
         _render_zones,
         _rendered_config,
@@ -218,6 +219,7 @@ def _build_in_memory(
 
     facility_dir = roots.machine
     content_dir = _content_dir(roots)
+    listed_kinds = _listed_kinds(build_profile, repo_root)
     result = run_stages(
         facility_dir, project_name=name, later=LATER_STAGES, content_dir=content_dir
     )
@@ -242,7 +244,11 @@ def _build_in_memory(
         repo_root=repo_root,
         build_dir=build_dir,
         runtime_root=None,
-        project_deps=list(_plan_project_venv(build_profile, install=False).extra_deps),
+        # No wheel is built here, so a listed package's kind is found in its
+        # project file.
+        project_deps=list(
+            _plan_project_venv(build_profile, install=False, listed_kinds=listed_kinds).extra_deps
+        ),
         skip_deps=True,
         manager=TemplateManager(),
         graph_indexes={},

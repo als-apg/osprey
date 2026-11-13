@@ -425,6 +425,73 @@ def test_a_measurement_file_naming_a_kind_no_package_registers_stops_the_build(
     ) in output
 
 
+def _validate(repo: Path) -> Result:
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    return CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+
+def test_validate_finds_the_kind_in_the_listed_packages_project_file(
+    built: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.deployment import wheel_build
+
+    def built_nothing(*_args: Any, **_kwargs: Any) -> Path:
+        raise AssertionError("facility validate built a wheel")
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", built_nothing)
+
+    validated = _validate(built.repo)
+
+    assert validated.exit_code == 0, validated.output
+    assert "kind-deferred" not in validated.stderr
+
+
+@pytest.mark.usefixtures("installed")
+def test_validate_refuses_an_installed_kind_no_listed_package_declares(deploy: Deploy) -> None:
+    project, _result = deploy(fixture_tree(), dependencies=[])
+
+    validated = _validate(project.repo)
+
+    assert validated.exit_code != 0
+    assert (
+        f"measurement kind '{KIND}' (package {DISTRIBUTION}): the kind's package is not among "
+        "the packages the project image installs"
+    ) in " ".join((validated.output + str(validated.exception)).split())
+
+
+def test_the_listed_kinds_are_read_from_each_project_file_without_an_import(
+    tmp_path: Path,
+) -> None:
+    import sys
+
+    package = tmp_path / "kinds" / "fixture_kind" / "pyproject.toml"
+    package.parent.mkdir(parents=True)
+    package.write_text(PYPROJECT.replace("fixture_kind_deployment:", "no_such_module:"))
+    plain = tmp_path / "plain" / "pyproject.toml"
+    plain.parent.mkdir()
+    plain.write_text('[project]\nname = "Plain_Package"\nversion = "1"\n')
+    broken = tmp_path / "broken" / "pyproject.toml"
+    broken.parent.mkdir()
+    broken.write_text("[project\n")
+
+    assert kinds.listed_kinds([plain, broken, package]) == {KIND: DISTRIBUTION}
+    assert "no_such_module" not in sys.modules
+
+
+@pytest.mark.usefixtures("installed")
+def test_a_listed_package_excuses_only_the_kind_its_own_project_file_declares() -> None:
+    from osprey.deployment.wheel_build import refuse_unshipped_kinds
+    from osprey_connectors.errors import BuildProfileError
+
+    refuse_unshipped_kinds([], listed={KIND: DISTRIBUTION})
+    for listed in ({KIND: "another-package"}, {"another_kind": DISTRIBUTION}):
+        with pytest.raises(BuildProfileError, match=f"'{KIND}'"):
+            refuse_unshipped_kinds([], listed=listed)
+
+
 @pytest.mark.usefixtures("installed")
 def test_a_kind_whose_package_the_image_does_not_install_stops_the_build(
     deploy: Deploy, caplog: pytest.LogCaptureFixture

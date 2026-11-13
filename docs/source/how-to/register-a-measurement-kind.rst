@@ -71,7 +71,9 @@ image does not install, so the package is installed twice:
   its source at ``./kinds/fixture_kind`` in the deployment repository). The
   build turns a local path into a wheel in the same deployment-package install
   an application's package gets (:doc:`/how-to/apps/build-your-own-app`), and
-  the image installs it.
+  the image installs it. ``osprey facility validate`` builds no wheel: it reads
+  the kinds a local-path entry or a listed ``apps/<name>/`` declares from the
+  package's ``pyproject.toml``.
 
 4. Give the kind its block
 ==========================

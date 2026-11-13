@@ -57,6 +57,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyaml_cs_osprey.names import CHROMATICITY_MONITOR_NAME
@@ -509,6 +510,42 @@ def registered() -> dict[str, KindDeclaration]:
             names a hook OSPREY does not offer or a value it cannot use.
     """
     found, _sources = _load()
+    return found
+
+
+def listed_kinds(pyprojects: Iterable[Path]) -> dict[str, str]:
+    """The kinds a deployment's listed packages declare, read from their project files.
+
+    Each ``pyproject.toml`` is parsed for its ``[project]`` name and its
+    ``[project.entry-points."osprey.facility.kinds"]`` table. Nothing is built
+    and nothing is imported, so a kind is found whether or not its package is
+    installed. Entry points a build backend computes (``dynamic``) are not read.
+
+    Args:
+        pyprojects: The ``pyproject.toml`` of each package the deployment lists.
+
+    Returns:
+        ``{kind: distribution}``, the distribution by its canonical name; a
+        file that cannot be read, or names no project, declares nothing.
+    """
+    import tomllib
+
+    from packaging.utils import canonicalize_name
+
+    found: dict[str, str] = {}
+    for pyproject in pyprojects:
+        try:
+            project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project")
+        except (OSError, ValueError):
+            continue
+        if not isinstance(project, dict) or not isinstance(project.get("name"), str):
+            continue
+        groups = project.get("entry-points")
+        declared = groups.get(ENTRY_POINT_GROUP) if isinstance(groups, dict) else None
+        if not isinstance(declared, dict):
+            continue
+        for kind in declared:
+            found.setdefault(str(kind), str(canonicalize_name(project["name"])))
     return found
 
 
