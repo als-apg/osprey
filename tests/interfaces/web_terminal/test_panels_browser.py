@@ -747,6 +747,109 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
         page.close()
 
 
+def test_hide_made_before_the_event_stream_opens_reaches_the_rail(tmp_path, chromium_browser):
+    """A panel hidden while the page's event stream is still connecting leaves the rail.
+
+    The page is ready to drive before its stream is open, and SSE has no replay:
+    the ``panel_visibility`` frame of a change made in that window is never
+    delivered. The read the page makes when the stream opens is what applies it.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = chromium_browser.new_page()
+        held = []
+        page.route("**/api/files/events*", lambda route: held.append(route))
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
+        assert held, "the event stream opened before the hide could be made"
+
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(data_viz_rail).to_have_count(1)
+
+        for route in held:
+            route.continue_()
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
+
+        page.close()
+
+
+def test_hide_that_overtakes_the_stream_open_read_stays_applied(tmp_path, chromium_browser):
+    """A panel hidden while the page re-reads the panel list stays off the rail.
+
+    When its event stream opens the page reads ``/api/panels`` to pick up what it
+    missed. A hide made after the server answered that read, whose frame the page
+    applies before the answer arrives, is newer than the answer: the answer still
+    lists the panel, and applying it would put the entry back for good.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = chromium_browser.new_page()
+        stream = []
+        page.route("**/api/files/events*", lambda route: stream.append(route))
+        page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
+        wait_for_dock_settled(page)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
+        assert stream, "the event stream opened before its read could be held"
+
+        # Every read of the panel list from here on is the stream-open one. The
+        # first is answered by the server at once and its answer held back.
+        answered = []
+
+        def hold_first_read(route):
+            if answered:
+                route.continue_()
+            else:
+                answered.append((route, route.fetch()))
+
+        page.route("**/api/panels", hold_first_read)
+        with page.expect_request("**/api/panels", timeout=10_000):
+            for route in stream:
+                route.continue_()
+        # Stay in page calls, so the route handler runs, until the answer is held.
+        deadline = time.monotonic() + 10
+        while not answered:
+            assert time.monotonic() < deadline, "the stream-open read was never answered"
+            page.wait_for_timeout(50)
+        route, stale = answered[0]
+        assert "data-viz" in stale.json()["visible"]
+
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
+
+        # The held answer arrives now, older than the frame just applied. The
+        # page reads the list again instead of applying it.
+        with page.expect_request("**/api/panels", timeout=10_000):
+            route.fulfill(response=stale)
+        page.evaluate("() => fetch('/api/panels').then((r) => r.json())")
+        expect(data_viz_rail).to_have_count(0)
+
+        page.close()
+
+
 def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser):
     """CF-2/CC-3: panel_register adds a rail entry but does NOT auto-dock it.
 
