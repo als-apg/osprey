@@ -337,6 +337,36 @@
   order: 2;
 }
 
+/* A contributed breadcrumb names what the tile shows in place of the tile's
+ * own name (the Artifacts tile: "Artifact › <title>"). It is not a subtitle
+ * beside the name: the name goes, and the crumb takes its slot at the left,
+ * ahead of the spacer, with the leaf ellipsized (its full text is the leaf's
+ * tooltip). A narrow bar drops the root and its chevron and keeps the leaf
+ * alone (the bar is an inline-size container for that query), and the
+ * crumb's floor makes the region count as crowded so the fold ladder moves
+ * the panel icons into the tile ⋯ before the leaf shrinks away. */
+.tile-tab:has(> .tile-tab-contrib.has-crumb) {
+  container-type: inline-size;
+}
+
+.tile-tab:has(> .tile-tab-contrib.has-crumb) > .tile-tab-title {
+  display: none;
+}
+
+.tile-tab .tile-tab-contrib > .osprey-crumb {
+  order: 0;
+  flex: 0 1 auto;
+  min-width: min(11em, 60%);
+  font-family: var(--font-display);
+}
+
+@container (max-width: 480px) {
+  .tile-tab .osprey-crumb-root,
+  .tile-tab .osprey-crumb-sep {
+    display: none;
+  }
+}
+
 /* ---- One control language ----
  * Every interactive element the bar renders is the design language's 28px
  * ghost control. The tile's own ⋯, open in new window and close, a panel's
@@ -383,6 +413,12 @@
 .tile-tab .contrib-icon[aria-pressed="true"] {
   color: var(--text-primary);
   background: var(--surface-selected);
+}
+
+/* A hub icon that asks to be read (`tone: 'warning'`, which only the hub
+ * sends): the warning colour, kept on hover and while its popover is open. */
+.tile-tab .contrib-icon.contrib-icon-warning {
+  color: var(--color-warning);
 }
 
 .tile-tab .bar-icon {

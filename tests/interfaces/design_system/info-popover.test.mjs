@@ -106,3 +106,63 @@ describe('openInfoPopover', () => {
     expect(popover().hidden).toBe(true);
   });
 });
+
+describe('a notice and links', () => {
+  test('a row with onClick shows its value as a link that closes the popover, then runs', () => {
+    const onClick = vi.fn(() => expect(popover().hidden).toBe(true));
+    openInfoPopover($('info'), {
+      rows: [
+        { label: 'Session', value: 'Tune scan', onClick },
+        { label: 'Size', value: '49.2 KB' },
+      ],
+    });
+    const links = popover().querySelectorAll('.osprey-info-popover-link');
+    expect(Array.from(links, (link) => link.textContent)).toEqual(['Tune scan']);
+    /** @type {HTMLButtonElement} */ (links[0]).click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  test('the notice leads the card: its text, its links and its action', () => {
+    const onClick = vi.fn();
+    const onAction = vi.fn();
+    openInfoPopover($('info'), {
+      notice: {
+        parts: ['From another session: "', { text: 'Tune scan', onClick }, '"'],
+        actionLabel: 'Got it',
+        onAction,
+      },
+      title: 'Betatron tunes',
+    });
+    const notice = /** @type {HTMLElement} */ (popover().firstElementChild);
+    expect(notice.className).toBe('osprey-info-popover-notice');
+    expect(notice.textContent).toBe('From another session: "Tune scan"Got it');
+    const action = /** @type {HTMLButtonElement} */ (
+      Array.from(notice.querySelectorAll('button')).find((b) => b.textContent === 'Got it')
+    );
+    action.click();
+    expect(onAction).toHaveBeenCalledTimes(1);
+    // The action leaves the card open: the caller sends what it shows next.
+    expect(popover().hidden).toBe(false);
+    /** @type {HTMLButtonElement} */ (notice.querySelector('.osprey-info-popover-link')).click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(popover().hidden).toBe(true);
+  });
+
+  test('update shows new content in place while open, and nothing once closed', () => {
+    const handle = openInfoPopover($('info'), {
+      notice: { parts: ['Look'], actionLabel: 'Got it', onAction: () => {} },
+      rows: [{ label: 'Session', value: 'Tune scan' }],
+    });
+    const action = /** @type {HTMLButtonElement} */ (popover().querySelector('.osprey-btn'));
+    action.focus();
+    expect(handle.update({ rows: [{ label: 'Session', value: 'Tune scan' }] })).toBe(true);
+    expect(popover().querySelector('.osprey-info-popover-notice')).toBeNull();
+    expect(popover().querySelector('dd')?.textContent).toBe('Tune scan');
+    // Focus that was on the dropped button stays in the card.
+    expect(popover().contains(document.activeElement)).toBe(true);
+
+    handle.close();
+    expect(handle.update({ title: 'Other' })).toBe(false);
+    expect(popover().textContent).not.toContain('Other');
+  });
+});

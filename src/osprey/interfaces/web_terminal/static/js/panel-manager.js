@@ -28,8 +28,11 @@
  * does is panel-menu-policy.js (row closures, both context menus), and where
  * a panel LANDS is panel-placement.js. A panel's time in its own window is
  * pane-window.js. The start-up tail — the payload's other readers and the ready
- * mark — is panel-startup.js. All of them read this module's private state through deps
- * registered at init, so none imports it back: the import direction is
+ * mark — is panel-startup.js. A tile pinned to one artifact (`artifact:<id>`,
+ * dragged from the session tree) is artifact-tiles.js: this module routes its
+ * activation, hydrate and pop-out frame there and hands it the panel records.
+ * All of them read this module's private state through deps registered at
+ * init, so none imports it back: the import direction is
  * panel-manager → panel-sse → panel-lifecycle.
  */
 
@@ -85,6 +88,7 @@ import {
   removeFromRail,
   closeTerminalTile,
 } from './panel-menu-policy.js';
+import * as artifactTiles from './artifact-tiles.js';
 import { removeEntry, setActive } from './panel-rail.js';
 import {
   initPanelLifecycle,
@@ -320,6 +324,9 @@ export async function initPanelManager(panelId) {
   initDockIframeAdapter({ fallbackHost: contentEl });
   setPlaceholdersAppliedHandler(settleAppliedLayout);
 
+  // Artifact tiles (artifact-tiles.js) frame the Artifacts panel's gallery.
+  artifactTiles.initArtifactTiles({ panels: PANELS, panelState, contentEl });
+
   // Bridge dockview gestures back to the server-owned panel state: a human dock
   // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
   // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
@@ -376,7 +383,8 @@ export async function initPanelManager(panelId) {
   });
 
   // A pane in a window of its own (pane-window.js): this module's part of what
-  // it needs. The sidebar row follows every change.
+  // it needs, an artifact tile's frame from artifact-tiles.js. The sidebar row
+  // follows every change.
   initPaneWindow({
     managedIframe,
     concealPanel,
@@ -388,8 +396,10 @@ export async function initPanelManager(panelId) {
     withEchoSuppressed,
     // An address alone is not enough: a panel that has not answered would open
     // a window on an error page, and nothing reloads a frame there.
-    canLoadFrame: (id) => !!panelState[id]?.healthy && getPanelStandaloneUrl(id) !== null,
-    loadFrame: (id) => createIframe(id, { dock: false }),
+    ...artifactTiles.withArtifactFrames({
+      canLoadFrame: (id) => !!panelState[id]?.healthy && getPanelStandaloneUrl(id) !== null,
+      loadFrame: (id) => createIframe(id, { dock: false }),
+    }),
     clearAccent: (id) => {
       if (activeTabId === id) markSurfaced(null);
     },
@@ -613,10 +623,12 @@ export function getPopoutPanels() {
  */
 export const relayTranscriptMove = (key) => relayToPanels(key, Object.values(panelState));
 
-/** The catalog label for a panel id (falls back to the id itself).
+/** The catalog label for a panel id (falls back to the id itself); an
+ *  artifact tile's is its artifact's title.
  *  Exported for the activity strip, which words panel actions with labels.
  *  @param {string} id @returns {string} */
-export const labelOf = (id) => PANELS.find((p) => p.id === id)?.label ?? id;
+export const labelOf = (id) =>
+  artifactTiles.artifactTileTitle(id) ?? PANELS.find((p) => p.id === id)?.label ?? id;
 
 /**
  * Set the locally-tracked surfaced panel — activeTabId, the rail accent, and
@@ -696,11 +708,13 @@ function settleAppliedLayout({ asLeft = false } = {}) {
  * exists (a cached iframe from a closed tile is concealed, and a concealed
  * entry is never re-materialized on its own), and the echo guard covers the
  * one case where it would have to add one. A panel living in its own pop-out
- * window has no tile to fill; its placeholder is pruned instead.
+ * window has no tile to fill; its placeholder is pruned instead. Artifact
+ * tiles are filled by artifact-tiles.js.
  */
 function hydrateRestoredTiles() {
   const api = getDockApi();
   if (!api) return;
+  artifactTiles.hydrateArtifactTiles();
   for (const { id, label } of PANELS) {
     const state = panelState[id];
     if (!state?.healthy || !visiblePanels.has(id) || isDetached(id)) continue;
@@ -771,7 +785,9 @@ function ensureActivePanel() {
  * `landing` marks the boot/empty-slot landing: a surfacing nobody asked for.
  *
  * A panel living in its own window shows there: a requested surfacing brings that window to the front instead, and a
- * health-driven one does nothing — nobody asked for the window.
+ * health-driven one does nothing — nobody asked for the window. An artifact
+ * tile is framed and focused (artifact-tiles.js); it has no rail row, no
+ * badge and no focus report.
  * @param {string} panelId
  * @param {{ userInitiated?: boolean, auto?: boolean, landing?: boolean }} [options]
  */
@@ -783,6 +799,7 @@ export function activateTab(
     if (!auto) focusWindow(panelId);
     return;
   }
+  if (artifactTiles.isArtifactTileKey(panelId)) return artifactTiles.showArtifactTile(panelId);
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
   // A panel becoming healthy is not a request to show it. The server owns the

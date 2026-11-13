@@ -406,6 +406,29 @@ describe('local contribution (the hub owns the header)', () => {
     expect(host.querySelector('.contrib-btn')?.textContent).toBe('early');
   });
 
+  test("an icon's warning tone is the hub's alone: a panel's message cannot set it", () => {
+    const icon = { kind: 'icon', id: 'info', icon: 'info', title: 'Details', tone: 'warning' };
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    deliverContribution([icon], contentWindow);
+    const fromPanel = host.querySelector('.contrib-icon');
+    expect(fromPanel).not.toBeNull();
+    expect(fromPanel?.classList.contains('contrib-icon-warning')).toBe(false);
+
+    contributeLocal(panelId, [icon], vi.fn());
+    expect(host.querySelector('.contrib-icon')?.classList.contains('contrib-icon-warning')).toBe(
+      true
+    );
+    // The same live button loses the tone when the hub drops it.
+    contributeLocal(panelId, [{ ...icon, tone: undefined }], vi.fn());
+    expect(host.querySelector('.contrib-icon')?.classList.contains('contrib-icon-warning')).toBe(
+      false
+    );
+  });
+
   test('runs the same sanitizer as the message path', () => {
     const panelId = freshPanelId();
     const host = document.createElement('div');

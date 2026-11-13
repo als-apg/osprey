@@ -93,6 +93,7 @@ import {
   isDetached,
 } from './dock-apply.js';
 import { closeKeys, openPanel } from './dock-open.js';
+import { artifactTileStays } from './artifact-tiles.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { flashElement } from '/design-system/js/highlight.js';
 
@@ -374,9 +375,12 @@ export function setKnownServicePanels(ids) {
  * services living in their own pop-out window (a layout stored before the
  * pop-out and restored after the window was adopted would put an empty tile
  * back). The `managed` visible flag covers the window where a just-added
- * panel's membership POST has not echoed back into the server set yet. One
- * holder operation for all of them. No-op until setKnownServicePanels has run
- * — before the registry loads, "unknown" would just mean "not fetched yet".
+ * panel's membership POST has not echoed back into the server set yet. An
+ * artifact tile (artifact-tiles.js) is no panel and never in the rail: it is
+ * kept while the Artifacts panel it frames is known, and pruned as any other
+ * pane once in its own window. One holder operation for all of them. No-op
+ * until setKnownServicePanels has run — before the registry loads, "unknown"
+ * would just mean "not fetched yet".
  */
 function pruneOrphanPlaceholders() {
   const holder = getLayoutHolder();
@@ -384,6 +388,7 @@ function pruneOrphanPlaceholders() {
   /** @type {string[]} */
   const orphans = [];
   for (const sid of dockedServiceKeys()) {
+    if (artifactTileStays(sid, knownServiceIds)) continue;
     const unknown = !knownServiceIds.has(sid) && !managed.has(sid);
     const closed = !!serverVisibleIds && !serverVisibleIds.has(sid) && !managed.get(sid)?.visible;
     if (unknown || closed || isDetached(sid)) orphans.push(sid);

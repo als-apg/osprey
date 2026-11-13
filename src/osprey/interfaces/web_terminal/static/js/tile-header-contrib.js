@@ -18,7 +18,9 @@
  * action of that panel's bar goes to instead of the iframe. From then on the
  * hub owns that header, so the panel's own contribution messages are
  * ignored — the Artifacts tile's iframe is a viewer of one artifact, and its
- * breadcrumb, pager and actions belong to the hub's sidebar.
+ * breadcrumb, pager and actions belong to the hub's sidebar. Only the hub's
+ * own items may draw an icon in the warning colour (`tone: 'warning'`); the
+ * sanitizer drops that field from a panel's message.
  *
  * SECURITY: a message's panel identity is resolved by matching event.source
  * against the live panel iframes' contentWindow — never from a panel id
@@ -144,10 +146,12 @@ function iframeForPanel(panelId) {
  * Validate/clamp an incoming contribution to the closed vocabulary. Unknown
  * kinds and malformed entries are dropped, strings are stringified and
  * length-capped; the result is safe to render verbatim via textContent.
+ * `local` (the hub's own items) also keeps an icon's `tone: 'warning'`.
  * @param {unknown} raw
+ * @param {{local?: boolean}} [options]
  * @returns {HeaderItem[]}
  */
-function sanitizeItems(raw) {
+function sanitizeItems(raw, { local = false } = {}) {
   if (!Array.isArray(raw)) return [];
   /** @type {HeaderItem[]} */
   const out = [];
@@ -176,6 +180,7 @@ function sanitizeItems(raw) {
         title: clip(it.title),
         disabled: it.disabled === true,
         ...(typeof it.pressed === 'boolean' ? { pressed: it.pressed } : {}),
+        ...(local && it.tone === 'warning' ? { tone: 'warning' } : {}),
       });
     } else if (it.kind === 'search') {
       out.push({
@@ -274,7 +279,7 @@ function clip(s) {
  */
 export function contributeLocal(panelId, items, dispatch) {
   localDispatch.set(panelId, dispatch);
-  contributions.set(panelId, sanitizeItems(items));
+  contributions.set(panelId, sanitizeItems(items, { local: true }));
   const host = hosts.get(panelId);
   if (host) render(panelId, host);
 }

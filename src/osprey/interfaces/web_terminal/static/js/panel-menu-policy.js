@@ -90,6 +90,7 @@ import { flashElement } from '/design-system/js/highlight.js';
 import { showUndoNotice } from './undo-notice.js';
 import { closeDetached, detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
+import { isArtifactTileKey } from './artifact-tiles.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -565,7 +566,8 @@ function stateRows(id, member, noticeIn) {
  * Help, Pin to rail (off-rail panels), then Close window under a divider
  * ({@link closeWindowRows}); on the no-dockview fallback
  * bar (`mode: 'fallback'`) it is Reload, Help and Pin to rail. Neither acts
- * on a dock.
+ * on a dock. An artifact tile (artifact-tiles.js) is no panel the rail can
+ * hold: it gets no Pin to rail.
  * @param {string} id
  * @param {MenuSurface} [surface]
  * @returns {import('./panel-context-menu.js').MenuItem[]}
@@ -577,7 +579,7 @@ export function buildTileMenuItems(id, { mode = 'tile', noticeIn } = {}) {
     { label: 'Reload', run: () => void reloadPanel(id) },
     ...(helpUrl(id) === null ? [] : [{ label: 'Help', run: () => void openHelp(id) }]),
   ];
-  const pin = member ? [] : [membershipRow(id, false)];
+  const pin = member || isArtifactTileKey(id) ? [] : [membershipRow(id, false)];
   if (mode === 'detached') {
     const tile = [paneWindowRow(id, noticeIn), ...reloadHelp, ...pin, ...closeWindowRows(id)];
     return composeTileMenu({ thisPanel, tile });

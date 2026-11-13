@@ -1276,6 +1276,54 @@ button.osprey-chip:focus-visible {
   margin-top: -2px;
 }
 
+/* A row value or a part of the notice's text that acts: link-styled text. */
+.osprey-info-popover-link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.osprey-info-popover-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+/* The notice bar at the top of the card: a warning-tinted strip with its
+   text and, at its end, its one action. */
+.osprey-info-popover-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+}
+
+.osprey-info-popover-notice:last-child {
+  margin-bottom: 0;
+}
+
+.osprey-info-popover-notice-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Content strip: the controls that act on the shown content, in one strip
    at its top-right corner, built by content-strip.js. Groups are split by a
    hairline. It shows while the content is hovered or holds focus, during a

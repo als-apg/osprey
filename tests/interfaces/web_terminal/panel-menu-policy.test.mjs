@@ -567,6 +567,26 @@ describe('a service tile ⋯', () => {
     expect(rows(policy.buildTileMenuItems('ariel'))).not.toContain('Reveal in sidebar');
   });
 
+  test('an artifact tile is no panel the rail can hold: no Pin to rail', () => {
+    policy.initMenuPolicy({
+      getRailEl: () => rail,
+      isMember: () => false,
+      getActiveTabId: () => null,
+      activateTab: () => {},
+      showPanel: () => {},
+      retireTile: () => {},
+      labelOf: (/** @type {string} */ id) => id,
+      retryStart: () => {},
+    });
+    expect(rows(policy.buildTileMenuItems('artifact:a1'))).toEqual([
+      'Open panel',
+      'Maximize',
+      'Open in new window',
+      'Reload',
+      'Close tile',
+    ]);
+  });
+
   test("the panel's own rows head the menu as This panel, and Help shows with a docs page", () => {
     document.documentElement.dataset.docsUrl = 'https://docs.example/';
     policy.setServiceMenuExtras('jupyter', () => [{ label: 'Show server log', run: () => {} }]);

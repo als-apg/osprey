@@ -11,10 +11,12 @@
  * id → the root-relative page its frame showed (panel-lifecycle's
  * `getPanelPage`). A first-party panel's page is read from its frame; an
  * opaque or cross-origin panel's is not readable and it reopens at its start
- * page, and the Artifacts viewer keeps its own per-session last artifact. A
- * detached pane is in that form docked where it was; its page is read from its
- * frame too (a frame moved to a same-origin window stays readable), else it is
- * the page the pane left the dock on.
+ * page, and the Artifacts viewer keeps its own per-session last artifact. An
+ * artifact tile (artifact-tiles.js) is in the dock form like any tile and has
+ * no page: its key names the artifact it shows. A detached pane is in that
+ * form docked where it was; its page is read from its frame too (a frame
+ * moved to a same-origin window stays readable), else it is the page the pane
+ * left the dock on.
  *
  * The session is the active row's transcript (session-model.js). While the
  * tab is on it, every settled dock change, every panel page load and every
@@ -35,6 +37,7 @@ import { activeRow, firstLoaded, subscribe as subscribeToSessions } from './sess
 import { applyDock, currentDock, getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { getLayoutHolder } from './dock-apply.js';
 import { getPanelPage, restorePanelPage } from './panel-lifecycle.js';
+import { isArtifactTileKey } from './artifact-tiles.js';
 
 /** Debounce of a layout write, so a gesture's burst of changes writes once:
  *  the cadence of the dock's own localStorage write (dock-workspace.js). */
@@ -48,6 +51,13 @@ export const SETTLE_MS = 400;
 
 /** The panel whose page is its own per-session last artifact, not an address. */
 const ARTIFACTS_PANEL_ID = 'artifacts';
+
+/**
+ * Whether a panel keeps no page in the layout: the Artifacts panel, and an
+ * artifact tile, whose key is what it shows.
+ * @param {string} id
+ */
+const pageless = (id) => id === ARTIFACTS_PANEL_ID || isArtifactTileKey(id);
 
 /**
  * @typedef {object} SessionLayout
@@ -178,7 +188,7 @@ function snapshot() {
   const pages = {};
   const holder = getLayoutHolder();
   for (const id of Object.keys(dock.panels ?? {})) {
-    if (id === ARTIFACTS_PANEL_ID) continue;
+    if (pageless(id)) continue;
     const page = getPanelPage(id) ?? holder?.detachedEntry(id)?.page ?? null;
     if (page) pages[id] = page;
   }
@@ -261,7 +271,7 @@ function apply(saved) {
     }
     const pages = saved.pages && typeof saved.pages === 'object' ? saved.pages : {};
     for (const [id, page] of Object.entries(pages)) {
-      if (id !== ARTIFACTS_PANEL_ID && typeof page === 'string') restorePanelPage(id, page);
+      if (!pageless(id) && typeof page === 'string') restorePanelPage(id, page);
     }
   } finally {
     if (applying) {
