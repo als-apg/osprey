@@ -391,12 +391,12 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_TRIPLES_LOADED",
-      "value": 44141
+      "value": 44145
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:and its {value} triples",
-      "value": 44141
+      "value": 44145
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
