@@ -11,7 +11,7 @@
 import { fetchJSON, postJSON, putJSON, deleteJSON, ApiError } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
-import { showToast } from './app.js';
+import { showToast } from '/design-system/js/toast.js';
 import {
   getContainer,
   getCurrentKey,
@@ -37,7 +37,7 @@ export async function _renderDetail() {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    showToast('Entry not found', { kind: 'error' });
     setCurrentKey(null);
     // Drop straight back to the list (as the original did), not through the
     // full dispatcher — avoids a redundant status re-check + loading flash.
@@ -217,10 +217,10 @@ async function _handleAddRecordToEntry(meta, entryType) {
       channel_count: parseInt(result.channel_count || '0', 10),
       reason: result.reason || '',
     });
-    showToast('Record added', 'success');
+    showToast('Record added', { kind: 'success' });
     _rerender();
   } catch (err) {
-    showToast(`Add failed: ${messageOf(err)}`, 'error');
+    showToast(`Add failed: ${messageOf(err)}`, { kind: 'error' });
   }
 }
 
@@ -234,14 +234,14 @@ async function _handleEditRecord(recordType, index) {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    showToast('Entry not found', { kind: 'error' });
     return;
   }
 
   const records = entry[recordType] || [];
   const record = records[index];
   if (!record) {
-    showToast('Record not found', 'error');
+    showToast('Record not found', { kind: 'error' });
     return;
   }
 
@@ -297,14 +297,14 @@ async function _handleEditRecord(recordType, index) {
 
   try {
     await putJSON(`/api/feedback/${getCurrentKey()}/${recordType}/${index}`, body);
-    showToast('Record updated', 'success');
+    showToast('Record updated', { kind: 'success' });
     _rerender();
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) {
-      showToast('Record changed by another user, refreshing...', 'info');
+      showToast('Record changed by another user, refreshing...', { kind: 'info' });
       _rerender();
     } else {
-      showToast(`Edit failed: ${messageOf(err)}`, 'error');
+      showToast(`Edit failed: ${messageOf(err)}`, { kind: 'error' });
     }
   }
 }
@@ -319,14 +319,14 @@ async function _handleDeleteRecord(recordType, index) {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    showToast('Entry not found', { kind: 'error' });
     return;
   }
 
   const records = entry[recordType] || [];
   const record = records[index];
   if (!record) {
-    showToast('Record not found', 'error');
+    showToast('Record not found', { kind: 'error' });
     return;
   }
 
@@ -342,14 +342,14 @@ async function _handleDeleteRecord(recordType, index) {
     await deleteJSON(`/api/feedback/${getCurrentKey()}/${recordType}/${index}`, {
       expected_timestamp: record.timestamp,
     });
-    showToast('Record deleted', 'success');
+    showToast('Record deleted', { kind: 'success' });
     _rerender();
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) {
-      showToast('Record changed, refreshing...', 'info');
+      showToast('Record changed, refreshing...', { kind: 'info' });
       _rerender();
     } else {
-      showToast(`Delete failed: ${messageOf(err)}`, 'error');
+      showToast(`Delete failed: ${messageOf(err)}`, { kind: 'error' });
     }
   }
 }

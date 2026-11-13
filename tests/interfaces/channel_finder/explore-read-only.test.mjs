@@ -8,8 +8,8 @@
  * app.js is not a database write and keeps its call.
  *   npx vitest run tests/interfaces/channel_finder/explore-read-only.test.mjs
  *
- * Runs under happy-dom (vitest.config.js). app.js is mocked so its boot does not
- * run; fetch answers each read route with a small fixture.
+ * Runs under happy-dom (vitest.config.js). The design system's toast is mocked;
+ * fetch answers each read route with a small fixture.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 import { test, expect, vi, afterEach } from 'vitest';
 
-vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => ({
+vi.mock('/design-system/js/toast.js', () => ({
   showToast: vi.fn(),
 }));
 

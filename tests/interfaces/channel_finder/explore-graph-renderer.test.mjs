@@ -24,10 +24,10 @@ const mocks = vi.hoisted(() => ({
   isEmbedded: vi.fn(() => false),
 }));
 
-// app.js boots the whole panel on import and stats-badges.js talks to
-// /api/statistics; both are mocked so the mount is exercised on its own and the
+// The design system's toast and stats-badges.js (which talks to
+// /api/statistics) are mocked so the mount is exercised on its own and the
 // toast and the retry's badge refresh can be asserted directly.
-vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => ({
+vi.mock('/design-system/js/toast.js', () => ({
   showToast: mocks.showToast,
 }));
 
@@ -924,7 +924,7 @@ describe('the selection', () => {
 
     await vi.waitFor(() => expect(mocks.copyText).toHaveBeenCalledTimes(1));
     expect(mocks.copyText).toHaveBeenCalledWith(DEMO_ROWS.map((row) => row.fullPv).join('\n'));
-    expect(mocks.showToast).toHaveBeenCalledWith('Copied 3 addresses', 'success');
+    expect(mocks.showToast).toHaveBeenCalledWith('Copied 3 addresses', { kind: 'success' });
   });
 
   test('a refused clipboard says what to do instead', async () => {
@@ -938,7 +938,7 @@ describe('the selection', () => {
     await vi.waitFor(() => expect(mocks.showToast).toHaveBeenCalledTimes(1));
     expect(mocks.showToast).toHaveBeenCalledWith(
       'Copy failed — select the text and copy manually',
-      'error'
+      { kind: 'error' }
     );
   });
 
@@ -969,7 +969,9 @@ describe('sending to the assistant', () => {
       { type: 'osprey-paste-to-terminal', text: DEMO_ROWS.map((r) => r.fullPv).join(' ') },
       window.location.origin
     );
-    expect(mocks.showToast).toHaveBeenCalledWith('Posted 3 addresses to the prompt', 'success');
+    expect(mocks.showToast).toHaveBeenCalledWith('Posted 3 addresses to the prompt', {
+      kind: 'success',
+    });
   });
 
   test('standalone there is nothing to send to, so no Send button is drawn', async () => {
@@ -1276,7 +1278,7 @@ describe('the inspector and the keyboard', () => {
     await vi.waitFor(() =>
       expect(mocks.copyText).toHaveBeenCalledWith('SR01C___QFA____AM00\nSR01C___QFA____SP00')
     );
-    expect(mocks.showToast).toHaveBeenCalledWith('Copied 2 addresses', 'success');
+    expect(mocks.showToast).toHaveBeenCalledWith('Copied 2 addresses', { kind: 'success' });
   });
 
   test('arrows walk the rows, Space selects, Enter opens the device', async () => {

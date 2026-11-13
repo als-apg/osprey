@@ -12,7 +12,7 @@ import { fetchJSON, postJSON, deleteJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { facilityZoneLabel, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { formModal, confirmModal } from './modal.js';
-import { showToast } from './app.js';
+import { showToast } from '/design-system/js/toast.js';
 import {
   getContainer,
   setContainer,
@@ -263,10 +263,10 @@ function _bindListEvents() {
       if (ok) {
         try {
           await deleteJSON(`/api/feedback/${key}`);
-          showToast('Entry deleted', 'success');
+          showToast('Entry deleted', { kind: 'success' });
           _render();
         } catch (err) {
-          showToast(`Delete failed: ${messageOf(err)}`, 'error');
+          showToast(`Delete failed: ${messageOf(err)}`, { kind: 'error' });
         }
       }
     });
@@ -295,10 +295,10 @@ function _bindPendingEvents() {
       const id = /** @type {HTMLElement} */ (btn).dataset.id;
       try {
         await postJSON(`/api/pending-reviews/${id}/approve`);
-        showToast('Review approved and recorded', 'success');
+        showToast('Review approved and recorded', { kind: 'success' });
         _render();
       } catch (err) {
-        showToast(`Approve failed: ${messageOf(err)}`, 'error');
+        showToast(`Approve failed: ${messageOf(err)}`, { kind: 'error' });
       }
     });
   });
@@ -317,10 +317,10 @@ function _bindPendingEvents() {
 
       try {
         await deleteJSON(`/api/pending-reviews/${id}`);
-        showToast('Review dismissed', 'success');
+        showToast('Review dismissed', { kind: 'success' });
         _render();
       } catch (err) {
-        showToast(`Dismiss failed: ${messageOf(err)}`, 'error');
+        showToast(`Dismiss failed: ${messageOf(err)}`, { kind: 'error' });
       }
     });
   });
@@ -385,10 +385,10 @@ async function _handleAddEntry() {
       channel_count: 0,
       reason: '',
     });
-    showToast('Entry added', 'success');
+    showToast('Entry added', { kind: 'success' });
     _render();
   } catch (err) {
-    showToast(`Add failed: ${messageOf(err)}`, 'error');
+    showToast(`Add failed: ${messageOf(err)}`, { kind: 'error' });
   }
 }
 
@@ -403,9 +403,9 @@ async function _handleExport() {
     a.download = 'feedback_export.json';
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Export downloaded', 'success');
+    showToast('Export downloaded', { kind: 'success' });
   } catch (err) {
-    showToast(`Export failed: ${messageOf(err)}`, 'error');
+    showToast(`Export failed: ${messageOf(err)}`, { kind: 'error' });
   }
 }
 
@@ -421,10 +421,10 @@ async function _handleClearAll() {
 
   try {
     await deleteJSON('/api/feedback?confirm=true');
-    showToast('All feedback cleared', 'success');
+    showToast('All feedback cleared', { kind: 'success' });
     _render();
   } catch (err) {
-    showToast(`Clear failed: ${messageOf(err)}`, 'error');
+    showToast(`Clear failed: ${messageOf(err)}`, { kind: 'error' });
   }
 }
 

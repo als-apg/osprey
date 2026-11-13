@@ -23,9 +23,9 @@ const mocks = vi.hoisted(() => ({
   unmountMiddleLayer: vi.fn(),
 }));
 
-// app.js boots the whole panel on import; the two browse renderers are mocked
+// The toast is the design system's; the two browse renderers are mocked
 // so explore.js is exercised on its own.
-vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => ({
+vi.mock('/design-system/js/toast.js', () => ({
   showToast: vi.fn(),
 }));
 vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/stats-badges.js', () => ({
