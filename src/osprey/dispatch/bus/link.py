@@ -32,10 +32,10 @@ from osprey.dispatch.bus.keys import BusKeyError, ClientKeys
 
 logger = logging.getLogger("osprey.dispatch.bus.link")
 
-#: A request handler: the request body and blob in, the answer and an optional
-#: blob out. Raise :class:`~osprey.dispatch.bus.protocol.BusError` to answer
+#: A request handler: the request body in, the answer and an optional blob
+#: out. Raise :class:`~osprey.dispatch.bus.protocol.BusError` to answer
 #: ``ERR``; any other exception answers ``ERR 500`` without its text.
-Handler = Callable[[dict[str, Any], bytes | None], Awaitable[tuple[Any, bytes | None]]]
+Handler = Callable[[dict[str, Any]], Awaitable[tuple[Any, bytes | None]]]
 
 #: Messages that may wait in the socket while the dispatcher is slow.
 _SEND_HWM = 10_000
@@ -93,7 +93,6 @@ class WorkerLink:
         self._heartbeat_sec = heartbeat_sec
         self._max_request_bytes = max_request_bytes
         self._sock: zmq.asyncio.Socket | None = None
-        self._seq: dict[str, int] = {}
         self._serving: set[asyncio.Task[None]] = set()
         #: Events dropped because they could not be sent at once.
         self.dropped_events = 0
@@ -136,12 +135,7 @@ class WorkerLink:
         if sock is None:
             self.dropped_events += 1
             return
-        seq = self._seq.get(run_id, 0)
-        if event.get("type") in protocol.TERMINAL_EVENTS:
-            self._seq.pop(run_id, None)
-        else:
-            self._seq[run_id] = seq + 1
-        frames = protocol.encode(protocol.EVENT, {"run_id": run_id, "seq": seq, "event": event})
+        frames = protocol.encode(protocol.EVENT, {"run_id": run_id, "event": event})
         future = asyncio.ensure_future(sock.send_multipart(frames, flags=zmq.NOBLOCK))
         future.add_done_callback(self._count_drop)
 
@@ -159,7 +153,7 @@ class WorkerLink:
                 state = {}
             try:
                 await self._sock.send_multipart(
-                    protocol.encode(protocol.HELLO, {"worker": self._name, **state}),
+                    protocol.encode(protocol.HELLO, state),
                     flags=zmq.NOBLOCK,
                 )
             except zmq.Again:
@@ -187,11 +181,9 @@ class WorkerLink:
             except protocol.ProtocolError as exc:
                 logger.warning("dispatch bus: dropped a malformed message: %s", exc)
                 continue
-            if message.kind == protocol.PING:
-                continue
-            if message.kind not in protocol.REQUESTS:
-                logger.warning("dispatch bus: unexpected %r from the dispatcher", message.kind)
-                continue
+            # Every kind goes to _serve, so a request this worker has no
+            # handler for (a newer dispatcher's verb) is answered 501 instead of
+            # left to time out.
             task = asyncio.create_task(self._serve(message))
             self._serving.add(task)
             task.add_done_callback(self._serving.discard)
@@ -217,7 +209,7 @@ class WorkerLink:
             await self._send(protocol.err(rid, 501, f"{message.kind.decode()} not served"))
             return
         try:
-            answer, blob = await handler(message.body, message.blob)
+            answer, blob = await handler(message.body)
         except protocol.BusError as exc:
             await self._send(protocol.err(rid, exc.status, exc.detail))
         except Exception:

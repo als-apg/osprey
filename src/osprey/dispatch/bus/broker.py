@@ -30,7 +30,7 @@ import contextlib
 import logging
 import time
 from collections import OrderedDict, deque
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -55,11 +55,8 @@ _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class WorkerGoneError(Exception):
-    """The worker expired, or could not be addressed, before it replied."""
-
-
-class NoWorkerError(Exception):
-    """No worker with room for a run connected within the wait."""
+    """No worker could take the request: none with room connected within the
+    wait, or the one asked expired or could not be addressed before it replied."""
 
 
 class StreamGoneError(Exception):
@@ -94,8 +91,6 @@ class WorkerState:
     last_dispatch: float = 0.0
     #: Dispatches sent to this worker that have not been answered yet.
     reserved: int = 0
-    #: Request ids awaiting this worker's reply.
-    pending: set[str] = field(default_factory=set)
 
     @property
     def load(self) -> int:
@@ -143,9 +138,8 @@ class WorkerBus:
             which is allowed only on a local endpoint (see
             :func:`is_local_endpoint`) and is meant for tests and a developer's
             own machine.
-        heartbeat_sec: Seconds between heartbeats.
-        liveness: Heartbeats a worker may miss before it is expired.
-        clock: The monotonic clock, injectable for tests.
+        heartbeat_sec: Seconds between the workers' heartbeats; a worker silent
+            for :data:`~osprey.dispatch.bus.protocol.LIVENESS` of them is expired.
 
     Raises:
         BusKeyError: ``keys`` is ``None`` and ``bind`` is not local.
@@ -157,8 +151,6 @@ class WorkerBus:
         *,
         keys: ServerKeys | None,
         heartbeat_sec: float = protocol.HEARTBEAT_SEC,
-        liveness: int = protocol.LIVENESS,
-        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if keys is None and not is_local_endpoint(bind):
             raise BusKeyError(
@@ -168,9 +160,7 @@ class WorkerBus:
         self._bind = bind
         self._keys = keys
         self._heartbeat_sec = heartbeat_sec
-        self._expiry_sec = heartbeat_sec * liveness
-        self._clock = clock
-        self._boot_nonce = time.time()
+        self._expiry_sec = heartbeat_sec * protocol.LIVENESS
 
         self._ctx: zmq.asyncio.Context | None = None
         self._sock: zmq.asyncio.Socket | None = None
@@ -187,7 +177,7 @@ class WorkerBus:
     # -- lifecycle -------------------------------------------------------------
 
     async def start(self) -> None:
-        """Bind the socket and start the receive and heartbeat loops."""
+        """Bind the socket and start the receive and expiry loops."""
         ctx = zmq.asyncio.Context()
         self._ctx = ctx
         sock = ctx.socket(zmq.ROUTER)
@@ -210,7 +200,7 @@ class WorkerBus:
         self._sock = sock
         self._tasks = [
             asyncio.create_task(self._receive_loop(), name="bus-receive"),
-            asyncio.create_task(self._heartbeat_loop(), name="bus-heartbeat"),
+            asyncio.create_task(self._expiry_loop(), name="bus-expiry"),
         ]
         logger.info(
             "dispatch bus bound at %s (%s)",
@@ -246,7 +236,7 @@ class WorkerBus:
 
     def describe(self) -> list[dict[str, Any]]:
         """One row per live worker, for ``/health``."""
-        now = self._clock()
+        now = time.monotonic()
         return [self._workers[name].describe(now) for name in self.live()]
 
     def capabilities(self) -> list[str]:
@@ -267,7 +257,6 @@ class WorkerBus:
         body: dict[str, Any],
         *,
         timeout: float,
-        blob: bytes | None = None,
     ) -> protocol.Message:
         """Send one request to ``worker`` and wait for its reply.
 
@@ -287,20 +276,18 @@ class WorkerBus:
         rid = protocol.new_rid()
         future: asyncio.Future[protocol.Message] = asyncio.get_running_loop().create_future()
         self._pending[rid] = (worker, future)
-        state.pending.add(rid)
         try:
             try:
                 await self._sock.send_multipart(
                     # ``rid`` leads the body, so a worker can refuse an
                     # over-size request without parsing it.
-                    [worker.encode(), *protocol.encode(kind, {"rid": rid, **body}, blob)]
+                    [worker.encode(), *protocol.encode(kind, {"rid": rid, **body})]
                 )
             except zmq.ZMQError as exc:
                 raise WorkerGoneError(f"worker {worker!r} cannot be reached: {exc}") from exc
             reply = await asyncio.wait_for(future, timeout)
         finally:
             self._pending.pop(rid, None)
-            state.pending.discard(rid)
         return reply
 
     async def dispatch(
@@ -315,13 +302,14 @@ class WorkerBus:
             The worker's name and its answer (``{"status", "run_id"}``).
 
         Raises:
-            NoWorkerError: No worker with room connected within ``wait``.
-            protocol.BusError, WorkerGoneError, TimeoutError: As :meth:`request`.
+            WorkerGoneError: No worker with room connected within ``wait``, or
+                as :meth:`request`.
+            protocol.BusError, TimeoutError: As :meth:`request`.
         """
         worker = await self._pick(wait)
         state = self._workers[worker]
         state.reserved += 1
-        state.last_dispatch = self._clock()
+        state.last_dispatch = time.monotonic()
         try:
             reply = await self.request(
                 worker, protocol.DISPATCH, {"request": request}, timeout=timeout
@@ -346,7 +334,7 @@ class WorkerBus:
                 return min(candidates, key=lambda s: (s.load, s.last_dispatch, s.name)).name
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise NoWorkerError(
+                raise WorkerGoneError(
                     "no dispatch worker with room connected"
                     if self._workers
                     else "no dispatch worker is connected"
@@ -430,7 +418,7 @@ class WorkerBus:
         except protocol.ProtocolError as exc:
             logger.warning("dispatch bus: dropped a malformed message from %r: %s", name, exc)
             return
-        now = self._clock()
+        now = time.monotonic()
         if message.kind == protocol.HELLO:
             self._hello(name, message.body, now)
             return
@@ -508,20 +496,13 @@ class WorkerBus:
                 state.in_flight.discard(run_id)
                 self._changed.set()
 
-    async def _heartbeat_loop(self) -> None:
-        assert self._sock is not None
-        ping = protocol.encode(protocol.PING, {"boot_nonce": self._boot_nonce})
+    async def _expiry_loop(self) -> None:
         while True:
             await asyncio.sleep(self._heartbeat_sec)
-            now = self._clock()
+            now = time.monotonic()
             for name, state in list(self._workers.items()):
                 if now - state.last_seen > self._expiry_sec:
                     self._expire(name, f"silent for {now - state.last_seen:.1f}s")
-                    continue
-                # A worker mid-reconnect, or gone, cannot take a ping; the
-                # liveness window decides which.
-                with contextlib.suppress(zmq.ZMQError):
-                    await self._sock.send_multipart([name.encode(), *ping], flags=zmq.NOBLOCK)
             self._trim_streams(now)
 
     # -- bookkeeping -----------------------------------------------------------
@@ -536,11 +517,10 @@ class WorkerBus:
             reason,
             len(state.in_flight),
         )
-        for rid in list(state.pending):
-            entry = self._pending.get(rid)
-            if entry is not None and not entry[1].done():
-                entry[1].set_exception(WorkerGoneError(f"worker {name!r} {reason}"))
-        now = self._clock()
+        for worker, future in self._pending.values():
+            if worker == name and not future.done():
+                future.set_exception(WorkerGoneError(f"worker {name!r} {reason}"))
+        now = time.monotonic()
         lost = {"type": "error", "message": f"worker lost: {name} {reason}"}
         for run_id in state.in_flight:
             run_stream = self._streams.get(run_id)

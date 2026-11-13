@@ -26,8 +26,6 @@ from typing import Any
 #: worker's whole state, so a dispatcher that restarted rebuilds its view from
 #: the next round of heartbeats with no separate handshake.
 HELLO = b"HELLO"
-#: Dispatcher → worker, every :data:`HEARTBEAT_SEC`.
-PING = b"PING"
 #: Dispatcher → worker requests.
 DISPATCH = b"DISPATCH"
 STATUS = b"STATUS"
@@ -44,7 +42,7 @@ EVENT = b"EVENT"
 #: The requests a worker serves.
 REQUESTS: frozenset[bytes] = frozenset({DISPATCH, STATUS, CANCEL, RUNS, ARTIFACTS, ARTIFACT})
 
-#: Seconds between heartbeats, in both directions.
+#: Seconds between a worker's heartbeats.
 HEARTBEAT_SEC = 2.0
 #: Heartbeats a worker may miss before the dispatcher expires it.
 LIVENESS = 3

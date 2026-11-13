@@ -134,7 +134,7 @@ async def test_the_run_list_and_a_runs_artifacts_read_back_over_the_bus(on_bus):
 )
 async def test_a_request_without_its_ids_is_a_bad_request(kind, body):
     with pytest.raises(protocol.BusError) as caught:
-        await bus_adapter.HANDLERS[kind](body, None)
+        await bus_adapter.HANDLERS[kind](body)
     assert caught.value.status == 400
 
 

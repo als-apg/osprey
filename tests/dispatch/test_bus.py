@@ -466,7 +466,7 @@ async def test_garbage_from_a_peer_is_dropped_and_the_broker_keeps_serving(harne
         await peer.send(
             [b"OK"],
             [b"OK", b"not json"],
-            protocol.encode(protocol.PING, {}),
+            protocol.encode(b"PING", {}),
             protocol.ok("0" * 32, {"answers": "no request"}),
             protocol.encode(protocol.EVENT, {"run_id": 7, "event": "not an event"}),
         )
@@ -513,6 +513,15 @@ async def test_a_call_the_worker_does_not_serve_is_unavailable_not_rejected(harn
     with pytest.raises(WorkerUnavailableError) as caught:
         await BusWorkerClient(bus).artifact("r", "a1")
     assert type(caught.value) is WorkerUnavailableError
+
+
+async def test_a_verb_the_worker_has_never_heard_of_is_answered_501_not_dropped(harness):
+    # A newer dispatcher's verb: the worker answers at once instead of leaving
+    # the dispatcher to wait out its timeout and read the worker as unreachable.
+    bus, _, _ = await joined(harness, "w1")
+    with pytest.raises(protocol.BusError) as caught:
+        await bus.request("w1", b"FUTURE_VERB", {}, timeout=2.0)
+    assert caught.value.status == 501
 
 
 @pytest.mark.parametrize(

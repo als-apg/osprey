@@ -38,14 +38,14 @@ CAPACITY_ENV = "DISPATCH_WORKER_CAPACITY"
 
 
 def _translating(
-    fn: Callable[[dict[str, Any], bytes | None], Awaitable[tuple[Any, bytes | None]]],
+    fn: Callable[[dict[str, Any]], Awaitable[tuple[Any, bytes | None]]],
 ) -> Handler:
     """Answer a route's ``HTTPException`` as ``ERR`` with its status and detail."""
 
     @functools.wraps(fn)
-    async def handler(body: dict[str, Any], blob: bytes | None) -> tuple[Any, bytes | None]:
+    async def handler(body: dict[str, Any]) -> tuple[Any, bytes | None]:
         try:
-            return await fn(body, blob)
+            return await fn(body)
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, str) else ""
             raise protocol.BusError(exc.status_code, detail) from None
@@ -61,7 +61,7 @@ def _run_id(body: dict[str, Any]) -> str:
 
 
 @_translating
-async def _dispatch(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, None]:
+async def _dispatch(body: dict[str, Any]) -> tuple[Any, None]:
     try:
         request = dispatch_api.DispatchRequest.model_validate(body.get("request"))
     except ValidationError:
@@ -72,27 +72,27 @@ async def _dispatch(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, Non
 
 
 @_translating
-async def _status(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, None]:
+async def _status(body: dict[str, Any]) -> tuple[Any, None]:
     return await dispatch_api.get_dispatch_result(_run_id(body)), None
 
 
 @_translating
-async def _cancel(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, None]:
+async def _cancel(body: dict[str, Any]) -> tuple[Any, None]:
     return await dispatch_api.cancel_dispatch(_run_id(body)), None
 
 
 @_translating
-async def _runs(_body: dict[str, Any], _blob: bytes | None) -> tuple[Any, None]:
+async def _runs(_body: dict[str, Any]) -> tuple[Any, None]:
     return await dispatch_api.dashboard_runs(), None
 
 
 @_translating
-async def _artifacts(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, None]:
+async def _artifacts(body: dict[str, Any]) -> tuple[Any, None]:
     return await dispatch_api.list_dispatch_artifacts(_run_id(body)), None
 
 
 @_translating
-async def _artifact(body: dict[str, Any], _blob: bytes | None) -> tuple[Any, bytes]:
+async def _artifact(body: dict[str, Any]) -> tuple[Any, bytes]:
     artifact_id = body.get("artifact_id")
     if not isinstance(artifact_id, str):
         raise protocol.BusError(400, "artifact_id is required")

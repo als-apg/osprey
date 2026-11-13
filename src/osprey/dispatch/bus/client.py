@@ -33,12 +33,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, cast
 
 from osprey.dispatch.bus import protocol
-from osprey.dispatch.bus.broker import (
-    NoWorkerError,
-    StreamGoneError,
-    WorkerBus,
-    WorkerGoneError,
-)
+from osprey.dispatch.bus.broker import StreamGoneError, WorkerBus, WorkerGoneError
 from osprey.dispatch.worker_client import (
     KNOWN_REJECTION_CODES,
     RECORD_READ_TIMEOUT,
@@ -53,6 +48,8 @@ from osprey.dispatch.worker_client import (
 
 #: Seconds a dispatch waits for a worker with room to connect.
 DEFAULT_WORKER_WAIT_SEC = 30.0
+#: Seconds a worker has to accept a dispatch, as over HTTP.
+_DISPATCH_TIMEOUT_SEC = 30.0
 
 #: The most rows one run list answers, as one worker's ``/dashboard/runs`` does.
 _DASHBOARD_RUNS = 50
@@ -70,15 +67,9 @@ def _errors(answers: list[protocol.Message | BaseException]) -> list[Exception]:
     return errors
 
 
-def _is_not_found(exc: Exception) -> bool:
-    return isinstance(exc, protocol.BusError) and exc.status == 404
-
-
 def _translate(exc: Exception, what: str, *, record_503: bool = False) -> WorkerRequestError:
     """The worker-client exception that stands for a bus failure."""
-    if isinstance(exc, WorkerRequestError):
-        return exc
-    if isinstance(exc, NoWorkerError | WorkerGoneError):
+    if isinstance(exc, WorkerGoneError):
         return WorkerUnreachableError(f"{what}: {exc}")
     if isinstance(exc, TimeoutError):
         return WorkerUnreachableError(f"{what}: timed out")
@@ -113,7 +104,6 @@ class BusWorkerClient:
         *,
         prompt: str,
         allowed_tools: list[str],
-        timeout: float = 30.0,
         surface_prompt: str | None = None,
         surface_tools: list[str] | None = None,
         input_files: list[dict[str, Any]] | None = None,
@@ -137,12 +127,14 @@ class BusWorkerClient:
             prior_answer_runs=prior_answer_runs,
         )
         try:
-            _, answer = await self._bus.dispatch(payload, wait=self._wait, timeout=timeout)
+            _, answer = await self._bus.dispatch(
+                payload, wait=self._wait, timeout=_DISPATCH_TIMEOUT_SEC
+            )
         except Exception as exc:
             raise _translate(exc, "dispatch") from exc
         return answer
 
-    async def runs(self, timeout: float = RECORD_READ_TIMEOUT) -> list[dict[str, Any]]:
+    async def runs(self) -> list[dict[str, Any]]:
         """Recent runs across every live worker, newest first.
 
         Raises:
@@ -154,7 +146,7 @@ class BusWorkerClient:
         if not live:
             raise WorkerUnreachableError("runs: no dispatch worker is connected")
         answers = await asyncio.gather(
-            *(self._bus.request(w, protocol.RUNS, {}, timeout=timeout) for w in live),
+            *(self._bus.request(w, protocol.RUNS, {}, timeout=RECORD_READ_TIMEOUT) for w in live),
             return_exceptions=True,
         )
         rows: dict[str, dict[str, Any]] = {}
@@ -169,12 +161,11 @@ class BusWorkerClient:
         newest = sorted(rows.values(), key=lambda r: r.get("created_at") or 0, reverse=True)
         return newest[:_DASHBOARD_RUNS]
 
-    async def cancel(self, run_id: str, timeout: float = RECORD_READ_TIMEOUT) -> dict[str, Any]:
+    async def cancel(self, run_id: str) -> dict[str, Any]:
         """Cancel ``run_id`` on the worker that holds it; see ``cancel_worker_run``."""
         reply, _ = await self._routed(
             run_id,
             protocol.CANCEL,
-            timeout,
             "cancel",
             prefer=lambda body: isinstance(body, dict) and body.get("cancelled") is True,
         )
@@ -203,24 +194,20 @@ class BusWorkerClient:
 
     # -- the calls the bridges make, served under the facade ---------------------
 
-    async def status(self, run_id: str, timeout: float = RECORD_READ_TIMEOUT) -> dict[str, Any]:
+    async def status(self, run_id: str) -> dict[str, Any]:
         """The status body of ``run_id``, as a worker's ``GET /dispatch/{id}`` answers."""
-        reply, _ = await self._routed(run_id, protocol.STATUS, timeout, "status")
+        reply, _ = await self._routed(run_id, protocol.STATUS, "status")
         return cast(dict[str, Any], reply)
 
-    async def artifacts(
-        self, run_id: str, timeout: float = RECORD_READ_TIMEOUT
-    ) -> list[dict[str, Any]]:
+    async def artifacts(self, run_id: str) -> list[dict[str, Any]]:
         """Descriptors of the artifacts ``run_id`` produced."""
-        reply, _ = await self._routed(run_id, protocol.ARTIFACTS, timeout, "artifacts", prefer=bool)
+        reply, _ = await self._routed(run_id, protocol.ARTIFACTS, "artifacts", prefer=bool)
         return reply if isinstance(reply, list) else []
 
-    async def artifact(
-        self, run_id: str, artifact_id: str, timeout: float = RECORD_READ_TIMEOUT
-    ) -> tuple[dict[str, Any], bytes]:
+    async def artifact(self, run_id: str, artifact_id: str) -> tuple[dict[str, Any], bytes]:
         """One artifact's descriptor (``mime``, ``filename``) and its bytes."""
         meta, blob = await self._routed(
-            run_id, protocol.ARTIFACT, timeout, "artifact", extra={"artifact_id": artifact_id}
+            run_id, protocol.ARTIFACT, "artifact", extra={"artifact_id": artifact_id}
         )
         return (meta if isinstance(meta, dict) else {}), blob or b""
 
@@ -243,7 +230,6 @@ class BusWorkerClient:
         self,
         run_id: str,
         kind: bytes,
-        timeout: float,
         what: str,
         *,
         extra: dict[str, Any] | None = None,
@@ -260,7 +246,7 @@ class BusWorkerClient:
         if not targets:
             raise WorkerUnreachableError(f"{what}: no dispatch worker is connected")
         answers = await asyncio.gather(
-            *(self._bus.request(w, kind, body, timeout=timeout) for w in targets),
+            *(self._bus.request(w, kind, body, timeout=RECORD_READ_TIMEOUT) for w in targets),
             return_exceptions=True,
         )
         oks = [a for a in answers if isinstance(a, protocol.Message)]
@@ -270,5 +256,8 @@ class BusWorkerClient:
         errors = _errors(answers)
         # A 404 from a worker that does not hold the run says nothing about the
         # run; any other failure is the one worth reporting.
-        first = next((e for e in errors if not _is_not_found(e)), errors[0])
+        first = next(
+            (e for e in errors if not (isinstance(e, protocol.BusError) and e.status == 404)),
+            errors[0],
+        )
         raise _translate(first, what) from first

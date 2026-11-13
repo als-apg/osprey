@@ -19,8 +19,8 @@ rotates keys under a running stack; deleting a file is how one is rotated.
 Everything derived — public keys, the dispatcher's worker list — is rewritten
 from the secrets on every start, so a worker added to or removed from the
 profile is accepted or refused by the next dispatcher that starts. Each file's
-digest is interpolated into its container's :data:`DIGEST_LABEL`, so a file
-that changed recreates its container and nothing else.
+digest is interpolated into its container's ``osprey.dispatch-bus.digest``
+label, so a file that changed recreates its container and nothing else.
 """
 
 from __future__ import annotations
@@ -39,9 +39,7 @@ FILE_PREFIX = ".env.dispatch-bus."
 DISPATCHER_SERVICE = "event-dispatcher"
 #: A worker's compose service key and bus name is this plus its index.
 WORKER_PREFIX = "dispatch-worker-"
-#: The label each bus container carries its file's digest in.
-DIGEST_LABEL = "osprey.dispatch-bus.digest"
-#: Prefix of the variable a service's :data:`DIGEST_LABEL` is interpolated from.
+#: Prefix of the variable a service's digest label is interpolated from.
 DIGEST_ENV_PREFIX = "OSPREY_DISPATCH_BUS_DIGEST_"
 
 _SECRET = "DISPATCH_BUS_SECRET_KEY"  # noqa: S105 -- names an environment variable, holds no secret
@@ -64,25 +62,17 @@ def key_file(service: str) -> str:
     return f"{FILE_PREFIX}{service}"
 
 
-def digest_env_name(service: str) -> str:
-    """The variable ``service``'s :data:`DIGEST_LABEL` is interpolated from."""
-    return DIGEST_ENV_PREFIX + "".join(ch if ch.isalnum() else "_" for ch in service).upper()
-
-
-def _services(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
-    services = (config or {}).get("services")
-    return services if isinstance(services, Mapping) else {}
-
-
 def bus_workers(config: Mapping[str, Any] | None) -> list[str] | None:
     """The workers' bus names when this deployment runs the bus, else ``None``."""
     deployed = (config or {}).get("deployed_services") or []
     if "event_dispatcher" not in [str(s) for s in deployed]:
         return None
-    dispatcher = _services(config).get("event_dispatcher")
+    services = (config or {}).get("services")
+    services = services if isinstance(services, Mapping) else {}
+    dispatcher = services.get("event_dispatcher")
     if not isinstance(dispatcher, Mapping) or dispatcher.get("transport") != "bus":
         return None
-    worker = _services(config).get("dispatch_worker")
+    worker = services.get("dispatch_worker")
     count = worker.get("worker_count", 1) if isinstance(worker, Mapping) else 1
     count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 1
     return [f"{WORKER_PREFIX}{i}" for i in range(1, count + 1)]
@@ -187,12 +177,14 @@ def digest_env(repo_root: Path | str, config: Mapping[str, Any] | None) -> dict[
     Empty for a deployment that is not on the bus. Never raises: a file that
     cannot be read contributes an empty digest, which a later start corrects.
     """
-    from osprey.agent_record.credentials import files_digest
+    from osprey.agent_record.credentials import digest_env_name, files_digest
 
     workers = bus_workers(config)
     if workers is None:
         return {}
     return {
-        digest_env_name(service): files_digest(repo_root, [key_file(service)])
+        digest_env_name(service, prefix=DIGEST_ENV_PREFIX): files_digest(
+            repo_root, [key_file(service)]
+        )
         for service in (DISPATCHER_SERVICE, *workers)
     }

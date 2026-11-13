@@ -30,7 +30,7 @@ class FakeWorker:
         return {kind: self._handler(kind) for kind in protocol.REQUESTS}
 
     def _handler(self, kind: bytes):
-        async def handle(body: dict[str, Any], _blob: bytes | None):
+        async def handle(body: dict[str, Any]):
             self.calls.append((kind, body))
             if self.hold is not None:
                 await self.hold.wait()
