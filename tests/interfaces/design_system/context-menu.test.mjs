@@ -414,13 +414,41 @@ describe('submenus', () => {
     });
   }
 
-  test('focus follows the pointer to an enabled row and stays off a disabled one', () => {
+  test('focus follows the pointer to an enabled row and leaves the row with it', () => {
     open();
     expect(document.activeElement).toBe(row('Rename'));
     hover(row('Open panel'));
     expect(document.activeElement).toBe(row('Open panel'));
     hover(row('Locked'));
     expect(document.activeElement).toBe(row('Open panel'));
+    // Off every row: the level holds focus, so no row is lit and the keys still work.
+    row('Open panel').dispatchEvent(new MouseEvent('pointerleave'));
+    expect(document.activeElement).toBe(levels()[0]);
+    press('ArrowDown');
+    expect(document.activeElement).toBe(row('Rename'));
+  });
+
+  test('a submenu closes a moment after the pointer leaves every level', () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      row('Open panel').click();
+      expect(levels().length).toBe(2);
+      // From the parent level into the child: the child stays.
+      levels()[0].dispatchEvent(new MouseEvent('pointerleave'));
+      levels()[1].dispatchEvent(new MouseEvent('pointerenter'));
+      vi.advanceTimersByTime(500);
+      expect(levels().length).toBe(2);
+      // Out of the menu: the child closes, the root stays.
+      levels()[1].dispatchEvent(new MouseEvent('pointerleave'));
+      vi.advanceTimersByTime(50);
+      expect(levels().length).toBe(2);
+      vi.advanceTimersByTime(200);
+      expect(levels().length).toBe(1);
+      expect(row('Open panel').getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a submenu row shows ▸ after its hint, carries the menu ARIA, and runs nothing', () => {

@@ -283,7 +283,7 @@ button {
 }
 
 .osprey-context-item:hover,
-.osprey-context-item:focus {
+.osprey-context-item:focus-visible {
   background: var(--bg-elevated);
   outline: none;
 }
@@ -312,14 +312,14 @@ button {
 }
 
 .osprey-context-item:hover .osprey-context-glyph,
-.osprey-context-item:focus .osprey-context-glyph,
+.osprey-context-item:focus-visible .osprey-context-glyph,
 .osprey-context-item.checked .osprey-context-glyph {
   color: var(--text-primary);
 }
 
 /* Destructive verb: neutral at rest, error-red the moment it is about to run. */
 .osprey-context-item.danger:hover,
-.osprey-context-item.danger:focus {
+.osprey-context-item.danger:focus-visible {
   color: var(--color-error);
   background: var(--error-tint-10);
 }
@@ -327,7 +327,7 @@ button {
 /* An unavailable verb keeps the menu's shape but reads and behaves inert. */
 .osprey-context-item[aria-disabled="true"],
 .osprey-context-item[aria-disabled="true"]:hover,
-.osprey-context-item[aria-disabled="true"]:focus {
+.osprey-context-item[aria-disabled="true"]:focus-visible {
   color: var(--text-muted);
   background: none;
   cursor: default;
@@ -423,6 +423,12 @@ button {
 .osprey-context-item[aria-expanded="true"],
 .rail-context-item[aria-expanded="true"] {
   background: var(--bg-elevated);
+}
+
+/* A menu level holds focus itself while the pointer is on none of its rows. */
+.osprey-context-menu:focus,
+.rail-context-menu:focus {
+  outline: none;
 }
 
 /* Table columns — the visual half of js/table-columns.js. A header carries a

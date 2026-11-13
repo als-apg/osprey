@@ -46,8 +46,12 @@
  * window's realm, so nothing here tests them with `instanceof Node`.
  *
  * Focus contract — opening records the document's `activeElement` and focuses the
- * first enabled row. The pointer then takes it along: an enabled row it enters
- * takes focus, so one row is lit at a time. That focus is handed back only on the KEYBOARD dismissals
+ * first enabled row. A row is lit by the pointer on it, or by focus that the
+ * keyboard moved (`:focus-visible`), so a menu opened with the pointer shows no
+ * lit row until one is hovered. An enabled row takes focus when the pointer
+ * enters it and gives it to its level when the pointer leaves, and a submenu
+ * closes a moment after the pointer leaves every level: nothing stays lit or
+ * open behind the pointer. That focus is handed back only on the KEYBOARD dismissals
  * (Escape/Tab) and on close-before-run, where it is restored before the action
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
  * and resize dismissals never move focus: blur in particular fires AFTER focus
@@ -151,6 +155,8 @@
  * @property {MenuItem[]} items - the rows, in order
  * @property {string} [classPrefix] - class-name stem, `osprey-context` by default
  */
+
+import { followPointer } from './context-menu-pointer.js';
 
 const DEFAULT_PREFIX = 'osprey-context';
 
@@ -322,6 +328,7 @@ function openSubmenu(row, items, depth, focusFirst) {
     menu.setAttribute('aria-label', row.querySelector(`.${prefix}-label`)?.textContent ?? '');
     menu.dataset.depth = String(depth + 1);
     menu.addEventListener('contextmenu', (e) => e.preventDefault());
+    followPointer(menu, () => closeLevelsFrom(1));
     for (const item of items) menu.appendChild(buildRow(item, depth + 1));
     ownerDoc.body.appendChild(menu);
     const dir = placeSubmenu(menu, row, depth === 0 ? 1 : subs[depth - 1].dir, ownerView);
@@ -670,11 +677,6 @@ function buildRow(item, depth) {
       closeLevelsFrom(depth + 1);
     });
   }
-  if (!item.disabled) {
-    // Focus follows the pointer, so the row that opened focused does not stay
-    // lit beside the hovered one.
-    btn.addEventListener('pointerenter', () => btn.focus({ preventScroll: true }));
-  }
   return btn;
 }
 
@@ -722,6 +724,7 @@ export function openContextMenu(opts) {
   // A right-click on the popover itself (or the menu key on a focused row)
   // must not stack the browser's native menu on top of this one.
   menu.addEventListener('contextmenu', (e) => e.preventDefault());
+  followPointer(menu, () => closeLevelsFrom(1));
 
   for (const item of items) menu.appendChild(buildRow(item, 0));
 

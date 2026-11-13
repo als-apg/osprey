@@ -1896,7 +1896,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .rail-context-item:hover,
-.rail-context-item:focus {
+.rail-context-item:focus-visible {
   background: var(--bg-elevated);
   outline: none;
 }
@@ -1920,14 +1920,14 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* The hovered row's glyph joins its text colour — on the danger row that is
    how the "×" turns red with "Remove from rail". */
 .rail-context-item:hover .rail-context-glyph,
-.rail-context-item:focus .rail-context-glyph {
+.rail-context-item:focus-visible .rail-context-glyph {
   color: inherit;
 }
 
 /* Destructive verb: neutral at rest like every other row, error-red the
    moment it is the one about to run. */
 .rail-context-item.danger:hover,
-.rail-context-item.danger:focus {
+.rail-context-item.danger:focus-visible {
   color: var(--color-error);
   background: var(--error-tint-10);
 }
@@ -1941,7 +1941,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .rail-context-item[aria-disabled="true"]:hover,
-.rail-context-item[aria-disabled="true"]:focus {
+.rail-context-item[aria-disabled="true"]:focus-visible {
   color: var(--text-muted);
   background: none;
 }
