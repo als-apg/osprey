@@ -778,6 +778,11 @@ def runtime_env(
     from osprey.agent_record.credentials import digest_env
 
     env.update(digest_env(repo_root, config))
+    # The dispatch bus's key files, the same way: one digest per container that
+    # reads one, so a key file that changed recreates its owner. Empty off the bus.
+    from osprey.deployment.dispatch_bus_keys import digest_env as bus_digest_env
+
+    env.update(bus_digest_env(repo_root, config))
     if ignore_orphans:
         env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env

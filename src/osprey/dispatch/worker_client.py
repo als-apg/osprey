@@ -109,6 +109,40 @@ def _extract_rejection_code(response: httpx.Response) -> str | None:
     return detail if detail in KNOWN_REJECTION_CODES else None
 
 
+def dispatch_payload(
+    prompt: str,
+    allowed_tools: list[str],
+    *,
+    surface_prompt: str | None = None,
+    surface_tools: list[str] | None = None,
+    input_files: list[dict[str, Any]] | None = None,
+    max_turns: int | None = None,
+    owner: str | None = None,
+    prior_answer_runs: list[str] | None = None,
+) -> dict[str, Any]:
+    """The body of a dispatch request, whichever transport carries it.
+
+    Additive fields are included only when actually set, so an absent-surface
+    trigger (the overwhelming majority today) produces byte-identical requests
+    to what a pre-surface caller would send, and a worker predating a field sees
+    an unchanged request. See :func:`dispatch_to_worker` for each field.
+    """
+    payload: dict[str, Any] = {"prompt": prompt, "allowed_tools": allowed_tools}
+    if surface_prompt:
+        payload["surface_prompt"] = surface_prompt
+    if surface_tools:
+        payload["surface_tools"] = surface_tools
+    if input_files:
+        payload["input_files"] = input_files
+    if max_turns is not None:
+        payload["max_turns"] = max_turns
+    if owner:
+        payload["owner"] = owner
+    if prior_answer_runs:
+        payload["prior_answer_runs"] = prior_answer_runs
+    return payload
+
+
 async def dispatch_to_worker(
     url: str,
     prompt: str,
@@ -167,22 +201,16 @@ async def dispatch_to_worker(
     """
     dispatch_url = url.rstrip("/") + "/dispatch"
     headers = {"Authorization": f"Bearer {token}"}
-    payload: dict[str, Any] = {"prompt": prompt, "allowed_tools": allowed_tools}
-    # Additive fields: only included when actually set, so an absent-surface
-    # trigger (the overwhelming majority today) produces byte-identical
-    # requests to what a pre-surface caller would send.
-    if surface_prompt:
-        payload["surface_prompt"] = surface_prompt
-    if surface_tools:
-        payload["surface_tools"] = surface_tools
-    if input_files:
-        payload["input_files"] = input_files
-    if max_turns is not None:
-        payload["max_turns"] = max_turns
-    if owner:
-        payload["owner"] = owner
-    if prior_answer_runs:
-        payload["prior_answer_runs"] = prior_answer_runs
+    payload = dispatch_payload(
+        prompt,
+        allowed_tools,
+        surface_prompt=surface_prompt,
+        surface_tools=surface_tools,
+        input_files=input_files,
+        max_turns=max_turns,
+        owner=owner,
+        prior_answer_runs=prior_answer_runs,
+    )
 
     # A dispatch body carrying input_files can reach ~24 MB. httpx's single-float
     # timeout would apply that same short window to the write phase and abort the

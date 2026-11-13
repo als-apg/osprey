@@ -84,6 +84,7 @@ _POPPED_IN_WEB_SERVER = frozenset(
         "OSPREY_PANEL_TOKEN",
         "EVENT_DISPATCHER_TOKEN",
         "DISPATCH_WORKER_TOKEN",
+        "DISPATCH_BUS_SECRET_KEY",
     }
 )
 

@@ -1991,6 +1991,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             worker_port_stride=dispatch_raw.get(
                 "worker_port_stride", DispatchConfig.worker_port_stride
             ),
+            transport=dispatch_raw.get("transport", DispatchConfig.transport),
+            bus_port=dispatch_raw.get("bus_port", default_port("dispatch_bus", base=port_base)),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             max_turns=max_turns,

@@ -59,6 +59,7 @@ from .build_profile_presets import (
 from .build_profile_schema import (
     DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
+    VALID_DISPATCH_TRANSPORTS,
     AppEntry,
     BlueskyConfig,
     BlueskyWebConfig,
@@ -143,11 +144,15 @@ network namespace, and so bind host ports directly instead of publishing them
 through compose. Two rules below turn on it: the dispatch workers spend host
 ports only in this mode, and only in this mode can they overrun the layout."""
 
-_UNSEEDED_SLOTS = frozenset({"worker", "bluesky_second_lane", "va_standin", "facility"})
+_UNSEEDED_SLOTS = frozenset(
+    {"worker", "dispatch_bus", "bluesky_second_lane", "va_standin", "facility"}
+)
 """Layout slots :meth:`BuildProfile._layout_seed` deliberately leaves out.
 
 ``worker`` is walked from the dispatch block instead, under the host-network
-predicate that decides whether the band is published at all. ``va_standin`` is
+predicate that decides whether the band is published at all, and
+``dispatch_bus`` is claimed from the same block, under that predicate and the
+bus transport. ``va_standin`` is
 the very port the ledger's consumer is testing — seeding it would make
 ``live_standin: true``, which resolves to exactly that slot, collide with
 itself. ``bluesky_second_lane`` is opt-in and derived, and is claimed from the
@@ -1363,7 +1368,11 @@ class BuildProfile:
             # Walked only when that range is itself valid: an invalid one is
             # already reported by the dispatch stanza, and walking it anyway
             # would bury that one fault under thousands of entries.
-            if (
+            if d.network == _HOST_NETWORK_MODE and d.transport == "bus":
+                # On the bus the workers bind nothing and the dispatcher binds
+                # the bus port beside its own.
+                claimed["dispatch.bus_port"] = d.bus_port
+            elif (
                 d.network == _HOST_NETWORK_MODE
                 and d.worker_count >= 1
                 and d.worker_port_stride >= 1
@@ -1679,7 +1688,9 @@ class BuildProfile:
             fits (or when this profile's rules are decided elsewhere).
         """
         d = self.dispatch
-        if d is None or d.network != _HOST_NETWORK_MODE:
+        if d is None or d.network != _HOST_NETWORK_MODE or d.transport == "bus":
+            # A worker on the bus listens on no port, so it has no window to
+            # overrun.
             return []
         if d.worker_count < 1 or d.worker_port_stride < 1:
             return []  # already refused by name, above.
@@ -2236,6 +2247,19 @@ class BuildProfile:
                 errors.append(
                     f"dispatch.dispatcher_port must be in 1..65535 (got {d.dispatcher_port})"
                 )
+            if d.transport not in VALID_DISPATCH_TRANSPORTS:
+                errors.append(
+                    f"dispatch.transport must be one of {', '.join(VALID_DISPATCH_TRANSPORTS)} "
+                    f"(got {d.transport!r})"
+                )
+            elif d.transport == "bus":
+                if not (1 <= d.bus_port <= 65535):
+                    errors.append(f"dispatch.bus_port must be in 1..65535 (got {d.bus_port})")
+                elif d.bus_port == d.dispatcher_port:
+                    errors.append(
+                        f"dispatch.bus_port and dispatch.dispatcher_port are both {d.bus_port}: "
+                        "the bus is a socket of its own beside the dispatcher's HTTP port"
+                    )
             if not (1 <= d.worker_port_base <= 65535):
                 errors.append(
                     f"dispatch.worker_port_base must be in 1..65535 (got {d.worker_port_base})"

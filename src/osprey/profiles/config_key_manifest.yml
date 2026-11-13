@@ -979,6 +979,23 @@ keys:
   services.event_dispatcher.channel_strip_prefix: {evidence: 'CHANNEL_STRIP_PREFIX: "\{\{ services\.event_dispatcher\.channel_strip_prefix', default: ""}
   services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: []}
   services.event_dispatcher.network: {evidence: 'services\.event_dispatcher\.network \| default\(.bridge., true\)', default: bridge}
+  services.event_dispatcher.transport:
+    rendered: false
+    evidence: 'services\.event_dispatcher\.transport \| default\(.http., true\)'
+    note: >-
+      `bus` moves the dispatch workers off HTTP onto the dispatcher's ZeroMQ
+      bus. Written by the dispatch injector from the profile's
+      `dispatch.transport` only when that is `bus`, so no preset's render
+      carries it.
+    default: http
+  services.event_dispatcher.bus_port:
+    rendered: false
+    evidence: 'PortSlot\("dispatch_bus", 50, "dispatch", "services\.event_dispatcher\.bus_port"\)'
+    note: >-
+      The port the dispatcher binds the bus on. Written beside `transport`
+      from the profile's `dispatch.bus_port`, and only on the bus.
+    default: derived
+    default_note: the layout's dispatch_bus slot at this deployment's port base
   services.event_dispatcher.bind_env: {covered-by: services.event_dispatcher, default: n/a}
   services.event_dispatcher.bind:
     rendered: false

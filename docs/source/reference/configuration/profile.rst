@@ -1046,11 +1046,22 @@ the deployment into the event dispatcher and its workers.
    * - ``worker_port_base``
      - *(from the port layout)*
      - Host port worker 1 publishes, in host-network mode only. Bridge-mode
-       workers publish nothing on the host.
+       workers publish nothing on the host, and neither do workers on the
+       dispatch bus.
    * - ``worker_port_stride``
      - ``1``
      - Host-port spacing between consecutive workers. Widen it to leave room
        for something else of yours between them.
+   * - ``transport``
+     - ``http``
+     - How the dispatcher and its workers reach each other. ``http`` has the
+       dispatcher call one worker's own port. ``bus`` has every worker connect
+       to the dispatcher instead --- see :ref:`profile-dispatch-bus`.
+   * - ``bus_port``
+     - *(from the port layout)*
+     - Port the dispatcher binds the bus on, read only with ``transport: bus``.
+       Spent on the host only in host-network mode; on the compose bridge the
+       workers reach it by the dispatcher's service name.
    * - ``timeout_sec``
      - ``300``
      - Wall-clock ceiling on one run, as ``DISPATCH_TIMEOUT_SEC``.
@@ -1085,6 +1096,36 @@ the deployment into the event dispatcher and its workers.
        the deployment's own render. A tier that lifts a base deny or turns on
        an approval surface is refused, since a dispatched run has no approver,
        so the bundled ``admin`` tier is refused.
+
+.. _profile-dispatch-bus:
+
+Workers on the dispatch bus
+---------------------------
+
+With ``transport: bus`` the dispatcher binds one ZeroMQ socket at ``bus_port``
+and every worker connects to it. What changes for a deployment:
+
+* **No worker opens a port.** The worker band is not spent, on the host network
+  or anywhere else, and ``worker_port_base`` and ``worker_port_stride`` are
+  not read.
+* **Every worker takes runs.** Over HTTP the dispatcher sends every run to
+  worker 1; on the bus it sends each one to the worker with the fewest runs in
+  flight.
+* **Start order does not matter.** A trigger that fires before any worker has
+  connected waits up to 30 seconds for one. A worker that stops sending
+  heartbeats for six seconds is dropped, and a run it had in flight is
+  reported lost --- it is never sent to another worker on its own, since an
+  agent run may already have acted.
+* **Each container has its own key.** ``osprey up`` writes
+  ``.env.dispatch-bus.event-dispatcher`` and one
+  ``.env.dispatch-bus.dispatch-worker-<n>`` per worker at the repo root (mode
+  0600, outside the shared env chain), and each container reads only its own.
+  An existing key is kept on every start; delete a file to rotate that key, and
+  the next ``osprey up`` mints a new one and recreates the containers it
+  concerns.
+* **The chat bridges read runs through the dispatcher.** Their ``WORKER_URL``
+  becomes the dispatcher's ``/worker`` routes, which answer from the worker that
+  owns the run. The dispatcher's ``/health`` lists the workers it hears.
 
 .. _profile-graph-mode:
 

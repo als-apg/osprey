@@ -6082,6 +6082,23 @@ def _ensure_agent_record_credentials(config: dict, repo_root: Path | str) -> Non
         _report_fact(f"agent record credential files removed: {', '.join(report.purged)}")
 
 
+def _ensure_dispatch_bus_keys(config: dict, repo_root: Path | str) -> None:
+    """Provision the dispatch bus's key files, and say what changed (names only).
+
+    A no-op for a deployment whose dispatcher is not on the bus.
+    """
+    from osprey.deployment.dispatch_bus_keys import ensure_dispatch_bus_keys
+
+    report = ensure_dispatch_bus_keys(repo_root, config)
+    if report.minted:
+        _report_fact(f"dispatch bus keys minted: {', '.join(report.minted)}")
+    rewritten = [name for name in report.written if name not in report.minted]
+    if rewritten:
+        _report_fact(f"dispatch bus key files updated: {', '.join(rewritten)}")
+    if report.removed:
+        _report_fact(f"dispatch bus key files removed: {', '.join(report.removed)}")
+
+
 def _collect_unmet_preconditions(
     config: dict,
     repo_root: Path | str,
@@ -6687,6 +6704,12 @@ def _start_stack(
     # regenerated from them. A provisioning step of its own, above the
     # reporting pass below, which only reads them.
     _ensure_agent_record_credentials(config, repo_root)
+
+    # The dispatch bus's per-container keys, for a deployment whose workers
+    # connect to the dispatcher rather than listen. Beside the record's
+    # credential files and for the same reasons: a provisioning step, files
+    # each container's own env_file names, digests that recreate their owner.
+    _ensure_dispatch_bus_keys(config, repo_root)
 
     # Refuse a chain that is not the one this project was rendered against:
     # membership is fixed at build time, so a file added or removed since then
