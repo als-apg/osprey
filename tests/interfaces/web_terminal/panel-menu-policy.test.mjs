@@ -4,7 +4,7 @@
  * notifications), section Tile (Open in new window, Reveal in sidebar, Close
  * Agent pane, Restart terminal on the terminal) — and the
  * Agent row in the sidebar — the head of the session tree — gets the tree's
- * menu (New session, Group by, Show pinned, Collapse/Expand all), New session
+ * menu (New session, Artifacts by, Show pinned, Collapse/Expand all), New session
  * through switchTo.
  *
  *   npx vitest run tests/interfaces/web_terminal/panel-menu-policy.test.mjs
@@ -193,6 +193,7 @@ describe('the Agent tile header', () => {
     expect(menuLabels()).toEqual([
       'Switch to chat',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -219,6 +220,7 @@ describe('the Agent tile header', () => {
       'Desktop notifications',
       'Tile',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       '—',
@@ -242,6 +244,7 @@ describe('the Agent tile header', () => {
     items = policy.buildTerminalMenuItems();
     expect(items.map((i) => i.heading ?? i.label).filter(Boolean)).toEqual([
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -345,7 +348,12 @@ describe('the Sessions row', () => {
 
   test('offers the session tree’s menu, not the pane verbs', () => {
     expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Group by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual([
+      'New session',
+      'Artifacts by',
+      'Show pinned sessions',
+      'Expand all',
+    ]);
     expect(document.querySelector('.rail-context-menu')?.getAttribute('aria-label')).toBe(
       'Sessions actions'
     );
@@ -364,7 +372,7 @@ describe('the Sessions row', () => {
     policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
     expect(menuLabels()).toEqual([
       'New session',
-      'Group by',
+      'Artifacts by',
       'Show pinned sessions',
       'Collapse all',
     ]);
@@ -453,6 +461,7 @@ describe('the Agent bar in its own window', () => {
         'Desktop notifications',
         'Tile',
         'Reattach',
+        'Zoom',
         '—',
         'Close window',
       ]);
@@ -465,6 +474,7 @@ describe('the Agent bar in its own window', () => {
     paneWindow.isDetached.mockReturnValue(true);
     expect(rows(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
       'Reattach',
+      'Zoom',
       '—',
       'Close window',
     ]);
@@ -498,6 +508,7 @@ describe('a service tile ⋯', () => {
     expect(rows(items)).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',
@@ -506,6 +517,7 @@ describe('a service tile ⋯', () => {
     expect(items.map((/** @type {any} */ i) => (i.divider ? '—' : i.label))).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',
@@ -558,6 +570,7 @@ describe('a service tile ⋯', () => {
     expect(rows(policy.buildTileMenuItems('ariel'))).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Pin to rail',
@@ -565,6 +578,27 @@ describe('a service tile ⋯', () => {
     ]);
     // Pin to rail takes Reveal's slot: an off-rail panel has no row to reveal.
     expect(rows(policy.buildTileMenuItems('ariel'))).not.toContain('Reveal in sidebar');
+  });
+
+  test('an artifact tile is no panel the rail can hold: no Pin to rail', () => {
+    policy.initMenuPolicy({
+      getRailEl: () => rail,
+      isMember: () => false,
+      getActiveTabId: () => null,
+      activateTab: () => {},
+      showPanel: () => {},
+      retireTile: () => {},
+      labelOf: (/** @type {string} */ id) => id,
+      retryStart: () => {},
+    });
+    expect(rows(policy.buildTileMenuItems('artifact:a1'))).toEqual([
+      'Open panel',
+      'Maximize',
+      'Zoom',
+      'Open in new window',
+      'Reload',
+      'Close tile',
+    ]);
   });
 
   test("the panel's own rows head the menu as This panel, and Help shows with a docs page", () => {
@@ -576,6 +610,7 @@ describe('a service tile ⋯', () => {
       'Tile',
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Help',
@@ -609,6 +644,7 @@ describe('a service tile ⋯', () => {
       'Show server log',
       'Tile',
       'Reattach',
+      'Zoom',
       'Reload',
       'Help',
       '—',
@@ -636,6 +672,7 @@ describe('a service tile ⋯', () => {
     const items = policy.buildTileMenuItems('ariel', { mode: 'detached' });
     expect(items.map((i) => i.heading ?? i.label ?? (i.divider ? '—' : ''))).toEqual([
       'Reattach',
+      'Zoom',
       'Reload',
       'Pin to rail',
       '—',
@@ -768,6 +805,7 @@ describe('a service tile ⋯', () => {
       'Show server log',
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',

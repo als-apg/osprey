@@ -11,7 +11,7 @@ Coverage:
       project keeps the line high) and grows by a row per session.
   (2) ~30 sessions at an 800 px window: the group stops at the cap and
       scrolls; every session row stays 30 px, the open session's artifact
-      box keeps three rows, and nothing spills out of the tree.
+      box keeps five and a half rows, and nothing spills out of the tree.
   (3) a drag is stored as a fraction of the rail, which holds when the window
       grows; a drag back within 10 px of the automatic height snaps and clears the stored height.
   (4) a whole-pixel height stored by an earlier build keeps its height and is
@@ -221,8 +221,8 @@ def test_thirty_sessions_scroll_in_the_group_and_no_row_squashes(tmp_path, chrom
         assert lay["seeded"], lay
         assert len(lay["rowHeights"]) == 31, lay["rowHeights"]
         assert set(lay["rowHeights"]) == {30}, lay["rowHeights"]
-        # The open session's box: min(its content, 3 rows of 26 px + 2 px padding).
-        assert lay["box"]["height"] >= min(lay["box"]["full"], 80), lay["box"]
+        # The open session's box: min(its content, 5½ rows of 26 px + 2 px padding).
+        assert lay["box"]["height"] >= min(lay["box"]["full"], 145), lay["box"]
         assert 240 <= lay["cap"] <= 480, lay
         assert lay["height"] == lay["cap"], lay
         assert lay["scrolls"], lay
@@ -240,7 +240,7 @@ def test_thirty_sessions_scroll_in_the_group_and_no_row_squashes(tmp_path, chrom
         assert dragged["seeded"], dragged
         assert dragged["sized"], dragged
         assert set(dragged["rowHeights"]) == {30}, dragged["rowHeights"]
-        assert dragged["box"]["height"] >= min(dragged["box"]["full"], 80), dragged["box"]
+        assert dragged["box"]["height"] >= min(dragged["box"]["full"], 145), dragged["box"]
         assert dragged["treeSpill"] <= 1, dragged
 
 

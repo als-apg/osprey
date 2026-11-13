@@ -145,6 +145,7 @@ import { withPrefix, getPageClientId } from './api.js';
 // id, so both modules share the single source of truth for them.
 import { PLACEHOLDER_PREFIX, getLayoutHolder, sameShape, sameSizes } from './dock-apply.js';
 import { openAt } from './dock-open.js';
+import { isArtifactTileKey } from './artifact-tiles.js';
 
 /** dockview's names for the vertical sides, as its drop events and the rail's
  *  drop routing spell them, to the engine's. */
@@ -543,7 +544,9 @@ export function withEchoSuppressed(fn) {
  * registered focus handler (rail accent, active-tab state — panel-manager's
  * activateTab) and POSTs setPanelFocus as a REPORT: the server mirrors the
  * active panel for the agent's gaze and broadcasts nothing for human gestures,
- * so the local apply cannot ride an SSE echo.
+ * so the local apply cannot ride an SSE echo. An artifact tile
+ * (artifact-tiles.js) is no panel the server knows: its focus applies locally
+ * and is not reported.
  */
 function onActivePanelChange() {
   if (suppressDepth > 0) return;
@@ -552,7 +555,7 @@ function onActivePanelChange() {
   const id = serviceIdOf(api.activePanel?.id);
   if (!id) return;
   tileFocusHandler?.(id);
-  setPanelFocus(id);
+  if (!isArtifactTileKey(id)) setPanelFocus(id);
 }
 
 /**

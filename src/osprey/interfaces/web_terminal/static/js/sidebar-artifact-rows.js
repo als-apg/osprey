@@ -13,8 +13,10 @@
  *
  * Artifact rows are the shared list primitives of primitives.css
  * (`.osprey-list-row`): a listbox option whose `aria-selected` marks the
- * artifact the viewer shows. Session rows, heads, bands and notices are
- * role="presentation", so the listbox owns only options. The builders keep no
+ * artifact the viewer shows, and a drag source (`draggable`: dragged into the
+ * dock it opens in a tile of its own, sidebar-artifacts.js). Session rows,
+ * heads, bands and notices are role="presentation", so the listbox owns only
+ * options. The builders keep no
  * state: what is open and what is shown is passed in. All text goes in
  * through textContent.
  *
@@ -67,6 +69,7 @@ function listRow(entry, iconName, shownId) {
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', String(entry.id === shownId));
   row.dataset.id = entry.id;
+  row.draggable = true;
   row.title = titleOf(entry);
   const title = document.createElement('span');
   title.className = 'osprey-list-title';

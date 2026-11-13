@@ -11,7 +11,9 @@
  *
  *   - `icon`: one icon-only button in the panel-icon slot — an
  *     `.osprey-icon-btn.contrib-icon` named by its `title` (tooltip and
- *     accessible name), `aria-pressed` when the item says `pressed`.
+ *     accessible name), `aria-pressed` when the item says `pressed`, and
+ *     `.contrib-icon-warning` (the warning colour) for the hub's own
+ *     `tone: 'warning'`, which a panel cannot send.
  *   - `menu`: renders NO control. The entries live in the tile's one ⋯ menu
  *     (panel-menu-policy.js reads them from the contribution store), so the
  *     bar holds only an empty, hidden holder for the item. The holder keeps
@@ -46,8 +48,9 @@ const SEARCH_DEBOUNCE_MS = 200;
 
 /**
  * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} PanelHeaderItem
- * @typedef {Omit<PanelHeaderItem, 'kind'> & {
+ * @typedef {Omit<PanelHeaderItem, 'kind' | 'tone'> & {
  *   kind: PanelHeaderItem['kind'] | 'crumb' | 'sep',
+ *   tone?: PanelHeaderItem['tone'] | 'warning',
  *   root?: string,
  *   leaf?: string,
  * }} HeaderItem  the panel vocabulary plus the hub-side kinds and fields
@@ -243,6 +246,7 @@ function patchIcon(item, btn) {
   writeTitle(btn, title);
   btn.setAttribute('aria-label', title);
   btn.disabled = item.disabled === true;
+  btn.classList.toggle('contrib-icon-warning', item.tone === 'warning');
   if (typeof item.pressed === 'boolean') {
     btn.setAttribute('aria-pressed', item.pressed ? 'true' : 'false');
   } else {

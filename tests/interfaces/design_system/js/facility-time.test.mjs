@@ -16,6 +16,7 @@ import {
   formatFacilityTime,
   facilityZoneLabel,
   facilityDayKey,
+  facilityDayStart,
   facilityWallClock,
   viewerSharesFacilityClock,
 } from '/design-system/js/facility-time.js';
@@ -134,6 +135,34 @@ describe('facility-time.js', () => {
       stamp('UTC');
       expect(facilityDayKey(INSTANT)).toBe('2026-01-15');
       expect(facilityDayKey('garbage')).toBe('');
+    });
+  });
+
+  describe('facilityDayStart', () => {
+    /** @param {string} iso */
+    const at = (iso) => Date.parse(iso);
+
+    test('the instant the calendar day starts in the stamped zone', () => {
+      stamp('Asia/Tokyo');
+      expect(facilityDayStart(INSTANT)).toBe(at('2026-01-15T15:00:00Z'));
+      stamp('UTC');
+      expect(facilityDayStart(INSTANT)).toBe(at('2026-01-15T00:00:00Z'));
+      expect(facilityDayStart(at('2026-01-15T00:00:00Z'))).toBe(at('2026-01-15T00:00:00Z'));
+    });
+
+    test('exact on a day the zone changes its offset', () => {
+      stamp('America/Los_Angeles');
+      // 15:00 on the day the clocks went back at 02:00: midnight was 16 hours before.
+      expect(facilityDayStart('2026-11-01T23:00:00Z')).toBe(at('2026-11-01T07:00:00Z'));
+      // 15:00 on the day the clocks went forward at 02:00: midnight was 14 hours before.
+      expect(facilityDayStart('2026-03-08T22:00:00Z')).toBe(at('2026-03-08T08:00:00Z'));
+    });
+
+    test('bad input is NaN', () => {
+      stamp('Asia/Tokyo');
+      for (const bad of ['', null, undefined, 'garbage', new Date(NaN)]) {
+        expect(facilityDayStart(bad)).toBeNaN();
+      }
     });
   });
 

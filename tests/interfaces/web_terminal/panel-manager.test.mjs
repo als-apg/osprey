@@ -3507,7 +3507,12 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Group by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual([
+      'New session',
+      'Artifacts by',
+      'Show pinned sessions',
+      'Expand all',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
@@ -3516,6 +3521,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuLabels()).toEqual([
       'Switch to chat',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -3561,6 +3567,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Switch to terminal',
       'Export conversation',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',

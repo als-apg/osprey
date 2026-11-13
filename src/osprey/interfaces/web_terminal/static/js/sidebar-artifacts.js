@@ -32,6 +32,11 @@
  * focusing an already docked Artifacts panel in place, and records it as its
  * owner's last-open artifact.
  *
+ * DRAG. An artifact row (in the tree, the flyout or a peek) dragged into the
+ * dock opens that artifact in a tile of its own where it is dropped, or moves
+ * its tile there when it has one (artifact-tiles.js); a plain click still
+ * picks it as above.
+ *
  * PAGE LOAD. Once the listing has the active row, its last-open artifact is
  * revealed once, without the open rule: with the Artifacts panel docked it is
  * shown there; otherwise the layout stays as it is and the tree only opens its
@@ -58,6 +63,11 @@
  * session in use and the dock, so a switch, a close and a re-render all redraw
  * it from scratch; panel-manager's `osprey-dock-view-changed` re-renders the
  * tree when the panel comes on or goes off view.
+ *
+ * THE BAR. The Artifacts tile's bar is the hub's (artifacts-pane-header.js):
+ * an artifact from another session gives its Info the warning tone until the
+ * tile acknowledges it (artifact-origin.js), drawn again on each change of
+ * that.
  *
  * THE VIEWER. The artifacts iframe shows ONE artifact, told with
  * `osprey-artifact-select`; this module forwards the shown artifact's update
@@ -90,8 +100,13 @@ import { createArtifactFrames } from './sidebar-artifact-frames.js';
 import * as viewer from './sidebar-artifact-viewer.js';
 import { ARTIFACTS_PANEL_ID, panelOnView, showArtifactsPanel } from './sidebar-artifact-viewer.js';
 import { downloadArtifact, headerItems, showArtifactInfo } from './artifacts-pane-header.js';
+import { artifactTileKey, holdArtifactTile, onArtifactChanged } from './artifact-tiles.js';
+import { needsOriginNotice, onOriginChange } from './artifact-origin.js';
+import { railDragStart } from './rail-drag.js';
 import * as model from './session-model.js';
 import * as pins from './sidebar-session-pins.js';
+import { setGalleryArtifact } from './pane-zoom.js';
+import { sessionListNodes, watchViewButton } from './sidebar-session-view.js';
 
 /**
  * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry
@@ -173,6 +188,7 @@ const frames = createArtifactFrames({
   state: () => state,
   inActiveSession: (entry) => inActiveSession(entry),
   sendChanged: (change, entry) => sendChanged(change, entry),
+  tileChanged: (id, change, entry) => onArtifactChanged(id, change, entry),
   summarize: (all) => summarize(all),
   render: () => render(),
 });
@@ -205,16 +221,22 @@ function initSessionTree() {
   state.view = store.readTreeView();
   const signal = treeAbort.signal;
   document.addEventListener('click', onClick, { signal });
+  document.addEventListener('dragstart', onDragStart, { signal });
   document.addEventListener('scroll', pager.onScroll, { capture: true, passive: true, signal });
   document.addEventListener('osprey-sidebar-rendered', render, { signal });
   document.addEventListener('osprey-artifact-opened', onArtifactOpened, { signal });
   // panel-manager.js's DOCK_VIEW_EVENT (not imported: tests mock that module).
   document.addEventListener('osprey-dock-view-changed', onDockView, { signal });
   cues.watch(signal);
+  watchViewButton(signal, render);
   signal.addEventListener('abort', pins.onPinsChange(render));
   pins.initPinnedMenus();
   pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
   model.subscribe(onModelChange);
+  signal.addEventListener(
+    'abort',
+    onOriginChange(() => paintHeader())
+  );
   onSurfaceChange(() => render());
   void model.initSessionModel();
   render();
@@ -364,7 +386,7 @@ function onHeaderAction(id) {
   if (!served) return;
   const shown = held(state.shownId);
   if (!shown) return;
-  if (id === 'info') showArtifactInfo(shown);
+  if (id === 'info') showArtifactInfo(shown, ARTIFACTS_PANEL_ID);
   else if (id === 'download') downloadArtifact(shown);
 }
 
@@ -427,6 +449,12 @@ function sessionNodes(row, where) {
   return open ? [node, rows.sessionBox(treeId, boxRows(treeId))] : [node];
 }
 
+/** @param {string} treeId @returns {number | undefined} its artifact count, once summarized */
+const countOf = (treeId) => data.totals.counts[treeId]?.total;
+
+/** @param {SessionRow} row */
+const listNodesOf = (row) => sessionNodes(row, 'sessions');
+
 /**
  * The whole tree: the session list, the pinned group's list (`pinned`), or
  * the flyout's, which leads with the pinned sessions under the group's name.
@@ -443,13 +471,10 @@ function treeNodes(where) {
     for (const row of pinned) nodes.push(...sessionNodes(row, 'pinned'));
     nodes.push(rows.labelRow('Sessions'));
   }
-  let loadedTotal = 0;
-  for (const row of model.rows()) {
-    if (row.transcript_id) loadedTotal += data.totals.counts[treeIdOf(row)]?.total ?? 0;
-    nodes.push(...sessionNodes(row, 'sessions'));
-  }
-  if (model.hasMore())
-    nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - loadedTotal)));
+  const list = sessionListNodes(model.rows(), treeIdOf, activeTreeId(), countOf, listNodesOf);
+  nodes.push(...list.nodes);
+  if (model.hasMore() && list.more)
+    nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - list.loadedTotal)));
   const record = model.recordState();
   if (record === 'incomplete' || record === 'unavailable') nodes.push(rows.noticeRow(record));
   return nodes;
@@ -461,6 +486,8 @@ function render() {
   const shown = served ? resolveShown() : null;
   const changed = (shown?.id ?? null) !== state.shownId;
   state.shownId = shown?.id ?? null;
+  // The Artifacts tile zooms as the artifact it shows (pane-zoom.js).
+  setGalleryArtifact(ARTIFACTS_PANEL_ID, state.shownId && artifactTileKey(state.shownId));
   panelWasOnView = served && panelOnView();
   pins.paintPinnedGroup(model.pinnedRows().length);
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
@@ -481,15 +508,24 @@ function render() {
   pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
-  const header = headerItems(shown);
-  const key = JSON.stringify(header);
-  if (key !== lastHeader) {
-    lastHeader = key;
-    contributeLocal(ARTIFACTS_PANEL_ID, header, onHeaderAction);
-  }
+  paintHeader(shown);
   if (!changed) return;
   sendSelect();
   scrollToShown();
+}
+
+/**
+ * Draw the Artifacts tile's bar for the shown artifact, when it changed.
+ * @param {ArtifactEntry | null} [shown]
+ */
+function paintHeader(shown = held(state.shownId)) {
+  if (!served) return;
+  const notice = needsOriginNotice(shown, ARTIFACTS_PANEL_ID);
+  const header = headerItems(shown, { notice });
+  const key = JSON.stringify(header);
+  if (key === lastHeader) return;
+  lastHeader = key;
+  contributeLocal(ARTIFACTS_PANEL_ID, header, onHeaderAction);
 }
 
 /** @param {HTMLElement} tree @returns {'sessions' | 'pinned' | 'flyout'} which tree it is */
@@ -606,6 +642,23 @@ function onClick(event) {
     return render();
   }
   void pickArtifact(/** @type {string} */ (row.dataset.id));
+}
+
+/**
+ * An artifact row's drag (the tree's, the flyout's, a peek's) is a sidebar row
+ * drag (rail-drag.js) of its artifact's tile (artifact-tiles.js): `{new}`, or
+ * `{tab}` when the tile is docked, so it opens or moves where it drops.
+ * Refused while the artifact half is not served, and in fallback mode.
+ * @param {DragEvent} event
+ */
+function onDragStart(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest('.osprey-list-row[data-id]');
+  if (!(row instanceof HTMLElement) || !row.dataset.id) return;
+  if (!row.closest(`${TREE_SELECTOR}, #${rows.SESSION_PEEK_ID}`)) return;
+  const id = row.dataset.id;
+  const key = served ? holdArtifactTile({ id, entry: held(id), title: row.title }) : null;
+  if (!key || !railDragStart(key, event.dataTransfer)) event.preventDefault();
 }
 
 /**

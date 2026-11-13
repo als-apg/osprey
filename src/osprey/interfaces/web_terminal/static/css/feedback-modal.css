@@ -42,12 +42,17 @@
               visibility 0s;
 }
 
+/* Scale and voice follow the tour card and the command palette: display face,
+ * body text at --text-lg (the sidebar rows' size), hints at --text-md, a 16 px
+ * title and a filled accent primary button. The fleet's smaller steps are
+ * sized for dense chrome, not for a form someone reads and types into. */
 .feedback-modal-dialog {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 560px;
   max-height: 80vh;
+  font-family: var(--font-display);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-2xl);
@@ -74,7 +79,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
@@ -82,7 +87,7 @@
 .feedback-modal-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-size: var(--text-2xl);
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
@@ -94,20 +99,20 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  font-size: var(--text-xl);
+  font-size: var(--text-2xl);
   line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
 .feedback-modal-close:hover,
 .feedback-modal-close:focus-visible {
-  color: var(--color-accent-light);
-  background: var(--bg-elevated);
+  color: var(--text-primary);
+  background: var(--surface-hover);
 }
 
 /* Content slot — the feedback form, or whatever a caller renders instead. It
@@ -115,8 +120,8 @@
 .feedback-modal-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-5);
   overflow-y: auto;
   color: var(--text-secondary);
 }
@@ -127,15 +132,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
 }
 
 .feedback-text {
   width: 100%;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   font-family: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-normal);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
@@ -151,14 +159,14 @@
 .feedback-channel-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .feedback-channels {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-2) var(--space-5);
 }
 
 .feedback-channel-option,
@@ -166,15 +174,28 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-lg);
   color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* Native radios and checkboxes in the accent, a step larger than the UA's
+ * 13 px so they sit level with --text-lg labels. */
+.feedback-modal-body input[type="radio"],
+.feedback-modal-body input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
 .feedback-channel-hint,
 .feedback-context-hint {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
   color: var(--text-muted);
 }
 
@@ -204,13 +225,13 @@
  * sized down to sit beside a checkbox row. */
 .feedback-check-line .feedback-copy-context {
   margin-left: auto;
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-md);
 }
 
 .feedback-help-toggle {
   padding: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
   line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
@@ -236,7 +257,8 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
@@ -264,7 +286,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
   color: var(--text-secondary);
 }
 
@@ -278,32 +301,45 @@
 }
 
 .feedback-action {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-4);
   font-family: inherit;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: color var(--wt-transition-fast), background var(--wt-transition-fast),
-    border-color var(--wt-transition-fast);
+    border-color var(--wt-transition-fast), filter var(--wt-transition-fast);
 }
 
 .feedback-action:hover:not(:disabled) {
   border-color: var(--border-accent);
-  color: var(--color-accent-light);
+  color: var(--text-primary);
 }
 
 .feedback-action.primary {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: transparent;
+}
+
+.feedback-action.primary:hover:not(:disabled) {
+  color: var(--color-on-accent);
+  border-color: transparent;
+  filter: brightness(1.08);
 }
 
 .feedback-action:disabled {
   color: var(--text-muted);
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.feedback-action.primary:disabled {
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
 }
 
 /* ---- Notice ---- */

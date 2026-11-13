@@ -5,8 +5,8 @@
  * tree, one item list per row kind, opened through the hub's shared context
  * menu (panel-context-menu.js):
  *
- *   Agent row   New session · Group by ▸ Kind / Activity · Show pinned sessions ·
- *               Collapse all / Expand all
+ *   Agent row   New session · Artifacts by ▸ Activity / Kind · Show pinned
+ *               sessions · Collapse all / Expand all
  *   Session     Open (Focus on the active one) · Pin / Unpin · Rename… · Use
  *               automatic name (only on a hand-named session) · Export transcript ·
  *               Copy ID · Delete… (disabled on the active one)
@@ -37,7 +37,8 @@ const sessionModel = () => import('./session-model.js');
 import { withPrefix } from './api.js';
 import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { openContextMenu } from './panel-context-menu.js';
-import { heldEntry, readTreeView } from './sidebar-artifact-listing.js';
+import { heldEntry } from './sidebar-artifact-listing.js';
+import { artifactsByItem } from './sidebar-session-view.js';
 import { artifactMenuItems, copyText, runMenuItems } from './artifact-verbs.js';
 import { showConfirm } from './posture-confirm.js';
 import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
@@ -92,23 +93,17 @@ async function setAllSessions(open) {
 }
 
 /**
- * The Agent row's menu: a new session, Group by ▸ Kind / Activity, Show
- * pinned sessions, and one Collapse all / Expand all row worded for what it
- * will do (Collapse all when every session is open).
+ * The Agent row's menu: a new session, Artifacts by ▸ Activity / Kind (the
+ * view menu's row, sidebar-session-view.js), Show pinned sessions, and one
+ * Collapse all / Expand all row worded for what it will do (Collapse all when
+ * every session is open).
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
-  const view = readTreeView();
   return [
     { label: 'New session', run: () => void sessionModel().then((m) => m.switchTo({ new: true })) },
     { divider: true },
-    {
-      label: 'Group by',
-      submenu: [
-        { label: 'Kind', checked: view === 'kind', run: () => void applyView('kind') },
-        { label: 'Activity', checked: view === 'activity', run: () => void applyView('activity') },
-      ],
-    },
+    artifactsByItem(),
     showPinnedItem(),
     { divider: true },
     allOpen()
@@ -271,16 +266,6 @@ export function sessionMenuItems(row) {
       run: () => tid && confirmDeleteSession(row, tid),
     },
   ];
-}
-
-/**
- * Apply a tree mode through the controller. Imported lazily: the controller
- * imports panel-menu-policy, which imports this module.
- * @param {'kind' | 'activity'} view
- */
-async function applyView(view) {
-  const { setTreeView } = await import('./sidebar-artifacts.js');
-  setTreeView(view);
 }
 
 // ---- Group head ----

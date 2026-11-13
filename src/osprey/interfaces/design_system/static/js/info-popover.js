@@ -12,8 +12,13 @@
  * dismissed by `popover.js` (outside press, Escape, resize, window blur), and
  * a second open on the same anchor closes it. Rows are a definition list; a
  * row with `copy: true` gets a small Copy button (`clipboard.js`) that shows a
- * check mark for a moment after a copy. The visual half is
- * `.osprey-info-popover` in primitives.css.
+ * check mark for a moment after a copy, and a row with `onClick` shows its
+ * value as a link that closes the popover and runs it. A `notice` is a bar at
+ * the top of the card in the warning colour: its text (whose parts may be
+ * links, as a row's value) and one action button, which runs its handler and
+ * leaves the popover open; the caller sends the content without the notice
+ * through the handle's `update`. The visual half is `.osprey-info-popover` in
+ * primitives.css.
  *
  * @module info-popover
  */
@@ -33,10 +38,25 @@ const COPIED_MS = 1500;
  * @property {string} label
  * @property {string | number} value
  * @property {boolean} [copy] add a Copy button for the value
+ * @property {() => void} [onClick] show the value as a link that closes the
+ *   popover and runs this
+ */
+
+/**
+ * Text, or a link in the text: it closes the popover and runs `onClick`.
+ * @typedef {string | {text: string, onClick: () => void}} InfoNoticePart
+ */
+
+/**
+ * @typedef {object} InfoNotice
+ * @property {InfoNoticePart[]} parts the notice's text, in order
+ * @property {string} actionLabel the button at its end
+ * @property {() => void} onAction runs on that button; the popover stays open
  */
 
 /**
  * @typedef {object} InfoContent
+ * @property {InfoNotice} [notice] a bar at the top of the card
  * @property {string} [title]
  * @property {string} [text] a paragraph; its line breaks are kept
  * @property {InfoRow[]} [rows]
@@ -54,6 +74,8 @@ function infoPopover() {
   popover.id = POPOVER_ID;
   popover.className = 'osprey-popover osprey-info-popover';
   popover.setAttribute('role', 'dialog');
+  // Focusable itself, for focus whose control new content dropped.
+  popover.tabIndex = -1;
   popover.hidden = true;
   document.body.append(popover);
   return popover;
@@ -87,12 +109,55 @@ function copyButton({ label, value }) {
 }
 
 /**
+ * A value shown as a link: it closes the popover, then runs `onClick`.
+ * @param {HTMLElement} pop
+ * @param {string} text
+ * @param {() => void} onClick
+ * @returns {HTMLButtonElement}
+ */
+function link(pop, text, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'osprey-info-popover-link';
+  button.textContent = text;
+  button.addEventListener('click', () => {
+    closePopover(pop);
+    onClick();
+  });
+  return button;
+}
+
+/**
+ * The notice bar: its text, then its action.
+ * @param {HTMLElement} pop
+ * @param {InfoNotice} notice
+ * @returns {HTMLElement}
+ */
+function noticeBar(pop, { parts, actionLabel, onAction }) {
+  const bar = document.createElement('div');
+  bar.className = 'osprey-info-popover-notice';
+  const text = document.createElement('p');
+  text.className = 'osprey-info-popover-notice-text';
+  for (const part of parts) {
+    text.append(typeof part === 'string' ? part : link(pop, part.text, part.onClick));
+  }
+  const action = document.createElement('button');
+  action.type = 'button';
+  action.className = 'osprey-btn';
+  action.textContent = actionLabel;
+  action.addEventListener('click', () => onAction());
+  bar.append(text, action);
+  return bar;
+}
+
+/**
  * Fill the popover with `content`, replacing what it showed.
  * @param {HTMLElement} pop
  * @param {InfoContent} content
  */
-function fill(pop, { title, text, rows = [] }) {
+function fill(pop, { notice, title, text, rows = [] }) {
   pop.replaceChildren();
+  if (notice) pop.append(noticeBar(pop, notice));
   if (title) {
     const heading = document.createElement('div');
     heading.className = 'osprey-info-popover-title';
@@ -118,8 +183,10 @@ function fill(pop, { title, text, rows = [] }) {
     const term = document.createElement('dt');
     term.textContent = row.label;
     const detail = document.createElement('dd');
-    const value = document.createElement('span');
-    value.className = 'osprey-info-popover-value';
+    const value = row.onClick
+      ? link(pop, String(row.value), row.onClick)
+      : document.createElement('span');
+    value.classList.add('osprey-info-popover-value');
     value.textContent = String(row.value);
     detail.append(value);
     if (row.copy) {
@@ -132,20 +199,42 @@ function fill(pop, { title, text, rows = [] }) {
 }
 
 /**
+ * @typedef {object} InfoPopoverHandle
+ * @property {() => void} close closes the popover while it still shows for
+ *   its anchor
+ * @property {(content: InfoContent) => boolean} update shows `content` in
+ *   place while the popover still shows for its anchor (focus that was on a
+ *   control the new content drops moves to its first control, else to the
+ *   popover); false, and nothing changes, once it does not
+ */
+
+/**
  * Open the info popover under `anchor`, or close it when it is already open
  * for `anchor`.
  *
  * @param {HTMLElement} anchor the Info icon or status chip; it gets
  *   `aria-expanded` and `aria-controls`
  * @param {InfoContent} [content]
- * @returns {{close: () => void}} closes the popover while it still shows
- *   for `anchor`
+ * @returns {InfoPopoverHandle}
  */
 export function openInfoPopover(anchor, content = {}) {
   const pop = infoPopover();
+  const showing = () => shownFor === anchor && !pop.hidden;
+  /** @type {InfoPopoverHandle} */
   const handle = {
     close() {
-      if (shownFor === anchor && !pop.hidden) closePopover(pop);
+      if (showing()) closePopover(pop);
+    },
+    update(next) {
+      if (!showing()) return false;
+      const doc = pop.ownerDocument;
+      const hadFocus = pop.contains(doc.activeElement);
+      fill(pop, next);
+      if (hadFocus && !pop.contains(doc.activeElement)) {
+        const control = /** @type {HTMLElement | null} */ (pop.querySelector('button, input'));
+        (control ?? pop).focus({ preventScroll: true });
+      }
+      return true;
     },
   };
   const open = !pop.hidden;

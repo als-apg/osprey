@@ -139,7 +139,7 @@ class TestTrimTitle:
             ('"Ring orbit tuning."', "Ring orbit tuning"),
             ("Title: **Ring orbit tuning**", "Ring orbit tuning"),
             ("\n\n  Ring orbit tuning  \nbecause the user asked", "Ring orbit tuning"),
-            ("one two three four five six seven eight", "one two three four five six"),
+            ("one two three four five six seven eight", "one two three four"),
             ("", None),
             ("   \n  ", None),
             ('"..."', None),
@@ -207,12 +207,12 @@ def _completion(monkeypatch, answer: Any) -> list[dict[str, Any]]:
 @pytest.mark.usefixtures("spec")
 class TestNameSession:
     async def test_success_asks_the_providers_fast_model_once(self, monkeypatch, tmp_path, spec):
-        calls = _completion(monkeypatch, '"Orbit correction in sector 3."')
+        calls = _completion(monkeypatch, '"Sector 3 orbit correction."')
         project = tmp_path / "render"
 
         title = await name_session("please   correct the orbit\nin sector 3", project_dir=project)
 
-        assert title == "Orbit correction in sector 3"
+        assert title == "Sector 3 orbit correction"
         assert spec == [project]
         (kwargs,) = calls
         assert kwargs["provider"] == "gateway"
@@ -300,14 +300,14 @@ class TestScheduler:
 
         meta = session_meta.get(app, T1)
         assert meta["naming"] == "done"
-        assert meta["auto_title"] == meta["title"] == "Ring tuning in sector three of"
+        assert meta["auto_title"] == meta["title"] == "Ring tuning in sector"
         assert meta["title_source"] == "auto"
         assert app.state.session_naming_pending == set()
         assert _named_frames(app) == [
             {
                 "type": SESSION_NAMED_FRAME,
                 "transcript_id": T1,
-                "title": "Ring tuning in sector three of",
+                "title": "Ring tuning in sector",
                 "naming": "done",
             }
         ]
