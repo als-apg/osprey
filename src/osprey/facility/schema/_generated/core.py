@@ -860,6 +860,20 @@ class StandingEnum(str, Enum):
     superseded = "superseded"
 
 
+class GroupKindEnum(str, Enum):
+    """
+    What a group's members have in common.
+    """
+    family = "family"
+    """
+    Devices of one sort; the group's description is its members' purpose.
+    """
+    section = "section"
+    """
+    Things that belong together, such as a vacuum section or a zone; never a family.
+    """
+
+
 class FixOpEnum(str, Enum):
     set = "set"
     add = "add"
@@ -1816,6 +1830,7 @@ class Group(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
+    kind: Optional[GroupKindEnum] = Field(default=None, description="""`family` when absent. Only a family describes its members to a view and files as a family there.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group', 'Document']} })
     label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     members: Optional[list[str]] = Field(default=None, description="""Device ids.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group']} })
@@ -2101,7 +2116,7 @@ class Document(ConfiguredBaseModel):
                        'Relation',
                        'Document']} })
     title: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
-    kind: Optional[str] = Field(default=None, description="""The facility's word for the sort of document; policy ranks by it.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
+    kind: Optional[str] = Field(default=None, description="""The facility's word for the sort of document; policy ranks by it.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group', 'Document']} })
     system: Optional[str] = Field(default=None, description="""Where the document is kept.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
 
 

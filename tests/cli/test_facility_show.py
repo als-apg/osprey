@@ -334,7 +334,7 @@ def test_a_scheme_name_finds_the_device(repo: Path, as_json: bool) -> None:
         assert claims["qf05-ps-rack-a"]["other"] == "HALL/ROW3/RK07"
         assert claims["qf05-ps-rack-a"]["role"] == "subject"
         assert claims["qf05-ps-rack-a"]["unit"] == 12
-        assert claims["qf05-ps-rack-b"]["standing"] == "contested"
+        assert claims["qf05-ps-rack-b"]["standing"] == "superseded"
         assert "unit" not in claims["qf05-ps-rack-b"]
     else:
         lines = result.stdout.splitlines()
@@ -400,7 +400,7 @@ def test_a_place_lists_the_claims_it_is_an_end_of(repo: Path) -> None:
         "id": "qf05-ps-rack-a",
         "type": "located_in",
         "other": "SR/QF05-PS",
-        "standing": "contested",
+        "standing": "accepted",
         "role": "object",
         "unit": 12,
     } in entry["claims"]
@@ -410,7 +410,7 @@ def test_a_place_prints_its_object_end_claim_in_the_claims_direction(repo: Path)
     """The rack is the object of ``qf05-ps-rack-a``; the row still reads subject first."""
     lines = _show(repo, "HALL/ROW3/RK07").stdout.splitlines()
 
-    assert "  qf05-ps-rack-a  SR/QF05-PS located_in (this), contested, unit 12" in lines
+    assert "  qf05-ps-rack-a  SR/QF05-PS located_in (this), accepted, unit 12" in lines
 
 
 @pytest.mark.parametrize("as_json", [False, True])

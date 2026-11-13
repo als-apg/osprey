@@ -11,8 +11,8 @@ self-contained ``data/facility`` tree.
 Helpers:
 
 - ``appendix_a_tree(variant)``: the tree as ``{relpath: data}``. ``no_policy``
-  has no ``policy.yaml`` (the example ships none); ``located_in_precedence``
-  adds the design's ``policy.yaml`` ranking ``rack-layout`` over
+  has no ``policy.yaml``; ``located_in_precedence``
+  adds the design's ``policy.yaml``, which the example ships, ranking ``rack-layout`` over
   ``cable-schedule`` for ``located_in``.
 - ``with_readout_control(tree)``: a copy of the tree with the
   ``controlled_by`` claim the Appendix B trace query lacks (the readout
@@ -266,9 +266,10 @@ def _without(text: str, ids: set[str]) -> str:
 def example_without_appendix_a(root: Path) -> Path:
     """Write the packaged example minus every ``ADDED_IDS`` record under ``root``.
 
-    The example as it stood before Appendix A: no documents, no claims, and
-    none of the places, devices or group Appendix A adds. A file left with no
-    record (``documents.yaml``, ``records/relations.yaml``) is not written.
+    The example as it stood before Appendix A: no documents, no claims, no
+    policy, and none of the places, devices or group Appendix A adds. A file
+    left with no record (``documents.yaml``, ``records/relations.yaml``) is
+    not written.
 
     Args:
         root: The ``data/facility`` directory to create.
@@ -277,6 +278,7 @@ def example_without_appendix_a(root: Path) -> Path:
         ``root``, the written facility directory.
     """
     shutil.copytree(packaged_facility_dir(), root)
+    (root / "policy.yaml").unlink()
     for kind, ids in ADDED_IDS.items():
         path = root / _KIND_FILES[kind]
         remaining = _without(path.read_text(encoding="utf-8"), set(ids))

@@ -142,7 +142,8 @@ sits beside it as ``data/channel_finder/middle_layer.duckdb``. In that
 database:
 
 - A System is a top place.
-- A Family is a group: every group of the facility is one. The devices of a
+- A Family is a group of kind ``family``, the kind of a group that states
+  none; a ``section`` is no Family. The devices of a
   class that no single-class group holds form a Family named by the class
   under their top place.
 - A Field is a channel's signal, one channel per member, described by the

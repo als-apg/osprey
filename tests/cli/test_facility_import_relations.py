@@ -268,7 +268,7 @@ class TestHelp:
             "object_class",
             "thing, name, scheme",
             "place; within",
-            "group, member; member_kind",
+            "group, member; member_kind, group_kind",
             "document, version, state",
             "locator and imported",
             "machine:",

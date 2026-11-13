@@ -1083,7 +1083,7 @@ def import_relations(
                  rule, subject_class, object_class
       --names    thing, name, scheme; basis, rule
       --places   place; within, basis, rule
-      --members  group, member; member_kind
+      --members  group, member; member_kind, group_kind
     Every table also takes the citation columns document, version, state,
     locator and imported.
 

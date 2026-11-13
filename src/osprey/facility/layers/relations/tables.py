@@ -108,7 +108,9 @@ NAMES = TableSpec("names", ("thing", "name", "scheme"), ("basis", "rule", *CITAT
 PLACES = TableSpec("places", ("place",), ("within", "basis", "rule", *CITATION_COLUMNS))
 
 #: The members table: one row is one member of a group.
-MEMBERS = TableSpec("members", ("group", "member"), ("member_kind", *CITATION_COLUMNS))
+MEMBERS = TableSpec(
+    "members", ("group", "member"), ("member_kind", "group_kind", *CITATION_COLUMNS)
+)
 
 
 class Row(NamedTuple):

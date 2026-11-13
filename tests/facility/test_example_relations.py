@@ -1,15 +1,16 @@
 """The packaged example facility carries the design's Appendix A, and it builds.
 
-The example ships ``documents.yaml``, ``records/relations.yaml`` and the
-Appendix A places, devices and group, but no ``policy.yaml``. Built as it
-ships, it holds 18 claims (16 stated, 2 inferred), 16 accepted and 2
-contested: the two rack claims on ``SR/QF05-PS`` disagree, so that supply
-stays unplaced and the build warns ``relation-contested``; the cable
-``w-03-0240`` ends at a rack, so the build warns ``relation-coarse``.
-``SR/BPM13-EL`` takes its place ``HALL/ROW3/RK08`` from its rack claim.
-With the design's policy added (``rack-layout`` over ``cable-schedule`` for
-``located_in``) the cable-schedule claim is superseded, 17 claims are
-accepted and ``SR/QF05-PS`` lands in ``HALL/ROW3/RK07``. The example renders
+The example ships ``documents.yaml``, ``records/relations.yaml``, the
+Appendix A places, devices and group, and the design's ``policy.yaml``
+(``rack-layout`` over ``cable-schedule`` for ``located_in``). Built as it
+ships, it holds 18 claims (16 stated, 2 inferred), 17 accepted and 1
+superseded: the two rack claims on ``SR/QF05-PS`` disagree, the policy ranks
+the rack layout first, and the supply lands in ``HALL/ROW3/RK07``. The cable
+``w-03-0240`` ends at a rack, so the build warns ``relation-coarse`` and
+nothing else. ``SR/BPM13-EL`` takes its place ``HALL/ROW3/RK08`` from its
+rack claim. With the policy taken away the two rack claims are contested,
+the supply stays unplaced and the build warns ``relation-contested`` too.
+The example renders
 in every channel-finder pipeline mode, and a fresh ``osprey init`` of the
 demo preset is still wholly bundled.
 """
@@ -36,6 +37,10 @@ from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
 EXAMPLE = TEMPLATE_ROOT / "facilities" / "example"
 
+BUNDLED_HEADER = (
+    "# Bundled with OSPREY: the example facility. Delete this line to make the file yours."
+)
+
 MODES = ("in_context", "hierarchical", "middle_layer")
 
 
@@ -54,12 +59,13 @@ def shipped() -> tuple[dict[str, Any], list[Any]]:
 
 
 @pytest.fixture(scope="module")
-def with_policy(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    facility = tmp_path_factory.mktemp("policy") / "facility"
+def without_policy(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[dict[str, Any], list[Any]]:
+    facility = tmp_path_factory.mktemp("no-policy") / "facility"
     shutil.copytree(EXAMPLE, facility)
-    (facility / "policy.yaml").write_text(yaml.safe_dump(POLICY, sort_keys=False))
-    document, _ = _build(facility)
-    return document
+    (facility / "policy.yaml").unlink()
+    return _build(facility)
 
 
 def _claims(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -71,11 +77,13 @@ def _device(document: dict[str, Any], device_id: str) -> dict[str, Any]:
     return device
 
 
-def test_the_example_ships_appendix_a_without_a_policy() -> None:
+def test_the_example_ships_appendix_a_with_its_policy() -> None:
     assert (EXAMPLE / "documents.yaml").is_file()
     assert (EXAMPLE / "records" / "relations.yaml").is_file()
-    assert not (EXAMPLE / "policy.yaml").exists()
     assert not (EXAMPLE / "imported").exists()
+    text = (EXAMPLE / "policy.yaml").read_text(encoding="utf-8")
+    assert text.splitlines()[0] == BUNDLED_HEADER
+    assert yaml.safe_load(text) == POLICY
 
 
 def test_shipped_claims_counts_and_standings(shipped: tuple[dict[str, Any], list[Any]]) -> None:
@@ -87,40 +95,41 @@ def test_shipped_claims_counts_and_standings(shipped: tuple[dict[str, Any], list
         "stated": 16,
         "inferred": 2,
     }
-    assert Counter(c["standing"] for c in claims.values()) == {"accepted": 16, "contested": 2}
-    contested = sorted(cid for cid, c in claims.items() if c["standing"] == "contested")
-    assert contested == ["qf05-ps-rack-a", "qf05-ps-rack-b"]
+    assert Counter(c["standing"] for c in claims.values()) == {"accepted": 17, "superseded": 1}
+    assert claims["qf05-ps-rack-a"]["standing"] == "accepted"
+    assert claims["qf05-ps-rack-b"]["standing"] == "superseded"
 
 
-def test_shipped_warns_contested_and_coarse(shipped: tuple[dict[str, Any], list[Any]]) -> None:
+def test_shipped_warns_coarse_and_nothing_else(shipped: tuple[dict[str, Any], list[Any]]) -> None:
     _, warnings = shipped
-    relation = [w for w in warnings if w.kind.startswith("relation-")]
-    assert [(w.kind, w.record_kind, w.record_id) for w in relation] == [
+    assert [(w.kind, w.record_kind, w.record_id) for w in warnings] == [
         ("relation-coarse", "relation type", "cabled_to"),
-        ("relation-contested", "located_in", "device SR/QF05-PS"),
     ]
-    [contested] = [w for w in relation if w.kind == "relation-contested"]
-    assert "qf05-ps-rack-a" in contested.detail
-    assert "qf05-ps-rack-b" in contested.detail
 
 
-def test_shipped_projects_bpm_electronics_and_leaves_supply_unplaced(
+def test_shipped_places_the_electronics_and_the_supply_by_their_rack_claims(
     shipped: tuple[dict[str, Any], list[Any]],
 ) -> None:
     document, _ = shipped
-    electronics = _device(document, "SR/BPM13-EL")
-    assert electronics["place"] == "HALL/ROW3/RK08"
-    assert electronics["provenance"]["place_from"] == "relation"
+    for device_id, place in (("SR/BPM13-EL", "HALL/ROW3/RK08"), ("SR/QF05-PS", "HALL/ROW3/RK07")):
+        device = _device(document, device_id)
+        assert device["place"] == place
+        assert device["provenance"]["place_from"] == "relation"
+
+
+def test_without_the_policy_the_rack_claims_are_contested(
+    without_policy: tuple[dict[str, Any], list[Any]],
+) -> None:
+    document, warnings = without_policy
+    claims = _claims(document)
+    assert Counter(c["standing"] for c in claims.values()) == {"accepted": 16, "contested": 2}
+    contested = sorted(cid for cid, c in claims.items() if c["standing"] == "contested")
+    assert contested == ["qf05-ps-rack-a", "qf05-ps-rack-b"]
+    assert [(w.kind, w.record_kind, w.record_id) for w in warnings] == [
+        ("relation-coarse", "relation type", "cabled_to"),
+        ("relation-contested", "located_in", "device SR/QF05-PS"),
+    ]
     assert _device(document, "SR/QF05-PS").get("place") is None
-
-
-def test_with_policy_one_claim_is_superseded(with_policy: dict[str, Any]) -> None:
-    claims = _claims(with_policy)
-    assert Counter(c["standing"] for c in claims.values()) == {"accepted": 17, "superseded": 1}
-    assert claims["qf05-ps-rack-b"]["standing"] == "superseded"
-    supply = _device(with_policy, "SR/QF05-PS")
-    assert supply["place"] == "HALL/ROW3/RK07"
-    assert supply["provenance"]["place_from"] == "relation"
 
 
 @pytest.mark.slow
@@ -142,6 +151,7 @@ def test_a_fresh_init_stays_wholly_bundled(tmp_path: Path) -> None:
     facility = project / "data" / "facility"
     assert (facility / "documents.yaml").is_file()
     assert (facility / "records" / "relations.yaml").is_file()
+    assert (facility / "policy.yaml").is_file()
     kinds = classify(facility, TEMPLATE_ROOT)
     assert kinds.wholly_bundled
     assert kinds.name == "example"

@@ -69,7 +69,9 @@ __all__ = [
     "LinkKind",
     "PLACE_LINK_PREFIX",
     "RecordKind",
+    "group_kind",
     "describe_records",
+    "is_family",
 ]
 
 #: The kinds of record the read model serves.
@@ -84,6 +86,24 @@ RECORD_KINDS: tuple[tuple[RecordKind, str, str], ...] = (
     ("group", "groups", "id"),
     ("model", "models", "name"),
 )
+
+#: The kind of a group that states none.
+DEFAULT_GROUP_KIND = "family"
+
+
+def group_kind(group: Mapping[str, Any]) -> str:
+    """A group's kind: the one it states, else ``family``."""
+    return str(group.get("kind") or DEFAULT_GROUP_KIND)
+
+
+def is_family(group: Mapping[str, Any]) -> bool:
+    """Whether a group is a family, the only kind of group a view treats as one.
+
+    A family describes its members and files as a Family in the middle-layer
+    index; a group of another kind (a ``section``) does neither.
+    """
+    return group_kind(group) == DEFAULT_GROUP_KIND
+
 
 #: The kinds of record a reference may name.
 LinkKind = Literal["channel", "device"]

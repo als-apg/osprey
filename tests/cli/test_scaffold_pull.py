@@ -250,6 +250,7 @@ DEMO_PULLABLE = [
     "data/facility/measurement/LTB.yaml",
     "data/facility/measurement/SR.yaml",
     "data/facility/models.yaml",
+    "data/facility/policy.yaml",
     "data/facility/records/channels.yaml",
     "data/facility/records/devices.yaml",
     "data/facility/records/groups.yaml",

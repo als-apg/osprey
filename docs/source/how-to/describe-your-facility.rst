@@ -48,8 +48,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``signals.yaml``,
-``policy.yaml``, ``fixes.yaml`` and ``imported/``; the hello-world preset ships
+demo preset ships all of them except ``signals.yaml``, ``fixes.yaml`` and
+``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
@@ -191,7 +191,10 @@ address means anything to OSPREY. What a channel is comes from its fields:
 
 **Groups** are named sets of devices: an id, a ``description`` in the
 facility's words and the ``members``. A group says which devices belong
-together; what a channel means stays on the channel.
+together; what a channel means stays on the channel. Its ``kind`` is
+``family`` (the default: devices of one sort, described by the group) or
+``section`` (things that belong together, such as a vacuum section). Only a
+family is a channel-finder Family and gives its members their purpose text.
 
 **Relations** are claims, one per source, that two records are related: a
 ``type``, a ``subject`` and an ``object``, each naming one device, place or
@@ -381,7 +384,7 @@ cell is absent.
    * - members
      - ``--members``
      - ``group``, ``member``
-     - ``member_kind``
+     - ``member_kind``, ``group_kind`` (``family`` or ``section``)
 
 Every table also takes the citation columns ``document``, ``version``,
 ``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``

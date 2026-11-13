@@ -48,8 +48,8 @@ EXPECTED_WRITES = 674
 EXPECTED_READS = 4052
 
 #: Devices placed in a system, each carrying its system's description and
-#: SYSTEM token: every device but the ten the facility places nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1017
+#: SYSTEM token: every device but the nine the facility places nowhere.
+EXPECTED_SYSTEM_DESCRIBED = 1018
 
 #: Devices a described group names, each carrying its family's description:
 #: every device that has channels is in one.
