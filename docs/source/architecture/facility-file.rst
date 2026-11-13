@@ -346,6 +346,8 @@ graph view, unless the profile names another.
 channel and per signal named, with the device classes as a class tree; one
 edge per accepted or contested relation claim, one claim node per claim the
 ``facility_graph`` settings keep, and one group node per group a claim names.
+Why relations are claims, and how a claim becomes an edge or a place:
+:doc:`facility-relations`.
 
 .. _architecture-facility-schema:
 
@@ -360,7 +362,9 @@ carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so ``loosenings.yaml`` records, per slot NARAD requires, what became
 of it (``dropped``, ``optional``, ``renamed:<slot>`` or ``header``) and why.
-The graph view writes the facility file back in NARAD's terms.
+The graph view writes the facility file back in NARAD's terms. NARAD's
+optional relation slots are not carried; relations are claims
+(:doc:`facility-relations`).
 
 .. raw:: html
    :file: ../_diagrams/facility-vocabulary.html

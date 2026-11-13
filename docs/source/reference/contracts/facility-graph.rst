@@ -40,8 +40,9 @@ query:
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
   without the query naming ``HCorrector``. Classes also carry the synonyms an
   operator would say out loud, as ``skos:altLabel``.
-* **Claims** — one ``:Claim`` node per relation claim, holding the evidence
-  behind its edge (`Relations`_).
+* **Claims** — one ``:Claim`` node per relation claim the
+  ``facility_graph`` settings keep (by default every claim), holding the
+  evidence behind its edge (`Relations`_).
 * **Groups** — one ``:Group`` node per group that is an end of a written
   claim, carrying ``groupId`` and its names, and one ``HASMEMBER`` to each
   member device. A group no claim names is no node.
@@ -52,6 +53,7 @@ entries too. A name is an identifier, so match a whole entry, ignoring case — 
 would let ``U1`` match ``U10``:
 
 .. code-block:: cypher
+   :force:
 
    MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))
 
@@ -132,7 +134,8 @@ relationships never crosses a disputed fact. A ``superseded`` claim is no edge.
 Ports and units do not change the edge, and equal claims from several sources
 are one edge. ``CABLEDTO``, ``NETWORKEDTO`` and ``SAMEAS`` are symmetric, one
 edge per pair of ends: match them undirected, ``(a)-[:CABLEDTO]-(b)``.
-``SAMEAS`` is a claim like any other; nothing merges two records on it.
+``SAMEAS`` is a claim like any other; nothing merges two records on it. How a
+claim gets its standing, and a worked example: :doc:`/architecture/facility-relations`.
 
 ``PARTOF`` and ``LOCATEDIN`` each gain a meaning. ``PARTOF`` also joins a
 device to a device. A ``located_in`` claim naming a device's own place adds
@@ -140,7 +143,8 @@ nothing, but one naming another place is a second ``LOCATEDIN``, so a query
 can get two rows for one device; the resolved place is the one its
 ``placePath`` names.
 
-Each claim is also a ``:Claim`` node, the evidence behind its edge. It reaches
+Each claim the ``facility_graph`` settings keep (by default every claim) is
+also a ``:Claim`` node, the evidence behind its edge. It reaches
 its two ends over ``CLAIMSUBJECT`` and ``CLAIMOBJECT``, and each rival that has
 a claim node too over ``CONTESTS``. It carries these properties, each only when
 the claim has it: ``claimId``, ``relationType``, ``basis`` (``stated`` when the

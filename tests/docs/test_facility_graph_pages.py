@@ -19,6 +19,9 @@ Three pages state facts a reader acts on, and each fact is owned by code:
   and ``osprey scaffold`` targets, each of which is a build-artifact catalog
   name.
 
+``architecture/facility-relations.rst`` is listed in the architecture
+toctree and embeds the relations diagram.
+
 The view sizes ``use-facility-graph.rst`` states are pinned in
 ``tests/facility/golden/demo_census.json``, which
 ``tests/facility/test_demo_census.py`` holds against the page; the last test
@@ -368,9 +371,12 @@ def test_the_page_census_agrees_with_the_census_counts() -> None:
     page = GRAPH_PAGE.relative_to(REPO_ROOT).as_posix()
     stated = {e["pin"]: e["value"] for e in census["entries"] if e["file"] == page}
     by_pin = {(e["file"], e["pin"]): e["value"] for e in census["entries"]}
-    middle_layer = by_pin[
-        ("tests/facility/test_cf_index_middle_layer.py", "text:assert counts == (8297, {value})")
-    ]
+    (middle_layer,) = (
+        e["value"]
+        for e in census["entries"]
+        if e["file"] == "tests/facility/test_cf_index_middle_layer.py"
+        and re.fullmatch(r"text:assert counts == \(\d+, \{value\}\)", e["pin"])
+    )
     in_context = by_pin[
         (
             "tests/facility/test_cf_index_in_context.py",
@@ -565,3 +571,39 @@ def test_the_primer_legend_names_real_relationship_types() -> None:
     tokens = _legend_tokens()
     assert any(t.endswith(CONTESTED_SUFFIX.upper()) for t in tokens), tokens
     assert set(tokens) <= known, sorted(set(tokens) - known)
+
+
+# --- the facility relations architecture page ------------------------------------
+
+RELATIONS_PAGE = DOCS / "architecture" / "facility-relations.rst"
+ARCHITECTURE_INDEX = DOCS / "architecture" / "index.rst"
+RELATIONS_DIAGRAM = "../_diagrams/facility-relations.html"
+
+
+def _relations_page_holds(index: str, page: str) -> list[str]:
+    """What the architecture index and the relations page fail to hold."""
+    missing = []
+    toctree = index[index.index(".. toctree::") :]
+    if not re.search(r"^   facility-relations$", toctree, re.M):
+        missing.append("the toctree line")
+    if not re.search(rf"^\.\. raw:: html\n   :file: {re.escape(RELATIONS_DIAGRAM)}$", page, re.M):
+        missing.append("the diagram embed")
+    return missing
+
+
+def test_the_architecture_toctree_lists_the_relations_page_and_it_embeds_the_diagram() -> None:
+    assert (DOCS / RELATIONS_DIAGRAM.removeprefix("../")).is_file()
+    index = ARCHITECTURE_INDEX.read_text(encoding="utf-8")
+    page = RELATIONS_PAGE.read_text(encoding="utf-8")
+    assert _relations_page_holds(index, page) == []
+
+
+def test_a_dropped_toctree_line_or_embed_is_caught() -> None:
+    index = ARCHITECTURE_INDEX.read_text(encoding="utf-8")
+    page = RELATIONS_PAGE.read_text(encoding="utf-8")
+    assert _relations_page_holds(index.replace("   facility-relations\n", ""), page) == [
+        "the toctree line"
+    ]
+    assert _relations_page_holds(index, page.replace(RELATIONS_DIAGRAM, "x.html")) == [
+        "the diagram embed"
+    ]

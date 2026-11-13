@@ -1,0 +1,155 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fr-title fr-desc">
+  <title id="fr-title">Relation claims: the records they come from, the standing the build gives them, the place a located_in claim projects, and the views that read either</title>
+  <desc id="fr-desc">Read left to right in four columns. Column 1, the records. Relations, in records/relations.yaml: each claim names a type, a subject and an object, a basis of stated or inferred (an inferred claim names its rule), and a source citing a document, its version, its state and a locator; for example SR/QF05-PS located_in HALL/ROW3/RK07. Documents, in documents.yaml: each has an id, a title, a kind and a system, such as rack-layout and cable-schedule. Policy, in policy.yaml, is optional: a precedence of document kinds per relation type, and stated_over_inferred, true unless set false. Places and devices, in records/places.yaml and records/devices.yaml, and groups, are the ends a claim names; a device may have no place of its own. Column 2, standing. A claim whose shape breaks a rule stops the build with relation-invalid: an end naming no device, place or group, or more than one; a kind the type does not allow at that end; basis inferred without a rule; a required attribute left out; or a subject equal to its object. Sound claims, with the documents and the policy, get a standing per key: the claims on one key group by the object they state; with a policy they rank by the precedence of their document's kind, then stated before inferred. A claim is accepted when its key has one object or its group ranks strictly best, contested when the objects disagree and no group wins, and superseded when it ranks below the winner. The demo has 16 accepted and 2 contested claims. Standing raises warnings, and the build goes on: relation-contested, one per key a dispute leaves unsettled; relation-coarse, one per type, for a claim with a place end where the type allows a device, or with a key attribute, port or unit left out; and also identity-ambiguous, part-cycle and relation-stub. Column 3, projection. Accepted located_in claims give Device.place, only when the device has no place yet (an authored place, a fix, an imported place or a span comes first), no claim on its key is contested, and the accepted claims that are not coarse name exactly one place. The device then carries provenance.place_from: relation; the claim's unit is not copied. In the demo SR/BPM13-EL takes HALL/ROW3/RK08, one place with no dispute; SR/QF05-PS takes no place, because rack-layout and cable-schedule disagree, so its key is contested and warned. Column 4, views. The graph, data/graph/facility.ttl, reads every standing: an accepted claim is an edge under its type's predicate, such as poweredBy, cabledTo or locatedIn; a contested claim is an edge under the predicate's Contested twin, such as locatedInContested; a superseded claim is no edge. The claims setting, all, contested or none, chooses which claims also get a narad_sem:Claim node. basis: stated drops the inferred claims, and the locatedIn of a projected place that no stated claim backs. The views that read the projected place: facts, with its place counts and the classes of unplaced devices; the channel finder in hierarchical mode, whose levels come from the places that hold channels; and the channel finder in middle_layer mode, whose System is the top place of the device. The views that read no relations: the channel finder in in_context mode, pyaml, simulator, bluesky, limits and benchmarks; a claim changes none of them. Footer: warnings never stop the build, relation-invalid does; a disputed key projects nothing, and its warning is the report.</desc>
+  <defs>
+    <marker id="fr-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fr-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+    <marker id="fr-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
+  </defs>
+
+  <!-- column labels -->
+  <text class="te" x="20" y="32">1 · RECORDS</text>
+  <text class="te" x="273" y="32">2 · STANDING</text>
+  <text class="te" x="526" y="32">3 · PROJECTION</text>
+  <text class="te" x="779" y="32">4 · VIEWS</text>
+
+  <!-- 1. records -->
+  <rect class="nb-foc" x="20" y="50" width="210" height="140" rx="6"/>
+  <text class="ta" x="32" y="68">RELATIONS</text>
+  <text class="ts" x="32" y="82">records/relations.yaml</text>
+  <text class="ts" x="32" y="100">claim: type, subject, object</text>
+  <text class="ts" x="32" y="114">basis: stated | inferred + rule</text>
+  <text class="ts" x="32" y="128">source: document, version,</text>
+  <text class="ts" x="32" y="142">state, locator</text>
+  <text class="ts t-acc" x="32" y="162">SR/QF05-PS located_in</text>
+  <text class="ts t-acc" x="32" y="176">HALL/ROW3/RK07</text>
+
+  <rect class="nb" x="20" y="205" width="210" height="80" rx="6"/>
+  <text class="ta" x="32" y="223">DOCUMENTS</text>
+  <text class="ts" x="32" y="237">documents.yaml</text>
+  <text class="ts" x="32" y="255">id, title, kind, system</text>
+  <text class="ts" x="32" y="269">rack-layout, cable-schedule, …</text>
+
+  <rect class="nb-ext" x="20" y="300" width="210" height="95" rx="6"/>
+  <text class="ta" x="32" y="318">POLICY · OPTIONAL</text>
+  <text class="ts" x="32" y="332">policy.yaml</text>
+  <text class="ts" x="32" y="350">precedence: document kinds,</text>
+  <text class="ts" x="32" y="364">per relation type</text>
+  <text class="ts" x="32" y="382">stated_over_inferred (true)</text>
+
+  <rect class="nb" x="20" y="410" width="210" height="130" rx="6"/>
+  <text class="ta" x="32" y="428">PLACES AND DEVICES</text>
+  <text class="ts" x="32" y="442">records/places.yaml,</text>
+  <text class="ts" x="32" y="456">records/devices.yaml, groups</text>
+  <text class="ts" x="32" y="474">the ends a claim names</text>
+  <text class="ts" x="32" y="492">a device may have no place:</text>
+  <text class="ts t-acc" x="32" y="506">projection (3) can give one</text>
+
+  <!-- records -> standing -->
+  <line class="e-warn" x1="230" y1="85" x2="273" y2="85" marker-end="url(#fr-arr-warn)"/>
+  <line class="e-acc" x1="230" y1="180" x2="273" y2="180" marker-end="url(#fr-arr-acc)"/>
+  <line class="e" x1="230" y1="245" x2="273" y2="245" marker-end="url(#fr-arr)"/>
+  <line class="e" x1="230" y1="340" x2="273" y2="340" marker-end="url(#fr-arr)"/>
+
+  <!-- 2. standing -->
+  <rect class="nb-warn" x="273" y="50" width="210" height="105" rx="6"/>
+  <text class="ta ta-warn" x="285" y="68">RELATION-INVALID · BUILD STOPS</text>
+  <text class="ts" x="285" y="86">an end names no kind, or two</text>
+  <text class="ts" x="285" y="100">a kind the type does not allow</text>
+  <text class="ts" x="285" y="114">inferred without a rule</text>
+  <text class="ts" x="285" y="128">a required attribute left out</text>
+  <text class="ts" x="285" y="142">subject equal to object</text>
+
+  <rect class="nb-foc" x="273" y="170" width="210" height="215" rx="6"/>
+  <text class="ta" x="285" y="188">STANDING · PER KEY</text>
+  <text class="ts" x="285" y="206">claims on one key group by the</text>
+  <text class="ts" x="285" y="220">object they state; with a policy</text>
+  <text class="ts" x="285" y="234">they rank by document kind, then</text>
+  <text class="ts" x="285" y="248">stated before inferred</text>
+  <rect class="nb" x="285" y="262" width="186" height="24" rx="12"/>
+  <text class="ts t-acc" x="297" y="277">accepted · one object, or best</text>
+  <rect class="nb-warn" x="285" y="294" width="186" height="24" rx="12"/>
+  <text class="ts" x="297" y="309">contested · objects tie</text>
+  <rect class="nb-st" x="285" y="326" width="186" height="24" rx="12"/>
+  <text class="ts" x="297" y="341">superseded · ranked below</text>
+  <text class="ts" x="285" y="372">demo: 16 accepted, 2 contested</text>
+
+  <line class="e-warn" x1="378" y1="385" x2="378" y2="400" marker-end="url(#fr-arr-warn)"/>
+
+  <rect class="nb-warn" x="273" y="400" width="210" height="140" rx="6"/>
+  <text class="ta ta-warn" x="285" y="418">WARNINGS · THE BUILD GOES ON</text>
+  <text class="ts" x="285" y="436">relation-contested · per key</text>
+  <text class="ts" x="285" y="450">a dispute leaves unsettled</text>
+  <text class="ts" x="285" y="468">relation-coarse · per type</text>
+  <text class="ts" x="285" y="482">a place end where a device fits;</text>
+  <text class="ts" x="285" y="496">a key attribute, port or unit</text>
+  <text class="ts" x="285" y="510">left out</text>
+  <text class="ts" x="285" y="528">+ identity-ambiguous, part-cycle, …</text>
+
+  <!-- standing -> graph (every standing), routed above column 3 -->
+  <polyline class="e-acc" points="483,180 505,180 505,150 779,150" marker-end="url(#fr-arr-acc)"/>
+  <text class="ta ta-acc" x="642" y="143" text-anchor="middle">EVERY STANDING</text>
+
+  <!-- standing -> projection (accepted located_in) -->
+  <line class="e-acc" x1="471" y1="274" x2="526" y2="274" marker-end="url(#fr-arr-acc)"/>
+
+  <!-- 3. projection -->
+  <rect class="nb-foc" x="526" y="170" width="210" height="215" rx="6"/>
+  <text class="ta" x="538" y="188">LOCATED_IN → DEVICE.PLACE</text>
+  <text class="ts" x="538" y="206">only when:</text>
+  <text class="ts" x="538" y="224">· the device has no place yet</text>
+  <text class="ts" x="538" y="238">(authored, fix, imported or</text>
+  <text class="ts" x="538" y="252">span come first)</text>
+  <text class="ts" x="538" y="270">· no claim on its key contested</text>
+  <text class="ts" x="538" y="288">· the accepted claims that are</text>
+  <text class="ts" x="538" y="302">not coarse name one place</text>
+  <text class="ts t-acc" x="538" y="330">provenance.place_from:</text>
+  <text class="ts t-acc" x="538" y="344">relation</text>
+  <text class="ts" x="538" y="366">the claim's unit is not copied</text>
+
+  <rect class="nb" x="526" y="400" width="210" height="140" rx="6"/>
+  <text class="ta" x="538" y="418">IN THE DEMO</text>
+  <text class="ts t-acc" x="538" y="436">SR/BPM13-EL → HALL/ROW3/RK08</text>
+  <text class="ts" x="538" y="450">one place, no dispute</text>
+  <text class="ts" x="538" y="474">SR/QF05-PS → no place</text>
+  <text class="ts" x="538" y="488">rack-layout and cable-schedule</text>
+  <text class="ts" x="538" y="502">disagree: contested, warned</text>
+
+  <!-- projection -> views that read the place -->
+  <line class="e-acc" x1="736" y1="330" x2="779" y2="330" marker-end="url(#fr-arr-acc)"/>
+
+  <!-- 4. views -->
+  <rect class="nb" x="779" y="50" width="210" height="215" rx="6"/>
+  <text class="ta" x="791" y="68">GRAPH · READS EVERY CLAIM</text>
+  <text class="ts" x="791" y="82">data/graph/facility.ttl</text>
+  <text class="ts" x="791" y="100">accepted → edge: poweredBy,</text>
+  <text class="ts" x="791" y="114">cabledTo, locatedIn, …</text>
+  <text class="ts" x="791" y="132">contested → …Contested twin</text>
+  <text class="ts" x="791" y="146">(locatedInContested)</text>
+  <text class="ts" x="791" y="164">superseded → no edge</text>
+  <text class="ts" x="791" y="182">claims: all | contested | none</text>
+  <text class="ts" x="791" y="196">picks narad_sem:Claim nodes</text>
+  <text class="ts" x="791" y="214">basis: stated drops inferred</text>
+  <text class="ts" x="791" y="228">claims, and a projected</text>
+  <text class="ts" x="791" y="242">locatedIn no stated claim backs</text>
+
+  <rect class="nb" x="779" y="280" width="210" height="130" rx="6"/>
+  <text class="ta" x="791" y="298">READ THE PROJECTED PLACE</text>
+  <text class="ts" x="791" y="316">facts: place counts, classes</text>
+  <text class="ts" x="791" y="330">of unplaced devices</text>
+  <text class="ts" x="791" y="348">channel finder hierarchical:</text>
+  <text class="ts" x="791" y="362">levels from channel places</text>
+  <text class="ts" x="791" y="380">channel finder middle_layer:</text>
+  <text class="ts" x="791" y="394">System = the device's top place</text>
+
+  <rect class="nb-ext" x="779" y="425" width="210" height="115" rx="6"/>
+  <text class="ta" x="791" y="443">READ NO RELATIONS</text>
+  <text class="ts" x="791" y="461">channel finder in_context,</text>
+  <text class="ts" x="791" y="475">pyaml, simulator, bluesky,</text>
+  <text class="ts" x="791" y="489">limits, benchmarks</text>
+  <text class="ts" x="791" y="511">a claim changes none of them</text>
+
+  <text class="ts" x="20" y="580">Warnings never stop the build; relation-invalid does. A disputed key projects nothing: its warning is the report.</text>
+</svg>
+</div>
