@@ -12,7 +12,10 @@ import { fetchJSON, postJSON, deleteJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { facilityZoneLabel, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { formModal, confirmModal } from './modal.js';
+import { icon } from '/design-system/js/icons.js';
+import { renderState } from '/design-system/js/panel-state.js';
 import { showToast } from '/design-system/js/toast.js';
+import { setResultCount } from './panel-toolbar.js';
 import {
   getContainer,
   setContainer,
@@ -38,6 +41,7 @@ export function mountFeedback(container) {
 export function unmountFeedback() {
   setContainer(null);
   setCurrentKey(null);
+  setResultCount('');
 }
 
 // ---- Rendering ----
@@ -45,16 +49,17 @@ export function unmountFeedback() {
 async function _render() {
   const container = getContainer();
   if (!container) return;
-  container.innerHTML =
-    '<div class="loading-center"><div class="loading-spinner"></div> Loading feedback...</div>';
+  setResultCount('');
+  renderState(container, { icon: 'refresh', message: 'Loading feedback' });
 
   try {
     const status = await fetchJSON('/api/feedback/status');
+    if (getContainer() !== container) return;
     if (!status.available) {
       // Two different "no feedback store" answers, and only the paradigm tells
       // them apart. The graph paradigm keeps no hint store by design, yet the
       // capture hook fills the pending queue there like anywhere else — so
-      // showing the lock screen hid real captured searches behind advice to
+      // showing the switched-off state hid real captured searches behind advice to
       // switch on a setting that paradigm does not have.
       if (status.paradigm === 'graph') {
         await _renderGraphReviews();
@@ -69,30 +74,32 @@ async function _render() {
       await _renderList();
     }
   } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div>Failed to load feedback: ${esc(messageOf(e))}</div>`;
+    if (getContainer() !== container) return;
+    setResultCount('');
+    renderState(container, {
+      icon: 'triangle-alert',
+      message: 'Feedback could not be read',
+      detail: messageOf(e),
+      action: { label: 'Retry', onClick: () => void _render() },
+    });
   }
 }
 
 /**
- * Feedback is switched off for a paradigm that supports it. Operator language,
- * and deliberately no dotted config key: the pane names the setting the way
- * the Explore view's panes do, because the key that was printed here is
- * hierarchical-only and this pane is reached from several paradigms.
+ * Feedback is switched off for a paradigm that supports it. Deliberately no
+ * dotted config key: the state names the setting the way the Explore view's
+ * panes do, because the key is hierarchical-only and this view is reached
+ * from several paradigms.
  */
 function _renderDisabled() {
   const container = getContainer();
   if (!container) return;
-  container.innerHTML = `
-    <div class="fb-disabled">
-      <div class="fb-disabled-icon">&#128274;</div>
-      <div class="fb-disabled-title">Feedback is switched off for this deployment</div>
-      <div class="fb-disabled-hint">
-        Feedback records the paths that answered a channel search so the agent
-        can reuse them. Check the channel finder feedback setting in your
-        configuration, then reload this panel.
-      </div>
-    </div>
-  `;
+  renderState(container, {
+    icon: 'settings',
+    message: 'Feedback is switched off for this deployment',
+    detail:
+      'Check the channel finder feedback setting in the configuration, then reload this panel.',
+  });
 }
 
 /**
@@ -113,6 +120,7 @@ async function _renderGraphReviews() {
       s.available ? fetchJSON('/api/pending-reviews') : { items: [] }
     )
     .catch(() => ({ items: [] }));
+  if (getContainer() !== container) return;
 
   container.innerHTML = `
     <div class="fb-paradigm-note">
@@ -143,6 +151,7 @@ async function _renderList() {
       )
       .catch(() => ({ items: [] })),
   ]);
+  if (getContainer() !== container) return;
   const entries = data.entries || [];
   const pendingItems = pendingData.items || [];
 
@@ -154,41 +163,36 @@ async function _renderList() {
     (/** @type {number} */ s, /** @type {any} */ e) => s + e.failure_count,
     0
   );
+  setResultCount(
+    [
+      counted(entries.length, 'entry', 'entries'),
+      counted(totalSuccesses, 'success', 'successes'),
+      counted(totalFailures, 'failure', 'failures'),
+    ].join(' · ')
+  );
 
   const activityHeader = viewerSharesFacilityClock()
     ? 'Last Activity'
     : `Last Activity (${facilityZoneLabel()})`;
 
+  // The section's actions keep their slots: Clear all is disabled, never
+  // removed, while there is nothing to clear (DESIGN.md §12.1).
+  const clearTitle = entries.length > 0 ? 'Clear all' : 'No entries to clear';
   let html = `
-    <div class="fb-toolbar">
-      <div class="fb-toolbar-left">
-        <div class="fb-stat">
-          Entries: <span class="fb-stat-value">${entries.length}</span>
-        </div>
-        <div class="fb-stat">
-          Successes: <span class="fb-stat-value fb-stat-success">${totalSuccesses}</span>
-        </div>
-        <div class="fb-stat">
-          Failures: <span class="fb-stat-value fb-stat-failure">${totalFailures}</span>
-        </div>
+    <section class="fb-entries">
+      <div class="fb-section-head">
+        <span class="osprey-section-label">Entries</span>
+        <button type="button" class="osprey-icon-btn" data-action="new"
+                aria-label="New entry" title="New entry"></button>
+        <button type="button" class="osprey-icon-btn" data-action="export"
+                aria-label="Export" title="Export"></button>
+        <button type="button" class="osprey-icon-btn" data-action="clear"
+                aria-label="Clear all" title="${clearTitle}"${entries.length > 0 ? '' : ' disabled'}></button>
       </div>
-      <div class="fb-toolbar-right">
-        <!-- ORDER IS THE LAYOUT. space-between pins this cluster's right edge,
-             so a member's arrival moves everything BEFORE it and nothing after
-             it. Clear All is the conditional member (it exists only while
-             there are entries), so it goes FIRST: it appears on the very
-             action that creates the first entry, and the other order shoved
-             the persistent Add/Export pair sideways on that click. -->
-        ${entries.length > 0 ? '<button class="btn btn-danger btn-sm" id="fb-clear-btn">Clear All</button>' : ''}
-        <button class="btn btn-secondary btn-sm" id="fb-add-btn">+ Add Entry</button>
-        <button class="btn btn-secondary btn-sm" id="fb-export-btn">Export</button>
-      </div>
-    </div>
   `;
 
   if (entries.length === 0) {
-    html +=
-      '<div class="empty-state"><div class="empty-state-icon">&#128203;</div>No feedback entries yet.<br>Use the Search tab to record feedback, or review agent-captured searches below.</div>';
+    html += '<div class="fb-entries-empty"></div>';
   } else {
     html += `
       <div class="table-wrapper">
@@ -209,12 +213,13 @@ async function _renderList() {
                 (/** @type {any} */ e) => `
               <tr class="fb-table-row" data-key="${esc(e.key)}">
                 <td>${esc(e.query)}</td>
-                <td><span class="font-mono" style="font-size: var(--text-sm);">${esc(e.facility)}</span></td>
+                <td><span class="fb-facility">${esc(e.facility)}</span></td>
                 <td><span class="fb-stat-value fb-stat-success">${e.success_count}</span></td>
                 <td><span class="fb-stat-value fb-stat-failure">${e.failure_count}</span></td>
-                <td style="color: var(--text-muted); font-size: var(--text-sm);">${_formatTime(e.last_activity)}</td>
+                <td class="fb-activity">${_formatTime(e.last_activity)}</td>
                 <td>
-                  <button class="item-action-btn action-delete fb-row-delete" data-key="${esc(e.key)}" title="Delete entry">&times;</button>
+                  <button type="button" class="osprey-mini fb-row-delete" data-key="${esc(e.key)}"
+                          aria-label="Delete entry" title="Delete entry"></button>
                 </td>
               </tr>
             `
@@ -225,6 +230,7 @@ async function _renderList() {
       </div>
     `;
   }
+  html += '</section>';
 
   // ---- Pending Reviews Section ----
   // Shared with the graph view (see _renderGraphReviews); here the deployment
@@ -232,6 +238,18 @@ async function _renderList() {
   html += _renderPendingSection(pendingItems, { canPromote: true });
 
   container.innerHTML = html;
+  container.querySelector('[data-action="new"]')?.append(icon('plus'));
+  container.querySelector('[data-action="export"]')?.append(icon('download'));
+  container.querySelector('[data-action="clear"]')?.append(icon('trash'));
+  for (const remove of container.querySelectorAll('.fb-row-delete')) remove.append(icon('x'));
+  const empty = /** @type {HTMLElement|null} */ (container.querySelector('.fb-entries-empty'));
+  if (empty) {
+    renderState(empty, {
+      icon: 'file-text',
+      message: 'No feedback entries yet',
+      detail: 'Add one with New entry, or approve a captured search below.',
+    });
+  }
   _bindListEvents();
   _bindPendingEvents();
 }
@@ -272,17 +290,9 @@ function _bindListEvents() {
     });
   });
 
-  // Add entry
-  const addBtn = container.querySelector('#fb-add-btn');
-  if (addBtn) addBtn.addEventListener('click', _handleAddEntry);
-
-  // Export
-  const exportBtn = container.querySelector('#fb-export-btn');
-  if (exportBtn) exportBtn.addEventListener('click', _handleExport);
-
-  // Clear all
-  const clearBtn = container.querySelector('#fb-clear-btn');
-  if (clearBtn) clearBtn.addEventListener('click', _handleClearAll);
+  container.querySelector('[data-action="new"]')?.addEventListener('click', _handleAddEntry);
+  container.querySelector('[data-action="export"]')?.addEventListener('click', _handleExport);
+  container.querySelector('[data-action="clear"]')?.addEventListener('click', _handleClearAll);
 }
 
 function _bindPendingEvents() {
@@ -330,12 +340,22 @@ function _bindPendingEvents() {
     btn.addEventListener('click', () => {
       const overflow = /** @type {HTMLElement|null} */ (btn.previousElementSibling);
       if (!overflow) return;
-      const isHidden = overflow.style.display === 'none';
-      overflow.style.display = isHidden ? 'contents' : 'none';
+      const isHidden = overflow.hidden;
+      overflow.hidden = !isHidden;
       const count = /** @type {HTMLElement} */ (btn).dataset.full;
       btn.textContent = isHidden ? 'show less' : `+${count} more`;
     });
   });
+}
+
+/**
+ * @param {number} n
+ * @param {string} one
+ * @param {string} many
+ * @returns {string}
+ */
+function counted(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 // ---- Actions ----

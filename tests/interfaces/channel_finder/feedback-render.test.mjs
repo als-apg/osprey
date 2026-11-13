@@ -1,7 +1,8 @@
 // @ts-check
 /**
  * Unit tests for the feedback pure render/parse helpers (feedback-render.js),
- * extracted from feedback.js during the P3 retrofit. Pure logic, no DOM/network:
+ * extracted from feedback.js during the P3 retrofit. No network; the markup
+ * cases parse into a detached element:
  *   npx vitest run tests/interfaces/channel_finder/feedback-render.test.mjs
  */
 
@@ -16,6 +17,9 @@ import {
   _parseChannelsFromResponse,
   _parseSelections,
   _formatTime,
+  _renderChannelList,
+  _renderPendingSection,
+  _renderSelections,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback-render.js';
 
 afterEach(() => stampFacilityZone(null));
@@ -100,4 +104,29 @@ test('_formatTime renders nothing for empty input and shows an unparseable value
   expect(_formatTime('')).toBe('');
   expect(_formatTime(undefined)).toBe('');
   expect(_formatTime('not-a-time')).toBe('not-a-time');
+});
+
+test('_renderSelections marks an empty map with a class, never an inline style', () => {
+  const html = _renderSelections({});
+  expect(html).toBe('<span class="fb-sel-empty">(empty)</span>');
+});
+
+test('_renderChannelList hides the overflow with the hidden attribute', () => {
+  const html = _renderChannelList(['A', 'B', 'C', 'D', 'E']);
+  expect(html).toContain('<div class="fb-pending-channels-overflow" hidden>');
+  expect(html).not.toContain('style=');
+});
+
+test('_renderPendingSection draws design-system buttons', () => {
+  const doc = document.createElement('div');
+  doc.innerHTML = _renderPendingSection([{ id: 'i1', query: 'q', selections: {} }]);
+  const buttons = [...doc.querySelectorAll('button')].map((b) => b.className);
+  expect(buttons).toEqual([
+    'osprey-btn primary fb-pending-approve',
+    'osprey-btn fb-pending-dismiss',
+  ]);
+  doc.innerHTML = _renderPendingSection([{ id: 'i1', query: 'q' }], { canPromote: false });
+  expect([...doc.querySelectorAll('button')].map((b) => b.className)).toEqual([
+    'osprey-btn fb-pending-dismiss',
+  ]);
 });
