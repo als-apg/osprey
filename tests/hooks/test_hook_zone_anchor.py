@@ -707,7 +707,7 @@ def test_feedback_capture_lands_where_the_review_app_reads_under_a_relocated_roo
 ):
     """Under a relocated ``agent_data.base_dir`` the capture and the app still pair.
 
-    The hook writes the pending-review store and the channel-finder app reads it;
+    The hook writes the pending-review store and the channel finder reads it;
     both resolve the same key, so both move together.
     """
     import yaml

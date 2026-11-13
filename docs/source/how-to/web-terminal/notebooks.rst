@@ -18,7 +18,7 @@ Turning the panel on
 The panel is a built-in with the id ``jupyter``. The ``demo``
 preset selects it, so every tier of a standard build has the tab. The
 ``hello-world`` preset and the bundled logbook, knowledge and channel-finder
-apps do not select it.
+logins do not select it.
 
 Name it under ``web_panels`` to add it to a build profile of your own:
 
