@@ -493,15 +493,21 @@ four <code class="docutils literal notranslate"><span class="pre">graph</span></
 <h2>What the Graph Holds<a class="headerlink" href="#what-the-graph-holds" title="Link to this heading">#</a></h2>
 <p>The corpus is a Turtle (<code class="docutils literal notranslate"><span class="pre">.ttl</span></code>) file in the NARAD convention — facts written
 as subject-predicate-object triples — which the neosemantics plugin turns into
-the nodes and relationships a query walks. Four kinds of thing matter to a
+the nodes and relationships a query walks. Seven kinds of thing matter to a
 query:</p>
 <ul class="simple">
+<li><p><strong>Places</strong> — one node per place, carrying <code class="docutils literal notranslate"><span class="pre">placePath</span></code> (its id) and
+<code class="docutils literal notranslate"><span class="pre">sectionCode</span></code>, and, unless it is a top place, one <code class="docutils literal notranslate"><span class="pre">PARTOF</span></code> to its parent
+place. A place has no RDF class, so its only label is <code class="docutils literal notranslate"><span class="pre">Resource</span></code>.</p></li>
 <li><p><strong>Devices</strong> — one node per physical device, carrying <code class="docutils literal notranslate"><span class="pre">deviceId</span></code>,
 <code class="docutils literal notranslate"><span class="pre">sourceName</span></code> (the device’s id), <code class="docutils literal notranslate"><span class="pre">system</span></code>, <code class="docutils literal notranslate"><span class="pre">placePath</span></code> and <code class="docutils literal notranslate"><span class="pre">sectionCode</span></code>, plus
 <code class="docutils literal notranslate"><span class="pre">sPositionM</span></code> (position along the beamline, in metres), <code class="docutils literal notranslate"><span class="pre">lengthM</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ordinalInPlace</span></code> and <code class="docutils literal notranslate"><span class="pre">ordinalInModel</span></code>, each only when the facility file
 carries it, and the prose for the levels the device sits under:
-<code class="docutils literal notranslate"><span class="pre">familyDescription</span></code> and <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">familyDescription</span></code> (from the smallest described group of kind <code class="docutils literal notranslate"><span class="pre">family</span></code>
+naming the device) and <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code>. A device with a place
+reaches it over <code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code>. Relation claims add edges between devices,
+places and groups (<a class="reference internal" href="#relations">Relations</a>).</p></li>
 <li><p><strong>Channel bindings</strong> — one node per control system address, carrying
 <code class="docutils literal notranslate"><span class="pre">bindingId</span></code>, <code class="docutils literal notranslate"><span class="pre">fullPv</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code>, the sentence written for that
 one channel. A device reaches its bindings over <code class="docutils literal notranslate"><span class="pre">HASBINDING</span></code>.</p></li>
@@ -514,7 +520,20 @@ server’s settables and readables come from those same roles
 typed by <code class="docutils literal notranslate"><span class="pre">TYPE</span></code>. This is what lets “every magnet” find an <code class="docutils literal notranslate"><span class="pre">HCorrector</span></code>
 without the query naming <code class="docutils literal notranslate"><span class="pre">HCorrector</span></code>. Classes also carry the synonyms an
 operator would say out loud, as <code class="docutils literal notranslate"><span class="pre">skos:altLabel</span></code>.</p></li>
+<li><p><strong>Claims</strong> — one <code class="docutils literal notranslate"><span class="pre">:Claim</span></code> node per relation claim the
+<code class="docutils literal notranslate"><span class="pre">facility_graph</span></code> settings keep (by default every claim), holding the
+evidence behind its edge (<a class="reference internal" href="#relations">Relations</a>).</p></li>
+<li><p><strong>Groups</strong> — one <code class="docutils literal notranslate"><span class="pre">:Group</span></code> node per group that is an end of a written
+claim, carrying <code class="docutils literal notranslate"><span class="pre">groupId</span></code>, <code class="docutils literal notranslate"><span class="pre">groupKind</span></code> (<code class="docutils literal notranslate"><span class="pre">family</span></code> or <code class="docutils literal notranslate"><span class="pre">section</span></code>) and
+its names, and one <code class="docutils literal notranslate"><span class="pre">HASMEMBER</span></code> to each member device. A group no claim names is no node.</p></li>
 </ul>
+<p>Places, devices, channel bindings and groups carry their names as
+<code class="docutils literal notranslate"><span class="pre">altLabel</span></code>, a list; a place’s or device’s alias names (<code class="docutils literal notranslate"><span class="pre">scheme_names</span></code>) are
+entries too. A name is an identifier, so match a whole entry, ignoring case — <code class="docutils literal notranslate"><span class="pre">CONTAINS</span></code>
+would let <code class="docutils literal notranslate"><span class="pre">U1</span></code> match <code class="docutils literal notranslate"><span class="pre">U10</span></code>:</p>
+<div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="n">n</span><span class="p">:</span><span class="n">Class</span><span class="w"> </span><span class="n">AND</span><span class="w"> </span><span class="k">ANY</span><span class="p">(</span><span class="n">l</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="n">n</span><span class="p">.</span><span class="n">altLabel</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">toLower</span><span class="p">(</span><span class="n">l</span><span class="p">)</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">toLower</span><span class="p">(</span><span class="err">$</span><span class="n">name</span><span class="p">))</span>
+</pre></div>
+</div>
 <p>The descriptions are what makes the graph reachable from a phrase rather than
 only from a name: “the magnets that bend the beam” matches text no address
 spells. They sit on bindings rather than on signals because a description is
@@ -535,11 +554,131 @@ Property names keep their original spelling. A query naming something that
 does not exist returns zero rows rather than an error, so a guess produces a
 confident wrong answer — which is what <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> is for.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">altLabel</span></code> is a <strong>list</strong>, not a string: the store keeps every synonym
-instead of letting the last one win. Match it with
-<code class="docutils literal notranslate"><span class="pre">ANY(l</span> <span class="pre">IN</span> <span class="pre">c.altLabel</span> <span class="pre">WHERE</span> <span class="pre">l</span> <span class="pre">=</span> <span class="pre">$label)</span></code>. Comparing it to a string —
-<code class="docutils literal notranslate"><span class="pre">c.altLabel</span> <span class="pre">=</span> <span class="pre">$label</span></code> — is a list against a text and never matches, and the
-string operators do not apply to it at all.</p></li>
+instead of letting the last one win. Match a class synonym over
+<code class="docutils literal notranslate"><span class="pre">(c:Class)</span></code> with <code class="docutils literal notranslate"><span class="pre">ANY(l</span> <span class="pre">IN</span> <span class="pre">c.altLabel</span> <span class="pre">WHERE</span> <span class="pre">toLower(l)</span> <span class="pre">CONTAINS</span> <span class="pre">$term)</span></code>.
+Never compare the list itself with <code class="docutils literal notranslate"><span class="pre">=</span></code>: <code class="docutils literal notranslate"><span class="pre">c.altLabel</span> <span class="pre">=</span> <span class="pre">$term</span></code> is a list
+against a text and never matches, and the string operators do not apply to
+the list at all.</p></li>
 </ul>
+</section>
+<section id="relations">
+<h2>Relations<a class="headerlink" href="#relations" title="Link to this heading">#</a></h2>
+<p>Each relation claim in the facility file
+(<a class="reference internal" href="../../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>) is an edge from its subject end to its
+object end, each end the device, place or group it names. The edge is one
+relationship type per relation type:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Relation type</p></th>
+<th class="head"><p>Relationship</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">part_of</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">PARTOF</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">located_in</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">powered_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">POWEREDBY</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cabled_to</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">CABLEDTO</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">read_out_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">READOUTBY</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">controlled_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">CONTROLLEDBY</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">triggered_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TRIGGEREDBY</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">interlocked_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTERLOCKEDBY</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bounded_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">BOUNDEDBY</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">networked_to</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">NETWORKEDTO</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">supplied_by</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SUPPLIEDBY</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">same_as</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SAMEAS</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">runs_on</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">RUNSON</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The claim’s <code class="docutils literal notranslate"><span class="pre">standing</span></code> picks the edge. An <code class="docutils literal notranslate"><span class="pre">accepted</span></code> claim is the plain
+relationship. A <code class="docutils literal notranslate"><span class="pre">contested</span></code> claim is its contested twin, the type with
+<code class="docutils literal notranslate"><span class="pre">CONTESTED</span></code> appended (<code class="docutils literal notranslate"><span class="pre">POWEREDBYCONTESTED</span></code>), so a walk over plain
+relationships never crosses a disputed fact. A <code class="docutils literal notranslate"><span class="pre">superseded</span></code> claim is no edge.
+Ports and units do not change the edge, and equal claims from several sources
+are one edge. <code class="docutils literal notranslate"><span class="pre">CABLEDTO</span></code>, <code class="docutils literal notranslate"><span class="pre">NETWORKEDTO</span></code> and <code class="docutils literal notranslate"><span class="pre">SAMEAS</span></code> are symmetric, one
+edge per pair of ends: match them undirected, <code class="docutils literal notranslate"><span class="pre">(a)-[:CABLEDTO]-(b)</span></code>.
+<code class="docutils literal notranslate"><span class="pre">SAMEAS</span></code> is a claim like any other; nothing merges two records on it. How a
+claim gets its standing, and a worked example: <a class="reference internal" href="../../architecture/facility-relations.html"><span class="doc">Facility Relations</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">PARTOF</span></code> and <code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code> each gain a meaning. <code class="docutils literal notranslate"><span class="pre">PARTOF</span></code> also joins a
+device to a device. A <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claim naming a device’s own place adds
+nothing, but one naming another place is a second <code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code>, so a query
+can get two rows for one device; the resolved place is the one its
+<code class="docutils literal notranslate"><span class="pre">placePath</span></code> names.</p>
+<p>Each claim the <code class="docutils literal notranslate"><span class="pre">facility_graph</span></code> settings keep (by default every claim) is
+also a <code class="docutils literal notranslate"><span class="pre">:Claim</span></code> node, the evidence behind its edge. It reaches
+its two ends over <code class="docutils literal notranslate"><span class="pre">CLAIMSUBJECT</span></code> and <code class="docutils literal notranslate"><span class="pre">CLAIMOBJECT</span></code>, and each rival that has
+a claim node too over <code class="docutils literal notranslate"><span class="pre">CONTESTS</span></code>. It carries these properties, each only when
+the claim has it: <code class="docutils literal notranslate"><span class="pre">claimId</span></code>, <code class="docutils literal notranslate"><span class="pre">relationType</span></code>, <code class="docutils literal notranslate"><span class="pre">basis</span></code> (<code class="docutils literal notranslate"><span class="pre">stated</span></code> when the
+claim states none), <code class="docutils literal notranslate"><span class="pre">rule</span></code>, <code class="docutils literal notranslate"><span class="pre">standing</span></code>, <code class="docutils literal notranslate"><span class="pre">document</span></code>, <code class="docutils literal notranslate"><span class="pre">documentVersion</span></code>,
+<code class="docutils literal notranslate"><span class="pre">documentState</span></code>, <code class="docutils literal notranslate"><span class="pre">locator</span></code>, <code class="docutils literal notranslate"><span class="pre">subjectPort</span></code>, <code class="docutils literal notranslate"><span class="pre">objectPort</span></code>,
+<code class="docutils literal notranslate"><span class="pre">subjectUnit</span></code> and <code class="docutils literal notranslate"><span class="pre">objectUnit</span></code>. Each scalar attribute is one more property
+(a bool as <code class="docutils literal notranslate"><span class="pre">&quot;true&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;false&quot;</span></code>), under its key when the key is an
+identifier the graph does not already use, else under <code class="docutils literal notranslate"><span class="pre">attribute_</span></code> and the
+key with each byte outside <code class="docutils literal notranslate"><span class="pre">[A-Za-z0-9_]</span></code> written <code class="docutils literal notranslate"><span class="pre">_xHH_</span></code>: <code class="docutils literal notranslate"><span class="pre">cable-id</span></code> is
+<code class="docutils literal notranslate"><span class="pre">attribute_cable_x2D_id</span></code>. A claim whose end is a group reaches the
+<code class="docutils literal notranslate"><span class="pre">:Group</span></code> node, which carries <code class="docutils literal notranslate"><span class="pre">groupId</span></code> and <code class="docutils literal notranslate"><span class="pre">groupKind</span></code> and reaches each
+member device over <code class="docutils literal notranslate"><span class="pre">HASMEMBER</span></code>.</p>
+<p>Two settings of the deployment’s config choose what is written:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 30.0%" />
+<col style="width: 44.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Setting</p></th>
+<th class="head"><p>Values</p></th>
+<th class="head"><p>What it writes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility_graph.claims</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code> (default), <code class="docutils literal notranslate"><span class="pre">contested</span></code>, <code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+<td><p>Which claims get a <code class="docutils literal notranslate"><span class="pre">:Claim</span></code> node: every claim, the claims in a
+dispute (a non-empty <code class="docutils literal notranslate"><span class="pre">contests</span></code>, so under a policy the winner and the
+superseded loser too), or none. The edges stay the same.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility_graph.basis</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">all</span></code> (default), <code class="docutils literal notranslate"><span class="pre">stated</span></code></p></td>
+<td><p>Whether <code class="docutils literal notranslate"><span class="pre">inferred</span></code> claims and inferred alias names appear at all.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Any other value stops the render with a message naming the setting and its
+values. Under <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">stated</span></code> each kept claim shows the standing the build
+stamped, so a stated claim an inferred rival contests stays contested, with
+that rival out of the graph.</p>
 </section>
 <section id="the-four-tools">
 <h2>The Four Tools<a class="headerlink" href="#the-four-tools" title="Link to this heading">#</a></h2>
@@ -643,6 +782,7 @@ query — add a filter, bound the traversal, or aggregate.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-graph-holds">What the Graph Holds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#relations">Relations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-four-tools">The Four Tools</a></li>
 </ul>
   </nav></div>

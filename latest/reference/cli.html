@@ -1536,13 +1536,29 @@ one <code class="docutils literal notranslate"><span class="pre">facility:</span
 on stderr; the exit code is unchanged.
 Each link of a knowledge page under <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge</span></code> that the
 facility file does not hold, a <code class="docutils literal notranslate"><span class="pre">device_id</span></code> that is no device id or a
-<code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in the body that names no channel or device, prints one
+<code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in the body that names no channel or device (or, as
+<code class="docutils literal notranslate"><span class="pre">facility:place/&lt;id&gt;</span></code>, no place), prints one
 <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">link-dangling:</span> <span class="pre">page</span> <span class="pre">&lt;path&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning, in
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and in this command; the exit code is unchanged.
 A measurement kind no installed package registers, in a tree that mounts no
 machine root and lists no application and no dependency, prints one
 <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">kind-deferred:</span> <span class="pre">measurement</span> <span class="pre">&lt;model&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning, in
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and in this command; the exit code is unchanged.
+A group whose sources state different members prints one
+<code class="docutils literal notranslate"><span class="pre">members-disagree</span></code> warning naming which source states which member; the
+group carries them all.
+Relation claims print, in both commands and with the exit code unchanged,
+one <code class="docutils literal notranslate"><span class="pre">relation-contested</span></code> warning per key a dispute leaves unsettled, one
+<code class="docutils literal notranslate"><span class="pre">relation-coarse</span></code> per relation type with coarse claims, one
+<code class="docutils literal notranslate"><span class="pre">alias-shared</span></code> per scheme name two records carry, one
+<code class="docutils literal notranslate"><span class="pre">identity-ambiguous</span></code> per imported layer holding two devices one
+<code class="docutils literal notranslate"><span class="pre">same_as</span></code> chain joins, one <code class="docutils literal notranslate"><span class="pre">part-cycle</span></code> per loop of <code class="docutils literal notranslate"><span class="pre">part_of</span></code> and
+<code class="docutils literal notranslate"><span class="pre">runs_on</span></code> claims, one <code class="docutils literal notranslate"><span class="pre">relation-stub</span></code> per imported layer with
+<code class="docutils literal notranslate"><span class="pre">Unidentified</span></code> devices that claims name, and one <code class="docutils literal notranslate"><span class="pre">place-unplaced</span></code> per
+place a relations layer creates top-level with no citation. This command alone then closes stderr with one summary line,
+<code class="docutils literal notranslate"><span class="pre">relations:</span> <span class="pre">&lt;n&gt;</span> <span class="pre">claims</span> <span class="pre">(&lt;s&gt;</span> <span class="pre">stated,</span> <span class="pre">&lt;i&gt;</span> <span class="pre">inferred);</span> <span class="pre">&lt;a&gt;</span> <span class="pre">accepted,</span> <span class="pre">&lt;c&gt;</span> <span class="pre">contested</span></code>,
+followed by <code class="docutils literal notranslate"><span class="pre">,</span> <span class="pre">&lt;x&gt;</span> <span class="pre">superseded</span></code> when any are; a claim without <code class="docutils literal notranslate"><span class="pre">basis</span></code>
+counts as stated, and a file with no claims prints no line.
 The check converts a monitor reading to position with one slope, taken at
 the centred beam; that is exact for a straight-line (gain and offset)
 calibration, and a table-calibrated monitor is left out of the check and
@@ -1556,31 +1572,47 @@ exit code. <code class="docutils literal notranslate"><span class="pre">--repo</
 deployment repo; without it, the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above the
 current directory is used.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">[--json]</span> <span class="pre">[ID]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Build the facility in memory as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> does, and exit
-1 like it, with its lines on stderr, when the build stops. Without <code class="docutils literal notranslate"><span class="pre">ID</span></code> it
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">[--json]</span> <span class="pre">[TEXT]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Build the facility in memory as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> does, and exit
+1 like it, with its lines on stderr, when the build stops. Without <code class="docutils literal notranslate"><span class="pre">TEXT</span></code> it
 prints the identity, the record count per kind (places, devices, channels,
-groups) and the wiring record count per model, each model with its engine,
+groups), the relation claim count and the wiring record count per model,
+each model with its engine,
 whether the main render serves it and its solve setting, and each view with
 its path under the render and whether it is written. The views are those of
 the main render, <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; a login’s selection does not change
 them. A view that is not written names the config key or model fact that
-left it out. With <code class="docutils literal notranslate"><span class="pre">ID</span></code> it prints every place, device, channel, group or
-model of that id, each under its kind, with its provenance (the layer and
-file each field came from, the fields the build filled) and the fixes
-applied to it. An id that names no record prints
-<code class="docutils literal notranslate"><span class="pre">facility</span> <span class="pre">show:</span> <span class="pre">no</span> <span class="pre">record</span> <span class="pre">&lt;id&gt;</span></code> on stderr and exits 1. <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints
+left it out. With <code class="docutils literal notranslate"><span class="pre">TEXT</span></code> it prints every place, device, channel, group or
+model of that id; when there is none, the relation claim of that id; when
+there is none, the places and devices <code class="docutils literal notranslate"><span class="pre">TEXT</span></code> names by a <code class="docutils literal notranslate"><span class="pre">names</span></code> or
+<code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> name, or, for a place, by the last segment of its id
+(<code class="docutils literal notranslate"><span class="pre">S01</span></code> finds <code class="docutils literal notranslate"><span class="pre">SR/S01</span></code>, never <code class="docutils literal notranslate"><span class="pre">SR/XS01</span></code>). Each record prints under its
+kind with its provenance (the layer and file each field came from, the
+fields the build filled) and the fixes applied to it; a header
+<code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;</span> <span class="pre">&lt;id&gt;</span> <span class="pre">(match:</span> <span class="pre">&lt;match&gt;)</span></code> marks a record <code class="docutils literal notranslate"><span class="pre">TEXT</span></code> did not name by id.
+A place or device lists the claims it is an end of, one line each: id,
+the claim read subject first with the record itself written <code class="docutils literal notranslate"><span class="pre">(this)</span></code>
+(<code class="docutils literal notranslate"><span class="pre">type</span> <span class="pre">&lt;other&gt;</span></code> when the record is the subject, <code class="docutils literal notranslate"><span class="pre">&lt;other&gt;</span> <span class="pre">type</span> <span class="pre">(this)</span></code>
+when it is the object, <code class="docutils literal notranslate"><span class="pre">(this)</span> <span class="pre">type</span> <span class="pre">(this)</span></code> when it is both), standing,
+and the unit when the claim’s place end gives one. A
+<code class="docutils literal notranslate"><span class="pre">TEXT</span></code> that matches nothing prints
+<code class="docutils literal notranslate"><span class="pre">facility</span> <span class="pre">show:</span> <span class="pre">no</span> <span class="pre">record</span> <span class="pre">&lt;text&gt;</span></code> on stderr and exits 1. <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints
 one JSON document on stdout and every other line, view notes included, on
 stderr; on an error stdout is empty. The facility
 document’s keys are <code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">counts</span></code> (<code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
-<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, and <code class="docutils literal notranslate"><span class="pre">wiring</span></code> keyed by model), <code class="docutils literal notranslate"><span class="pre">models</span></code>
+<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">relations</span></code>, and <code class="docutils literal notranslate"><span class="pre">wiring</span></code> keyed by model), <code class="docutils literal notranslate"><span class="pre">models</span></code>
 (<code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">engine</span></code>, <code class="docutils literal notranslate"><span class="pre">served</span></code>, <code class="docutils literal notranslate"><span class="pre">solve</span></code>) and <code class="docutils literal notranslate"><span class="pre">views</span></code> (<code class="docutils literal notranslate"><span class="pre">name</span></code>,
 <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">written</span></code>, and <code class="docutils literal notranslate"><span class="pre">reason</span></code> only on a view that is not written);
 the record document is <code class="docutils literal notranslate"><span class="pre">records</span></code>, one entry per record with <code class="docutils literal notranslate"><span class="pre">record</span></code>,
-<code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance</span></code> and <code class="docutils literal notranslate"><span class="pre">fixes_applied</span></code>, in place, device, channel,
-group, model order.</p>
+<code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">match</span></code> (<code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">claim</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code> or <code class="docutils literal notranslate"><span class="pre">segment</span></code>),
+<code class="docutils literal notranslate"><span class="pre">provenance</span></code> and <code class="docutils literal notranslate"><span class="pre">fixes_applied</span></code>, and <code class="docutils literal notranslate"><span class="pre">claims</span></code> on a place or device
+(<code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">other</span></code>, <code class="docutils literal notranslate"><span class="pre">standing</span></code>, <code class="docutils literal notranslate"><span class="pre">role</span></code> — <code class="docutils literal notranslate"><span class="pre">subject</span></code>,
+<code class="docutils literal notranslate"><span class="pre">object</span></code> or <code class="docutils literal notranslate"><span class="pre">both</span></code>, <code class="docutils literal notranslate"><span class="pre">other</span></code> then being the record itself — and
+<code class="docutils literal notranslate"><span class="pre">unit</span></code> when given), in place,
+device, channel, group, model order.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code></dt><dd><p>Group for the importers that write an export as sources under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/</span></code>; the importers are <code class="docutils literal notranslate"><span class="pre">mml</span></code> and <code class="docutils literal notranslate"><span class="pre">list</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/</span></code>; the importers are <code class="docutils literal notranslate"><span class="pre">mml</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code> and
+<code class="docutils literal notranslate"><span class="pre">relations</span></code>.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">EXPORT...</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write MML exports as the mml layer’s sources under
 <code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code> and seed each authored file that does not
@@ -1642,6 +1674,24 @@ and an unknown or repeated column each print one <code class="docutils literal n
 for a device no row states <code class="docutils literal notranslate"><span class="pre">s</span></code> for is ignored with one <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">list:</span></code>
 warning on stderr naming the file, row, device and model; the rest of the
 device’s rows are imported.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span> <span class="pre">TABLE</span> <span class="pre">--layer</span> <span class="pre">NAME</span> <span class="pre">[--names</span> <span class="pre">FILE]</span> <span class="pre">[--places</span> <span class="pre">FILE]</span> <span class="pre">[--members</span> <span class="pre">FILE]</span> <span class="pre">[--stub-unknown]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write relation tables as the sources of the layer <code class="docutils literal notranslate"><span class="pre">NAME</span></code> under
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/&lt;NAME&gt;/</span></code>. <code class="docutils literal notranslate"><span class="pre">TABLE</span></code> holds the claims;
+<code class="docutils literal notranslate"><span class="pre">--names</span></code>, <code class="docutils literal notranslate"><span class="pre">--places</span></code> and <code class="docutils literal notranslate"><span class="pre">--members</span></code> name the three optional tables
+the claims lean on. The tables and their columns are in
+<a class="reference internal" href="../how-to/describe-your-facility.html#how-to-describe-your-facility-relations"><span class="std std-ref">Relation tables</span></a>. A device end the facility
+lacks is stubbed only when its row states <code class="docutils literal notranslate"><span class="pre">subject_class</span></code> or
+<code class="docutils literal notranslate"><span class="pre">object_class</span></code>, or, as <code class="docutils literal notranslate"><span class="pre">Unidentified</span></code>, with <code class="docutils literal notranslate"><span class="pre">--stub-unknown</span></code>; place
+and group ends are never stubbed. Ends and names resolve against the whole
+facility except the layer being replaced. The layer directory is replaced
+whole and no other file changes: the run does not replace a bundled
+facility nor refuse hand-written records. Each file written prints one
+<code class="docutils literal notranslate"><span class="pre">wrote</span> <span class="pre">&lt;path&gt;</span></code> line. <code class="docutils literal notranslate"><span class="pre">NAME</span></code> must match <code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code> and is
+not <code class="docutils literal notranslate"><span class="pre">authored</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code> or <code class="docutils literal notranslate"><span class="pre">mml</span></code>, and a directory holding a file this
+import never writes is refused. A refused name, directory or row prints one
+<code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">source-invalid:</span></code> line per problem; the import writes nothing
+and exits 1. A profile that does not resolve prints a one-line failure and
+exits 1. A profile that states <code class="docutils literal notranslate"><span class="pre">machine:</span></code> imports into that machine root.</p>
 </dd>
 </dl>
 </section>

@@ -63,6 +63,8 @@ numbered among its sibling places at the same level, by beam position, and the
 device's ordinal inside that place. A device whose place has no sibling places
 — one at the machine itself, or with no place — has place index 0, and those
 devices are numbered together, so no two rows of a family are equal.
+Only a device with a channel is listed: a rack, a supply or a host with none
+is in no family, and a system or family left without a device is absent.
 ``PlaceList``, when present, holds each device's place beside its row.
 It is parallel to ``CommonNames``, which is each device's label, else its id.
 An existing MML export keeps its metadata keys (``Units``, ``DataType``,

@@ -61,7 +61,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Virtual Accelerator" href="virtual-accelerator.html" />
+    <link rel="next" title="Facility Relations" href="facility-relations.html" />
     <link rel="prev" title="Python Executor" href="python-executor.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -397,6 +397,11 @@
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Facility File and Its Views</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-relations.html">Facility Relations</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -765,6 +770,16 @@ filters the file’s own channel records and names a model or a place.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">resolve</span></code> order.</p></td>
 <td><p>Empty when dangling.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">resolve_link(target)</span></code></p></td>
+<td><p>The records a knowledge-page link names: <code class="docutils literal notranslate"><span class="pre">resolve(target)</span></code>, else the place a <code class="docutils literal notranslate"><span class="pre">place/&lt;id&gt;</span></code> target names.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">resolve</span></code> order.</p></td>
+<td><p>Empty when dangling.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lookup(text)</span></code></p></td>
+<td><p>A <code class="docutils literal notranslate"><span class="pre">(match,</span> <span class="pre">record)</span></code> pair per place or device named by id, then by name, then by a place’s last id segment.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">RECORD_KINDS</span></code>, then id; each record once.</p></td>
+<td><p>Empty.</p></td>
+</tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">select_channels(selection)</span></code></p></td>
 <td><p>The channels a <code class="docutils literal notranslate"><span class="pre">ChannelSelection</span></code> matches. Its <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code>, <code class="docutils literal notranslate"><span class="pre">signal</span></code>, <code class="docutils literal notranslate"><span class="pre">engine_role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> facets AND; a place takes every place under it; <code class="docutils literal notranslate"><span class="pre">engine_role</span></code> and <code class="docutils literal notranslate"><span class="pre">plane</span></code> match the wiring record naming the address.</p></td>
 <td><p>Document order.</p></td>
@@ -1011,7 +1026,11 @@ pipeline, <code class="docutils literal notranslate"><span class="pre">graph</sp
 build indexes from the Turtle that <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names: the
 graph view, unless the profile names another.</p>
 <p><strong>Graph.</strong> The facility file as Turtle: one node per place, device and
-channel and per signal named, with the device classes as a class tree.</p>
+channel and per signal named, with the device classes as a class tree; one
+edge per accepted or contested relation claim, one claim node per claim the
+<code class="docutils literal notranslate"><span class="pre">facility_graph</span></code> settings keep, and one group node per group a claim names.
+Why relations are claims, and how a claim becomes an edge or a place:
+<a class="reference internal" href="facility-relations.html"><span class="doc">Facility Relations</span></a>.</p>
 </section>
 <section id="the-schema">
 <span id="architecture-facility-schema"></span><h2>The schema<a class="headerlink" href="#the-schema" title="Link to this heading">#</a></h2>
@@ -1023,7 +1042,9 @@ carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so <code class="docutils literal notranslate"><span class="pre">loosenings.yaml</span></code> records, per slot NARAD requires, what became
 of it (<code class="docutils literal notranslate"><span class="pre">dropped</span></code>, <code class="docutils literal notranslate"><span class="pre">optional</span></code>, <code class="docutils literal notranslate"><span class="pre">renamed:&lt;slot&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">header</span></code>) and why.
-The graph view writes the facility file back in NARAD’s terms.</p>
+The graph view writes the facility file back in NARAD’s terms. NARAD’s
+optional relation slots are not carried; relations are claims
+(<a class="reference internal" href="facility-relations.html"><span class="doc">Facility Relations</span></a>).</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fv-title fv-desc">
   <title id="fv-title">The shared vocabulary: what a device class and a signal say, how the build pairs a setpoint with its readback, and what the graph stores</title>
@@ -1223,11 +1244,11 @@ does are in <a class="reference internal" href="../how-to/control-systems/use-vi
       </div>
     </a>
     <a class="right-next"
-       href="virtual-accelerator.html"
+       href="facility-relations.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Virtual Accelerator</p>
+        <p class="prev-next-title">Facility Relations</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -868,11 +868,17 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
 <section id="hierarchical-pipeline">
 <h2>Hierarchical Pipeline<a class="headerlink" href="#hierarchical-pipeline" title="Link to this heading">#</a></h2>
 <p>Navigates a tree level by level, with LLM-guided selection at each level. The
-tree the build generates has the facility’s place levels, then <code class="docutils literal notranslate"><span class="pre">class</span></code>,
-<code class="docutils literal notranslate"><span class="pre">device</span></code>, and a leaf per channel keyed by its signal; the leaf holds the
-address. Two channels of one device that the tree would key alike, because one
-channel’s address is another’s signal, stop the build with
-<code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>.</p>
+tree the build generates has the place levels, then <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, and
+a leaf per channel keyed by its signal; the leaf holds the address. The place
+levels are the level words of the places that hold a channel or are an
+ancestor of one, by the depth at which each first appears; a place tree with no
+channel, such as a rack tree beside the ring, adds no level. The build stops
+with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code> when two of those level words first appear at one
+depth, or one branch orders two against their depths; the stop names the trees
+and the words. Use one level word per depth across them, keep channels out of
+one tree, or select another <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>. Two channels of one device
+that the tree would key alike, because one channel’s address is another’s
+signal, also stop the build with <code class="docutils literal notranslate"><span class="pre">view-unsupported</span></code>.</p>
 <p>The database declares the levels the pipeline navigates — see
 <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a> for the schema.</p>
 <p>Validate and preview:</p>
@@ -899,7 +905,8 @@ sits beside it as <code class="docutils literal notranslate"><span class="pre">d
 database:</p>
 <ul class="simple">
 <li><p>A System is a top place.</p></li>
-<li><p>A Family is a group: every group of the facility is one. The devices of a
+<li><p>A Family is a group of kind <code class="docutils literal notranslate"><span class="pre">family</span></code>, the kind of a group that states
+none; a <code class="docutils literal notranslate"><span class="pre">section</span></code> is no Family. The devices of a
 class that no single-class group holds form a Family named by the class
 under their top place.</p></li>
 <li><p>A Field is a channel’s signal, one channel per member, described by the

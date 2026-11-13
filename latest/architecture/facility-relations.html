@@ -1,0 +1,861 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Facility Relations &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/facility-relations';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/architecture/facility-relations.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Virtual Accelerator" href="virtual-accelerator.html" />
+    <link rel="prev" title="Facility File and Its Views" href="facility-file.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 13, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Facility Relations</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Relations</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="facility-relations">
+<span id="architecture-facility-relations"></span><h1>Facility Relations<a class="headerlink" href="#facility-relations" title="Link to this heading">#</a></h1>
+<p>A relation says how two parts of the machine depend on each other: a magnet is
+powered by a supply, a supply sits in a rack, a monitor is read out by a
+chassis. OSPREY records each such statement as a <strong>claim</strong> in the
+<a class="reference internal" href="facility-file.html"><span class="doc">facility file</span></a>, never as a field on a device. This page
+explains that choice and follows a claim from its record to the views that
+read it. The record format is in <a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>; what
+the graph writes for a claim is in <a class="reference internal" href="../reference/contracts/facility-graph.html#reference-facility-graph"><span class="std std-ref">Facility Graph Contracts</span></a>.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 600" role="img" aria-labelledby="fr-title fr-desc">
+  <title id="fr-title">Relation claims: the records they come from, the standing the build gives them, the place a located_in claim projects, and the views that read either</title>
+  <desc id="fr-desc">Read left to right in four columns. Column 1, the records. Relations, in records/relations.yaml: each claim names a type, a subject and an object, a basis of stated or inferred (an inferred claim names its rule), and a source citing a document, its version, its state and a locator; for example SR/QF05-PS located_in HALL/ROW3/RK07. Documents, in documents.yaml: each has an id, a title, a kind and a system, such as rack-layout and cable-schedule. Policy, in policy.yaml, is optional: a precedence of document kinds per relation type, and stated_over_inferred, true unless set false. Places and devices, in records/places.yaml and records/devices.yaml, and groups, are the ends a claim names; a device may have no place of its own. Column 2, standing. A claim whose shape breaks a rule stops the build with relation-invalid: an end naming no device, place or group, or more than one; a kind the type does not allow at that end; basis inferred without a rule; a required attribute left out; or a subject equal to its object. Sound claims, with the documents and the policy, get a standing per key: the claims on one key group by the object they state; with a policy they rank by the precedence of their document's kind, then stated before inferred. A claim is accepted when its key has one object or its group ranks strictly best, contested when the objects disagree and no group wins, and superseded when it ranks below the winner. The demo has 16 accepted and 2 contested claims. Standing raises warnings, and the build goes on: relation-contested, one per key a dispute leaves unsettled; relation-coarse, one per type, for a claim with a place end where the type allows a device, or with a key attribute, port or unit left out; and also identity-ambiguous, part-cycle and relation-stub. Column 3, projection. Accepted located_in claims give Device.place, only when the device has no place yet (an authored place, a fix, an imported place or a span comes first), no claim on its key is contested, and the accepted claims that are not coarse name exactly one place. The device then carries provenance.place_from: relation; the claim's unit is not copied. In the demo SR/BPM13-EL takes HALL/ROW3/RK08, one place with no dispute; SR/QF05-PS takes no place, because rack-layout and cable-schedule disagree, so its key is contested and warned. Column 4, views. The graph, data/graph/facility.ttl, reads every standing: an accepted claim is an edge under its type's predicate, such as poweredBy, cabledTo or locatedIn; a contested claim is an edge under the predicate's Contested twin, such as locatedInContested; a superseded claim is no edge. The claims setting, all, contested or none, chooses which claims also get a narad_sem:Claim node. basis: stated drops the inferred claims, and the locatedIn of a projected place that no stated claim backs. The views that read the projected place: facts, with its place counts and the classes of unplaced devices; the channel finder in hierarchical mode, whose levels come from the places that hold channels; and the channel finder in middle_layer mode, whose System is the top place of the device. The views that read no relations: the channel finder in in_context mode, pyaml, simulator, bluesky, limits and benchmarks; a claim changes none of them. Footer: warnings never stop the build, relation-invalid does; a disputed key projects nothing, and its warning is the report.</desc>
+  <defs>
+    <marker id="fr-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fr-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+    <marker id="fr-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
+  </defs>
+
+  <!-- column labels -->
+  <text class="te" x="20" y="32">1 · RECORDS</text>
+  <text class="te" x="273" y="32">2 · STANDING</text>
+  <text class="te" x="526" y="32">3 · PROJECTION</text>
+  <text class="te" x="779" y="32">4 · VIEWS</text>
+
+  <!-- 1. records -->
+  <rect class="nb-foc" x="20" y="50" width="210" height="140" rx="6"/>
+  <text class="ta" x="32" y="68">RELATIONS</text>
+  <text class="ts" x="32" y="82">records/relations.yaml</text>
+  <text class="ts" x="32" y="100">claim: type, subject, object</text>
+  <text class="ts" x="32" y="114">basis: stated | inferred + rule</text>
+  <text class="ts" x="32" y="128">source: document, version,</text>
+  <text class="ts" x="32" y="142">state, locator</text>
+  <text class="ts t-acc" x="32" y="162">SR/QF05-PS located_in</text>
+  <text class="ts t-acc" x="32" y="176">HALL/ROW3/RK07</text>
+
+  <rect class="nb" x="20" y="205" width="210" height="80" rx="6"/>
+  <text class="ta" x="32" y="223">DOCUMENTS</text>
+  <text class="ts" x="32" y="237">documents.yaml</text>
+  <text class="ts" x="32" y="255">id, title, kind, system</text>
+  <text class="ts" x="32" y="269">rack-layout, cable-schedule, …</text>
+
+  <rect class="nb-ext" x="20" y="300" width="210" height="95" rx="6"/>
+  <text class="ta" x="32" y="318">POLICY · OPTIONAL</text>
+  <text class="ts" x="32" y="332">policy.yaml</text>
+  <text class="ts" x="32" y="350">precedence: document kinds,</text>
+  <text class="ts" x="32" y="364">per relation type</text>
+  <text class="ts" x="32" y="382">stated_over_inferred (true)</text>
+
+  <rect class="nb" x="20" y="410" width="210" height="130" rx="6"/>
+  <text class="ta" x="32" y="428">PLACES AND DEVICES</text>
+  <text class="ts" x="32" y="442">records/places.yaml,</text>
+  <text class="ts" x="32" y="456">records/devices.yaml, groups</text>
+  <text class="ts" x="32" y="474">the ends a claim names</text>
+  <text class="ts" x="32" y="492">a device may have no place:</text>
+  <text class="ts t-acc" x="32" y="506">projection (3) can give one</text>
+
+  <!-- records -> standing -->
+  <line class="e-warn" x1="230" y1="85" x2="273" y2="85" marker-end="url(#fr-arr-warn)"/>
+  <line class="e-acc" x1="230" y1="180" x2="273" y2="180" marker-end="url(#fr-arr-acc)"/>
+  <line class="e" x1="230" y1="245" x2="273" y2="245" marker-end="url(#fr-arr)"/>
+  <line class="e" x1="230" y1="340" x2="273" y2="340" marker-end="url(#fr-arr)"/>
+
+  <!-- 2. standing -->
+  <rect class="nb-warn" x="273" y="50" width="210" height="105" rx="6"/>
+  <text class="ta ta-warn" x="285" y="68">RELATION-INVALID · BUILD STOPS</text>
+  <text class="ts" x="285" y="86">an end names no kind, or two</text>
+  <text class="ts" x="285" y="100">a kind the type does not allow</text>
+  <text class="ts" x="285" y="114">inferred without a rule</text>
+  <text class="ts" x="285" y="128">a required attribute left out</text>
+  <text class="ts" x="285" y="142">subject equal to object</text>
+
+  <rect class="nb-foc" x="273" y="170" width="210" height="215" rx="6"/>
+  <text class="ta" x="285" y="188">STANDING · PER KEY</text>
+  <text class="ts" x="285" y="206">claims on one key group by the</text>
+  <text class="ts" x="285" y="220">object they state; with a policy</text>
+  <text class="ts" x="285" y="234">they rank by document kind, then</text>
+  <text class="ts" x="285" y="248">stated before inferred</text>
+  <rect class="nb" x="285" y="262" width="186" height="24" rx="12"/>
+  <text class="ts t-acc" x="297" y="277">accepted · one object, or best</text>
+  <rect class="nb-warn" x="285" y="294" width="186" height="24" rx="12"/>
+  <text class="ts" x="297" y="309">contested · objects tie</text>
+  <rect class="nb-st" x="285" y="326" width="186" height="24" rx="12"/>
+  <text class="ts" x="297" y="341">superseded · ranked below</text>
+  <text class="ts" x="285" y="372">demo: 16 accepted, 2 contested</text>
+
+  <line class="e-warn" x1="378" y1="385" x2="378" y2="400" marker-end="url(#fr-arr-warn)"/>
+
+  <rect class="nb-warn" x="273" y="400" width="210" height="140" rx="6"/>
+  <text class="ta ta-warn" x="285" y="418">WARNINGS · THE BUILD GOES ON</text>
+  <text class="ts" x="285" y="436">relation-contested · per key</text>
+  <text class="ts" x="285" y="450">a dispute leaves unsettled</text>
+  <text class="ts" x="285" y="468">relation-coarse · per type</text>
+  <text class="ts" x="285" y="482">a place end where a device fits;</text>
+  <text class="ts" x="285" y="496">a key attribute, port or unit</text>
+  <text class="ts" x="285" y="510">left out</text>
+  <text class="ts" x="285" y="528">+ identity-ambiguous, part-cycle, …</text>
+
+  <!-- standing -> graph (every standing), routed above column 3 -->
+  <polyline class="e-acc" points="483,180 505,180 505,150 779,150" marker-end="url(#fr-arr-acc)"/>
+  <text class="ta ta-acc" x="642" y="143" text-anchor="middle">EVERY STANDING</text>
+
+  <!-- standing -> projection (accepted located_in) -->
+  <line class="e-acc" x1="471" y1="274" x2="526" y2="274" marker-end="url(#fr-arr-acc)"/>
+
+  <!-- 3. projection -->
+  <rect class="nb-foc" x="526" y="170" width="210" height="215" rx="6"/>
+  <text class="ta" x="538" y="188">LOCATED_IN → DEVICE.PLACE</text>
+  <text class="ts" x="538" y="206">only when:</text>
+  <text class="ts" x="538" y="224">· the device has no place yet</text>
+  <text class="ts" x="538" y="238">(authored, fix, imported or</text>
+  <text class="ts" x="538" y="252">span come first)</text>
+  <text class="ts" x="538" y="270">· no claim on its key contested</text>
+  <text class="ts" x="538" y="288">· the accepted claims that are</text>
+  <text class="ts" x="538" y="302">not coarse name one place</text>
+  <text class="ts t-acc" x="538" y="330">provenance.place_from:</text>
+  <text class="ts t-acc" x="538" y="344">relation</text>
+  <text class="ts" x="538" y="366">the claim's unit is not copied</text>
+
+  <rect class="nb" x="526" y="400" width="210" height="140" rx="6"/>
+  <text class="ta" x="538" y="418">IN THE DEMO</text>
+  <text class="ts t-acc" x="538" y="436">SR/BPM13-EL → HALL/ROW3/RK08</text>
+  <text class="ts" x="538" y="450">one place, no dispute</text>
+  <text class="ts" x="538" y="474">SR/QF05-PS → no place</text>
+  <text class="ts" x="538" y="488">rack-layout and cable-schedule</text>
+  <text class="ts" x="538" y="502">disagree: contested, warned</text>
+
+  <!-- projection -> views that read the place -->
+  <line class="e-acc" x1="736" y1="330" x2="779" y2="330" marker-end="url(#fr-arr-acc)"/>
+
+  <!-- 4. views -->
+  <rect class="nb" x="779" y="50" width="210" height="215" rx="6"/>
+  <text class="ta" x="791" y="68">GRAPH · READS EVERY CLAIM</text>
+  <text class="ts" x="791" y="82">data/graph/facility.ttl</text>
+  <text class="ts" x="791" y="100">accepted → edge: poweredBy,</text>
+  <text class="ts" x="791" y="114">cabledTo, locatedIn, …</text>
+  <text class="ts" x="791" y="132">contested → …Contested twin</text>
+  <text class="ts" x="791" y="146">(locatedInContested)</text>
+  <text class="ts" x="791" y="164">superseded → no edge</text>
+  <text class="ts" x="791" y="182">claims: all | contested | none</text>
+  <text class="ts" x="791" y="196">picks narad_sem:Claim nodes</text>
+  <text class="ts" x="791" y="214">basis: stated drops inferred</text>
+  <text class="ts" x="791" y="228">claims, and a projected</text>
+  <text class="ts" x="791" y="242">locatedIn no stated claim backs</text>
+
+  <rect class="nb" x="779" y="280" width="210" height="130" rx="6"/>
+  <text class="ta" x="791" y="298">READ THE PROJECTED PLACE</text>
+  <text class="ts" x="791" y="316">facts: place counts, classes</text>
+  <text class="ts" x="791" y="330">of unplaced devices</text>
+  <text class="ts" x="791" y="348">channel finder hierarchical:</text>
+  <text class="ts" x="791" y="362">levels from channel places</text>
+  <text class="ts" x="791" y="380">channel finder middle_layer:</text>
+  <text class="ts" x="791" y="394">System = the device's top place</text>
+
+  <rect class="nb-ext" x="779" y="425" width="210" height="115" rx="6"/>
+  <text class="ta" x="791" y="443">READ NO RELATIONS</text>
+  <text class="ts" x="791" y="461">channel finder in_context,</text>
+  <text class="ts" x="791" y="475">pyaml, simulator, bluesky,</text>
+  <text class="ts" x="791" y="489">limits, benchmarks</text>
+  <text class="ts" x="791" y="511">a claim changes none of them</text>
+
+  <text class="ts" x="20" y="580">Warnings never stop the build; relation-invalid does. A disputed key projects nothing: its warning is the report.</text>
+</svg>
+</div>
+</section>
+<section id="claims-not-slots">
+<h1>Claims, not slots<a class="headerlink" href="#claims-not-slots" title="Link to this heading">#</a></h1>
+<p>A slot such as <code class="docutils literal notranslate"><span class="pre">powered_by</span></code> on a device holds one value. Two sources that
+disagree about it are two layers writing one field, and the build stops with
+<code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>: the facility cannot hold the disagreement it actually has.
+A slot also has nowhere to put the port, the cable number or the document the
+value came from, and a place or a group cannot fill one.</p>
+<p>A claim is one record from one source, with an id of its own. It names a
+relation type, a subject and an object (each a device, a place or a group,
+with an optional port or unit), a <code class="docutils literal notranslate"><span class="pre">basis</span></code> (<code class="docutils literal notranslate"><span class="pre">stated</span></code>, or <code class="docutils literal notranslate"><span class="pre">inferred</span></code> with
+the <code class="docutils literal notranslate"><span class="pre">rule</span></code> that inferred it), typed attributes, and a <code class="docutils literal notranslate"><span class="pre">source</span></code> citing a
+document, its version, its state and a locator. Two claims never merge, so two
+sources that disagree build as two claims, and the build decides what the
+disagreement means.</p>
+</section>
+<section id="the-chain">
+<h1>The chain<a class="headerlink" href="#the-chain" title="Link to this heading">#</a></h1>
+<p><strong>Records.</strong> <code class="docutils literal notranslate"><span class="pre">records/relations.yaml</span></code> holds the claims. <code class="docutils literal notranslate"><span class="pre">documents.yaml</span></code>
+declares the documents they cite, each with a <code class="docutils literal notranslate"><span class="pre">kind</span></code> (<code class="docutils literal notranslate"><span class="pre">rack-layout</span></code>,
+<code class="docutils literal notranslate"><span class="pre">cable-schedule</span></code>, …). <code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code> is optional; its
+<code class="docutils literal notranslate"><span class="pre">relations.precedence</span></code> ranks document kinds per relation type or by
+<code class="docutils literal notranslate"><span class="pre">default</span></code>, and <code class="docutils literal notranslate"><span class="pre">stated_over_inferred</span></code> (true unless set false) ranks a
+stated claim before an inferred one.</p>
+<p><strong>Standing.</strong> A claim whose shape breaks a rule of its type stops the build
+with <code class="docutils literal notranslate"><span class="pre">relation-invalid</span></code>. Every sound claim gets a <code class="docutils literal notranslate"><span class="pre">standing</span></code>, decided per
+key: what the type allows one object for, such as the subject of
+<code class="docutils literal notranslate"><span class="pre">located_in</span></code> or the subject and port of <code class="docutils literal notranslate"><span class="pre">powered_by</span></code>. Claims on one key
+group by the object they state. One group is <code class="docutils literal notranslate"><span class="pre">accepted</span></code>. Several groups without a
+policy are <code class="docutils literal notranslate"><span class="pre">contested</span></code>. With a policy they rank by their document’s kind,
+then by basis; the strictly best group is <code class="docutils literal notranslate"><span class="pre">accepted</span></code>, the rest
+<code class="docutils literal notranslate"><span class="pre">superseded</span></code>, and a tie at the best stays <code class="docutils literal notranslate"><span class="pre">contested</span></code>. A claim on several
+keys keeps its worst standing. A claim that states
+less than the facility knows (a place end where the type allows a device, or a
+key attribute, port or unit left out) is coarse: accepted, but no part of the
+ranking. Standing raises warnings and the build goes on:
+<code class="docutils literal notranslate"><span class="pre">relation-contested</span></code> once per unsettled key, <code class="docutils literal notranslate"><span class="pre">relation-coarse</span></code> once per
+type.</p>
+<p><strong>Projection.</strong> Accepted <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claims fill <code class="docutils literal notranslate"><span class="pre">Device.place</span></code> when the
+device has no place yet, no claim on its key is contested, and the accepted
+claims that are not coarse name exactly one place. The device then carries
+<code class="docutils literal notranslate"><span class="pre">provenance.place_from:</span> <span class="pre">relation</span></code>; the claim’s unit is not copied. A disputed
+key projects nothing, and its warning is the report.</p>
+<p><strong>Views.</strong> The graph view reads every standing: an accepted claim is an edge,
+a contested claim is an edge under the contested twin of its predicate, a
+superseded claim is no edge, and the <code class="docutils literal notranslate"><span class="pre">facility_graph</span></code> settings choose which
+claims also become claim nodes. The facts view and the channel finder’s
+hierarchical and middle-layer indexes read the projected place, not the
+claims. The in-context index, pyAML, simulator, Bluesky, limits and benchmark
+views read no relation; a claim changes none of them.</p>
+</section>
+<section id="the-sector-3-example">
+<h1>The sector-3 example<a class="headerlink" href="#the-sector-3-example" title="Link to this heading">#</a></h1>
+<p>The example facility <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> ships carries one worked example around
+the storage-ring quadrupole <code class="docutils literal notranslate"><span class="pre">SR/QF05</span></code> and the monitor <code class="docutils literal notranslate"><span class="pre">SR/BPM13</span></code>: four
+documents (an equipment list, a rack layout, a cable schedule and a network
+plan), eleven devices, the rack row <code class="docutils literal notranslate"><span class="pre">HALL/ROW3</span></code> with racks <code class="docutils literal notranslate"><span class="pre">RK07</span></code> and
+<code class="docutils literal notranslate"><span class="pre">RK08</span></code>, the vacuum-section group <code class="docutils literal notranslate"><span class="pre">SR/VS03</span></code>, and 18 claims, 16 stated and 2
+inferred, and a <code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code>. Built as it ships, 17 claims are accepted
+and 1 superseded, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> prints one warning and
+exits 0.</p>
+<p><strong>The disputed rack.</strong> <code class="docutils literal notranslate"><span class="pre">qf05-ps-rack-a</span></code> puts the supply <code class="docutils literal notranslate"><span class="pre">SR/QF05-PS</span></code> in
+<code class="docutils literal notranslate"><span class="pre">HALL/ROW3/RK07</span></code>, citing the released rack layout; <code class="docutils literal notranslate"><span class="pre">qf05-ps-rack-b</span></code> puts
+it in <code class="docutils literal notranslate"><span class="pre">HALL/ROW3/RK08</span></code>, citing the in-work cable schedule. The shipped
+<code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code> states <code class="docutils literal notranslate"><span class="pre">precedence:</span> <span class="pre">{located_in:</span> <span class="pre">[rack-layout,</span>
+<span class="pre">cable-schedule]}</span></code>, so the rack layout ranks first: <code class="docutils literal notranslate"><span class="pre">qf05-ps-rack-a</span></code> is
+accepted and <code class="docutils literal notranslate"><span class="pre">qf05-ps-rack-b</span></code> superseded. <code class="docutils literal notranslate"><span class="pre">SR/QF05-PS</span></code> takes the place
+<code class="docutils literal notranslate"><span class="pre">HALL/ROW3/RK07</span></code> with <code class="docutils literal notranslate"><span class="pre">place_from:</span> <span class="pre">relation</span></code>; the graph holds one
+<code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code> edge for it, and the superseded claim is no edge.</p>
+<p><strong>The coarse cable.</strong> <code class="docutils literal notranslate"><span class="pre">w-03-0240</span></code> cables port <code class="docutils literal notranslate"><span class="pre">A</span></code> of <code class="docutils literal notranslate"><span class="pre">SR/BPM13</span></code> to the
+rack <code class="docutils literal notranslate"><span class="pre">HALL/ROW3/RK08</span></code> rather than to a device in it. The claim is accepted
+and the build warns <code class="docutils literal notranslate"><span class="pre">relation-coarse</span></code> for <code class="docutils literal notranslate"><span class="pre">cabled_to</span></code>.</p>
+<p><strong>The inferred readout.</strong> <code class="docutils literal notranslate"><span class="pre">bpm13-readout</span></code> says <code class="docutils literal notranslate"><span class="pre">SR/BPM13</span></code> is read out by
+channel <code class="docutils literal notranslate"><span class="pre">CH1</span></code> of the chassis <code class="docutils literal notranslate"><span class="pre">SR/BPM13-EL</span></code>. No document states it; the
+rule <code class="docutils literal notranslate"><span class="pre">bpm-electronics-in-cable-destination-rack</span></code> inferred it from the cable
+schedule row of the coarse cable. The chassis itself takes its place
+<code class="docutils literal notranslate"><span class="pre">HALL/ROW3/RK08</span></code> from its uncontested rack claim <code class="docutils literal notranslate"><span class="pre">bpm13-el-rack</span></code>.</p>
+<p><strong>The undecided identity.</strong> <code class="docutils literal notranslate"><span class="pre">qf05-identity</span></code> is an inferred <code class="docutils literal notranslate"><span class="pre">same_as</span></code>
+between <code class="docutils literal notranslate"><span class="pre">SR/QF05</span></code> and <code class="docutils literal notranslate"><span class="pre">SR/MAG-Q-0301</span></code>, by the rule
+<code class="docutils literal notranslate"><span class="pre">family-and-ordinal-match</span></code>. <code class="docutils literal notranslate"><span class="pre">same_as</span></code> records an identity nobody has
+decided; it merges nothing. <code class="docutils literal notranslate"><span class="pre">SR/MAG-Q-0301</span></code> counts as a quadrupole of its
+own in the facts view, the graph and the demo’s device counts.</p>
+<p><strong>The vacuum section.</strong> The group <code class="docutils literal notranslate"><span class="pre">SR/VS03</span></code> states <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">section</span></code>. It
+keeps its description and its members and is no family: it describes none of
+its members and is no channel-finder Family.</p>
+<p><strong>Without the policy.</strong> With <code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code> deleted neither document ranks
+first: both rack claims are contested (16 accepted, 2 contested), the build
+also warns <code class="docutils literal notranslate"><span class="pre">relation-contested</span></code>, <code class="docutils literal notranslate"><span class="pre">SR/QF05-PS</span></code> stays unplaced, and the
+graph holds two <code class="docutils literal notranslate"><span class="pre">LOCATEDINCONTESTED</span></code> edges in place of the <code class="docutils literal notranslate"><span class="pre">LOCATEDIN</span></code>.</p>
+</section>
+<section id="divergence-from-narad">
+<h1>Divergence from NARAD<a class="headerlink" href="#divergence-from-narad" title="Link to this heading">#</a></h1>
+<p>The NARAD seed schema’s device record declares four relation slots:
+<code class="docutils literal notranslate"><span class="pre">powered_by</span></code>, <code class="docutils literal notranslate"><span class="pre">housed_by</span></code>, <code class="docutils literal notranslate"><span class="pre">controller</span></code> and <code class="docutils literal notranslate"><span class="pre">local_system</span></code>. In the seed
+they are optional and untyped: no target kind, no cardinality, no attributes,
+no source. None is carried into <code class="docutils literal notranslate"><span class="pre">core.yaml</span></code>, and since none is required they
+are not in <code class="docutils literal notranslate"><span class="pre">loosenings.yaml</span></code> either. Each is a relation type instead:
+<code class="docutils literal notranslate"><span class="pre">powered_by</span></code> is <code class="docutils literal notranslate"><span class="pre">powered_by</span></code>, <code class="docutils literal notranslate"><span class="pre">housed_by</span></code> is <code class="docutils literal notranslate"><span class="pre">located_in</span></code> for a place
+or <code class="docutils literal notranslate"><span class="pre">part_of</span></code> for a chassis, and <code class="docutils literal notranslate"><span class="pre">controller</span></code> is <code class="docutils literal notranslate"><span class="pre">controlled_by</span></code>.
+<code class="docutils literal notranslate"><span class="pre">local_system</span></code> maps to no type; where a device sits is its place.</p>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="facility-file.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Facility File and Its Views</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="virtual-accelerator.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Virtual Accelerator</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Facility Relations</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#claims-not-slots">Claims, not slots</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#the-chain">The chain</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#the-sector-3-example">The sector-3 example</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#divergence-from-narad">Divergence from NARAD</a></li>
+</ul>
+
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/facility-relations.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

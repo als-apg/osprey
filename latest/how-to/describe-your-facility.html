@@ -555,6 +555,7 @@ an importer, and through a fix. What the build writes from the result is in
     devices.yaml            the devices
     channels.yaml           the control-system channels
     groups.yaml             named sets of devices
+    relations.yaml          claims that two records are related
   classes.yaml              device classes the facility adds
   signals.yaml              signal roles the facility adds
   models.yaml               the simulation models and their wiring
@@ -563,6 +564,8 @@ an importer, and through a fix. What the build writes from the result is in
   seeds.yaml                how a channel no model wires behaves when simulated
   measurement/&lt;model&gt;.yaml  the measurements a model allows
   scenarios/&lt;name&gt;.yaml     ways the simulated machine departs from its baseline
+  documents.yaml            the source documents records and claims cite
+  policy.yaml               how the build ranks competing claims
   fixes.yaml                corrections to records another source states
   imported/&lt;layer&gt;/         records an importer wrote
   knowledge/                the facility knowledge pages
@@ -606,7 +609,7 @@ call the facility; a facility that states none is called by the project name.</p
 </section>
 <section id="records">
 <h2>Records<a class="headerlink" href="#records" title="Link to this heading">#</a></h2>
-<p>The four files under <code class="docutils literal notranslate"><span class="pre">records/</span></code> each hold a list of records of one kind.
+<p>The files under <code class="docutils literal notranslate"><span class="pre">records/</span></code> each hold a list of records of one kind.
 Every record has an <code class="docutils literal notranslate"><span class="pre">id</span></code>, and a record states only what its author knows:
 a field left out is either filled by the build or stays absent.</p>
 <p><strong>Places</strong> are the facility’s own tree. A place’s id is its path,
@@ -618,7 +621,10 @@ place, unless the device states its own <code class="docutils literal notranslat
 fix. A place only an importing layer states (<code class="docutils literal notranslate"><span class="pre">place_from:</span> <span class="pre">imported</span></code>) yields
 to a span that is that place or lies inside it, and stands under a span that
 holds it or where none holds the device; any other span holding the device
-contradicts it, and the build stops <code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>.</p>
+contradicts it, and the build stops <code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>. A device still without
+a place takes the one its <code class="docutils literal notranslate"><span class="pre">located_in</span></code> claims name (<code class="docutils literal notranslate"><span class="pre">place_from:</span>
+<span class="pre">relation</span></code>) when no claim on its key is <code class="docutils literal notranslate"><span class="pre">contested</span></code> and the accepted claims
+that are not coarse all name one place; the claim’s unit is not copied.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/SECT1</span>
 <span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sector</span>
 <span class="w">  </span><span class="nt">span</span><span class="p">:</span>
@@ -720,7 +726,37 @@ float channel that states none with 4.</p></td>
 </div>
 <p><strong>Groups</strong> are named sets of devices: an id, a <code class="docutils literal notranslate"><span class="pre">description</span></code> in the
 facility’s words and the <code class="docutils literal notranslate"><span class="pre">members</span></code>. A group says which devices belong
-together; what a channel means stays on the channel.</p>
+together; what a channel means stays on the channel. Its <code class="docutils literal notranslate"><span class="pre">kind</span></code> is
+<code class="docutils literal notranslate"><span class="pre">family</span></code> (the default: devices of one sort, described by the group) or
+<code class="docutils literal notranslate"><span class="pre">section</span></code> (things that belong together, such as a vacuum section). Only a
+family is a channel-finder Family and gives its members their purpose text.</p>
+<p><strong>Relations</strong> are claims, one per source, that two records are related: a
+<code class="docutils literal notranslate"><span class="pre">type</span></code>, a <code class="docutils literal notranslate"><span class="pre">subject</span></code> and an <code class="docutils literal notranslate"><span class="pre">object</span></code>, each naming one device, place or
+group. The build writes each claim’s <code class="docutils literal notranslate"><span class="pre">standing</span></code>: <code class="docutils literal notranslate"><span class="pre">accepted</span></code>, <code class="docutils literal notranslate"><span class="pre">contested</span></code>
+when claims state different objects and none ranks first, or <code class="docutils literal notranslate"><span class="pre">superseded</span></code>;
+and <code class="docutils literal notranslate"><span class="pre">contests</span></code>, the ids of the claims it disagrees with, when there are any.
+A claim stops the build with <code class="docutils literal notranslate"><span class="pre">relation-invalid</span></code>, naming the claim, on any of
+seven conditions:</p>
+<ul class="simple">
+<li><p>an end names no device, place or group;</p></li>
+<li><p>an end names more than one of them;</p></li>
+<li><p>an end gives <code class="docutils literal notranslate"><span class="pre">unit</span></code> but names no place;</p></li>
+<li><p>an end names a kind the type does not allow there;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> comes without its <code class="docutils literal notranslate"><span class="pre">rule</span></code>;</p></li>
+<li><p>a required attribute is missing;</p></li>
+<li><p>the subject and object name the same end, port included.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code> ranks competing claims by the kind of document they cite, as
+declared in <code class="docutils literal notranslate"><span class="pre">documents.yaml</span></code>: <code class="docutils literal notranslate"><span class="pre">relations.precedence</span></code> lists kinds per
+relation type or as <code class="docutils literal notranslate"><span class="pre">default</span></code>. Between claims whose documents rank the same,
+a stated claim breaks the tie over an inferred one unless
+<code class="docutils literal notranslate"><span class="pre">stated_over_inferred:</span> <span class="pre">false</span></code>. Without a policy, competing claims stay
+<code class="docutils literal notranslate"><span class="pre">contested</span></code>.</p>
+<p>Claims reach the knowledge graph as edges between their ends, by standing: an
+accepted claim is a plain edge, a contested one a separate contested edge, a
+superseded one no edge. Each claim is also a node carrying its source, so a
+query can go from an edge to the document behind it
+(<a class="reference internal" href="../reference/contracts/facility-graph.html#reference-facility-graph"><span class="std std-ref">Facility Graph Contracts</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> adds device classes the shared vocabulary lacks, each as the
 child of an existing class:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Undulator</span>
@@ -746,9 +782,15 @@ the fields its source states.</p>
 <p>The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
 field stop the build with <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>, naming the record. A <code class="docutils literal notranslate"><span class="pre">set</span></code> fix
-settles it (see <a class="reference internal" href="#fixes">Fixes</a>).</p>
-<p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code>.</p>
+settles it (see <a class="reference internal" href="#fixes">Fixes</a>). A group’s <code class="docutils literal notranslate"><span class="pre">members</span></code> are the exception: the group
+carries every member any layer states, and layers that state different members
+get a <code class="docutils literal notranslate"><span class="pre">members-disagree</span></code> warning naming which source states which member,
+until they agree or a <code class="docutils literal notranslate"><span class="pre">set</span></code> fix names <code class="docutils literal notranslate"><span class="pre">members</span></code>. A place’s or device’s
+<code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> are joined too, so a layer can add a name to a record another
+layer states; one name in one scheme that two layers state with different
+content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
+<p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span></code>.</p>
 <section id="a-middle-layer-export">
 <h3>A Middle Layer export<a class="headerlink" href="#a-middle-layer-export" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> reads a MATLAB Middle Layer export into
@@ -827,6 +869,123 @@ list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.</p>
 </section>
+<section id="relation-tables">
+<span id="how-to-describe-your-facility-relations"></span><h3>Relation tables<a class="headerlink" href="#relation-tables" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span> <span class="pre">TABLE</span> <span class="pre">--layer</span> <span class="pre">NAME</span></code> reads relation claims,
+from a cable schedule or a rack list, into <code class="docutils literal notranslate"><span class="pre">data/facility/imported/&lt;NAME&gt;/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">TABLE</span></code> holds the claims; three optional tables hold what the claims lean on.
+Each is UTF-8 CSV with a header row naming its columns in any order; an empty
+cell is absent.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 16.0%" />
+<col style="width: 22.0%" />
+<col style="width: 46.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Table</p></th>
+<th class="head"><p>Option</p></th>
+<th class="head"><p>Required columns</p></th>
+<th class="head"><p>Optional columns</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>claims</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TABLE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">subject</span></code>, <code class="docutils literal notranslate"><span class="pre">object</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">subject_kind</span></code>, <code class="docutils literal notranslate"><span class="pre">object_kind</span></code> (<code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code> or <code class="docutils literal notranslate"><span class="pre">group</span></code>;
+empty means <code class="docutils literal notranslate"><span class="pre">device</span></code>), <code class="docutils literal notranslate"><span class="pre">subject_port</span></code>, <code class="docutils literal notranslate"><span class="pre">object_port</span></code>,
+<code class="docutils literal notranslate"><span class="pre">object_unit</span></code>, <code class="docutils literal notranslate"><span class="pre">attrs</span></code> (<code class="docutils literal notranslate"><span class="pre">key=value</span></code> pairs separated by <code class="docutils literal notranslate"><span class="pre">;</span></code>),
+<code class="docutils literal notranslate"><span class="pre">basis</span></code>, <code class="docutils literal notranslate"><span class="pre">rule</span></code>, <code class="docutils literal notranslate"><span class="pre">subject_class</span></code>, <code class="docutils literal notranslate"><span class="pre">object_class</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>names</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--names</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">thing</span></code>, <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">scheme</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">basis</span></code>, <code class="docutils literal notranslate"><span class="pre">rule</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>places</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--places</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">place</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">within</span></code>, <code class="docutils literal notranslate"><span class="pre">basis</span></code>, <code class="docutils literal notranslate"><span class="pre">rule</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>members</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--members</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">group</span></code>, <code class="docutils literal notranslate"><span class="pre">member</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">member_kind</span></code>, <code class="docutils literal notranslate"><span class="pre">group_kind</span></code> (<code class="docutils literal notranslate"><span class="pre">family</span></code> or <code class="docutils literal notranslate"><span class="pre">section</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every table also takes the citation columns <code class="docutils literal notranslate"><span class="pre">document</span></code>, <code class="docutils literal notranslate"><span class="pre">version</span></code>,
+<code class="docutils literal notranslate"><span class="pre">state</span></code>, <code class="docutils literal notranslate"><span class="pre">locator</span></code> and <code class="docutils literal notranslate"><span class="pre">imported</span></code> (an ISO date). <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code>
+needs a <code class="docutils literal notranslate"><span class="pre">rule</span></code>. Against the demo preset, these three tables put both booster
+focusing quadrupoles on one new supply in a new rack:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">cables.csv</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>type,subject,object,object_kind,object_class,document,version,locator
+powered_by,BR/QF01,BR/QF-PS,,PowerSupply,PS-LIST,C,p. 4
+powered_by,BR/QF02,BR/QF-PS,,,PS-LIST,C,p. 4
+located_in,BR/QF-PS,RK01,place,,PS-LIST,C,p. 2
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">racks.csv</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>place,within,document,version
+RK01,BR,PS-LIST,C
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">names.csv</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>thing,name,scheme,document
+BR/QF-PS,PS-QF-B,cable-schedule,PS-LIST
+</pre></div>
+</div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>facility<span class="w"> </span>import<span class="w"> </span>relations<span class="w"> </span>cables.csv<span class="w"> </span>--layer<span class="w"> </span>cables<span class="w"> </span>--places<span class="w"> </span>racks.csv<span class="w"> </span>--names<span class="w"> </span>names.csv
+</pre></div>
+</div>
+<p>Each end and name resolves against the whole facility except the layer being
+replaced. The rules:</p>
+<ul class="simple">
+<li><p><strong>Stubs.</strong> A device end the facility lacks is created as a stub only when its
+row states <code class="docutils literal notranslate"><span class="pre">subject_class</span></code> or <code class="docutils literal notranslate"><span class="pre">object_class</span></code>, a class of the facility or
+the shared vocabulary; one row’s class holds for every row naming that
+device. <code class="docutils literal notranslate"><span class="pre">--stub-unknown</span></code> stubs a class-less end as <code class="docutils literal notranslate"><span class="pre">Unidentified</span></code>, and
+the build reports such stubs with <code class="docutils literal notranslate"><span class="pre">relation-stub</span></code>. Without either, the row
+is refused, so a misspelt name stops the import. Place and group ends are
+never stubbed.</p></li>
+<li><p><strong>Places.</strong> <code class="docutils literal notranslate"><span class="pre">within</span></code> names an authored place or one the places table
+creates, never one another imported layer creates, so where a layer puts a
+place does not depend on import order. A place’s id is its path,
+<code class="docutils literal notranslate"><span class="pre">BR/RK01</span></code> above, so one name may repeat under several parents. The build
+reports a place created top-level with no citation with <code class="docutils literal notranslate"><span class="pre">place-unplaced</span></code>.</p></li>
+<li><p><strong>Members.</strong> The members table creates a group no other source has. A row
+naming a member another source’s group lacks adds it: the layer then states
+that group too, with every member its rows name.</p></li>
+<li><p><strong>Names.</strong> The names table names any device or place. For one the authored
+file or another layer states, the layer writes a record carrying only the
+id and the names, and the build joins them with the names the other sources
+state. A name for a group is refused: a group has no <code class="docutils literal notranslate"><span class="pre">scheme_names</span></code>.</p></li>
+<li><p><strong>Ids.</strong> A claim’s id is <code class="docutils literal notranslate"><span class="pre">&lt;NAME&gt;/&lt;type&gt;/&lt;hash&gt;</span></code>. The hash covers the type,
+both ends (in either order for a symmetric type), the ports, the type’s key
+attribute and the cited document, never its version, locator or
+<code class="docutils literal notranslate"><span class="pre">imported</span></code> date: a new revision of the schedule keeps every id. A
+symmetric row written reversed, or a repeated row, is one claim; one fact
+cited from two documents is two claims. The import never stamps a date of
+its own.</p></li>
+</ul>
+<p>The layer is replaced whole: <code class="docutils literal notranslate"><span class="pre">relations.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code> (the stubs),
+<code class="docutils literal notranslate"><span class="pre">places.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">groups.yaml</span></code>, each written only when it holds a record,
+and a byte copy of each table. A file of the previous run this one does not
+write is removed. Nothing outside <code class="docutils literal notranslate"><span class="pre">imported/&lt;NAME&gt;/</span></code> changes: unlike the
+other importers, it neither replaces a bundled facility nor refuses
+hand-written records. A refused row prints one <code class="docutils literal notranslate"><span class="pre">source-invalid</span></code> line, every
+refusal is reported and the import writes nothing. The layer name matches
+<code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code> and is not <code class="docutils literal notranslate"><span class="pre">authored</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code> or <code class="docutils literal notranslate"><span class="pre">mml</span></code>.</p>
+</section>
 </section>
 <section id="fixes">
 <h2>Fixes<a class="headerlink" href="#fixes" title="Link to this heading">#</a></h2>
@@ -850,7 +1009,7 @@ channel list above:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">set</span></code> replaces the fields it names, each whole; <code class="docutils literal notranslate"><span class="pre">add</span></code> adds a record;
 <code class="docutils literal notranslate"><span class="pre">drop</span></code> removes one. <code class="docutils literal notranslate"><span class="pre">kind</span></code> is <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">channel</span></code>,
-<code class="docutils literal notranslate"><span class="pre">wiring</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code> or <code class="docutils literal notranslate"><span class="pre">model</span></code>. A <code class="docutils literal notranslate"><span class="pre">set</span></code> states under <code class="docutils literal notranslate"><span class="pre">was</span></code> the value
+<code class="docutils literal notranslate"><span class="pre">wiring</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code> or <code class="docutils literal notranslate"><span class="pre">relation</span></code>. A <code class="docutils literal notranslate"><span class="pre">set</span></code> states under <code class="docutils literal notranslate"><span class="pre">was</span></code> the value
 each layer held when the fix was written. When <code class="docutils literal notranslate"><span class="pre">was</span></code> is missing, or a later
 import changes that value, the build stops with <code class="docutils literal notranslate"><span class="pre">fix-stale</span></code> and prints the
 corrected fix to paste in its place, so a fix never silently outlives the fact it corrected. The result
@@ -861,8 +1020,8 @@ does not depend on the order of the fixes.</p>
 <h2>Limits<a class="headerlink" href="#limits" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> holds the write limits, one record per channel. The
 demo preset ships this one:</p>
-<div class="literal-block-wrapper docutils container" id="id2">
-<div class="code-block-caption"><span class="caption-text">limits.yaml</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">limits.yaml</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">records</span><span class="p">:</span>
 <span class="c1"># Symmetric range: the corrector current stays within [-12, 12].</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
@@ -1211,8 +1370,8 @@ in <a class="reference internal" href="../architecture/facility-file.html#archit
 <p><code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> states which measurements a model allows and
 what they use. The demo preset ships this one for its storage
 ring:</p>
-<div class="literal-block-wrapper docutils container" id="id3">
-<div class="code-block-caption"><span class="caption-text">measurement/SR.yaml</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">measurement/SR.yaml</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kinds</span><span class="p">:</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orm</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dispersion</span>
@@ -1386,6 +1545,7 @@ the importers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#layers">Layers</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-middle-layer-export">A Middle Layer export</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-channel-list">A channel list</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#relation-tables">Relation tables</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes">Fixes</a></li>

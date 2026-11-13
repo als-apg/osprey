@@ -601,9 +601,9 @@ graph describes the machine. The rest, the <strong>ontology</strong>, describes 
 of thing the machine is made of and how those kinds relate: a horizontal
 corrector is a corrector, and a corrector is a magnet.</p>
 <div class="osprey-diagram">
-<svg viewBox="0 0 1000 700" role="img" aria-labelledby="fgp-title fgp-desc">
+<svg viewBox="0 0 1000 770" role="img" aria-labelledby="fgp-title fgp-desc">
   <title id="fgp-title">A knowledge graph of a storage ring: one fact, the ontology, the facts about the machine, and one question answered as a walk</title>
-  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them.</desc>
+  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them. The legend names the edge styles: a solid arrow links two things, a dashed arrow ties a thing to its class, teal marks the walk. A relation claim adds an edge such as POWEREDBY between devices and places; a contested claim adds POWEREDBYCONTESTED instead, which a walk over plain edges never crosses. The demo machine's relation claims are the sector-3 example of the facility relations architecture page.</desc>
   <defs>
     <marker id="fgp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fgp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -752,10 +752,29 @@ corrector is a corrector, and a corrector is a magnet.</p>
   <text class="tn t-acc" x="830" y="636" text-anchor="middle">12 addresses, in beam order</text>
 
   <text class="ts" x="36" y="670">The word "steerer" appears in none of the 12 addresses. The ontology supplies the meaning, and the facts supply the machine.</text>
+
+  <!-- legend -->
+  <g id="fgp-legend">
+    <text class="te" x="36" y="716">LEGEND</text>
+    <line class="e" x1="120" y1="712" x2="160" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="168" y="716">a link between two things</text>
+    <line class="e e-dash" x1="380" y1="712" x2="420" y2="712" marker-end="url(#fgp-arr)"/>
+    <text class="ts" x="428" y="716">TYPE: a thing to its class</text>
+    <line class="e-acc" x1="640" y1="712" x2="680" y2="712" marker-end="url(#fgp-arr-acc)"/>
+    <text class="ts" x="688" y="716">the walk in step 4</text>
+    <line class="e" x1="120" y1="744" x2="160" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta" x="168" y="748">POWEREDBY</text>
+    <text class="ts" x="236" y="748">a relation claim between devices or places</text>
+    <line class="e-warn e-dash" x1="520" y1="744" x2="560" y2="744" marker-end="url(#fgp-arr)"/>
+    <text class="ta ta-warn" x="568" y="748">POWEREDBYCONTESTED</text>
+    <text class="ts" x="690" y="748">a contested claim; plain walks never cross it</text>
+  </g>
 </svg>
 </div>
 <p>An excerpt of the demo machine’s graph. Solid arrows link things, dashed arrows
-tie each device to its class, and teal marks the walk in step 4.</p>
+tie each device to its class, and teal marks the walk in step 4. The legend
+adds the edges relation claims write; the demo’s claims are the sector-3
+example in <a class="reference internal" href="../../architecture/facility-relations.html"><span class="doc">Facility Relations</span></a>.</p>
 <p>The walk is what a list of addresses cannot do on its own: the question says
 “steerer” and “section 1”, and no address spells either. The same shape answers
 the questions that come up around a machine:</p>
@@ -792,7 +811,7 @@ power supply appear here; the demo machine has no shared addresses.</p></td>
 <p class="sd-card-text">Run against the demo machine, this returns the 12 setpoints in the figure’s
 last step, six horizontal and six vertical. The agent writes queries like
 this for you.</p>
-<div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">:</span><span class="n">Class</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">ANY</span><span class="p">(</span><span class="n">l</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="n">word</span><span class="p">.</span><span class="n">altLabel</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">l</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;steerer&quot;</span><span class="p">)</span>
+<div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">:</span><span class="n">Class</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">ANY</span><span class="p">(</span><span class="n">l</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="n">word</span><span class="p">.</span><span class="n">altLabel</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">toLower</span><span class="p">(</span><span class="n">l</span><span class="p">)</span><span class="w"> </span><span class="n">CONTAINS</span><span class="w"> </span><span class="s">&quot;steerer&quot;</span><span class="p">)</span>
 <span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">cls</span><span class="p">:</span><span class="n">Class</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">SUBCLASSOF</span><span class="p">*</span><span class="m">0</span><span class="p">..</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">word</span><span class="p">)</span>
 <span class="k">MATCH</span><span class="w"> </span><span class="p">(</span><span class="n">d</span><span class="p">:</span><span class="n">Resource</span><span class="p">)</span><span class="o">-[</span><span class="p">:</span><span class="n">TYPE</span><span class="o">]-&gt;</span><span class="p">(</span><span class="n">cls</span><span class="p">)</span>
 <span class="k">WHERE</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">sectionCode</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;SECT1&quot;</span>
@@ -967,14 +986,21 @@ as one group each. Click a mark to list its members.</p></li>
 120 nodes. A node with more than 12 relations is drawn but not walked
 through; its badge counts what is left out. Double-click a node to move the
 focus to it.</p></li>
-<li><p>The search field finds nodes by name or id.</p></li>
+<li><p>The search field matches a node’s label — a device’s id, a place’s path, a
+channel’s address, a class or signal name — or its id, ignoring case. It
+does not search <code class="docutils literal notranslate"><span class="pre">altLabel</span></code> names.</p></li>
 <li><p>The relation checkboxes take a relation out of the drawing and out of the
 walk.</p></li>
 <li><p>Right-click a node, a relation or the empty drawing for its menu: copy a
 name, hide a relation or show it alone, reset the view.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">inPlace</span></code> is marked <em>derived</em>: the graph view holds each device’s place as a
-property, and the panel draws it as a relation.</p>
+<p>A device’s place is its stored <code class="docutils literal notranslate"><span class="pre">locatedIn</span></code> relation, and a place’s parent its
+stored <code class="docutils literal notranslate"><span class="pre">partOf</span></code>. The <strong>Overview</strong> draws no <code class="docutils literal notranslate"><span class="pre">partOf</span></code>, since both ends sit in
+the one places group; the legend still counts it. Each relation edge between
+devices and places (<code class="docutils literal notranslate"><span class="pre">poweredBy</span></code>, <code class="docutils literal notranslate"><span class="pre">cabledTo</span></code> and the rest, and their
+<code class="docutils literal notranslate"><span class="pre">Contested</span></code> twins, <a class="reference internal" href="../../reference/contracts/facility-graph.html#reference-facility-graph"><span class="std std-ref">Facility Graph Contracts</span></a>) is drawn in the same
+generic style as any other relation. Claim and group nodes, and the edges that
+end on them, are not drawn.</p>
 <p>Clicking a <code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in a concept document opens the linked record in
 the <strong>Graph</strong> view, and a picked node lists the concept documents that name it.</p>
 </section>
@@ -1060,7 +1086,7 @@ only its own status channels. After <code class="docutils literal notranslate"><
 <tbody>
 <tr class="row-even"><td><p>Graph view (<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>)</p></td>
 <td><p>4731</p></td>
-<td><p>Build output, written from the facility file: 1016 devices, and one
+<td><p>Build output, written from the facility file: 1027 devices, and one
 binding per channel; the 674 setpoint channels are the write-direction
 bindings.</p></td>
 </tr>
