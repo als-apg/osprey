@@ -3,6 +3,7 @@
 // the backend runs each analysis once for the whole deployment.
 // Every address is relative: the page is served under the terminal's /panel/<id>/.
 
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { diffusionColor, esc, extent, fmt, plot, resonanceSegments } from './chart.js';
 
 const STATE_URL = 'api/state';
@@ -553,7 +554,8 @@ export function start(panel) {
       event.target instanceof Element ? event.target.closest('[data-action="retry"]') : null;
     if (button) void refresh(panel, { retry: true });
   });
-  void refresh(panel);
+  // The page is ready to drive once the first refresh has drawn, whatever it drew.
+  void refresh(panel).finally(() => markPageReady());
   return setInterval(() => {
     if (!document.hidden) void refresh(panel);
   }, REFRESH_MS);

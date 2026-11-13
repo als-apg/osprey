@@ -4,7 +4,10 @@
 
 .lt {
   box-sizing: border-box;
-  min-height: 100vh;
+  /* base.css pins html and body to the tile and hides their overflow, so the
+     panel's root is what scrolls. */
+  height: 100%;
+  overflow-y: auto;
   padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
   font-family: var(--font-mono);
   font-size: var(--text-md);

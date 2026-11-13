@@ -17,9 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_drift import app_tree_digest
 from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_updates import app_tree_digest
 from osprey.profiles import presets
 
 PRESET_APPS_DIR = Path(presets.__file__).parent / "apps"
@@ -37,7 +37,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:4a73620e8f9f33f01f7461fde17c220b9311d553ac4721f8a92ce0e1b8e43fb0"),
+    "demo": ("sha256:edfd4c9a07c93a4e89793e23bb8ebbff9ca388493d07052c8a995c0d8306341c"),
     "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
@@ -54,7 +54,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
 PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "lattice": ("sha256:1fb438c084817800ba08ba31c069446ab53caa7699ed365104fcaabe2d645122"),
+    "lattice": ("sha256:0"),
     "orbit-bump": ("sha256:6ea5135ff2b83aed5746aef774473ff310e658d6326c7aa23a10a4db2abc29d6"),
 }
 
