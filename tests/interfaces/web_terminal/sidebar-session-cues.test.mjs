@@ -5,7 +5,7 @@
  *
  * Pins busy from the chat bus (a redraw only on a change, cleared on abort),
  * the accent held on the session being switched to until the switch settles,
- * the peek's refresh, and "+" opening the pane before a new session.
+ * the peek's refresh, and "+" starting a new session through the model.
  * The tree's suite drives the same cues through a real tree.
  */
 
@@ -15,8 +15,6 @@ const m = vi.hoisted(() => ({
   /** @type {((detail: any) => void)[]} */
   busy: [],
   off: vi.fn(),
-  isTerminalPanelOpen: vi.fn(() => true),
-  openTerminalPanel: vi.fn(),
   switchTo: vi.fn(async () => true),
   peek: { watch: vi.fn(), refresh: vi.fn() },
 }));
@@ -25,10 +23,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js', 
     if (name === 'busy') m.busy.push(fn);
     return m.off;
   },
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
-  isTerminalPanelOpen: m.isTerminalPanelOpen,
-  openTerminalPanel: m.openTerminalPanel,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/session-model.js', () => ({
   switchTo: m.switchTo,
@@ -50,7 +44,6 @@ let cues;
 beforeEach(() => {
   vi.clearAllMocks();
   m.busy = [];
-  m.isTerminalPanelOpen.mockReturnValue(true);
   document.body.innerHTML = `<button id="${NEW_SESSION_ID}"></button>`;
   render = vi.fn(() => {});
   abort = new AbortController();
@@ -87,12 +80,7 @@ test('refresh redraws the peek, which watches the same signal', () => {
   expect(m.peek.watch).toHaveBeenCalledWith(abort.signal);
 });
 
-test('"+" opens a closed Agent pane, then starts a new session', () => {
-  m.isTerminalPanelOpen.mockReturnValue(false);
+test('"+" starts a new session through the guarded switch, as every way to start one does', () => {
   /** @type {HTMLElement} */ (document.getElementById(NEW_SESSION_ID)).click();
-  expect(m.openTerminalPanel).toHaveBeenCalledOnce();
-  expect(m.switchTo).toHaveBeenCalledWith({ new: true });
-  m.isTerminalPanelOpen.mockReturnValue(true);
-  /** @type {HTMLElement} */ (document.getElementById(NEW_SESSION_ID)).click();
-  expect(m.openTerminalPanel).toHaveBeenCalledOnce();
+  expect(m.switchTo).toHaveBeenCalledExactlyOnceWith({ new: true });
 });

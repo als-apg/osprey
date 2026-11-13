@@ -144,6 +144,23 @@ describe('the reasoning row', () => {
     expect(row.querySelector('.op-spin')).toBeNull();
   });
 
+  test('a settled thought ends at its last word: the trailing blank lines the model sends go', () => {
+    const t = turn();
+    t.think('Writes are off, so I will flag that', true);
+    t.think(' and keep working.\n\n', true);
+    t.text('Done.');
+    expect(qs(t.entry, '.op-thinking .op-row-body').textContent).toBe(
+      'Writes are off, so I will flag that and keep working.'
+    );
+  });
+
+  test('a replayed thought is trimmed too', () => {
+    const t = turn();
+    t.think('\nChecking the gaps.\n\n');
+    t.text('Done.');
+    expect(qs(t.entry, '.op-thinking .op-row-body').textContent).toBe('Checking the gaps.');
+  });
+
   test('live, the time runs from the frame before the reasoning, not its first words', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-25T10:00:03Z'));

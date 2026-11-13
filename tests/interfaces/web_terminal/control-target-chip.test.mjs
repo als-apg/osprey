@@ -1026,7 +1026,7 @@ describe('polling', () => {
   test('a fleet stalled past the TTL keeps the expiry, terminus or no terminus', async () => {
     // The wait is on the FLEET, so the record's `applied` terminus is already
     // in view when the deadline passes. Retiring the expiry on that terminus
-    // would flip the chip to ✓ switched while a server is still on the old
+    // would show the switch as landed while a server is still on the old
     // generation — the exact misreport this rule exists to prevent.
     await boot();
     chipModule.markPending('r-slow', 'live', 4);

@@ -93,6 +93,7 @@
 
 .osprey-tree-title {
   flex: 1;
+  font-size: var(--text-lg);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -142,8 +143,9 @@
   color: var(--text-muted);
 }
 
-/* A session's rows scroll in their own box, fading at the bottom edge. No
-   height cap: the box shrinks to the room its tree is given. */
+/* A session's rows scroll in their own box, fading at the bottom edge while
+   there is more to scroll to (`data-overflows`, sidebar-artifact-paging.js).
+   No height cap: the box shrinks to the room its tree is given. */
 .osprey-tree-box {
   flex: 0 1 auto;
   min-height: 0;
@@ -152,6 +154,9 @@
   margin: 0 0 2px;
   padding-bottom: 2px;
   scrollbar-width: thin;
+}
+
+.osprey-tree-box[data-overflows] {
   mask-image: linear-gradient(to bottom, black calc(100% - 14px), transparent);
 }
 
@@ -356,6 +361,12 @@
 }
 
 .osprey-tree-session:is(:hover, :focus-within) :is(.osprey-tree-n, .osprey-tree-pin-mark) {
+  display: none;
+}
+
+/* "Artifact counts" off in the session list's view (sidebar-session-view.js):
+   the session rows drop their count. */
+html[data-session-counts-off] .osprey-tree-session > .osprey-tree-n {
   display: none;
 }
 

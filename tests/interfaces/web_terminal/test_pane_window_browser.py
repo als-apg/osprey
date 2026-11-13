@@ -717,11 +717,18 @@ def test_the_window_bars_menu_opens_there_and_closes_on_a_click_into_the_panel(
         menu = popup.locator(_MENU)
         popup.locator(f"{_BAR} .tile-tab-more").click()
         expect(menu).to_be_visible()
-        # The panel's two contributed rows, then Reattach, Reload and Close
+        # The panel's two contributed rows, then Reattach, Zoom, Reload and Close
         # window: nothing that acts on the dock, and no rail membership row for
         # a panel already on the rail.
         labels = menu.locator(".rail-context-label").all_inner_texts()
-        assert labels == ["All sessions", "Refresh", "Reattach", "Reload", "Close window"], labels
+        assert labels == [
+            "All sessions",
+            "Refresh",
+            "Reattach",
+            "Zoom",
+            "Reload",
+            "Close window",
+        ], labels
         expect(page.locator(_MENU)).to_have_count(0)
 
         frame = popup.locator('iframe.panel-iframe[data-panel-id="search-demo"]').bounding_box()

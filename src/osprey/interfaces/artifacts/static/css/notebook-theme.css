@@ -1,0 +1,82 @@
+/* Notebook artifacts in the OSPREY theme.
+ *
+ * nbconvert's JupyterLab template paints every surface, text colour and
+ * syntax colour through its own --jp-* custom properties, declared on :root
+ * with the JupyterLab Light values. This file re-points the ones a rendered
+ * notebook uses at the design-system tokens, so the page follows whichever of
+ * the eight themes is in force (theme-boot.js sets data-theme pre-paint; the
+ * follower script beside this link keeps it current). `:root[data-theme]`
+ * outranks nbconvert's plain `:root`, whatever the order of the two sheets.
+ *
+ * Syntax roles take the chart series and status colours, which every theme
+ * defines for its own background: keywords purple, strings green, numbers and
+ * constants the secondary accent, definitions the accent, builtins teal,
+ * comments muted.
+ *
+ * Screen only: a printed notebook keeps nbconvert's light page.
+ */
+
+@media screen {
+  :root[data-theme] {
+    /* Surfaces */
+    --jp-layout-color0: var(--bg-primary);
+    --jp-layout-color1: var(--bg-primary);
+    --jp-layout-color2: var(--bg-secondary);
+    --jp-layout-color3: var(--bg-elevated);
+    --jp-layout-color4: var(--bg-elevated);
+    --jp-cell-editor-background: var(--surface-well);
+    --jp-cell-editor-active-background: var(--surface-well);
+    --jp-cell-editor-border-color: var(--border-default);
+    --jp-cell-editor-active-border-color: var(--border-accent);
+    --jp-rendermime-error-background: var(--error-tint-08);
+    --jp-rendermime-table-row-background: var(--bg-secondary);
+    --jp-rendermime-table-row-hover-background: var(--surface-hover);
+    --jp-border-color0: var(--border-default);
+    --jp-border-color1: var(--border-default);
+    --jp-border-color2: var(--border-default);
+    --jp-border-color3: var(--border-default);
+
+    /* Text */
+    --jp-content-font-family: var(--font-display);
+    --jp-ui-font-family: var(--font-display);
+    --jp-code-font-family: var(--font-mono);
+    --jp-content-font-color0: var(--text-primary);
+    --jp-content-font-color1: var(--text-primary);
+    --jp-content-font-color2: var(--text-secondary);
+    --jp-content-font-color3: var(--text-muted);
+    --jp-ui-font-color0: var(--text-primary);
+    --jp-ui-font-color1: var(--text-primary);
+    --jp-ui-font-color2: var(--text-secondary);
+    --jp-ui-font-color3: var(--text-muted);
+    --jp-content-link-color: var(--color-accent);
+    --jp-cell-prompt-not-active-font-color: var(--text-muted);
+    --jp-cell-inprompt-font-color: var(--text-muted);
+    --jp-cell-outprompt-font-color: var(--text-muted);
+
+    /* Syntax */
+    --jp-mirror-editor-keyword-color: var(--chart-series-5);
+    --jp-mirror-editor-atom-color: var(--color-accent-secondary);
+    --jp-mirror-editor-number-color: var(--color-accent-secondary);
+    --jp-mirror-editor-def-color: var(--color-accent);
+    --jp-mirror-editor-variable-color: var(--text-primary);
+    --jp-mirror-editor-variable-2-color: var(--text-primary);
+    --jp-mirror-editor-variable-3-color: var(--chart-series-1);
+    --jp-mirror-editor-punctuation-color: var(--text-secondary);
+    --jp-mirror-editor-property-color: var(--text-primary);
+    --jp-mirror-editor-operator-color: var(--chart-series-5);
+    --jp-mirror-editor-comment-color: var(--text-muted);
+    --jp-mirror-editor-string-color: var(--color-success);
+    --jp-mirror-editor-string-2-color: var(--color-success);
+    --jp-mirror-editor-meta-color: var(--color-warning);
+    --jp-mirror-editor-qualifier-color: var(--text-secondary);
+    --jp-mirror-editor-builtin-color: var(--chart-series-1);
+    --jp-mirror-editor-bracket-color: var(--text-secondary);
+    --jp-mirror-editor-tag-color: var(--chart-series-5);
+    --jp-mirror-editor-attribute-color: var(--color-accent);
+    --jp-mirror-editor-header-color: var(--color-accent);
+    --jp-mirror-editor-quote-color: var(--color-success);
+    --jp-mirror-editor-link-color: var(--color-accent);
+    --jp-mirror-editor-error-color: var(--color-error);
+    --jp-mirror-editor-hr-color: var(--border-default);
+  }
+}

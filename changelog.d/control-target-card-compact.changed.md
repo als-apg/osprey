@@ -1,0 +1,1 @@
+The control-target popover is more compact. The machine the agent is on shows its name and its writes switch on one line. A switch that lands no longer adds "✓ switched" under it, because the machine in the card already says where the agent is. A refused switch's note now goes away after a minute; before, the note stayed until the next switch.

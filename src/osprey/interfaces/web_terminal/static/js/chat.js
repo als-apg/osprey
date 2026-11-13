@@ -51,6 +51,7 @@ import {
   renderEmptyStateContent,
 } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
+import { switchTo } from './session-model.js';
 import { attachSessionSwitcher } from './session-switcher.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
@@ -105,7 +106,7 @@ export const isStreaming = () => controls?.streaming() ?? false;
 /** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
 export const stopTurn = () => controls?.stop() ?? Promise.resolve();
 
-/** Start a conversation on a new session key, as the Agent bar's `+` does. */
+/** Start a conversation on a new session key (the session model's `switchTo({new: true})`). */
 export const newConversation = () => controls?.newConversation();
 
 /**
@@ -122,7 +123,9 @@ export function initChat(containerId = 'operator-container') {
   // handler closures below, so hand them a statically non-null reference.
   const container = /** @type {HTMLElement} */ (found);
 
-  const handles = buildConsole({ onNew: startConversation });
+  // The bar's `+` and the log's ⋯ New session start a session as every way
+  // does: the model's guarded switch, which calls back into newConversation.
+  const handles = buildConsole({ onNew: () => void switchTo({ new: true }) });
   const { bar, label, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
@@ -795,7 +798,7 @@ export function initChat(containerId = 'operator-container') {
     onBeforeSend: (transform) => void sendTransforms.push(transform),
     onLocalCommand: (answer) => void localCommands.push(answer),
     scrollToBottom,
-    onNewSession: startConversation,
+    onNewSession: () => void switchTo({ new: true }),
   });
   // After the features, so the queued message sits nearest the box, below the task bar.
   inputArea.before(queue.root);
