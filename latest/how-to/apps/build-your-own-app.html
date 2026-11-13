@@ -888,6 +888,14 @@ preset) arms nothing, whatever its file says.</p></li>
 <span class="w">  </span><span class="nt">corrector-trim</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">shown</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
+<p>A login can also show an app and keep its panel off the sidebar: the agent
+has the tools and the skill, and the panel is one “+ Add panel” away rather
+than a tab at login.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># tiers/readonly.yml</span>
+<span class="nt">apps</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">corrector-trim</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">shown</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> panel_hidden</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
 </section>
 <section id="skills-and-agent-parity">
 <span id="how-to-apps-skills"></span><h2>Skills and agent parity<a class="headerlink" href="#skills-and-agent-parity" title="Link to this heading">#</a></h2>
@@ -1205,56 +1213,61 @@ zone.</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.label</span></code></p></td>
 <td><p>The sidebar row’s text.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.icon</span></code></p></td>
+<td><p>The sidebar row’s icon, one of the names the terminal draws (see
+<a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>). Without it the row wears the generic
+one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
 <td><p>The container that serves the panel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.entry</span></code> [<code class="docutils literal notranslate"><span class="pre">/</span></code>]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.entry</span></code> [<code class="docutils literal notranslate"><span class="pre">/</span></code>]</p></td>
 <td><p>The route the panel opens at.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.launch_token</span></code> [false]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.launch_token</span></code> [false]</p></td>
 <td><p>The write routes demand a token the terminal adds on an armed login.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.read_timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.read_timeout_s</span></code></p></td>
 <td><p>Seconds a proxied request may take; for a route that performs a long
 action, such as a write of many setpoints with read-back.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.agent_routes</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.agent_routes</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[METHOD,</span> <span class="pre">/path]</span></code> pairs the agent’s tools may call; <code class="docutils literal notranslate"><span class="pre">GET</span></code>,
 <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> and <code class="docutils literal notranslate"><span class="pre">OPTIONS</span></code> read, every other method writes.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code> [false]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant.single_user_alias</span></code> [false]</p></td>
 <td><p>The panel works for the alias login of a single-user deployment,
 which has no roster.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
 <td><p>The Python module run as the tool server.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
 <td><p>Tools that only read.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
 <td><p>Write tools, each with its approval entry (<a class="reference internal" href="#writes-and-approvals">Writes and approvals</a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
 <td><p>No dispatch job runs any of the app’s tools.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">panel</span></code>: the tool server is present only where the login shows the
 panel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
 <td><p>The sentences the agent sees for a backend that does not answer, and
 for a refused call.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
 <td><p>Files fetched into the app at build: <code class="docutils literal notranslate"><span class="pre">{url,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">{package,</span> <span class="pre">version,</span> <span class="pre">file,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> (an npm package through
 the CDN).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
 <td><p>The skills the app carries, each <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
 <td><p>The subagents the app carries, each <code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code>
 (<a class="reference internal" href="#subagents">Subagents</a>).</p></td>
 </tr>

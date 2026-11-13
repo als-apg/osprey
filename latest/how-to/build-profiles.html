@@ -1165,7 +1165,8 @@ it.</p>
 this login’s card shows: <code class="docutils literal notranslate"><span class="pre">apps:</span> <span class="pre">{&lt;name&gt;:</span> <span class="pre">{shown:</span> <span class="pre">true}}</span></code>. A listed
 application is shown under <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">add</span></code> and hidden under <code class="docutils literal notranslate"><span class="pre">lists:</span> <span class="pre">own</span></code>
 unless the entry says otherwise. Whether one is on is <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s to say,
-never a login’s. A shown application writes only where the login’s tier arms
+never a login’s. <code class="docutils literal notranslate"><span class="pre">panel_hidden:</span> <span class="pre">true</span></code> beside <code class="docutils literal notranslate"><span class="pre">shown:</span> <span class="pre">true</span></code> keeps the
+application’s panel off the sidebar until someone adds it from “+ Add panel”. A shown application writes only where the login’s tier arms
 it — <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>, never <code class="docutils literal notranslate"><span class="pre">never</span></code> — and then only on a machine
 whose switch the operator has turned on; whether a write still asks for
 approval is decided per write at run time.</p>

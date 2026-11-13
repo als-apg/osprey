@@ -616,6 +616,47 @@ undo this for a few seconds.</p>
 open it from <strong>+ Add panel</strong> or the command palette, and right-click its tile
 to pin it to the sidebar.</p>
 </section>
+<section id="naming-a-panel-and-choosing-its-icon">
+<h2>Naming a panel and choosing its icon<a class="headerlink" href="#naming-a-panel-and-choosing-its-icon" title="Link to this heading">#</a></h2>
+<p>Every panel takes two optional keys in its <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;</span></code> block that say
+how it presents itself. <code class="docutils literal notranslate"><span class="pre">label</span></code> is its name: the sidebar row, the tile, the
+<strong>+ Add panel</strong> menu, its <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> row and the profile card all show
+it. For a panel you declare, it is the name you give it; for a built-in panel
+it replaces OSPREY’s own wording (<code class="docutils literal notranslate"><span class="pre">LOGBOOK</span></code>, <code class="docutils literal notranslate"><span class="pre">CHANNELS</span></code>, <code class="docutils literal notranslate"><span class="pre">KNOWLEDGE</span></code>,
+<code class="docutils literal notranslate"><span class="pre">CANOPY</span></code>, <code class="docutils literal notranslate"><span class="pre">JUPYTER</span></code>, <code class="docutils literal notranslate"><span class="pre">Health</span></code>), so a facility that calls its logbook
+something else says so once:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">eLog</span><span class="w">            </span><span class="c1"># a built-in panel, renamed</span>
+<span class="w">    </span><span class="nt">canopy</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Screens</span>
+<span class="w">      </span><span class="nt">icon</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">monitor</span>
+<span class="w">    </span><span class="nt">grafana</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Trends</span><span class="w">          </span><span class="c1"># a URL-backed panel</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://127.0.0.1:3000</span>
+<span class="w">      </span><span class="nt">icon</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chart-column</span>
+</pre></div>
+</div>
+<p>In a build profile these are <code class="docutils literal notranslate"><span class="pre">config:</span></code> lines
+(<code class="docutils literal notranslate"><span class="pre">web.panels.ariel.label:</span> <span class="pre">eLog</span></code>). The label you write is shown as written,
+so an acronym keeps its capitals (<code class="docutils literal notranslate"><span class="pre">label:</span> <span class="pre">LLRF</span></code>). Title case is how the
+sidebar reads the names the framework supplies: a built-in panel’s own label
+(<code class="docutils literal notranslate"><span class="pre">LOGBOOK</span></code> reads <em>Logbook</em>) and the id of a panel that has no label.</p>
+<p><code class="docutils literal notranslate"><span class="pre">icon</span></code> is the glyph of the panel’s sidebar row. It names one of the icons
+the terminal draws:</p>
+<p><code class="docutils literal notranslate"><span class="pre">activity</span></code>, <code class="docutils literal notranslate"><span class="pre">agent</span></code>, <code class="docutils literal notranslate"><span class="pre">bash</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>, <code class="docutils literal notranslate"><span class="pre">book-open</span></code>, <code class="docutils literal notranslate"><span class="pre">camera</span></code>,
+<code class="docutils literal notranslate"><span class="pre">chart-column</span></code>, <code class="docutils literal notranslate"><span class="pre">chart-line</span></code>, <code class="docutils literal notranslate"><span class="pre">chart-scatter</span></code>, <code class="docutils literal notranslate"><span class="pre">cpu</span></code>, <code class="docutils literal notranslate"><span class="pre">file-text</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hexagon</span></code>, <code class="docutils literal notranslate"><span class="pre">layers</span></code>, <code class="docutils literal notranslate"><span class="pre">library</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code>, <code class="docutils literal notranslate"><span class="pre">notebook</span></code>, <code class="docutils literal notranslate"><span class="pre">radiation</span></code>,
+<code class="docutils literal notranslate"><span class="pre">radio</span></code>, <code class="docutils literal notranslate"><span class="pre">settings</span></code>, <code class="docutils literal notranslate"><span class="pre">sliders</span></code>, <code class="docutils literal notranslate"><span class="pre">stethoscope</span></code>, <code class="docutils literal notranslate"><span class="pre">terminal</span></code>,
+<code class="docutils literal notranslate"><span class="pre">users</span></code>, <code class="docutils literal notranslate"><span class="pre">workspace</span></code>, and the rest of the set in
+<code class="docutils literal notranslate"><span class="pre">interfaces/design_system/static/js/icons.js</span></code>.</p>
+<p>A panel that names none keeps its own: each built-in has one, and a panel you
+declare wears the generic <code class="docutils literal notranslate"><span class="pre">workspace</span></code> glyph. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a name
+the terminal does not draw and lists the ones it does. An application’s panel
+takes the same two facts from its <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">panel.label</span></code>,
+<code class="docutils literal notranslate"><span class="pre">panel.icon</span></code>).</p>
+</section>
 <section id="when-a-panel-stops-answering">
 <h2>When a panel stops answering<a class="headerlink" href="#when-a-panel-stops-answering" title="Link to this heading">#</a></h2>
 <p>Panels with a health check are polled every 10 seconds. One that has answered
@@ -644,7 +685,7 @@ the entries for you):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">events</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EVENTS</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Events</span>
 <span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://127.0.0.1:10010</span><span class="w">   </span><span class="c1"># the backing service</span>
 <span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dashboard</span><span class="w">              </span><span class="c1"># optional: page the tab opens (default /)</span>
 <span class="w">      </span><span class="nt">health_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/healthz</span><span class="w">     </span><span class="c1"># optional: lets the hub report status</span>
@@ -1118,6 +1159,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panels-live">Where the panels live</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dragging-sidebar-rows">Dragging sidebar rows</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-panels-out-of-the-sidebar">Taking panels out of the sidebar</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#naming-a-panel-and-choosing-its-icon">Naming a panel and choosing its icon</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-panel-stops-answering">When a panel stops answering</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
