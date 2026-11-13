@@ -18,8 +18,8 @@ system's own directory, which lists every PV the control system announces: see
 
 .. seealso::
 
-   Hellert et al. (2025), *From Natural Language to Control Signals*,
-   `arXiv:2512.18779 <https://arxiv.org/abs/2512.18779>`_.
+   T. Hellert et al., *Mach. Learn.: Sci. Technol.* **7**, 045010 (2026) ·
+   `doi:10.1088/2632-2153/ae8219 <https://doi.org/10.1088/2632-2153/ae8219>`_.
 
    :ref:`retrieval-paths`
       Where the Channel Finder sits among OSPREY's retrieval stacks --- it is
