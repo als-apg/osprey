@@ -410,6 +410,8 @@ class _Observed:
         self.lock = threading.Lock()
         self.passes_started = 0
         self.passes_done = 0
+        self.serves_started = 0
+        self.last_tick_serve = 0
         self.solves = 0
         self.chromatic_solves = 0
         self.put_lags: list[int] = []
@@ -494,9 +496,26 @@ def _inject_undeliverable_reply(fault: _ReplyFault) -> None:
 
 
 def _instrument(runner: Any, observed: _Observed) -> None:
-    """Count the run loop's passes and how many each value-carrying item waited."""
+    """Count the run loop's passes and how many each value-carrying item waited.
+
+    Every served item is numbered as it starts, and the number of the latest
+    one that ran a periodic pass and nothing else is kept, so a client can tell
+    a periodic pass that started after its own last step from any other cycle.
+    """
     run_cycle = runner._run_cycle
+    serve = runner._serve
     put = runner.queue.put
+
+    def numbered_serve(item: dict[str, Any], **kwargs: Any) -> None:
+        with observed.lock:
+            observed.serves_started += 1
+            number = observed.serves_started
+        try:
+            serve(item, **kwargs)
+        finally:
+            if runner._pass_is_tick:
+                with observed.lock:
+                    observed.last_tick_serve = number
 
     def counted_cycle(item: dict[str, Any]) -> None:
         with observed.lock:
@@ -524,6 +543,7 @@ def _instrument(runner: Any, observed: _Observed) -> None:
             time.sleep(0.005)
 
     runner._run_cycle = counted_cycle
+    runner._serve = numbered_serve
     runner.queue.put = marked_put
     threading.Thread(target=sample, daemon=True, name="queue-depth-sampler").start()
 
@@ -619,6 +639,8 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         with observed.lock:
             return {
                 "passes": observed.passes_done,
+                "serves_started": observed.serves_started,
+                "last_tick_serve": observed.last_tick_serve,
                 "solves": observed.solves,
                 "chromatic_solves": observed.chromatic_solves,
             }
@@ -1166,10 +1188,17 @@ def _tick_and_wait(server: _Server) -> None:
     A CA read is answered from the server's own copy of each value, which a
     pass sets one channel at a time, so a read made during a pass can see one
     channel moved and the next not yet.
+
+    The pass waited for is a periodic one that started after this call. A
+    put's completion reaches its client before the put's own cycle has ended,
+    and a timed pass is a cycle too, so the count of cycles finished can move
+    before the periodic pass has run.
     """
-    passes = server.ask("counts")["passes"]
+    started = server.ask("counts")["serves_started"]
     server.ask("tick")
-    assert _wait_until(lambda: server.ask("counts")["passes"] > passes), "the pass never finished"
+    assert _wait_until(lambda: server.ask("counts")["last_tick_serve"] > started), (
+        "the pass never finished"
+    )
 
 
 class TestDemoComposite:
