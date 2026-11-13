@@ -254,7 +254,7 @@ cell can reach (:ref:`architecture-safety-chain-residual`).
 For that reason the panel needs a login wall. A deployment on
 ``auth.method: none`` trusts every request its proxy forwards, and a cell could
 send one; ``osprey up`` refuses to start such a deployment while a render shows
-this panel (:ref:`multi-user-open-mode`).
+this panel (:ref:`open posture <multi-user-open-mode>`).
 
 Notebooks the agent also edits
 ------------------------------

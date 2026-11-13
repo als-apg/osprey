@@ -575,7 +575,7 @@ today.
 Under the ``none`` auth posture the proxy in front of the terminals adds each user's operator
 secret itself, so a cell on the host network could call it as any user. ``osprey up`` therefore
 refuses an open deployment whose render shows the notebook panel, on the same terms as one whose
-render lifts a shell (:ref:`multi-user-open-mode`).
+render lifts a shell (:ref:`open posture <multi-user-open-mode>`).
 
 **The approval prompt attributes a write to a person; it does not contain code already running
 in the container.** The prompt is answered at the terminal, and the terminal's server runs in
