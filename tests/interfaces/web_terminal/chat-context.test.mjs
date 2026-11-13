@@ -161,11 +161,11 @@ describe('the context meter', () => {
 
 describe('the model label', () => {
   test.each([
-    ['claude-sonnet-4-5-20250929', 'sonnet-4-5'],
-    ['anthropic/claude-opus-4-6', 'opus-4-6'],
-    ['gemini-3-flash', 'gemini-3-flash'],
-    ['claude-haiku-4-5-20251001[1m]', 'haiku-4-5'],
-    ['gateway/team/claude-opus-5', 'opus-5'],
+    ['claude-sonnet-4-5-20250929', 'Sonnet-4-5'],
+    ['anthropic/claude-opus-4-6', 'Opus-4-6'],
+    ['gemini-3-flash', 'Gemini-3-flash'],
+    ['claude-haiku-4-5-20251001[1m]', 'Haiku-4-5'],
+    ['gateway/team/claude-opus-5', 'Opus-5'],
     ['anthropic/', 'anthropic/'],
   ])('%s is shown as %s', (model, label) => {
     expect(modelLabel(model)).toBe(label);
@@ -191,7 +191,7 @@ describe('the model tag', () => {
     const tag = tagOf(meter);
     expect(meter.hidden).toBe(false);
     expect(tag.hidden).toBe(false);
-    expect(tag.textContent).toBe('sonnet-4-5');
+    expect(tag.textContent).toBe('Sonnet-4-5');
     expect(tag.title).toBe('Model: claude-sonnet-4-5-20250929');
     expect(tag.getAttribute('aria-label')).toBe('Model: claude-sonnet-4-5-20250929');
     // No reading yet: the line shows the tag alone.
@@ -210,14 +210,14 @@ describe('the model tag', () => {
     expect(tagOf(meter).hidden).toBe(true);
 
     renderer.handleEvent({ type: 'system', subtype: 'init', model: 'anthropic/claude-opus-4-6' });
-    expect(tagOf(meter).textContent).toBe('opus-4-6');
+    expect(tagOf(meter).textContent).toBe('Opus-4-6');
   });
 
   test('a later name replaces the tag, and no model hides it', () => {
     const { renderer, meter } = mount();
     emitChat('model', { model: 'claude-sonnet-4-5' });
     renderer.handleEvent({ type: 'system', subtype: 'init', model: 'gemini-3-flash' });
-    expect(tagOf(meter).textContent).toBe('gemini-3-flash');
+    expect(tagOf(meter).textContent).toBe('Gemini-3-flash');
 
     emitChat('model', { model: null });
     expect(tagOf(meter).hidden).toBe(true);
@@ -225,17 +225,19 @@ describe('the model tag', () => {
     expect(meter.hidden).toBe(true);
   });
 
-  test('the tag sits beside the reading, and outlasts a reset of the log', () => {
+  test('the tag starts the line before the reading, and outlasts a reset of the log', () => {
     const { renderer, meter, bar } = mount();
     emitChat('model', { model: 'claude-sonnet-4-5' });
     renderer.handleEvent(reading(42));
     expect(bar.hidden).toBe(false);
     expect(meter.textContent).toContain('42%');
     expect(tagOf(meter).hidden).toBe(false);
+    expect(meter.firstElementChild).toBe(tagOf(meter));
+    expect(tagOf(meter).nextElementSibling).toBe(bar);
 
     renderer.reset();
     expect(bar.hidden).toBe(true);
     expect(meter.hidden).toBe(false);
-    expect(tagOf(meter).textContent).toBe('sonnet-4-5');
+    expect(tagOf(meter).textContent).toBe('Sonnet-4-5');
   });
 });

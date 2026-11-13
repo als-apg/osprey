@@ -2485,8 +2485,8 @@ html:not([data-agent-surface="terminal"]) .terminal-card > .terminal-header {
 
 /* ── Context meter and model tag ── */
 
-/* A quiet line under the composer's toolbar: a thin bar and its figure, and the
-   model tag. It stays hidden until the chat has a reading of the context window
+/* A quiet line under the composer's toolbar: the model tag, then a thin bar and
+   its figure. It stays hidden until the chat has a reading of the context window
    or a model to show. */
 .op-context {
   display: flex;
@@ -2524,16 +2524,16 @@ html:not([data-agent-surface="terminal"]) .terminal-card > .terminal-header {
   color: var(--text-secondary);
 }
 
-/* The model tag ends the line in the line's muted text. Its flex basis is 0, so
-   it never wraps the line or pushes the meter: it takes the room the meter
-   leaves and cuts a long name with an ellipsis. */
+/* The model tag starts the line in the line's muted text, and the meter follows
+   it. A long name is cut with an ellipsis at half the line, so it never pushes
+   the meter onto a second line. */
 .op-context-model {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 50%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-align: end;
 }
 
 /* From the warning level up the bar and the figure take the warning colour; the

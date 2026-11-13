@@ -39,8 +39,9 @@ export function contextLevel(percent) {
 
 /**
  * A model id as the tag shows it: without a gateway prefix (`anthropic/`), a
- * leading `claude-`, a release date (`-20250929`) or a bracket suffix (`[1m]`).
- * An id with nothing left after that is shown whole.
+ * leading `claude-`, a release date (`-20250929`) or a bracket suffix (`[1m]`),
+ * and with a capital first letter (`Sonnet-4-5`). An id with nothing left after
+ * that is shown whole, as it is.
  * @param {string} model
  * @returns {string}
  */
@@ -50,7 +51,7 @@ export function modelLabel(model) {
     .replace(/\[[^\]]*\]$/, '')
     .replace(/^claude-/, '')
     .replace(/-\d{8}$/, '');
-  return label || model;
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : model;
 }
 
 /**
@@ -84,11 +85,11 @@ export function initChatContext(ctx) {
   const hint = elem('span', 'op-context-hint', CONTEXT_HINT);
   hint.id = `op-context-hint-${nextHintId++}`;
   hint.hidden = true;
-  // The tag ends the line and takes only the room the meter leaves (see operator.css).
+  // The tag starts the line; the meter follows it (see operator.css).
   const tag = elem('span', 'op-context-model');
   tag.setAttribute('role', 'note');
   tag.hidden = true;
-  root.append(bar, label, hint, tag);
+  root.append(tag, bar, label, hint);
   ctx.inputArea.append(root);
 
   /** Whether the meter has a reading to show. */
