@@ -941,7 +941,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # channel before any outcome is raised.
         _assert_target_pin()
 
-        from osprey_connectors.control_system import raise_for_write_result
+        from osprey_connectors.control_system import raise_for_write_results
         from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 
         connector = await _get_connector()
@@ -972,8 +972,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
             _notify_outcome(result.channel_address, result.outcome)
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.
-        for result in results:
-            raise_for_write_result(result)
+        raise_for_write_results(results)
 
 
 def _run_async(coro) -> Any:
@@ -1311,7 +1310,8 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
         ChannelLimitsViolationError: If a value violates channel safety limits
         ChannelWriteBlockedError: If any write was refused and no value was
             written — by policy, limits, or validation (never attempted), or by
-            the control system itself (CONTROL_SYSTEM_REFUSED)
+            the control system itself (CONTROL_SYSTEM_REFUSED). A batch stopped
+            at its checks raises for the refused write, not for one it held back.
         ChannelWriteFailedError: If any write did not come back confirmed —
             FAILED, MISMATCH, or UNCONFIRMED. Writes before the failing one
             have already been applied.
