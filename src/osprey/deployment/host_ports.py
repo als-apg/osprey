@@ -210,6 +210,7 @@ _WORKER_SERVICE_PREFIX = "dispatch-worker"
 # Label compose stamps with the project a container belongs to. Two checkouts of
 # one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
 _COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
 # Config values the host-mode templates fall back on that are NOT ports. The
 # two port fallbacks the templates also carry (the dispatcher's own port and the
@@ -315,6 +316,13 @@ class _PsRecord:
     project: str
     host_ports: set = field(default_factory=set)
     repo_id: str = ""
+    #: The ``com.docker.compose.service`` label: the key under ``services:``,
+    #: which is what a binding names even where the container name spells it
+    #: differently (``app_runtime`` runs as ``<project>-app-runtime``).
+    service: str = ""
+    #: Whether the container shares the host's network stack, so any port it
+    #: listens on is a host port that no mapping in ``ps`` accounts for.
+    host_network: bool = False
 
 
 def _resolve_base(config):
@@ -984,6 +992,7 @@ def _record_from_ps_obj(obj):
     labels = _labels_mapping(obj.get("Labels"))
     project = str(labels.get(_COMPOSE_PROJECT_LABEL, "") or "")
     repo_id = str(labels.get(REPO_ID_LABEL, "") or "")
+    service = str(labels.get(_COMPOSE_SERVICE_LABEL, "") or "")
 
     host_ports = set()
     ports = obj.get("Ports")
@@ -999,7 +1008,26 @@ def _record_from_ps_obj(obj):
             elif isinstance(item, str):
                 host_ports |= _host_ports_from_ports_string(item)
 
-    return _PsRecord(name=name, project=project, host_ports=host_ports, repo_id=repo_id)
+    # Docker joins the network names with commas; podman lists them. A row
+    # that names no network at all and maps no port is read as host-network
+    # too: a container on any bridge network is always on a named one.
+    networks = obj.get("Networks")
+    if isinstance(networks, str):
+        network_names = {part.strip() for part in networks.split(",") if part.strip()}
+    elif isinstance(networks, list):
+        network_names = {str(part) for part in networks}
+    else:
+        network_names = set()
+    host_network = "host" in network_names or (not network_names and not host_ports)
+
+    return _PsRecord(
+        name=name,
+        project=project,
+        host_ports=host_ports,
+        repo_id=repo_id,
+        service=service,
+        host_network=host_network,
+    )
 
 
 def _parse_ps_json(stdout):
@@ -1101,15 +1129,16 @@ def _holder_is_ours(record, project_name, repo_id):
     )
 
 
-def _runs_service(records, project_name, repo_id, service):
+def _runs_service(records, project_name, repo_id, service, *, host_network_only=False):
     """Whether THIS deployment already has a container running for ``service``.
 
     A host-network container publishes no port mapping, so the runtime's ``ps``
     output cannot attribute its listener by port the way a published one is
-    attributed. Its container name can: the templates name it
-    ``<project>-<service>``. Without this, an idempotent redeploy of a
-    host-network service would report its own still-running container as the
-    conflict.
+    attributed. Its compose service label can, and so can its container name:
+    the templates name it ``<project>-<service>``, with underscores turned to
+    hyphens where the service key has them. Without this, an idempotent
+    redeploy of a host-network service would report its own still-running
+    container as the conflict.
 
     The name is only half the answer, because two checkouts of one repo produce
     the same container name as well as the same project name, so ownership is
@@ -1120,14 +1149,23 @@ def _runs_service(records, project_name, repo_id, service):
         project_name: This deploy's resolved compose project name.
         repo_id: This checkout's identity, or ``""`` when unknown.
         service: Compose service name to look for.
+        host_network_only: Count only a container on the host network. Set when
+            the binding being checked is a published one: only a host-network
+            container of ours can hold that port with no mapping to show for it.
 
     Returns:
         ``True`` when one of this deployment's own containers runs the service.
     """
+    hyphenated = service.replace("_", "-")
     for record in records:
         if not _holder_is_ours(record, project_name, repo_id):
             continue
-        if record.name == service or record.name.endswith(f"-{service}"):
+        if host_network_only and not record.host_network:
+            continue
+        if record.service == service or any(
+            record.name == name or record.name.endswith(f"-{name}")
+            for name in (service, hyphenated)
+        ):
             return True
     return False
 
@@ -1320,12 +1358,17 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         holder = holders.get(binding.host_port)
         if holder is not None and _holder_is_ours(holder, project_name, identity):
             continue  # our own container from a prior deploy — not a conflict
-        if (
-            holder is None
-            and binding.host_network
-            and _runs_service(records, project_name, identity, binding.service)
+        if holder is None and _runs_service(
+            records,
+            project_name,
+            identity,
+            binding.service,
+            host_network_only=not binding.host_network,
         ):
-            continue  # our own host-network container, which maps no port
+            # Our own host-network container, which maps no port: either this
+            # binding's service redeployed as it was, or one leaving the host
+            # network for a published port, which `up` recreates either way.
+            continue
         if holder is None and _held_by_own_host_record(binding, config):
             continue  # this deployment's host-local record, which the stack takes over
         description = _describe_holder(holder) if holder is not None else "an unknown host process"
