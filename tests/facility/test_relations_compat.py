@@ -216,6 +216,8 @@ def without_relations_stage(
     root = tmp_path_factory.mktemp("no-relations-stage")
     facility_dir = write_tree(root / "facility", _base_tree())
     later = [stage for stage in LATER_STAGES if stage[0] != "relations"]
+    # A renamed stage would leave nothing filtered and make the comparison vacuous.
+    assert [stage[0] for stage in LATER_STAGES if stage not in later] == ["relations"]
     report = run_stages(facility_dir, project_name="compat", later=later)
     assert report.failed is None, report.errors
     assert report.validated.document is not None
