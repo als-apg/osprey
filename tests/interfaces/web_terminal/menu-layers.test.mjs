@@ -195,6 +195,7 @@ const DOCK_VERBS = new Set([
   'Maximize',
   'Restore',
   'Open in new window',
+  'Open in new session',
   'Reattach',
   'Reload',
   'Close tile',

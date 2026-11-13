@@ -247,6 +247,7 @@ def test_a_tile_bars_more_button_and_a_right_click_on_the_bar_offer_the_same_row
             "Maximize",
             "Zoom",
             "Open in new window",
+            "Open in new session",
             "Reload",
             "Reveal in sidebar",
             "Close tile",
@@ -289,6 +290,7 @@ def test_a_pop_out_bar_has_the_window_rows_and_close_window_keeps_the_sidebar_ro
         for verb in (
             "Open panel",
             "Maximize",
+            "Open in new session",
             "Reveal in sidebar",
             "Close tile",
             "Remove from rail",

@@ -510,6 +510,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       'Close tile',
@@ -519,6 +520,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       '—',
@@ -572,6 +574,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Pin to rail',
       'Close tile',
@@ -596,9 +599,28 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Close tile',
     ]);
+  });
+
+  test('Open in new session sits right after Open in new window on a docked service tile and an artifact tile only', () => {
+    const NEW_SESSION = 'Open in new session';
+    for (const id of ['ariel', 'artifact:a1']) {
+      const labels = rows(policy.buildTileMenuItems(id));
+      expect(labels[labels.indexOf('Open in new window') + 1]).toBe(NEW_SESSION);
+    }
+    /** @param {any[]} items */
+    const has = (items) => items.some((i) => i.label === NEW_SESSION);
+    paneWindow.isDetached.mockReturnValue(true);
+    expect(has(policy.buildTileMenuItems('ariel', { mode: 'detached' }))).toBe(false);
+    paneWindow.isDetached.mockReturnValue(false);
+    expect(has(policy.buildTileMenuItems('ariel', { mode: 'fallback' }))).toBe(false);
+    expect(has(policy.buildTerminalMenuItems())).toBe(false);
+    expect(has(policy.buildTerminalMenuItems({ mode: 'detached' }))).toBe(false);
+    expect(has(policy.buildTerminalMenuItems({ mode: 'fallback' }))).toBe(false);
+    expect(has(policy.buildServiceMenuItems('svc'))).toBe(false);
   });
 
   test("the panel's own rows head the menu as This panel, and Help shows with a docs page", () => {
@@ -612,6 +634,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Help',
       'Reveal in sidebar',
@@ -807,6 +830,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       'Close tile',

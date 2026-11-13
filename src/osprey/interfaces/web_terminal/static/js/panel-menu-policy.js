@@ -92,6 +92,7 @@ import { closeDetached, detach, detachBlocker, focusWindow, reattach } from './p
 import { isDetached } from './dock-apply.js';
 import { isArtifactTileKey } from './artifact-tiles.js';
 import { zoomMenuRow } from './pane-zoom.js';
+import { openInNewSessionRow } from './tile-new-session.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -552,7 +553,8 @@ function stateRows(id, member, noticeIn) {
  * entries, the rows registered through {@link setServiceMenuExtras}, and the
  * controls the narrow bar folded — then "Tile": Open panel ▸
  * ({@link openPanelRow}), Maximize / Restore ({@link maximizeRow}), Zoom ▸
- * (pane-zoom.js), {@link paneWindowRow},
+ * (pane-zoom.js), {@link paneWindowRow}, Open in new session
+ * (tile-new-session.js),
  * Reload, Help (only when the panel has a docs page, panel-help.js), Reveal
  * in sidebar ({@link revealInSidebar}) — or Pin to rail in its place on a
  * tile an agent's focus opened off the rail — and Close tile last.
@@ -600,6 +602,7 @@ export function buildTileMenuItems(id, { mode = 'tile', noticeIn } = {}) {
     maximizeRow(id),
     zoomMenuRow(id),
     paneWindowRow(id, noticeIn),
+    openInNewSessionRow(id, noticeIn),
     ...reloadHelp,
     ...revealOrPin,
     closeTileRow(id),

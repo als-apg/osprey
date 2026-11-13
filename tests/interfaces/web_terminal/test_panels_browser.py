@@ -3648,6 +3648,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
                 "Maximize",
                 "Zoom",
                 "Open in new window",
+                "Open in new session",
                 "Reload",
                 "Reveal in sidebar",
                 "Close tile",

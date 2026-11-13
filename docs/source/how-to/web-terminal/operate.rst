@@ -109,8 +109,15 @@ and **×**.
 **⋯**, or a right-click on the header, opens the tile's menu. **This panel**
 lists the panel's own actions and any icons a narrow tile has no room for.
 **Tile** lists the tile's actions, among them **Open panel** (▸ **Right**,
-**Down**, **Replace here**), **Zoom**, **Reload** and, when the panel has a
-documentation page, **Help**. Shift+right-click shows the browser's own menu.
+**Down**, **Replace here**), **Zoom**, **Open in new session**, **Reload** and,
+when the panel has a documentation page, **Help**. Shift+right-click shows the
+browser's own menu.
+
+**Open in new session** starts a new session and opens that pane in it, beside
+the Agent pane. The new session has no other pane. The pane opens at its start
+page, not at the page it showed. An artifact opened this way shows the notice
+that it comes from another session. If the agent is working, OSPREY asks
+before it ends the turn. If you keep the turn, nothing changes.
 
 To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
 macOS, hold Cmd. A pinch on a trackpad does the same. **Zoom** in the tile's
