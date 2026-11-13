@@ -5,6 +5,7 @@ Docker or Podman compose.
 """
 
 import contextlib
+import functools
 import hashlib
 import ipaddress
 import json
@@ -29,7 +30,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -2794,12 +2795,15 @@ def _build_project_image(
         # below is what reports the finished image.
         _report_group("images")
         with (report := single_image_build_reporter(project_image)):
-            run_captured(
+            run_image_build(
                 cmd,
-                env=env,
-                spool_name="build-project-image",
-                repo_root=resolve_repo_root(config),
-                on_line=report,
+                functools.partial(
+                    run_captured,
+                    env=env,
+                    spool_name="build-project-image",
+                    repo_root=resolve_repo_root(config),
+                    on_line=report,
+                ),
             )
         _report_step(f"project image {project_image}")
     finally:
@@ -6980,12 +6984,15 @@ def _start_stack(
                 # (and its heartbeats) must go quiet the moment compose returns,
                 # before the closing step line below.
                 with (report := compose_build_step_reporter()):
-                    run_captured(
+                    run_image_build(
                         build_cmd,
-                        env=run_env,
-                        spool_name="compose-build",
-                        repo_root=repo_root,
-                        on_line=report,
+                        functools.partial(
+                            run_captured,
+                            env=run_env,
+                            spool_name="compose-build",
+                            repo_root=repo_root,
+                            on_line=report,
+                        ),
                     )
                 _report_step("service images built")
             # The images have read the bundle, and the `up` below carries
