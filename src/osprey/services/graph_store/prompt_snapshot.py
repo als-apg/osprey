@@ -82,8 +82,8 @@ RELATIONSHIP_TYPES_CYPHER = (
 
 NAMING_NOTE = (
     "n10s applyNeo4jNaming: relationship types are uppercased (HASBINDING, "
-    "READSSIGNAL, WRITESSIGNAL, SUBCLASSOF, TYPE); rdf:type is both a label and "
-    "a TYPE edge to a Class node"
+    "LOCATEDIN, PARTOF, READSSIGNAL, WRITESSIGNAL, SUBCLASSOF, TYPE); rdf:type is "
+    "both a label and a TYPE edge to a Class node"
 )
 
 
@@ -177,7 +177,9 @@ def collect_schema(run: RunCypher, *, sample_size: int | None = None) -> dict[st
 
 #: Every ontology class that declares synonyms, with them. Class synonyms reach
 #: the store as ``skos:altLabel``, and n10s lands them on
-#: ``(c:Class).altLabel``. Capturing them here is what keeps the prompt's
+#: ``(c:Class).altLabel``. Places, devices and channels carry an ``altLabel``
+#: too — their names, not synonyms — so the ``:Class`` match is what keeps
+#: record names out of this table. Capturing them here is what keeps the prompt's
 #: vocabulary *this* facility's rather than a table of names hard-coded in the
 #: framework, which a corpus spelling its classes differently would silently
 #: fail to match.
@@ -362,12 +364,25 @@ NO_VOCABULARY_NOTE = (
     "query `(c:Class).altLabel` directly."
 )
 
-#: How to match against a multivalued property. Spelled once, next to the table
-#: it applies to: ``altLabel`` is a list, and ``= $term`` against a list is the
+#: How to match a class synonym. Spelled once, next to the class table it
+#: applies to, and scoped to ``(c:Class)``: places, devices and channels carry an
+#: ``altLabel`` of names too, matched by :data:`RECORD_NAME_MATCH_RULE` instead.
+#: ``altLabel`` is a list, and ``= $term`` against the list itself is the
 #: confident-zero this whole block exists to prevent.
 VOCABULARY_MATCH_RULE = (
-    "Match with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)` — "
-    "`altLabel` is a list, never compare with `=`."
+    "Match a class synonym over `(c:Class)` with "
+    "`ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)` — `altLabel` is a "
+    "list, so never compare the list itself with `=`."
+)
+
+#: How to match the name of a place, device or channel: whole entry,
+#: case-insensitively. Names are identifiers, so ``CONTAINS`` is wrong for them —
+#: a short name is the prefix of longer ones. The one string the agent prompts
+#: and the docs quote verbatim; it is kept apart from
+#: :data:`VOCABULARY_MATCH_RULE` because that renders only beside a non-empty
+#: class table, while this belongs in the always-rendered terminology.
+RECORD_NAME_MATCH_RULE = (
+    "MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))"
 )
 
 #: The two labels a rendered parameter set can carry. Never unlabelled: an

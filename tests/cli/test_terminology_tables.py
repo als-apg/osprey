@@ -537,3 +537,42 @@ def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_demo, 
         rendered.render(**ctx).encode("utf-8")
         == (project_dir / ".claude" / "agents" / "channel-finder.md").read_bytes()
     )
+
+
+@pytest.mark.parametrize("structural", (False, True))
+def test_the_graph_partial_states_names_places_and_routes(structural):
+    """The graph terminology, in both of its consumers' branches.
+
+    Names on places, devices and channels match whole-entry by the one rule
+    string; class synonyms keep ``CONTAINS`` but only over ``(c:Class)``; both
+    place relationships are listed with their direction; a device is told from
+    a place by ``deviceId``, not by ``rawType``; and no facility device kind or
+    protocol word is spelled in the text.
+    """
+    from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
+    from tests._vocabulary import hardcoded_vocabulary_hits
+
+    rendered = (
+        TemplateManager()
+        .jinja_env.get_template("claude_code/claude/agents/_terminology/graph.md.j2")
+        .render(graph_terminology_structural=structural)
+    )
+
+    assert f"`{RECORD_NAME_MATCH_RULE}`" in rendered
+    assert "`(d)-[:LOCATEDIN]->(p)`" in rendered
+    assert "`(p)-[:PARTOF]->(parent)`" in rendered
+    assert "`deviceId IS NOT NULL`" in rendered
+    assert "`placePath IS NOT NULL AND deviceId IS NULL`" in rendered
+    assert "A query that means devices keeps" not in rendered
+    assert "`ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`" in rendered
+    sentences = re.split(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])", rendered)
+    unscoped = [
+        s
+        for s in sentences
+        if "altLabel" in s and "CONTAINS" in s and not re.search(r"\(\w*:Class\b", s)
+    ]
+    assert unscoped == []
+    generic = [s for s in sentences if "CONTAINS $term" in s and "altLabel" not in s]
+    assert generic and all("description" in s.lower() for s in generic), generic
+    assert hardcoded_vocabulary_hits(rendered) == []
+    assert PROTOCOL_WORDS.search(rendered) is None

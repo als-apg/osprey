@@ -33,6 +33,8 @@ authoritative; this table is the orientation.
 | `(d)-[:HASBINDING]->(b)` | Device to binding — the hop from a device to its addresses |
 | `(b)-[:READSSIGNAL]->()` / `(b)-[:WRITESSIGNAL]->()` | Binding to semantic signal. Which one the binding has is the read/write direction |
 | `(d)-[:TYPE]->(c)` / `(c)-[:SUBCLASSOF]->(parent)` | Device to class, class to parent class. `SUBCLASSOF*0..` rolls a whole subtree up |
+| `(d)-[:LOCATEDIN]->(p)` | Device to the place it sits in |
+| `(p)-[:PARTOF]->(parent)` | Place to its parent place. `PARTOF*0..` walks up the place tree; a top place has none |
 
 Relationship types are UPPERCASED by the loader. Writing `hasBinding` matches
 nothing and returns zero rows rather than an error.
@@ -40,20 +42,33 @@ nothing and returns zero rows rather than an error.
 Properties worth knowing:
 
 - **On a device:** `deviceId` (the device's id), `placePath`, `sectionCode`,
-  `system`, `rawType`, `sPositionM`, `ordinalInPlace`, `sourceName`, plus the
-  free text `systemDescription`
-- **On a place:** `placePath`, `sectionCode`, and a `HASBINDING` edge to each
-  channel that sits on the place itself. A query that means devices keeps
-  `d.rawType IS NOT NULL`
-- **On a binding:** `fullPv`, plus the free text `description`
-- **On a class:** `uri`, `altLabel`
+  `system`, `rawType`, `sPositionM`, `ordinalInPlace`, `sourceName`, its names
+  `altLabel`, plus the free text `systemDescription`
+- **On a place:** `placePath`, `sectionCode`, its names `altLabel`, and a
+  `HASBINDING` edge to each channel that sits on the place itself
+- **On a binding:** `fullPv`, the channel's names `altLabel`, plus the free
+  text `description`
+- **On a class:** `uri`, and its synonyms `altLabel`
+
+A device is `deviceId IS NOT NULL` — every device carries it, while `rawType`
+is set only on a device with a class, so `rawType IS NOT NULL` means "device
+with a class". A place is `placePath IS NOT NULL AND deviceId IS NULL`, or the
+far end of a `LOCATEDIN` or `PARTOF` edge.
 
 A facility corpus may also carry scalar properties of its own on devices and
 bindings — units, a crate identity, a serial number. `get_schema()` lists
 whatever this corpus holds; filter on them like any other property.
 
-`altLabel` is a **list**, always — even where a class has one synonym. Match it
-with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`, never with `=`.
+`altLabel` is a **list**, always — even where it holds one entry — so never
+compare the list itself with `=`. What it holds decides how to match it:
+
+- **Names.** Places, devices and channels carry their names as a list
+  `altLabel`. A name is an identifier: match the whole entry,
+  case-insensitively, with
+  `MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))`.
+  Never `CONTAINS` — a short name is the start of longer ones
+- **Class synonyms.** A synonym is a phrase: match it over `(c:Class)` with
+  `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`
 
 ### Address Grammar
 
@@ -72,7 +87,9 @@ Operators use domain language. Map their terms to a graph query:
 | "all magnets" | `(:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $parent_uri})` — name the parent class and let the hierarchy supply the kinds |
 | "readback" / "monitor" | Bindings with a `READSSIGNAL` edge and no `WRITESSIGNAL` |
 | "setpoint" / "control" | Bindings with a `WRITESSIGNAL` edge |
-| "in sector 3" / "in the booster" | `d.sectionCode` for the location, `d.system` for the accelerator system |
+| "in sector 3" / "in the booster" | `d.sectionCode` for the location, `d.system` for the accelerator system — place-scoped device lookups stay on these literals (`placePath`, `sectionCode`, `system`), the denormalized copy of the `LOCATEDIN` edge |
+| a device, place or channel by its name | The record-name rule above: whole entry of `altLabel`, case-insensitive |
+| "what sits inside this area" | Walk the place tree: `(d)-[:LOCATEDIN]->(:Resource)-[:PARTOF*0..]->(area)` |
 | "in beamline order" | Order by `d.sPositionM`, then `d.ordinalInPlace` |
 | "what is this channel" | Reverse lookup: `MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})` |
 
@@ -101,8 +118,10 @@ Operators use domain language. Map their terms to a graph query:
 - Free-text descriptions are richer than names, but they are corpus-dependent: a
   facility export may carry none. A zero-row description search means fall back
   to the name and class route, not that the device is absent
-- Match text case-insensitively (`toLower(...) CONTAINS $term`); the corpus
-  spells names in the facility's own casing
+- Match free-text descriptions case-insensitively
+  (`toLower(b.description) CONTAINS $term`); the corpus spells them in the
+  facility's own casing. Names are not descriptions: they match whole-entry by
+  the record-name rule
 - A misspelled label or property returns **zero rows, not an error** — when a
   query surprises you with an empty result, check the spelling with
   `get_schema()` before concluding the facility has no such device
