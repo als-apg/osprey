@@ -69,6 +69,7 @@ __all__ = [
     "need",
     "ordered_slots",
     "paired_nominal_error",
+    "relation_types",
     "report",
     "report_warnings",
     "run_stages",
@@ -348,8 +349,10 @@ def vocabulary() -> dict[str, Any]:
     """The generated vocabulary table.
 
     Returns:
-        The table read from ``schema/_generated/vocabulary.json``: ``classes`` and
-        ``signal_roles`` rows of ``{name, aliases, ...}``.
+        The table read from ``schema/_generated/vocabulary.json``: ``classes``,
+        ``signal_roles`` and ``properties`` rows of ``{name, aliases, ...}``, and
+        ``relations`` rows of ``{name, description, subject, object, symmetric,
+        single_per}``.
     """
     table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
     data: dict[str, Any] = json.loads(table.read_text(encoding="utf-8"))
@@ -359,6 +362,17 @@ def vocabulary() -> dict[str, Any]:
 def signal_roles() -> frozenset[str]:
     """The signal roles of the vocabulary."""
     return frozenset(role["name"] for role in vocabulary()["signal_roles"])
+
+
+def relation_types() -> dict[str, dict[str, Any]]:
+    """The vocabulary's relation types, keyed by name.
+
+    Returns:
+        Each ``relations`` row of the vocabulary table under its ``name``: the end
+        kinds ``subject`` and ``object``, ``symmetric``, and the ``single_per``
+        key fields, lists in their stated order.
+    """
+    return {row["name"]: row for row in vocabulary()["relations"]}
 
 
 def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
@@ -524,7 +538,12 @@ def _schema_error(
     )
 
 
-_TOP_SLOT_FILES = {"limits": "limits.yaml", "classes": "classes.yaml", "identity": "identity.yaml"}
+_TOP_SLOT_FILES = {
+    "limits": "limits.yaml",
+    "classes": "classes.yaml",
+    "identity": "identity.yaml",
+    "documents": "documents.yaml",
+}
 
 
 def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...]) -> list[str]:

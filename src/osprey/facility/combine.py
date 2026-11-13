@@ -54,11 +54,14 @@ from osprey.facility.provenance import build_provenance
 from osprey.facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
+    KEYED_SETS,
     KIND_CLASS,
     RECORD_FILES,
     SET_VALUED_SLOTS,
     Sources,
     group_families,
+    keyed_clashes,
+    keyed_order,
 )
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
@@ -84,7 +87,7 @@ SET_VALUED: dict[str, frozenset[str]] = {
 }
 
 _OPS = ("set", "add", "drop")
-_KINDS = ("place", "device", "channel", "wiring", "group", "model")
+_KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
 _FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
 
 _SLICE_WEIGHT = 1
@@ -96,6 +99,7 @@ _PLURAL = {
     "channel": "channels",
     "group": "groups",
     "model": "models",
+    "relation": "relations",
 }
 
 
@@ -152,7 +156,8 @@ class CombineResult:
         document: The combined records in facility-file shape: ``identity``
             (when a source states one), ``classes``, ``places``, ``devices``,
             ``channels``, ``groups``, ``models`` (each with its ``wiring``),
-            ``limits`` (when a source states one) and ``scenarios``. Complete
+            ``limits`` (when a source states one), ``scenarios``, and
+            ``relations`` and ``documents`` (each when non-empty). Complete
             only when ``errors`` is empty.
         errors: Every stop found.
         dropped: ``(kind, id)`` of each record a ``drop`` removed, to the fix
@@ -209,7 +214,8 @@ def _group_list(value: Any) -> Any:
 def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """A value in the form it is compared and emitted in.
 
-    Set-valued lists are sorted by string form, a measurement's ``kinds`` and
+    Set-valued lists are sorted by string form, a keyed set (``KEYED_SETS``)
+    collapsed and ordered by key, a measurement's ``kinds`` and
     each of its group roles too (a role naming one group becomes a list of
     one), and each slice without a ``weight`` gets the constant default.
 
@@ -218,6 +224,8 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """
     value = copy.deepcopy(value)
     if name in SET_VALUED.get(kind, ()) and isinstance(value, list):
+        if name in KEYED_SETS:
+            return keyed_order(name, value), frozenset()
         return sorted(value, key=str), frozenset()
     if kind == "model" and name == "measurement" and isinstance(value, dict):
         kinds = value.get("kinds")
@@ -464,6 +472,8 @@ class _Combiner:
                     f"remove {quoted_slots(computed)} from the fix",
                 )
                 return
+            if self._keyed_clash(fix, kind, rid, fields, "record"):
+                return
             if (kind, rid) in self.records:
                 self._error(
                     "fix-duplicate",
@@ -541,6 +551,8 @@ class _Combiner:
                 f"remove {quoted_slots(computed)} from the fix",
             )
             return
+        if self._keyed_clash(fix, fix.kind, fix.id, fix.fields, "fields"):
+            return
         current: dict[str, dict[str, Any]] = {}
         for name in sorted(fix.fields):
             values = target.values.get(name, [])
@@ -571,6 +583,21 @@ class _Combiner:
             value, filled = _normalize(fix.kind, name, raw)
             target.set_fields[name] = _Value(None, None, value, filled)
         target.fix = fix
+
+    def _keyed_clash(
+        self, fix: _Fix, kind: str, rid: str, fields: Mapping[str, Any], where: str
+    ) -> bool:
+        """Refuse a fix value that states one key of a keyed set with two contents."""
+        clashed = False
+        for name in sorted(set(fields) & SET_VALUED.get(kind, frozenset())):
+            for key in keyed_clashes(name, fields[name]):
+                self._shape_error(
+                    f"{FIXES_FILE}.fixes.{fix.position}.{where}.{name}",
+                    f"{kind} {rid} `{name}` states two contents for key {key}",
+                    f"keep one entry per key in `{name}`",
+                )
+                clashed = True
+        return clashed
 
     def _was_matches(self, fix: _Fix, current: dict[str, dict[str, Any]]) -> bool:
         if fix.was is None:
@@ -628,6 +655,7 @@ class _Combiner:
                 for slices in wiring.current("slices"):
                     if any(isinstance(s, dict) and s.get("device") == rid for s in slices or []):
                         yield f"wiring {wiring.id} (slices)"
+            yield from self._relation_referrers("device", rid)
         elif kind == "place":
             yield from self._on_referrers("place", rid)
             for device in self._live("device"):
@@ -636,6 +664,7 @@ class _Combiner:
             for place in self._live("place"):
                 if "/" in place.id and place.id.rsplit("/", 1)[0] == rid:
                     yield f"place {place.id} (parent)"
+            yield from self._relation_referrers("place", rid)
         elif kind == "model":
             for place in self._live("place"):
                 if any(
@@ -657,6 +686,13 @@ class _Combiner:
                     and any(rid in group_families(value) for value in groups.values())
                 ):
                     yield f"measurement/{model}.yaml (groups)"
+            yield from self._relation_referrers("group", rid)
+
+    def _relation_referrers(self, kind: str, rid: str) -> Iterator[str]:
+        for relation in self._live("relation"):
+            for end in ("subject", "object"):
+                if any(isinstance(e, dict) and e.get(kind) == rid for e in relation.current(end)):
+                    yield f"relation {relation.id} ({end})"
 
     def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:
         for channel in self._live("channel"):
@@ -751,6 +787,13 @@ class _Combiner:
         if self.sources.limits is not None:
             document["limits"] = copy.deepcopy(self.sources.limits)
         document["scenarios"] = copy.deepcopy(self.sources.scenarios)
+        relations = [rec for (k, _), rec in emitted.items() if k == "relation"]
+        if relations:
+            document["relations"] = relations
+        if self.sources.documents:
+            document["documents"] = sorted(
+                copy.deepcopy(self.sources.documents), key=lambda d: str(d["id"])
+            )
         return document
 
     # --- errors -----------------------------------------------------------------

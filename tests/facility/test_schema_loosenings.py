@@ -44,6 +44,8 @@ FACILITY_SLOTS = [
     "models",
     "limits",
     "scenarios",
+    "relations",
+    "documents",
 ]
 
 #: Words that name one facility, matched case-sensitively. Each is spelled with
@@ -80,7 +82,19 @@ ACCELERATOR_WORDS = (
 
 #: The classes the vocabulary adds to the seed's class tree, each with its
 #: parent and whether it is abstract.
-VOCABULARY_ADDITIONS = {"Septum": ("Magnet", False), "Kicker": ("Magnet", False)}
+VOCABULARY_ADDITIONS = {
+    "Septum": ("Magnet", False),
+    "Kicker": ("Magnet", False),
+    "Infrastructure": ("AcceleratorDevice", True),
+    "PowerSupply": ("Infrastructure", False),
+    "ElectronicsChassis": ("Infrastructure", False),
+    "Host": ("Infrastructure", False),
+    "NetworkSwitch": ("Infrastructure", False),
+    "ControlApplication": ("Infrastructure", False),
+    "Circuit": ("Infrastructure", False),
+    "UtilityLoop": ("Infrastructure", False),
+    "Unidentified": ("AcceleratorDevice", False),
+}
 
 
 def _load(name: str) -> dict:
@@ -140,7 +154,7 @@ def test_schema_view_resolves_core_with_its_vocabulary() -> None:
     assert "signal_role_enum" in view.all_enums()
 
 
-def test_facility_is_the_one_tree_root_with_exactly_the_ten_slots(core: dict) -> None:
+def test_facility_is_the_one_tree_root_with_exactly_the_twelve_slots(core: dict) -> None:
     roots = [name for name, cls in core["classes"].items() if cls.get("tree_root")]
     assert roots == ["Facility"]
     assert list(_attrs(core, "Facility")) == FACILITY_SLOTS
@@ -225,7 +239,7 @@ def test_limits_are_records_only(core: dict) -> None:
 
 
 def test_every_record_kind_carries_provenance(core: dict) -> None:
-    for cls in ("Place", "Device", "Channel", "Group", "Model", "Wiring"):
+    for cls in ("Place", "Device", "Channel", "Group", "Model", "Wiring", "Relation"):
         assert _attrs(core, cls)["provenance"]["range"] == "Provenance"
     assert set(_attrs(core, "Provenance")) == {"sources", "fixes", "defaults", "place_from"}
 

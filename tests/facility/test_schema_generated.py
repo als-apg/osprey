@@ -96,7 +96,10 @@ def test_vocabulary_json_reads_with_the_standard_library() -> None:
     properties = {record["name"]: record for record in table["properties"]}
     assert properties["betax"]["unit"] == "m"
     assert properties["alphax"]["unit"] is None
-    for key in ("classes", "signal_roles", "properties"):
+    relations = {record["name"]: record for record in table["relations"]}
+    assert relations["cabled_to"]["symmetric"] is True
+    assert relations["powered_by"]["single_per"] == ["subject", "port"]
+    for key in ("classes", "signal_roles", "properties", "relations"):
         names = [record["name"] for record in table[key]]
         assert names == sorted(names)
 
@@ -206,3 +209,70 @@ def test_unknown_top_level_key_fails_validation() -> None:
     with pytest.raises(ValidationError) as caught:
         Facility.model_validate(document)
     assert [error["type"] for error in caught.value.errors()] == ["extra_forbidden"]
+
+
+def _one_relation() -> dict[str, Any]:
+    """One stated claim between two devices, with its source and one document."""
+    document = _zero_source()
+    document["relations"] = [
+        {
+            "id": "q1-power",
+            "type": "powered_by",
+            "subject": {"device": "Q1"},
+            "object": {"device": "Q1-PS", "port": "OUT1"},
+            "source": {"document": "PS-LIST", "version": "C", "locator": "row 41"},
+        }
+    ]
+    document["documents"] = [{"id": "PS-LIST", "title": "Supply list", "kind": "list"}]
+    return document
+
+
+def test_a_relation_and_its_document_validate() -> None:
+    from osprey.facility.schema import Facility
+
+    facility = Facility.model_validate(_one_relation())
+    assert facility.relations[0].type == "powered_by"
+    assert facility.relations[0].object.port == "OUT1"
+    assert facility.documents[0].id == "PS-LIST"
+
+
+def test_a_relation_with_an_unknown_key_fails_validation() -> None:
+    from pydantic import ValidationError
+
+    from osprey.facility.schema import Facility
+
+    document = _one_relation()
+    document["relations"][0]["weight"] = 3
+    with pytest.raises(ValidationError) as caught:
+        Facility.model_validate(document)
+    assert [error["type"] for error in caught.value.errors()] == ["extra_forbidden"]
+    assert caught.value.errors()[0]["loc"] == ("relations", 0, "weight")
+
+
+def test_a_relation_of_an_unknown_type_fails_validation() -> None:
+    from pydantic import ValidationError
+
+    from osprey.facility.schema import Facility
+
+    document = _one_relation()
+    document["relations"][0]["type"] = "not_a_type"
+    with pytest.raises(ValidationError) as caught:
+        Facility.model_validate(document)
+    assert [error["type"] for error in caught.value.errors()] == ["enum"]
+    assert caught.value.errors()[0]["loc"] == ("relations", 0, "type")
+
+
+def test_a_device_carries_scheme_names_and_citations() -> None:
+    from osprey.facility.schema import Facility
+
+    document = _zero_source()
+    document["devices"] = [
+        {
+            "id": "Q1",
+            "scheme_names": [{"name": "QF1", "scheme": "controls"}],
+            "citations": [{"document": "PS-LIST", "imported": "2026-11-01"}],
+        }
+    ]
+    facility = Facility.model_validate(document)
+    assert facility.devices[0].scheme_names[0].scheme == "controls"
+    assert str(facility.devices[0].citations[0].imported) == "2026-11-01"
