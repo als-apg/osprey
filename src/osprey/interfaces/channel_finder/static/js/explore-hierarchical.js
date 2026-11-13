@@ -9,7 +9,7 @@
  */
 
 import { fetchJSON } from './api.js';
-import { showToast } from './app.js';
+import { showToast } from '/design-system/js/toast.js';
 import { esc, messageOf } from './utils.js';
 import { computeSelection } from './explore-selection.js';
 
@@ -109,7 +109,7 @@ async function loadLevel(levelIdx) {
 
     renderColumns();
   } catch (e) {
-    showToast(`Failed to load ${level}: ${messageOf(e)}`, 'error');
+    showToast(`Failed to load ${level}: ${messageOf(e)}`, { kind: 'error' });
   }
 }
 

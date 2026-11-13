@@ -44,7 +44,7 @@
 
 import { esc } from './utils.js';
 import { refreshStatsBadges } from './stats-badges.js';
-import { showToast } from './app.js';
+import { showToast } from '/design-system/js/toast.js';
 import { copyText as writeClipboard } from '/design-system/js/clipboard.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { initSplitter } from '/design-system/js/splitter.js';
@@ -629,8 +629,8 @@ function turnPage(direction) {
 async function copyAndSay(text, what) {
   if (!text) return;
   const ok = await writeClipboard(text);
-  if (ok) showToast(`Copied ${what}`, 'success');
-  else showToast('Copy failed — select the text and copy manually', 'error');
+  if (ok) showToast(`Copied ${what}`, { kind: 'success' });
+  else showToast('Copy failed — select the text and copy manually', { kind: 'error' });
 }
 
 /**
@@ -647,7 +647,7 @@ function sendAddresses(pvs) {
     { type: 'osprey-paste-to-terminal', text: pvs.join(' ') },
     window.location.origin
   );
-  showToast(`Posted ${addresses(pvs.length)} to the prompt`, 'success');
+  showToast(`Posted ${addresses(pvs.length)} to the prompt`, { kind: 'success' });
 }
 
 /**

@@ -8,6 +8,7 @@
 
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { showToast } from '/design-system/js/toast.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
@@ -87,7 +88,7 @@ async function init() {
     buildPipelineDropdown();
   } catch (e) {
     console.error('Failed to load pipeline info:', e);
-    showToast('Failed to connect to API', 'error');
+    showToast('Failed to connect to API', { kind: 'error' });
   }
 
   // Load stats badges
@@ -389,32 +390,10 @@ async function switchPipeline(newType) {
     currentRouteKey = null; // Force re-mount
     routeFromHash();
 
-    showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, 'success');
+    showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, { kind: 'success' });
   } catch (e) {
-    showToast(`Failed to switch pipeline: ${messageOf(e)}`, 'error');
+    showToast(`Failed to switch pipeline: ${messageOf(e)}`, { kind: 'error' });
   }
-}
-
-// ---- Toast ----
-
-/**
- * @param {string} message
- * @param {string} [type='info']
- */
-export function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
 }
 
 // Re-export for use by explore renderers after CRUD mutations

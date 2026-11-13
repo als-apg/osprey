@@ -6,7 +6,7 @@
  * borders/spacing resolve to canonical tokens; the block below holds only
  * genuine local extensions with no canonical equivalent (surface/shadow/
  * warning composites built from canonical tokens so they still theme
- * correctly, the info-toast accent, and the corpus-strip height).
+ * correctly, the info accent, and the corpus-strip height).
  */
 
 /* ================================================================
@@ -923,35 +923,11 @@ textarea.form-input {
 .skeleton-line:nth-child(3) { width: 60%; }
 
 /* ================================================================
-   Toast Notifications
+   Toasts (design system, toast.js)
    ================================================================ */
 
-.toast-container {
-  position: fixed;
-  /* Above the corpus strip: a pipeline switch toasts right where the
-     switcher sits, so stacking them would hide the control. */
-  bottom: calc(var(--cf-strip-h) + var(--space-4));
-  right: var(--space-4);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.toast {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 5px; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  padding: var(--space-3) var(--space-4);
-  box-shadow: var(--shadow-md);
-  animation: slideIn 0.25s ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  font-size: var(--text-base);
-  max-width: 360px;
-}
-
-.toast.toast-error { border-left: 3px solid var(--color-error); }
-.toast.toast-success { border-left: 3px solid var(--color-success); }
-.toast.toast-info { border-left: 3px solid var(--color-info); }
+/* Above the corpus strip, which holds the pipeline switcher. */
+.osprey-toast-host { bottom: calc(var(--cf-strip-h) + var(--space-4)); }
 
 /* ================================================================
    Section Headers
@@ -1045,11 +1021,6 @@ textarea.form-input {
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: none; }
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: none; }
 }
 
