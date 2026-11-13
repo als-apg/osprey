@@ -25,6 +25,7 @@ pytest.importorskip("osprey_connectors.service_answers")
 
 import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, facts, service
+from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
 from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_state import (
@@ -790,7 +791,7 @@ async def test_a_section_with_no_source_or_that_raised_carries_no_caveats(
     raised = _sections(await page.pv_facts("SR:BPM1"))["alarm_state"]
 
     assert raised["outcome"] == "unavailable"
-    assert raised["reason"] == "the service failed: snapshot broke"
+    assert raised["reason"] == "the service failed: RuntimeError"
     assert raised["caveats"] == []
 
     record.move("va", 1)
@@ -1344,7 +1345,7 @@ async def test_a_raised_archive_read_is_unavailable_with_its_reason(
     section = _sections(answer)["archive"]
 
     assert section["outcome"] == "unavailable"
-    assert section["reason"] == "the archive failed: RuntimeError"
+    assert section["reason"] == "the service failed: RuntimeError"
     assert answer["outcome"] == "found"
 
 
@@ -1359,8 +1360,62 @@ async def test_a_raised_archive_read_never_serves_the_exception_text(
 
     section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
 
-    assert section["reason"] == "the archive failed: ConnectionError"
+    assert section["reason"] == "the service failed: ConnectionError"
     assert "https://" not in str(section) and "secret" not in str(section)
+
+
+#: A failure whose text holds a login: a served answer names its class only.
+LEAK = "cannot reach https://reader:secret@service.example/api"
+
+
+class _Leak(ConnectionError):
+    """A backend failure whose message carries a URL with a login."""
+
+
+async def _leak(*_args: Any, **_kwargs: Any) -> Any:
+    raise _Leak(LEAK)
+
+
+@pytest.mark.parametrize(
+    ("section", "reads"),
+    [
+        ("directory", [(FakeDirectory, "describe")]),
+        ("archive", [(FakeArchiver, "get_metadata")]),
+        ("alarm_state", [(AlarmSnapshot, "state_for")]),
+        ("alarm_config", [(AlarmSnapshot, "config_for"), (FakeAlarmLog, "config_for")]),
+        ("alarm_history", [(FakeAlarmLog, "history")]),
+        ("put_history", [(FakePutLog, "history")]),
+    ],
+)
+@pytest.mark.usefixtures("archiver")
+async def test_a_raising_section_names_the_failure_class_never_its_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    section: str,
+    reads: list[tuple[type, str]],
+) -> None:
+    for fake, method in reads:
+        monkeypatch.setattr(fake, method, _leak)
+    page = _facts(_archived(tmp_path, EVERY_SERVICE), tmp_path)
+
+    answer = await page.pv_facts("SR:BPM1")
+    served = _sections(answer)[section]
+
+    assert served["outcome"] == "unavailable"
+    assert served["reason"] == "the service failed: _Leak"
+    assert "service.example" not in json.dumps(answer) and "secret" not in json.dumps(answer)
+
+
+async def test_a_raising_section_reader_names_the_failure_class_never_its_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _facts(_config(tmp_path, LIVE_BUILD, EVERY_SERVICE), tmp_path)
+    monkeypatch.setattr(page._service, "snapshot", _leak)
+
+    served = _sections(await page.pv_facts("SR:BPM1"))["alarm_state"]
+
+    assert served["reason"] == "the service failed: _Leak"
+    assert "secret" not in json.dumps(served)
 
 
 @pytest.mark.usefixtures("archiver")

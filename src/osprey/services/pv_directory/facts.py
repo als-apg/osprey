@@ -53,7 +53,7 @@ from osprey.services.pv_directory.archive import (
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
-from osprey.services.pv_directory.vocabulary import CONFIG_LABELS
+from osprey.services.pv_directory.vocabulary import CONFIG_LABELS, service_failed
 from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
@@ -621,20 +621,16 @@ async def _ask(call: Awaitable[Any], deadline: float) -> Any:
         return _Reason(f"no answer within {deadline:g} s")
     except Exception as failure:
         logger.warning("PV facts backend failed", exc_info=True)
-        return _Reason(f"the service failed: {failure}")
+        return _Reason(service_failed(failure))
 
 
 async def _archive_metadata(connector: Any, name: str) -> Any:
-    """The archive's metadata for *name*; a raised read answers its class, never its text.
-
-    An archiver's exception can carry its URL, a login included, so only the
-    class name is served; the whole exception goes to the log.
-    """
+    """The archive's metadata for *name*; a raised read answers its class, never its text."""
     try:
         return await connector.get_metadata(name)
     except Exception as failure:
         logger.warning("the archive's metadata could not be read", exc_info=True)
-        return _Reason(f"the archive failed: {type(failure).__name__}")
+        return _Reason(service_failed(failure))
 
 
 async def _absent() -> None:
@@ -647,7 +643,7 @@ async def _guarded(call: Awaitable[Any]) -> Any:
         return await call
     except Exception as failure:
         logger.warning("PV facts section failed", exc_info=True)
-        return _NoSource(f"the service failed: {failure}")
+        return _NoSource(service_failed(failure))
 
 
 def _is_unavailable(answer: Any) -> bool:
