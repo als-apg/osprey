@@ -45,7 +45,8 @@ Search All PVs
 
 1. Open **Channels** from the **Apps** section of the sidebar.
 2. Click **All PVs** in the view switch at the toolbar's left. The switch reads
-   **Curated**, **All PVs**, **Alarms**, **Archive** and **Feedback**.
+   **Curated**, **All PVs**, **Alarms**, **Archive** and **Feedback**; Alarms and
+   Archive appear only when their service is configured.
 3. Type words into the toolbar's search box and press Enter.
 
 In the ``demo`` preset, search ``cavity temperature``. The rows are the
