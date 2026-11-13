@@ -1250,7 +1250,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    fields the build filled) and the fixes applied to it; a header
    ``<kind> <id> (match: <match>)`` marks a record ``TEXT`` did not name by id.
    A place or device lists the claims it is an end of, one line each: id,
-   type, other end, standing, and the unit when the claim gives one. A
+   the claim read subject first with the record itself written ``(this)``
+   (``type <other>`` when the record is the subject, ``<other> type (this)``
+   when it is the object, ``(this) type (this)`` when it is both), standing,
+   and the unit when the claim's place end gives one. A
    ``TEXT`` that matches nothing prints
    ``facility show: no record <text>`` on stderr and exits 1. ``--json`` prints
    one JSON document on stdout and every other line, view notes included, on
@@ -1262,7 +1265,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the record document is ``records``, one entry per record with ``record``,
    ``kind``, ``match`` (``id``, ``claim``, ``name`` or ``segment``),
    ``provenance`` and ``fixes_applied``, and ``claims`` on a place or device
-   (``id``, ``type``, ``other``, ``standing``, ``unit`` when given), in place,
+   (``id``, ``type``, ``other``, ``standing``, ``role`` — ``subject``,
+   ``object`` or ``both``, ``other`` then being the record itself — and
+   ``unit`` when given), in place,
    device, channel, group, model order.
 
 ``osprey facility import``

@@ -408,7 +408,13 @@ def _entry(record: Mapping[str, Any], kind: str, match: str) -> dict[str, Any]:
 
 
 def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dict[str, Any]]:
-    """The claims with an end naming ``kind`` ``id_``: id, type, other end, standing, unit."""
+    """The claims with an end naming ``kind`` ``id_``, one row each.
+
+    A row holds the claim's id, type, standing, the ``other`` end's id and the
+    ``role`` the record plays: ``subject``, ``object``, or ``both`` when the
+    claim names it at both ends (``other`` is then the record itself). ``unit``
+    is the unit given on the claim's place end, the object's first.
+    """
     from osprey.facility.relations import end_identity
 
     listed = []
@@ -416,16 +422,26 @@ def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dic
         ends = [claim.get(side) for side in ("subject", "object")]
         ends = [end if isinstance(end, Mapping) else {} for end in ends]
         identities = [end_identity(end) for end in ends]
-        if (kind, id_) not in identities:
+        named = [identity == (kind, id_) for identity in identities]
+        if not any(named):
             continue
-        other = identities[1] if identities[0] == (kind, id_) else identities[0]
+        role = "both" if all(named) else "subject" if named[0] else "object"
+        other = identities[1] if role == "subject" else identities[0]
         row: dict[str, Any] = {
             "id": claim.get("id"),
             "type": claim.get("type"),
             "other": other[1] if other else None,
             "standing": claim.get("standing"),
+            "role": role,
         }
-        unit = next((end["unit"] for end in ends if end.get("unit") is not None), None)
+        unit = next(
+            (
+                end["unit"]
+                for end in reversed(ends)
+                if end.get("unit") is not None and end.get("place") is not None
+            ),
+            None,
+        )
         if unit is not None:
             row["unit"] = unit
         listed.append(row)
@@ -509,6 +525,19 @@ def _print_overview(document: dict[str, Any], primary_config: str) -> None:
     )
 
 
+def _claim_direction(claim: Mapping[str, Any]) -> str:
+    """A claim row read subject first, the shown record written ``(this)``.
+
+    A subject-end row keeps the short ``type other`` form.
+    """
+    role, other = claim.get("role"), claim["other"]
+    if role == "object":
+        return f"{other} {claim['type']} (this)"
+    if role == "both":
+        return f"(this) {claim['type']} (this)"
+    return f"{claim['type']} {other}"
+
+
 def _print_record(document: dict[str, Any]) -> None:
     record = document["record"]
     id_field = "name" if document["kind"] == "model" else "id"
@@ -519,7 +548,7 @@ def _print_record(document: dict[str, Any]) -> None:
     if document["match"] != "id":
         header += f" (match: {document['match']})"
     claims = [
-        f"  {claim['id']}  {claim['type']} {claim['other']}, {claim['standing']}"
+        f"  {claim['id']}  {_claim_direction(claim)}, {claim['standing']}"
         + (f", unit {claim['unit']}" if "unit" in claim else "")
         for claim in document.get("claims") or []
     ]
@@ -545,13 +574,14 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
     """Print the facility the repo builds, or the records TEXT names.
 
     Builds in memory as ``osprey facility validate`` does and exits 1 like it
-    on an error. Without ID it prints the identity, the records per kind, the
+    on an error. Without TEXT it prints the identity, the records per kind, the
     wiring per model, the relation claims, each model's engine, served flag and
     solve setting, and each view with its path and whether the main render
     carries it. With TEXT it prints every record of that id; failing that, the
     relation claim of that id; failing that, every place and device TEXT names.
     Each entry shows its kind, how it matched, the claims a place or device is
-    an end of, its provenance and the fixes applied to it; TEXT that matches
+    an end of (each read subject first, the record itself as ``(this)`` at an
+    object end), its provenance and the fixes applied to it; TEXT that matches
     nothing exits 1. Under ``--json`` stdout holds one document and every other
     line goes to stderr.
     """
