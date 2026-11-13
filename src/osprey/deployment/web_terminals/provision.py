@@ -14,6 +14,7 @@ or shared with the plain (non-web) deploy path stays in ``container_lifecycle``.
 """
 
 import fnmatch
+import functools
 import os
 import shutil
 import subprocess
@@ -25,7 +26,7 @@ import yaml
 from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment.build_cache import AUTH_SIDECAR_KEY, build_cache_args
+from osprey.deployment.build_cache import AUTH_SIDECAR_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
@@ -998,8 +999,15 @@ def build_auth_sidecar_image(
     # is what reports the finished image.
     try:
         with (report := single_image_build_reporter(tag)):
-            run_captured(
-                cmd, env=env, spool_name="build-auth-sidecar", repo_root=root, on_line=report
+            run_image_build(
+                cmd,
+                functools.partial(
+                    run_captured,
+                    env=env,
+                    spool_name="build-auth-sidecar",
+                    repo_root=root,
+                    on_line=report,
+                ),
             )
     finally:
         # The staged CA is a copy of the operator's bundle; the build has read
@@ -1747,12 +1755,15 @@ def deploy_up_web_terminals(
                 # Watched only for as long as the build runs — same scope as the
                 # plain path's build (see _start_stack).
                 with (report := compose_build_step_reporter()):
-                    run_captured(
+                    run_image_build(
                         services_build,
-                        env=run_env,
-                        spool_name="build-services",
-                        repo_root=repo_root,
-                        on_line=report,
+                        functools.partial(
+                            run_captured,
+                            env=run_env,
+                            spool_name="build-services",
+                            repo_root=repo_root,
+                            on_line=report,
+                        ),
                     )
                 _report_step("built service images")
         services_cmd = services_base + ["up"]
