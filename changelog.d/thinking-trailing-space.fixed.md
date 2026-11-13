@@ -1,0 +1,1 @@
+An expanded "Thought for …" box in the web terminal chat no longer has empty space under the text. The model often ends its reasoning with blank lines, and the box showed them because it keeps the reasoning's line breaks. The text is now trimmed when the thought ends, so the space under the text is the same as the space above it.
