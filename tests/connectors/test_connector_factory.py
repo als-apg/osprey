@@ -1,7 +1,5 @@
 """Tests for connector factory."""
 
-from unittest.mock import patch
-
 import pytest
 
 from osprey_connectors import types
@@ -361,17 +359,3 @@ class TestArchiverTypeResolution:
         assert isinstance(connector, MockArchiverConnector)
         assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
         await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_an_unloadable_config_is_raised_and_no_archiver_is_built(self, caplog):
-        def unreadable(*args, **kwargs):
-            raise RuntimeError("config.yml is unreadable")
-
-        # The mock is for a config that was read and names no archiver. One that
-        # could not be read says nothing about the archiver, and the mock built
-        # in its place would only refuse to connect for want of a simulator view.
-        with patch("osprey_connectors.config.get_config_value", unreadable):
-            with pytest.raises(RuntimeError, match="config.yml is unreadable"):
-                await ConnectorFactory.create_archiver_connector(None)
-
-        assert types.MOCK_ARCHIVER not in caplog.text

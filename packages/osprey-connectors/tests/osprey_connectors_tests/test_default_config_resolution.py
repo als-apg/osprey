@@ -149,6 +149,18 @@ def test_no_config_refuses_the_control_system_instead_of_building_the_simulator(
 
 
 @pytest.mark.asyncio
+async def test_a_config_that_cannot_be_read_refuses_the_archiver(project, caplog):
+    # The mock is for a config that was read and names no archiver. One that
+    # could not be read says nothing about the archiver.
+    (project / "config.yml").write_text("archiver: [unclosed\n", encoding="utf-8")
+
+    with pytest.raises(Exception, match="config.yml"):
+        await ConnectorFactory.create_archiver_connector()
+
+    assert types.MOCK_ARCHIVER not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, monkeypatch):
     (project / "build").mkdir()
     (project / "build" / "config.yml").write_text("system:\n  timezone: UTC\n", encoding="utf-8")
