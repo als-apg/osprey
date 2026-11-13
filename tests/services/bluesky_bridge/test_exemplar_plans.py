@@ -1,15 +1,7 @@
 """Coverage for the shipped accelerator plans: ``plans_core/orm.py``,
 ``plans_core/grid_scan.py``, and ``plans_core/orbit_bump_sweep.py``.
 
-Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
-never installed in the main worktree venv, so every test here is skipped via
-`pytest.importorskip` rather than failing, keeping `ci_check` green with no
-bluesky installed at all. To actually run this file:
-
-    uv venv /tmp/bluesky-exemplar-scratch
-    /tmp/bluesky-exemplar-scratch/bin/pip install -e . --python 3.11
-    /tmp/bluesky-exemplar-scratch/bin/python -m pytest \
-        tests/services/bluesky_bridge/test_exemplar_plans.py -q
+The bluesky stack is a core dependency, so these run in the normal unit lane.
 
 Two things are proven for each plan: (1) it registers through the real
 layered-directory loader (`plan_loader.get_facility_plans`) with valid
@@ -28,13 +20,10 @@ import asyncio
 
 import pytest
 
-bluesky = pytest.importorskip("bluesky")
-ophyd_async = pytest.importorskip("ophyd_async")
+from osprey.services.bluesky_bridge import live_rows, plan_loader
+from osprey.services.bluesky_bridge.devices.mock import build_devices
 
-from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
-from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
-
-from .bluesky_plan_drive import run_plan  # noqa: E402
+from .bluesky_plan_drive import run_plan
 
 # =========================================================================
 # Registration through the real layered-directory loader

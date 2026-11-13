@@ -25,8 +25,6 @@ from tests.facility._pyaml_trees import (
     write_view,
 )
 
-pytest.importorskip("pyaml")
-
 
 def _configuration(tmp_path: Path, tree: dict[str, Any], model: str) -> dict[str, Any]:
     directory, _ = write_view(tmp_path, tree)

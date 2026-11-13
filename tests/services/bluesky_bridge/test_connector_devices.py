@@ -1,14 +1,6 @@
 """Unit tests for the connector-mediated ophyd-async device layer (task 1.1).
 
-Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
-never installed in the main worktree venv, so every test here is skipped via
-`pytest.importorskip` rather than failing, keeping `ci_check` green with no
-bluesky installed at all. To actually run this file:
-
-    uv venv /tmp/bluesky-connector-scratch
-    /tmp/bluesky-connector-scratch/bin/pip install -e . --python 3.11
-    /tmp/bluesky-connector-scratch/bin/python -m pytest \
-        tests/services/bluesky_bridge/test_connector_devices.py -q
+The bluesky stack is a core dependency, so these run in the normal unit lane.
 
 Exercises `ConnectorSettable`/`ConnectorReadable`/`build_devices` against a
 FAKE OSPREY connector (no Channel Access, no Docker, no real IOC): a small
@@ -28,18 +20,15 @@ from typing import Any
 
 import pytest
 
-bluesky = pytest.importorskip("bluesky")
-ophyd_async = pytest.importorskip("ophyd_async")
-
-from osprey.services.bluesky_bridge.devices import connector as connector_module  # noqa: E402
-from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
+from osprey.services.bluesky_bridge.devices import connector as connector_module
+from osprey.services.bluesky_bridge.devices.connector import (
     ConnectorReadable,
     ConnectorSettable,
     build_devices,
 )
-from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec  # noqa: E402
-from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
-from tests.services.bluesky_bridge._fake_connector import (  # noqa: E402
+from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec
+from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+from tests.services.bluesky_bridge._fake_connector import (
     FakeChannelValue,
     FakeConnector,
 )

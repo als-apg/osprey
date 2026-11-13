@@ -23,8 +23,6 @@ from osprey.facility.kinds import TRM_FILE
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import measured_tree, write_view
 
-pytest.importorskip("pyaml")
-
 
 def _trm(directory: Path) -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads((directory / "SR" / TRM_FILE).read_text())

@@ -14,16 +14,15 @@ import types
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.apps import sdk  # noqa: E402
-from osprey.facility.views.facts import FACTS_FILE, zero_source_facts  # noqa: E402
-from osprey.simulation import model_request  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.response import RESULT_TAG  # noqa: E402
-from tests._simulator_view import view_channel  # noqa: E402
+from osprey.apps import sdk
+from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from osprey.simulation import model_request
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.response import RESULT_TAG
+from tests._simulator_view import view_channel
 
 RING = "RING"
 

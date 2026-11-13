@@ -16,31 +16,29 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import at
+import numpy as np
 import pytest
+from lume_pyat.exceptions import OrbitSolveError
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
-
-from osprey.facility.errors import FacilityBuildError  # noqa: E402
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines import pyat_single_pass  # noqa: E402
-from osprey.simulation.engines.pyat_model import (  # noqa: E402
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines import pyat_single_pass
+from osprey.simulation.engines.pyat_model import (
     BETA_AT_MONITORS,
     CHROMATICITY,
     ORBIT_AT_MONITORS,
     TUNES,
 )
-from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator  # noqa: E402
-from tests.facility._mml_built import BuiltModel, mml_built  # noqa: E402, F401
-from tests.facility._model_reference import (  # noqa: E402
+from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
+from tests.facility._mml_built import BuiltModel, mml_built  # noqa: F401
+from tests.facility._model_reference import (
     ORM_RMS_FRACTION,
     model_reference,
     section,
 )
-from tests.services.mml import _mml_recipes as recipes  # noqa: E402
+from tests.services.mml import _mml_recipes as recipes
 
 MODEL = "LINE"
 CELLS = (1, 2, 3)

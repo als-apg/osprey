@@ -12,13 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import measured_tree, write_view
-
-pytest.importorskip("pyaml")
 
 
 def _devices(tmp_path: Path, tree: dict[str, Any], model: str) -> dict[str, dict[str, Any]]:

@@ -13,12 +13,11 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
 import pytest
 
-duckdb = pytest.importorskip("duckdb")
-
-from osprey.services.channel_finder.databases import duckdb_import as dimp  # noqa: E402
-from osprey.services.channel_finder.databases.duckdb_bulk import bulk_insert  # noqa: E402
+from osprey.services.channel_finder.databases import duckdb_import as dimp
+from osprey.services.channel_finder.databases.duckdb_bulk import bulk_insert
 
 
 @pytest.fixture()

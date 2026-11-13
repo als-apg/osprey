@@ -18,15 +18,18 @@ from typing import Any
 
 import pytest
 
+from osprey.services.ariel_search.capabilities import attachments_capability
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig, SearchModuleConfig
 from osprey.services.ariel_search.database.search_fts import coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.models import DiagnosticLevel
+from osprey.services.ariel_search.search import fusion, image_lane
 from osprey.services.ariel_search.search.base import (
     ExpansionGroup,
     ModuleOutput,
     QueryExpansion,
 )
+from osprey.services.ariel_search.search.fusion import ImageHit
 from osprey.services.ariel_search.search.qmd import (
     ARIEL_COLLECTION,
     DEFAULT_CANDIDATE_LIMIT,
@@ -45,7 +48,9 @@ from osprey.services.ariel_search.search.qmd import (
     hybrid_search,
     qmd_lanes,
 )
-from osprey.services.qmd import QMDSearchResult, QMDUnavailableError
+from osprey.services.qmd import QMDClientError, QMDSearchResult, QMDUnavailableError
+from tests.services.ariel_search.conftest import _FakePool
+from tests.services.ariel_search.llama_stub import MODEL as _LLAMA_MODEL
 
 # --------------------------------------------------------------------------
 # Doubles
@@ -2080,13 +2085,6 @@ class TestCaptionMatchedIds:
 # --------------------------------------------------------------------------
 # Picture lane integration
 # --------------------------------------------------------------------------
-
-from osprey.services.ariel_search.capabilities import attachments_capability  # noqa: E402
-from osprey.services.ariel_search.search import fusion, image_lane  # noqa: E402
-from osprey.services.ariel_search.search.fusion import ImageHit  # noqa: E402
-from osprey.services.qmd import QMDClientError  # noqa: E402
-from tests.services.ariel_search.conftest import _FakePool  # noqa: E402
-from tests.services.ariel_search.llama_stub import MODEL as _LLAMA_MODEL  # noqa: E402
 
 
 def lane_config(url: str = "http://127.0.0.1:1", *, enabled: bool = True) -> ARIELConfig:

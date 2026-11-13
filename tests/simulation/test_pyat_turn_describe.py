@@ -5,13 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.facility.errors import FacilityBuildError  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines import pyat_turn_settings as turn  # noqa: E402
+from osprey.facility.errors import FacilityBuildError
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines import pyat_turn_settings as turn
 
 TURNS = 20
 TRIGGER = 4

@@ -31,8 +31,6 @@ from tests.facility._pyaml_trees import (
 )
 from tests.facility._synthetic_trees import Deck
 
-pytest.importorskip("pyaml")
-
 #: The rigidity pyAML derives from the synthetic decks' 3 GeV.
 BRHO = 3.0e9 / 299792458.0
 

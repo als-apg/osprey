@@ -42,8 +42,6 @@ from osprey.facility.layers.mml.rows import read_rows
 from tests.facility._mml_built import WIDENED, widen
 from tests.facility.test_mml_layer_seed_once import OUTSIDE
 
-at = pytest.importorskip("at")
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 

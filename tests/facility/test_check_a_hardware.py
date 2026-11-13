@@ -50,6 +50,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tests.facility import test_check_a as check_a
 from tests.facility._mml_built import FIXTURES, BuiltModel
 from tests.facility._model_reference import (
     CONVERSION_ATOL_M,
@@ -61,10 +62,6 @@ from tests.facility._model_reference import (
     refusal,
     section,
 )
-
-pytest.importorskip("at")
-
-from tests.facility import test_check_a as check_a
 from tests.services.mml import _mml_recipes as recipes
 
 # xdist_group("mml_built"): the session ``mml_built`` fixture builds each fixture
