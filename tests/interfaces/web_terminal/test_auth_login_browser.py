@@ -60,9 +60,12 @@ if TYPE_CHECKING:
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
+# xdist_group("docker"): the auth-serving stack's containers, on the worker that
+# starts every other container (see tests/deployment/web_terminals/test_auth_serving.py).
 pytestmark = [
     pytest.mark.browser,
     pytest.mark.dockerbuild,
+    pytest.mark.xdist_group("docker"),
     pytest.mark.slow,
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
