@@ -146,6 +146,20 @@ describe('Ctrl+wheel and pinch', () => {
     expect(zoom.paneZoom('terminal')).toBe(0.9);
   });
 
+  test('a Firefox mouse notch steps one level: the unit is asked for before the delta', () => {
+    // Firefox answers in lines to a page that reads deltaMode first, and in
+    // pixels (3 lines of text, under a notch's 50) to one that reads a delta first.
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+    let askedMode = false;
+    Object.defineProperty(event, 'ctrlKey', { value: true });
+    Object.defineProperty(event, 'deltaMode', {
+      get: () => ((askedMode = true), 1),
+    });
+    Object.defineProperty(event, 'deltaY', { get: () => (askedMode ? -3 : -48) });
+    $('.msg').dispatchEvent(event);
+    expect(zoom.paneZoom('terminal')).toBe(1.1);
+  });
+
   test('a pinch (small Ctrl+wheel deltas) zooms smoothly', () => {
     wheel($('.msg'), { ctrlKey: true, deltaY: -10 });
     expect(zoom.paneZoom('terminal')).toBe(Math.round(Math.exp(0.1) * 100) / 100);

@@ -235,14 +235,18 @@ export function fillFrame(frame) {
 
 /**
  * A Ctrl+wheel over a pane: a mouse notch steps a level, a pinch scales.
+ * `deltaMode` is read before any delta: Firefox reports a mouse notch in
+ * lines only to a page that asks for the mode first, and in pixels (which
+ * can fall under {@link NOTCH_DELTA}) to one that does not.
  * @param {WheelEvent} event  @param {string} key
  */
 function zoomByWheel(event, key) {
   event.preventDefault();
   event.stopPropagation();
+  const lines = event.deltaMode !== 0;
   if (!event.deltaY) return;
   const z = paneZoom(key);
-  const notch = event.deltaMode !== 0 || Math.abs(event.deltaY) >= NOTCH_DELTA;
+  const notch = lines || Math.abs(event.deltaY) >= NOTCH_DELTA;
   setPaneZoom(
     key,
     notch ? nextLevel(z, event.deltaY < 0 ? 1 : -1) : z * Math.exp(-event.deltaY / 100)
