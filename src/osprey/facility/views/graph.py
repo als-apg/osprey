@@ -20,7 +20,9 @@ Nodes and their ``narad_p:`` predicates:
   ``endpoint_of``; a device with a place also carries one ``locatedIn`` to
   that place, ``placePath`` and ``sectionCode`` of the place, ``system`` (the
   top place of its place path) and ``systemDescription`` (the top place's
-  description);
+  description), except that ``basis: stated`` drops the ``locatedIn`` of a
+  place projected from ``located_in`` claims (``place_from: relation``) when
+  no accepted claim from the device to that place is stated;
 - a channel, a ``narad_sem:ChannelBinding``: ``bindingId`` and ``fullPv`` (its
   address), ``description``, and one ``readsSignal`` (a readback) or
   ``writesSignal`` (a setpoint) to ``narad_sem:<signal>`` when it names a
@@ -430,6 +432,37 @@ def _place_triples(
         _names(subjects, subject, place, basis)
 
 
+def _inferred_projections(records: FacilityRecords) -> frozenset[str]:
+    """The devices whose place was projected (``place_from: relation``) from inferred claims only.
+
+    A projecting claim is an accepted ``located_in`` claim from the device to
+    its place; a device keeps its place edge under ``basis: stated`` when any
+    of them is stated.
+    """
+    from osprey.facility.relations import ACCEPTED, end_identity
+
+    projected = {
+        str(device["id"]): str(device["place"])
+        for device in records.of_kind("device")
+        if device.get("place") and (device.get("provenance") or {}).get("place_from") == "relation"
+    }
+    if not projected:
+        return frozenset()
+    stated: set[str] = set()
+    for claim in records.document.get("relations") or []:
+        if not isinstance(claim, Mapping) or claim.get("type") != "located_in":
+            continue
+        if claim.get("standing") != ACCEPTED or claim.get("basis", "stated") == "inferred":
+            continue
+        subject = end_identity(claim.get("subject") or {})
+        obj = end_identity(claim.get("object") or {})
+        if subject is None or obj is None or subject[0] != "device" or obj[0] != "place":
+            continue
+        if projected.get(subject[1]) == obj[1]:
+            stated.add(subject[1])
+    return frozenset(projected.keys() - stated)
+
+
 def _device_triples(
     subjects: _Subjects,
     code: str,
@@ -439,6 +472,7 @@ def _device_triples(
 ) -> set[str]:
     """Add every device's triples; return the classes the devices carry."""
     families = _family_descriptions(records.of_kind("group"))
+    unstated = _inferred_projections(records) if basis == "stated" else frozenset()
     used: set[str] = set()
     for device in records.of_kind("device"):
         device_id = str(device["id"])
@@ -454,7 +488,8 @@ def _device_triples(
         place = device.get("place")
         if place:
             top = _top(str(place))
-            _add(subjects, subject, _p(P_LOCATED_IN), _iri(iri(code, "place", str(place))))
+            if basis != "stated" or device_id not in unstated:
+                _add(subjects, subject, _p(P_LOCATED_IN), _iri(iri(code, "place", str(place))))
             _add(subjects, subject, _p(P_SYSTEM), _text(top))
             _add(subjects, subject, _p(P_PLACE_PATH), _text(place))
             _add(subjects, subject, _p(P_SECTION_CODE), _text(_last_segment(str(place))))

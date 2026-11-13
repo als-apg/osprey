@@ -1,12 +1,16 @@
-"""Relations, documents, policy and keyed sets leave every machine-facing view's bytes alone.
+"""Relations, documents, policy and keyed sets change machine-facing views only by projected places.
 
 A synthetic facility already holding a ``PowerSupply``, a ``Host`` and an
-``Unidentified`` device is built twice: as it is, and with relation claims,
+``Unidentified`` device is built three times: as it is; with relation claims,
 ``documents.yaml``, ``policy.yaml`` and ``scheme_names``/``citations`` on a
-device and a place added. Each build is rendered once per channel-finder
+device and a place added; and as it is with the places the added
+``located_in`` claims project (``SR`` for the supply and the host) authored on
+the two devices instead. Each build is rendered once per channel-finder
 pipeline mode. The simulator view's files, everything under
 ``data/channel_finder/`` and the limits view's file are byte-identical between
-the two renders, except a DuckDB database, which DuckDB does not write
+the build with relations and the build with the projected places authored, so
+the relations change those views only by the places they project, except a
+DuckDB database, which DuckDB does not write
 byte-reproducibly even for one document twice and which stamps its rows with
 the time of import: it is compared row by row, every table of every schema,
 every column but a timestamp; ``facility.json`` and the facts view legitimately differ and
@@ -15,8 +19,8 @@ file, also builds and renders byte-identically to the same tree built with the
 ``relations`` stage removed from the build's later stages, every rendered file
 and ``facility.json`` included, and raises no warning: its authored
 ``Unidentified`` device is no stub. The new-class devices are ordinary devices of the build and
-of the facts view, and a facility that declares its own ``PowerSupply`` class
-still builds.
+of the facts view, placed only where a claim projects a place, and a facility that declares its own
+``PowerSupply`` class still builds.
 """
 
 from __future__ import annotations
@@ -41,6 +45,9 @@ MODES = ("in_context", "hierarchical", "middle_layer")
 
 #: The devices of the classes the core vocabulary gained, by id.
 NEW_CLASS_DEVICES = {"SR/PS1": "PowerSupply", "SR/HOST1": "Host", "SR/U1": "Unidentified"}
+
+#: The places the ``located_in`` claims of :func:`_with_relations` project, by device id.
+PROJECTED = {"SR/PS1": "SR", "SR/HOST1": "SR"}
 
 _CITATION = {"document": "spec-1", "version": "B", "locator": "p. 4"}
 
@@ -94,6 +101,14 @@ def _with_relations(tree: dict[str, Any]) -> dict[str, Any]:
             "object": {"place": "SR"},
         },
     ]
+    return tree
+
+
+def _with_projected_places_authored(tree: dict[str, Any]) -> dict[str, Any]:
+    tree = copy.deepcopy(tree)
+    for device in tree["records/devices.yaml"]:
+        if device["id"] in PROJECTED:
+            device["place"] = PROJECTED[device["id"]]
     return tree
 
 
@@ -172,7 +187,11 @@ def builds(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[str, tuple[Path, dict[str, Any], Path]]:
     out = {}
-    for name, tree in (("base", _base_tree()), ("full", _with_relations(_base_tree()))):
+    for name, tree in (
+        ("base", _base_tree()),
+        ("full", _with_relations(_base_tree())),
+        ("placed", _with_projected_places_authored(_base_tree())),
+    ):
         root = tmp_path_factory.mktemp(name)
         document, facility_dir = _build(root, tree)
         out[name] = (root, document, facility_dir)
@@ -193,19 +212,31 @@ def test_the_full_build_carries_what_the_base_build_lacks(builds: dict[str, Any]
     assert base["schema"] == full["schema"]
 
 
+def test_the_located_in_claims_project_their_places(builds: dict[str, Any]) -> None:
+    for name, expected in (("base", {}), ("full", PROJECTED)):
+        _, document, _ = builds[name]
+        devices = {d["id"]: d for d in document["devices"]}
+        placed = {
+            rid: (devices[rid].get("place"), devices[rid]["provenance"].get("place_from"))
+            for rid in NEW_CLASS_DEVICES
+            if "place" in devices[rid]
+        }
+        assert placed == {rid: (place, "relation") for rid, place in expected.items()}, name
+
+
 @pytest.mark.parametrize("mode", MODES)
-def test_machine_views_are_byte_identical(builds: dict[str, Any], mode: str) -> None:
+def test_machine_views_differ_only_by_projected_places(builds: dict[str, Any], mode: str) -> None:
     rendered = {}
-    for name in ("base", "full"):
+    for name in ("full", "placed"):
         root, document, facility_dir = builds[name]
         rendered[name] = _compared(_render(root, document, facility_dir, mode))
 
-    base, full = rendered["base"], rendered["full"]
-    assert any(path.startswith("data/simulator/") for path in base)
-    assert any(path.startswith("data/channel_finder/") for path in base)
-    assert "data/channel_limits.json" in base
-    assert sorted(base) == sorted(full)
-    assert [path for path in sorted(base) if base[path] != full[path]] == []
+    placed, full = rendered["placed"], rendered["full"]
+    assert any(path.startswith("data/simulator/") for path in placed)
+    assert any(path.startswith("data/channel_finder/") for path in placed)
+    assert "data/channel_limits.json" in placed
+    assert sorted(placed) == sorted(full)
+    assert [path for path in sorted(placed) if placed[path] != full[path]] == []
 
 
 @pytest.fixture(scope="module")
@@ -266,9 +297,10 @@ def test_new_class_devices_are_ordinary_devices(
 
     render_dir = _render(tmp_path, document, facility_dir, "in_context")
     facts = json.loads((render_dir / "data" / FACTS_FILE).read_bytes())
-    for cls in NEW_CLASS_DEVICES.values():
+    for rid, cls in NEW_CLASS_DEVICES.items():
         assert facts["device_classes"][cls]["count"] == 1, cls
-        assert facts["unplaced_devices"][cls] == 1, cls
+        projected = name == "full" and rid in PROJECTED
+        assert facts["unplaced_devices"].get(cls, 0) == (0 if projected else 1), cls
 
 
 def test_a_facility_declaring_its_own_power_supply_builds(tmp_path: Path) -> None:

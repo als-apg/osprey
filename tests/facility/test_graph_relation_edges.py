@@ -308,3 +308,78 @@ class TestSymmetricDirection:
         }
         assert cabled == ({(qf05, supply)} if forward else {(supply, qf05)})
         assert _relation_edges(graph) == (expected_relation_edges(document) | _base_edges(document))
+
+
+def _claim(tree: dict[str, Any], claim_id: str) -> dict[str, Any]:
+    return next(row for row in tree["records/relations.yaml"] if row["id"] == claim_id)
+
+
+def _infer(claim: dict[str, Any]) -> None:
+    claim["basis"] = "inferred"
+    claim["rule"] = "electronics-in-cable-destination-rack"
+
+
+class TestProjectedPlace:
+    """A place projected from ``located_in`` claims keeps its edge only on a basis the view keeps."""
+
+    def test_a_stated_projection_keeps_its_edge_under_stated(self, tmp_path: Path) -> None:
+        document = _build(tmp_path, appendix_a_tree())
+        device = next(d for d in document["devices"] if d["id"] == "SR/BPM13-EL")
+        assert device["place"] == "HALL/ROW3/RK08"
+        assert device["provenance"]["place_from"] == "relation"
+        graph = _graph(_text(document, GraphSettings(basis="stated")))
+        assert _objects(graph, _device("SR/BPM13-EL"), LOCATED_IN) == {_place("HALL/ROW3/RK08")}
+
+    def test_an_inferred_only_projection_loses_its_edge_under_stated(self, tmp_path: Path) -> None:
+        tree = appendix_a_tree()
+        _infer(_claim(tree, "bpm13-el-rack"))
+        document = _build(tmp_path, tree)
+        device = next(d for d in document["devices"] if d["id"] == "SR/BPM13-EL")
+        assert device["provenance"]["place_from"] == "relation"
+        graph = _graph(_text(document, GraphSettings(basis="stated")))
+        subject = _device("SR/BPM13-EL")
+        assert not _objects(graph, subject, LOCATED_IN)
+        # Only the edge goes: the place's literals stay.
+        assert _objects(graph, subject, _p("placePath")) == {"HALL/ROW3/RK08"}
+        assert _objects(graph, subject, _p("system")) == {"HALL"}
+
+    def test_an_inferred_only_projection_keeps_its_edge_under_all(self, tmp_path: Path) -> None:
+        tree = appendix_a_tree()
+        _infer(_claim(tree, "bpm13-el-rack"))
+        graph = _graph(_text(_build(tmp_path, tree)))
+        assert _objects(graph, _device("SR/BPM13-EL"), LOCATED_IN) == {_place("HALL/ROW3/RK08")}
+
+    def test_a_stated_claim_beside_an_inferred_one_keeps_the_edge(self, tmp_path: Path) -> None:
+        tree = appendix_a_tree()
+        claim = _claim(tree, "bpm13-el-rack")
+        tree["records/relations.yaml"].append({**copy.deepcopy(claim), "id": "bpm13-el-rack-2"})
+        _infer(claim)
+        document = _build(tmp_path, tree)
+        device = next(d for d in document["devices"] if d["id"] == "SR/BPM13-EL")
+        assert device["provenance"]["place_from"] == "relation"
+        graph = _graph(_text(document, GraphSettings(basis="stated")))
+        assert _objects(graph, _device("SR/BPM13-EL"), LOCATED_IN) == {_place("HALL/ROW3/RK08")}
+
+    def test_an_authored_place_keeps_its_edge_beside_an_inferred_claim(
+        self, tmp_path: Path
+    ) -> None:
+        tree = appendix_a_tree()
+        _device_row(tree, "SR/BPM13-EL")["place"] = "HALL/ROW3/RK08"
+        _infer(_claim(tree, "bpm13-el-rack"))
+        document = _build(tmp_path, tree)
+        device = next(d for d in document["devices"] if d["id"] == "SR/BPM13-EL")
+        assert device["provenance"]["place_from"] != "relation"
+        graph = _graph(_text(document, GraphSettings(basis="stated")))
+        assert _objects(graph, _device("SR/BPM13-EL"), LOCATED_IN) == {_place("HALL/ROW3/RK08")}
+
+    @pytest.mark.parametrize("basis", ["all", "stated"])
+    def test_the_turtle_stays_deterministic(self, tmp_path: Path, basis: str) -> None:
+        tree = appendix_a_tree()
+        _infer(_claim(tree, "bpm13-el-rack"))
+        document = _build(tmp_path, tree)
+        settings = GraphSettings(basis=basis)
+        reversed_document = copy.deepcopy(document)
+        reversed_document["relations"] = list(reversed(reversed_document["relations"]))
+        text = _text(document, settings)
+        assert _text(copy.deepcopy(document), settings) == text
+        assert _text(reversed_document, settings).split("\n", 1)[1] == text.split("\n", 1)[1]

@@ -84,6 +84,22 @@ class TestPrecedence:
         assert "policy.yaml" not in appendix_a_tree("no_policy")
 
 
+class TestProjectedPlaces:
+    @pytest.mark.parametrize("variant", VARIANTS)
+    def test_the_rack_claims_project_as_the_design_reports(
+        self, built: dict[str, dict[str, Any]], variant: str
+    ) -> None:
+        devices = {device["id"]: device for device in built[variant]["devices"]}
+        expected = {
+            "SR/BPM13-EL": "HALL/ROW3/RK08",
+            "SR/QF05-PS": "HALL/ROW3/RK07" if variant == "located_in_precedence" else None,
+        }
+        assert {rid: devices[rid].get("place") for rid in expected} == expected
+        for rid, place in expected.items():
+            place_from = devices[rid]["provenance"].get("place_from")
+            assert place_from == ("relation" if place else None), rid
+
+
 class TestRecords:
     def test_places_devices_groups_documents(self, built: dict[str, dict[str, Any]]) -> None:
         document = built["no_policy"]
