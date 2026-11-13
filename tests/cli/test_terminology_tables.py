@@ -637,6 +637,10 @@ def test_the_graph_partial_states_the_relation_rules(structural):
 
     for rule in RELATION_RULES:
         assert rule in rendered, rule
+    flat = " ".join(rendered.split())
+    assert "each backed by a `:Claim` node" not in flat
+    assert "Claim nodes follow the corpus's `facility_graph.claims` setting" in flat
+    assert "Group membership is `HASMEMBER`, not a claim" in flat
     for predicate in RELATION_PREDICATES.values():
         assert f"`{predicate.upper()}`" in rendered, predicate
     for shape in (

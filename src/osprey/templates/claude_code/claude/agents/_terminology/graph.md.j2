@@ -62,8 +62,11 @@ far end of a `LOCATEDIN` edge.
 ### Relations and Claims
 
 A corpus whose facility file states relations — what powers a device, what a
-cable joins, which group a device belongs to — carries them as edges, each
-backed by a `:Claim` node. Four rules decide how to read them:
+cable joins, which group a device belongs to — carries them as edges. Claim
+nodes follow the corpus's `facility_graph.claims` setting, so an edge may have
+no `:Claim` node behind it. Group membership is `HASMEMBER`, not a claim, and
+the structural `PARTOF` and `LOCATEDIN` edges carry no claim. Four rules decide
+how to read them:
 
 - **Symmetric types are queried undirected.** `CABLEDTO`, `NETWORKEDTO` and
   `SAMEAS` run whichever way the source stated them, so write
