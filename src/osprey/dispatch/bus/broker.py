@@ -91,6 +91,10 @@ class WorkerState:
     last_dispatch: float = 0.0
     #: Dispatches sent to this worker that have not been answered yet.
     reserved: int = 0
+    #: The routing id of the connection this worker last spoke on, which is
+    #: where requests for it go. Under CURVE it is one the socket assigned, so
+    #: no peer can claim it by name.
+    route: bytes = b""
 
     @property
     def load(self) -> int:
@@ -185,8 +189,10 @@ class WorkerBus:
         # A send to a peer that is not connected raises instead of vanishing,
         # so a request to a worker that just left fails at once.
         sock.setsockopt(zmq.ROUTER_MANDATORY, 1)
-        # A worker that reconnects under its own name takes the name over at
-        # once, instead of waiting for its old connection to time out.
+        # Without keys a worker's routing id is its name; one that reconnects
+        # takes it over at once instead of waiting for its old connection to
+        # time out. Under CURVE the socket assigns routing ids, so this never
+        # applies there.
         sock.setsockopt(zmq.ROUTER_HANDOVER, 1)
         if self._keys is not None:
             auth = NamedCurveAuthenticator(ctx, self._keys)
@@ -281,7 +287,7 @@ class WorkerBus:
                 await self._sock.send_multipart(
                     # ``rid`` leads the body, so a worker can refuse an
                     # over-size request without parsing it.
-                    [worker.encode(), *protocol.encode(kind, {"rid": rid, **body})]
+                    [state.route, *protocol.encode(kind, {"rid": rid, **body})]
                 )
             except zmq.ZMQError as exc:
                 raise WorkerGoneError(f"worker {worker!r} cannot be reached: {exc}") from exc
@@ -399,20 +405,19 @@ class WorkerBus:
         if len(frames) < 3:
             logger.warning("dispatch bus: dropped a message of %d frame(s)", len(frames))
             return
-        name = frames[0].bytes.decode(errors="replace")
+        route = frames[0].bytes
         if self._keys is not None:
-            # The key decides who a peer is. A routing id that is not the name
-            # its key carries is a worker claiming to be another: dropped.
-            # pyzmq reads a metadata property by name; its stub types only the
-            # integer frame options.
-            authenticated = frames[1].get("User-Id")  # type: ignore[arg-type]
-            if authenticated != name:
-                logger.warning(
-                    "dispatch bus: dropped a message from %r claiming to be %r",
-                    authenticated,
-                    name,
-                )
+            # The key decides who a peer is, never the routing id: a peer can
+            # pick its own routing id, and with ROUTER_HANDOVER even take one
+            # over from a live connection. pyzmq reads a metadata property by
+            # name; its stub types only the integer frame options.
+            user_id = frames[1].get("User-Id")  # type: ignore[arg-type]
+            if not isinstance(user_id, str) or not user_id:
+                logger.warning("dispatch bus: dropped a message with no authenticated name")
                 return
+            name = user_id
+        else:
+            name = route.decode(errors="replace")
         try:
             message = protocol.decode([frame.bytes for frame in frames[1:]])
         except protocol.ProtocolError as exc:
@@ -420,11 +425,12 @@ class WorkerBus:
             return
         now = time.monotonic()
         if message.kind == protocol.HELLO:
-            self._hello(name, message.body, now)
+            self._hello(name, route, message.body, now)
             return
         state = self._workers.get(name)
         if state is not None:
             state.last_seen = now
+            state.route = route
         if message.kind in (protocol.OK, protocol.ERR):
             self._reply(name, message)
         elif message.kind == protocol.EVENT:
@@ -432,7 +438,7 @@ class WorkerBus:
         else:
             logger.warning("dispatch bus: %r sent an unexpected %r", name, message.kind)
 
-    def _hello(self, name: str, body: dict[str, Any], now: float) -> None:
+    def _hello(self, name: str, route: bytes, body: dict[str, Any], now: float) -> None:
         nonce = body.get("boot_nonce")
         nonce = float(nonce) if isinstance(nonce, int | float) else None
         state = self._workers.get(name)
@@ -444,7 +450,7 @@ class WorkerBus:
         capacity = body.get("capacity")
         capacity = capacity if isinstance(capacity, int) and capacity > 0 else None
         if state is None:
-            state = WorkerState(name, nonce, capabilities, capacity, in_flight, now)
+            state = WorkerState(name, nonce, capabilities, capacity, in_flight, now, route=route)
             self._workers[name] = state
             logger.info(
                 "dispatch bus: worker %r joined (%d run(s) in flight)", name, len(in_flight)
@@ -454,6 +460,7 @@ class WorkerBus:
             state.capacity = capacity
             state.in_flight = in_flight
             state.last_seen = now
+            state.route = route
         for run_id in in_flight:
             self._own(run_id, name)
             self._streams.setdefault(run_id, _RunStream())

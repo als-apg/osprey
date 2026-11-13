@@ -592,13 +592,34 @@ async def test_a_worker_with_an_unlisted_key_never_joins(harness, curve):
     assert bus.live() == []
 
 
-async def test_a_worker_cannot_join_under_another_workers_name(harness, curve):
+async def test_a_worker_is_named_by_its_key_not_by_the_name_it_claims(harness, curve):
     server, client_keys = curve
     bus = await harness.bus(keys=server)
     # w2's own, listed key, presented under w1's name.
     harness.join(bus.endpoint, FakeWorker("w1"), keys=client_keys("w2"))
-    await asyncio.sleep(HB * 8)
-    assert bus.live() == []
+    await until(lambda: bus.live() == ["w2"])
+
+
+async def test_a_listed_key_under_another_workers_name_steals_none_of_its_requests(harness, curve):
+    # w2's key, presented under the name of a live w1. A peer picks its own
+    # routing id, so routing by the name it claims would hand it w1's requests
+    # and starve w1's own heartbeats. It is w2, by its key, and nothing more.
+    server, client_keys = curve
+    bus = await harness.bus(keys=server)
+    real = FakeWorker("w1")
+    harness.join(bus.endpoint, real, keys=client_keys("w1"))
+    await until(lambda: bus.live() == ["w1"])
+    impostor = FakeWorker("w1")
+    harness.join(bus.endpoint, impostor, keys=client_keys("w2"))
+    impostor.name = "imp"  # its runs read imp-run-<n>, whatever it claimed to be
+    await until(lambda: bus.live() == ["w1", "w2"])
+    await asyncio.sleep(HB * 8)  # well past the liveness window
+    client = BusWorkerClient(bus, worker_wait_sec=1.0)
+    runs = [(await client.dispatch(prompt="p", allowed_tools=[]))["run_id"] for _ in range(4)]
+    assert bus.live() == ["w1", "w2"]
+    assert {bus.owner_of(r) for r in runs if r.startswith("w1-")} == {"w1"}
+    assert {bus.owner_of(r) for r in runs if r.startswith("imp-")} == {"w2"}
+    assert len(real.calls) == 2
 
 
 def test_a_public_key_is_derived_from_its_secret():

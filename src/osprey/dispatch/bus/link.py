@@ -52,9 +52,10 @@ class WorkerLink:
 
     Args:
         connect: The dispatcher's bus endpoint, e.g. ``tcp://event-dispatcher:10050``.
-        name: This worker's name. Under CURVE it must be the stem of the
-            certificate ``keys`` came from: the dispatcher drops a worker whose
-            name and key disagree.
+        name: This worker's name. Under CURVE the dispatcher names the worker
+            by its key instead, and the link leaves its routing id to the
+            socket, so no worker can be addressed under another's name.
+            Without keys the name is the routing id.
         handlers: The handler for each request kind this worker serves.
         hello: Returns the state each heartbeat carries (``boot_nonce``,
             ``capabilities``, ``in_flight``, ``capacity``). Called on every tick,
@@ -102,7 +103,8 @@ class WorkerLink:
         ctx = zmq.asyncio.Context()
         sock = ctx.socket(zmq.DEALER)
         sock.setsockopt(zmq.LINGER, 0)
-        sock.setsockopt(zmq.ROUTING_ID, self._name.encode())
+        if self._keys is None:
+            sock.setsockopt(zmq.ROUTING_ID, self._name.encode())
         # Queue only on a completed connection: while the dispatcher is away a
         # non-blocking send fails at once instead of piling up stale messages.
         sock.setsockopt(zmq.IMMEDIATE, 1)
