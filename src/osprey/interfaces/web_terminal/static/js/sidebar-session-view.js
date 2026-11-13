@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Web Terminal — the session list's view menu
  *
- * The sliders button beside the Sessions row's "+" opens a menu of how the
+ * The view button beside the Sessions row's "+" opens a menu of how the
  * session list is shown (the hub's shared context menu, a value at each
  * row's end):
  *
@@ -24,6 +24,7 @@
  * The pinned group's list is not filtered.
  */
 
+import { facilityDayStart } from '/design-system/js/facility-time.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { readTreeView } from './sidebar-artifact-listing.js';
 import { openContextMenu } from './panel-context-menu.js';
@@ -247,26 +248,26 @@ function timeOf(row) {
 }
 
 /**
- * The earliest last activity the filter keeps: today's local midnight, or N
- * days back from now; null for All.
+ * The earliest last activity the filter keeps: the start of today on the
+ * facility clock, or N days back from now; null for All.
  * @param {Activity} activity  @param {Date} now
  */
 function cutoffOf(activity, now) {
   if (activity === 'all') return null;
-  if (activity === '1d')
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (activity === '1d') return facilityDayStart(now);
   return now.getTime() - Number.parseInt(activity, 10) * DAY_MS;
 }
 
 /**
- * The Date group of a time: Today and Yesterday by local calendar day, then by age.
+ * The Date group of a time: Today and Yesterday by calendar day on the
+ * facility clock, then by age.
  * @param {number | null} at  @param {Date} now
  */
 function dateGroup(at, now) {
   if (at === null) return 'Today';
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (at >= midnight) return 'Today';
-  if (at >= midnight - DAY_MS) return 'Yesterday';
+  const today = facilityDayStart(now);
+  if (at >= today) return 'Today';
+  if (at >= facilityDayStart(today - 1)) return 'Yesterday';
   if (at >= now.getTime() - 7 * DAY_MS) return 'Last 7 days';
   if (at >= now.getTime() - 30 * DAY_MS) return 'Last 30 days';
   return 'Older';
@@ -300,7 +301,9 @@ export function arrangeSessions(rows, { idOf, activeId, countOf, now = new Date(
   if (view.group === 'date') {
     let current = '';
     for (const row of kept) {
-      const label = dateGroup(row.synthesized ? null : timeOf(row), now);
+      const at = row.synthesized ? null : timeOf(row);
+      // A listed row with no time yet stays in the group of the row above it.
+      const label = at === null && current && !row.synthesized ? current : dateGroup(at, now);
       if (label !== current) items.push({ label: (current = label) });
       items.push({ row });
     }

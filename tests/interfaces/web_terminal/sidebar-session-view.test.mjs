@@ -50,14 +50,14 @@ const ROWS = [
 let counts;
 
 /**
- * @param {any[]} rows  @param {string | null} [activeId]
+ * @param {any[]} rows  @param {string | null} [activeId]  @param {Date} [now]
  */
-function arrange(rows, activeId = null) {
+function arrange(rows, activeId = null, now = NOW) {
   return view.arrangeSessions(rows, {
     idOf: (r) => String(r.transcript_id),
     activeId,
     countOf: (id) => counts[id],
-    now: NOW,
+    now,
   });
 }
 
@@ -69,6 +69,7 @@ beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
   document.documentElement.removeAttribute('data-osprey-storage-scope');
+  document.documentElement.removeAttribute('data-facility-timezone');
   document.documentElement.removeAttribute('data-session-counts-off');
   counts = {};
   view = await import(`${JS}/sidebar-session-view.js`);
@@ -97,11 +98,30 @@ describe('Last activity', () => {
     expect(arrange(ROWS.slice(0, 4)).more).toBe(true);
   });
 
-  test('Today starts at local midnight, not 24 hours back', () => {
+  test('Today starts at midnight, not 24 hours back', () => {
     view.setSessionView({ activity: '1d' });
     const early = row('early', { last_ts: new Date(2026, 10, 13, 0, 30).toISOString() });
     const late = row('late', { last_ts: new Date(2026, 10, 12, 23, 30).toISOString() });
     expect(flat(arrange([early, late]))).toEqual(['early']);
+  });
+
+  test('Today and Yesterday are days on the facility clock, not on the viewer’s', () => {
+    document.documentElement.setAttribute('data-facility-timezone', 'Asia/Tokyo');
+    // 10:00 on 13 November in Tokyo, where that day started at 15:00 UTC on the 12th.
+    const now = new Date('2026-11-13T01:00:00Z');
+    const rows = [
+      row('after-midnight', { last_ts: '2026-11-12T16:00:00Z' }),
+      row('before-midnight', { last_ts: '2026-11-12T14:00:00Z' }),
+    ];
+    view.setSessionView({ activity: '1d' });
+    expect(flat(arrange(rows, null, now))).toEqual(['after-midnight']);
+    view.setSessionView({ activity: 'all', group: 'date' });
+    expect(flat(arrange(rows, null, now))).toEqual([
+      '# Today',
+      'after-midnight',
+      '# Yesterday',
+      'before-midnight',
+    ]);
   });
 
   test('the session in use stays however old, and a row with no time yet stays', () => {
@@ -153,6 +173,20 @@ describe('Group by', () => {
       'key:k',
       '# Yesterday',
       'yesterday',
+    ]);
+  });
+
+  test('Date keeps a listed session with no time yet in the group of the row above it', () => {
+    view.setSessionView({ group: 'date' });
+    const undated = row('undated');
+    expect(flat(arrange([ROWS[0], ROWS[1], undated, ROWS[2]]))).toEqual([
+      '# Today',
+      'now',
+      '# Yesterday',
+      'yesterday',
+      'undated',
+      '# Last 7 days',
+      'tuesday',
     ]);
   });
 
