@@ -733,9 +733,8 @@ def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:
 
     The rows are already the pruned device taxonomy: the build applied the
     pruning once, over the whole corpus, and the ``total_classes`` badge counts
-    those same rows. They are not pruned again here — a second pass would drop
-    an abstract parent whose only subclass the first pass removed, and the tree
-    would then disagree with the badge.
+    those same rows. They are not pruned again here, so the tree the route
+    serves is the population the badge counted.
 
     An index that binds nothing answers the empty-corpus shape the explorer
     already branches on: no classes to draw, and the remedy in

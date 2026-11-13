@@ -267,11 +267,10 @@ class TestOntologyPayload:
 
         by_name = {entry["name"]: entry for entry in tree["classes"]}
         # InsertionDevice is an abstract parent whose only leaf, Undulator, the
-        # build pruned. The build kept the parent; a second pruning pass over
-        # the kept rows would drop it, and the tree would no longer be the
-        # population the badge counted.
-        assert by_name["InsertionDevice"]["rollup"] == 0
-        assert by_name["InsertionDevice"]["abstract"] is True
+        # build pruned. The build prunes to a fixpoint, so the parent goes with
+        # its leaf, and the tree the route serves is the population the badge
+        # counted.
+        assert "InsertionDevice" not in by_name
         assert badge["total_classes"] == len(tree["classes"])
 
     def test_the_relationship_vocabulary_is_not_read_from_the_index(self, client):
