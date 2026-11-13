@@ -60,12 +60,18 @@ momentum aperture) can take minutes; `deadline_s` is the facility's bound.
 | Analysis | Scalars | Table |
 |---|---|---|
 | `optics` | `tune_x/y`, `chromaticity_x/y` | `twiss`: `s`, `beta_x`, `beta_y`, `eta_x` |
-| `chromaticity` | fitted chromaticity orders | `tune_vs_dp`: `dp_pct`, `tune_x`, `tune_y` |
+| `chromaticity` | `chromaticity_x/y`, `chromaticity2_x/y`, `chromaticity3_x/y` | `tune_vs_dp`: `dp_pct`, `tune_x`, `tune_y` |
 | `da` | `area_mm2` | `aperture`: `x_mm`, `y_mm` |
 | `footprint` | particle counts | `tunes`: `x_mm`, `y_mm`, `tune_x`, `tune_y` |
 | `lma` | smallest acceptance | `aperture`: `s`, `dp_plus_pct`, `dp_minus_pct` |
 
 An engine may add scalars, columns and tables beyond these.
+
+The chromatic orders are derivatives of the tune at zero momentum offset `d`,
+from a cubic fitted to `tune_vs_dp`: `nu = nu0 + xi1*d + xi2*d^2/2 +
+xi3*d^3/6`, with `chromaticity` = `xi1`, `chromaticity2` = `xi2` and
+`chromaticity3` = `xi3`. The tunes of `tune_vs_dp` are fractional; a gap in
+the curve is an offset with no stable optics.
 
 ## Say where a number comes from
 

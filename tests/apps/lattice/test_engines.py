@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import lattice_app
+import numpy as np
 import pytest
 from lattice_app.catalog import ANALYSES, JOB_SCHEMA, normalize_result
 from lattice_app.engines import elegant, run_engine, tune_vs_dp
@@ -250,6 +252,114 @@ def test_elegant_runs_where_the_deck_lives_and_writes_only_to_scratch(tmp_path: 
     }
     assert result["scalars"]["dp_plus_min_pct"] == pytest.approx(2.5)
     assert sorted(path.name for path in decks.iterdir()) == ["kickmap.sdds", "sr.lte"]
+
+
+def test_the_tune_of_a_turn_by_turn_signal_is_found_between_the_fft_bins() -> None:
+    turns = np.arange(1024)
+    for tune in (0.2327252, 0.0871, 0.4613):
+        signal = 3.0e-7 + 1.0e-6 * np.cos(2 * np.pi * tune * turns + 0.4)
+        assert elegant.fractional_tune(signal) == pytest.approx(tune, abs=1e-7)
+
+
+# Stand-ins for a tracking run at one momentum offset: the tunes are a known curve, the
+# vertical one above the half integer, and one offset has no stable optics.
+_TUNE_ELEGANT = """
+import json, pathlib, re, sys
+commands = pathlib.Path(sys.argv[1]).read_text()
+dp = float(re.search(r'MALIGN,DP=([-+.e0-9]+),ON_PASS=0,FORCE_MODIFY_MATRIX=1', commands).group(1))
+turns = int(re.search(r'n_passes = (\\d+)', commands).group(1))
+twiss = re.search(r'filename = "(.*)"', commands).group(1)
+watch = re.search(r'FILENAME=\\\\"(.*?)\\\\"', commands).group(1)
+assert 'skip = 0,' in commands and 'offset_by_orbit = 1,' in commands
+stable = abs(dp - 0.01) > 1e-9
+tunes = [0.23 - 0.3 * dp + 2.5 * dp**2, 0.63 - 0.8 * dp + 3.0 * dp**2]
+pathlib.Path(twiss).write_text(json.dumps([3 + tunes[0], 3 + tunes[1]] if stable else None))
+if stable:
+    pathlib.Path(watch).write_text(json.dumps({"tunes": tunes, "turns": turns}))
+"""
+_TUNE_SDDS2STREAM = """
+import json, math, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if sys.argv[2] == '-parameters=nux,nuy':
+    print('nan nan' if data is None else f'{data[0]!r} {data[1]!r}')
+else:
+    assert sys.argv[2] == '-columns=Cx,Cy,Particles'
+    for turn in range(data['turns']):
+        x, y = (1e-6 * math.cos(2 * math.pi * tune * turn) for tune in data['tunes'])
+        print(f'{x!r}\\t{y!r}\\t1')
+"""
+
+
+def test_elegant_tracks_the_tune_at_each_momentum_offset(tmp_path: Path) -> None:
+    deck = tmp_path / "sr.lte"
+    deck.write_text("ring: line=(q)\n")
+    job = _elegant_job(
+        "chromaticity",
+        deck=str(deck),
+        settings={"dp_min_pct": -2.0, "dp_max_pct": 2.0, "n_steps": 9},
+        engine_settings={
+            "elegant": _program(tmp_path / "elegant", _TUNE_ELEGANT),
+            "sdds2stream": _program(tmp_path / "sdds2stream", _TUNE_SDDS2STREAM),
+            "tune_turns": 512,
+        },
+    )
+
+    result = normalize_result(ANALYSES["chromaticity"], elegant.ANALYSES["chromaticity"](job))
+
+    columns = result["tables"]["tune_vs_dp"]["columns"]
+    assert columns["dp_pct"] == pytest.approx([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+    # The offset without stable optics is a gap in the curve, not a failed analysis.
+    assert columns["tune_x"][6] is None and columns["tune_y"][6] is None
+    assert columns["tune_x"][0] == pytest.approx(0.23 + 0.006 + 0.001, abs=1e-6)
+    # Above the half integer: the spectrum alone cannot tell 0.63 from 0.37.
+    assert columns["tune_y"][4] == pytest.approx(0.63, abs=1e-6)
+    assert result["scalars"]["chromaticity_x"] == pytest.approx(-0.3, abs=1e-3)
+    assert result["scalars"]["chromaticity2_x"] == pytest.approx(5.0, abs=0.05)
+    assert result["scalars"]["chromaticity_y"] == pytest.approx(-0.8, abs=1e-3)
+    assert [path.name for path in tmp_path.iterdir() if path.suffix in (".twi", ".w1")] == []
+
+
+_FODO_RING = """\
+QFH: KQUAD, L=0.15, K1=1.35, N_SLICES=50
+QD: KQUAD, L=0.30, K1=-1.30, N_SLICES=50
+SF: KSEXT, L=0.2, K2=1.0, N_SLICES=20
+SD: KSEXT, L=0.2, K2=-1.5, N_SLICES=20
+B: CSBEND, L=1.5, ANGLE=0.19634954084936207, E1=0.098174770424681035, &
+   E2=0.098174770424681035, N_SLICES=40
+D1: DRIFT, L=0.25
+D3: DRIFT, L=0.50
+CELL: LINE=(QFH, D1, SF, D1, B, D3, QD, D1, SD, D1, B, D3, QFH)
+RING: LINE=(16*CELL)
+"""
+
+
+def test_real_elegant_tracks_the_tunes_of_a_fodo_ring(tmp_path: Path) -> None:
+    """Runs where elegant is installed: the facility's machine, not the OSPREY image."""
+    if not (shutil.which("elegant") and shutil.which("sdds2stream")):
+        pytest.skip("elegant and sdds2stream are not on PATH")
+    deck = tmp_path / "ring.lte"
+    deck.write_text(_FODO_RING)
+    job = _elegant_job(
+        "chromaticity",
+        deck=str(deck),
+        energy_gev=2.0,
+        settings={"dp_min_pct": -2.0, "dp_max_pct": 2.0, "n_steps": 9},
+    )
+
+    curve = elegant.chromaticity(job)
+    optics = elegant.compute({**job, "analysis": "optics"})
+
+    columns = curve["tables"]["tune_vs_dp"]["columns"]
+    # Tracked tunes of an independent run of this ring with the beam itself off momentum.
+    assert columns["tune_x"][0] == pytest.approx(0.2406724, abs=5e-7)
+    assert columns["tune_y"][8] == pytest.approx(0.3515137, abs=5e-7)
+    assert columns["tune_x"][4] == pytest.approx(optics["scalars"]["tune_x"] % 1, abs=1e-7)
+    for plane in ("x", "y"):
+        assert curve["scalars"][f"chromaticity_{plane}"] == pytest.approx(
+            optics["scalars"][f"chromaticity_{plane}"], abs=1e-4
+        )
+    assert curve["scalars"]["chromaticity2_x"] == pytest.approx(5.92, abs=0.05)
+    assert [path.name for path in tmp_path.iterdir()] == ["ring.lte"]
 
 
 def test_the_momentum_aperture_is_searched_at_places_spread_over_the_beamline() -> None:

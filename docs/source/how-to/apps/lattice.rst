@@ -15,7 +15,8 @@ channel and writes none.
 It ships with OSPREY and is off by default. Turn it on with
 ``osprey init --preset demo --set 'apps.lattice={}'``: init copies the app
 into ``apps/lattice/`` and lists it under ``apps:`` in ``profile.yml``. The
-retired *Lattice* web panel's ``web_panels`` keys are not read.
+retired *Lattice* web panel's ``web_panels`` keys are not read. To open the
+web terminal on the app, set ``web.default_panel: lattice``.
 
 From the panel
 ==============
@@ -89,7 +90,7 @@ reason. An engine reads the settings it knows:
      - Tunes, chromaticities, Twiss functions, element layout
      - none
    * - ``chromaticity``
-     - Tunes against momentum offset, chromaticity to third order
+     - Tunes against momentum offset, chromatic orders to the third
      - ``dp_min_pct`` (-3), ``dp_max_pct`` (3), ``n_steps`` (25)
    * - ``da``
      - Dynamic aperture
@@ -101,6 +102,13 @@ reason. An engine reads the settings it knows:
      - Local momentum aperture
      - ``nturns`` (512), ``n_refpts`` (15), ``dp_max_pct`` (5), ``n_bisect`` (15)
 
+The chromatic orders are the derivatives of the tune at zero momentum offset
+:math:`\delta`, from a cubic fitted to the curve, whichever engine solved its
+points: :math:`\nu = \nu_0 + \xi_1\delta + \xi_2\delta^2/2 + \xi_3\delta^3/6`,
+with ``chromaticity_x`` :math:`=\xi_1`, ``chromaticity2_x`` :math:`=\xi_2` and
+``chromaticity3_x`` :math:`=\xi_3`. An offset with no stable optics is a gap
+in the curve.
+
 Engines
 =======
 
@@ -111,14 +119,52 @@ dipole), ``pass_methods`` (pass methods by element class), ``dp_step`` and
 pyAT's defaults when omitted), ``use`` (the beamline of an elegant or MAD-X
 deck) and ``six_d`` (``true`` keeps cavities and radiation on).
 
-``elegant`` computes ``optics``, ``da`` and ``lma`` by running ``elegant`` and
-reading its output with ``sdds2stream``; the facility's image must provide
-both. Its ``engine_settings``: ``elegant`` and ``sdds2stream`` (program
-paths), ``use_beamline``, ``p_central_mev`` (required when the model lists no
-``energies_gev``), ``setup`` (command-file text placed after ``run_setup``),
-and one mapping per namelist (``run_setup``, ``twiss_output``,
-``run_control``, ``find_aperture``, ``momentum_aperture``) whose entries add
-to or replace the ones the engine writes.
+``elegant`` computes ``optics``, ``chromaticity``, ``da`` and ``lma`` by
+running ``elegant`` and reading its output with ``sdds2stream``. Neither
+program is in the OSPREY image: mount the facility's install, and the decks,
+into the container (below). Its ``engine_settings``: ``elegant`` and
+``sdds2stream`` (program paths), ``use_beamline``, ``p_central_mev`` (required
+when the model lists no ``energies_gev``), ``setup`` (command-file text placed
+after ``run_setup``), and one mapping per namelist (``run_setup``,
+``twiss_output``, ``run_control``, ``find_aperture``, ``momentum_aperture``,
+``closed_orbit``) whose entries add to or replace the ones the engine writes.
+
+elegant runs in the deck's own directory, so a file the deck names by a
+relative path (an ``#INCLUDE``, a kick map, a ``load_parameters`` file) is
+found as it is by hand; every file it writes goes to a scratch directory, so
+the decks may be mounted read-only. For input kept elsewhere, set
+``run_setup: {search_path: "/lattices/kickmaps /lattices/errors"}`` (entries
+separated by a space or a comma; none may contain a space).
+
+For ``chromaticity`` the engine tracks one particle around the closed orbit at
+each momentum offset and takes the tune from its turn-by-turn position, one
+``elegant`` process per offset. ``tune_turns`` (1024) is the turns tracked and
+``parallel`` (4) the processes run at once. It does not read the tunes off
+``twiss_output`` at each offset: elegant's matrix there is truncated, which
+leaves the linear chromaticity right and the higher orders wrong
+(``dnux/dp2`` and ``dnux/dp3`` included).
+
+.. code-block:: yaml
+
+   apps:
+     lattice:
+       services:
+         lattice:
+           mounts:
+             - {source: /nfs/physics/lattices, target: /lattices}
+             - {source: /usr/local/oag, target: /opt/oag}
+           env: [RPN_DEFNS]
+       config:
+         models:
+           - name: sr
+             deck: /lattices/sr/ring.lte
+             engine: elegant
+             energies_gev: [6.0]
+             engine_settings:
+               elegant: /opt/oag/bin/elegant
+               sdds2stream: /opt/oag/bin/sdds2stream
+
+``mounts`` is described under :doc:`build-your-own-app`.
 
 **A facility's own engine** is any command named under ``engines:``. The
 backend runs it as ``<command> <job.json> <out.json>``, the two files in a

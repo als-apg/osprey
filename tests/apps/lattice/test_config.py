@@ -88,7 +88,7 @@ def test_an_engine_offers_only_what_it_computes(tmp_path: Path) -> None:
 
     assert a.engine.command == ("python", "-m", "aps.engine")
     assert a.offered() == ["optics", "lma"]
-    assert b.offered() == ["optics", "da", "lma"]
+    assert b.offered() == ["optics", "chromaticity", "da", "lma"]
 
 
 def test_no_models_block_offers_no_model_in_a_bare_directory(tmp_path: Path) -> None:

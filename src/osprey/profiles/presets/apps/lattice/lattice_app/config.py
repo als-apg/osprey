@@ -59,11 +59,11 @@ class Engine:
 
 #: The engines the application carries.
 BUILTIN_ENGINES: dict[str, Engine] = {
-    "pyat": Engine("pyat", (sys.executable, "-m", "lattice_app.engines.pyat")),
+    "pyat": Engine("pyat", (sys.executable, "-m", "lattice_app.engines.pyat"), version="2"),
     "elegant": Engine(
         "elegant",
         (sys.executable, "-m", "lattice_app.engines.elegant"),
-        frozenset({"optics", "da", "lma"}),
+        frozenset({"optics", "chromaticity", "da", "lma"}),
     ),
 }
 

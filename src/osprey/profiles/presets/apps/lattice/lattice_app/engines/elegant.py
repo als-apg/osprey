@@ -1,4 +1,4 @@
-"""The elegant engine: optics, dynamic aperture and momentum aperture from an elegant run.
+"""The elegant engine: optics, chromaticity and the two apertures from elegant runs.
 
 It runs ``elegant`` in the deck's own directory, so the files the deck's elements name by a
 relative path are found, on a command file in a scratch directory that every output is
@@ -14,12 +14,18 @@ The model's ``engine_settings``:
     The beamline to use; elegant's default (the deck's last) when omitted.
 ``p_central_mev``
     The central momentum, for a model with no energy selected.
-``run_setup``, ``twiss_output``, ``run_control``, ``find_aperture``, ``momentum_aperture``
+``run_setup``, ``twiss_output``, ``run_control``, ``find_aperture``, ``momentum_aperture``,
+``closed_orbit``
     Entries added to, or replacing, those this engine writes in that namelist, e.g.
     ``find_aperture: {n_splits: 3}``, or ``run_setup: {search_path: "/lattices/kickmaps"}``
     for input files kept away from the deck.
 ``setup``
     Raw command-file text placed after ``run_setup``, e.g. ``&load_parameters``.
+``tune_turns``
+    The turns one particle is tracked at each momentum offset of ``chromaticity`` (1024).
+``parallel``
+    The elegant processes ``chromaticity`` runs at once (4, or the machine's processors
+    when fewer).
 
 Run as ``python -m lattice_app.engines.elegant <job.json> <out.json>``.
 """
@@ -27,14 +33,16 @@ Run as ``python -m lattice_app.engines.elegant <job.json> <out.json>``.
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from lattice_app.engines import run_engine
+from lattice_app.engines import run_engine, tune_vs_dp
 
 Job = Mapping[str, Any]
 
@@ -42,6 +50,10 @@ Job = Mapping[str, Any]
 ELECTRON_MEV = 0.51099895
 #: How much of a failed run's output the error carries.
 OUTPUT_TAIL = 1500
+#: The turns tracked at one momentum offset, and the amplitude the particle starts at
+#: around the closed orbit, in metres: small enough to carry no amplitude detuning.
+TUNE_TURNS = 1024
+TUNE_AMPLITUDE_M = 1.0e-6
 
 
 def namelist(name: str, entries: Mapping[str, Any]) -> str:
@@ -317,7 +329,120 @@ def compute(job: Job) -> dict[str, Any]:
         return _READERS[job["analysis"]](job, workdir)
 
 
-ANALYSES = dict.fromkeys(_READERS, compute)
+def tune_command_file(job: Job, scratch: Path, index: int, dp: float, turns: int) -> str:
+    """The command file of one momentum offset of ``chromaticity``.
+
+    One particle is tracked around the closed orbit at the offset ``dp``, which a
+    zero-length ``MALIGN`` at the start of the ring gives it once. elegant's own
+    off-momentum ``twiss_output`` is good to first order in the offset only: its matrix
+    is truncated, and so are ``dnux/dp2`` and ``dnux/dp3``. The Twiss tune is still
+    written, to say which side of the half integer the tracked tune is on.
+    """
+    watch = scratch / f"tune{index}.w1"
+    start = {"name": "*", "skip": 0, "add_at_start": 1, "allow_no_matches": 1}
+    kick = f"DPKICK: MALIGN,DP={dp!r},ON_PASS=0,FORCE_MODIFY_MATRIX=1"
+    monitor = f'TUNEWATCH: WATCH,FILENAME=\\"{watch}\\",MODE=CENTROID'
+    orbit = {"closed_orbit_accuracy": 1.0e-12, "iteration_fraction": 1}
+    orbit["closed_orbit_iterations"] = 200
+    twiss = {"filename": str(scratch / f"tune{index}.twi"), "matched": 1, "output_at_each_step": 1}
+    beam = f"centroid[0] = {TUNE_AMPLITUDE_M},0,{TUNE_AMPLITUDE_M},0,0,0,"
+    return (
+        run_setup(job)
+        + namelist("insert_elements", start).replace("&end", f'    element_def = "{kick}",\n&end')
+        + namelist("insert_elements", start).replace(
+            "&end", f'    element_def = "{monitor}",\n&end'
+        )
+        + namelist("run_control", {"n_passes": turns})
+        + _merged(job, "closed_orbit", orbit)
+        + _merged(job, "twiss_output", twiss)
+        + namelist("bunched_beam", {"n_particles_per_bunch": 1}).replace(
+            "&end", f"    {beam}\n&end"
+        )
+        + namelist("track", {"offset_by_orbit": 1})
+    )
+
+
+def fractional_tune(signal: Sequence[float]) -> float:
+    """The tune of a turn-by-turn position, between 0 and 0.5.
+
+    The strongest line of the Hann-windowed spectrum, refined between the bins of the
+    transform by a search on the windowed sum itself.
+    """
+    import numpy as np
+
+    values = np.asarray(signal, dtype=float)
+    turns = np.arange(len(values))
+    weighted = (values - values.mean()) * np.hanning(len(values))
+
+    def strength(tune: float) -> float:
+        return float(abs(np.sum(weighted * np.exp(-2j * np.pi * tune * turns))))
+
+    peak = int(np.argmax(np.abs(np.fft.rfft(weighted))[1:])) + 1
+    low, high = (peak - 1) / len(values), (peak + 1) / len(values)
+    golden = (math.sqrt(5.0) - 1.0) / 2.0
+    for _ in range(60):
+        left, right = high - golden * (high - low), low + golden * (high - low)
+        if strength(left) > strength(right):
+            high = right
+        else:
+            low = left
+    return min(max((low + high) / 2.0, 0.0), 0.5)
+
+
+def _tracked_tunes(job: Job, workdir: Path, index: int, turns: int) -> tuple[float, float]:
+    """The fractional tunes of one finished offset; NaN where it has no stable optics.
+
+    elegant exits with status 0 whether or not it found a closed orbit and periodic
+    optics, so the output is what says: a Twiss page with finite tunes, and a watch file
+    in which the particle lived every turn.
+    """
+    gap = (math.nan, math.nan)
+    watch = workdir / f"tune{index}.w1"
+    try:
+        twiss = read_parameters(job, workdir / f"tune{index}.twi", ["nux", "nuy"])
+    except RuntimeError:
+        return gap  # no closed orbit: the Twiss file has no page
+    if not (math.isfinite(twiss["nux"]) and math.isfinite(twiss["nuy"])) or not watch.is_file():
+        return gap
+    columns = read_columns(job, watch, ["Cx", "Cy", "Particles"])
+    if len(columns["Cx"]) < turns or any(float(alive) != 1 for alive in columns["Particles"]):
+        return gap
+    tunes = []
+    for plane, column in (("nux", "Cx"), ("nuy", "Cy")):
+        tune, expected = fractional_tune(_floats(columns[column])), twiss[plane] % 1.0
+        # The spectrum of a position cannot tell a tune from its mirror about the half
+        # integer; the Twiss tune, close enough at any offset, can.
+        mirror = 1.0 - tune
+        tunes.append(mirror if abs(mirror - expected) < abs(tune - expected) else tune)
+    return tunes[0], tunes[1]
+
+
+def chromaticity(job: Job) -> dict[str, Any]:
+    """The tunes against momentum offset, one tracking run per offset, several at once."""
+    settings, engine = job.get("settings") or {}, _settings(job)
+    count = int(settings["n_steps"])
+    low, high = float(settings["dp_min_pct"]), float(settings["dp_max_pct"])
+    offsets = [low + (high - low) * step / max(count - 1, 1) for step in range(count)]
+    turns = int(engine.get("tune_turns") or TUNE_TURNS)
+    program = str(engine.get("elegant") or "elegant")
+    where = Path(job["deck"]).parent
+    with tempfile.TemporaryDirectory(prefix="lattice-elegant-") as scratch:
+        workdir = Path(scratch)
+
+        def solve(index: int) -> tuple[float, float]:
+            commands = workdir / f"tune{index}.ele"
+            text = tune_command_file(job, workdir, index, offsets[index] / 100.0, turns)
+            commands.write_text(text, encoding="utf-8")
+            _run([program, str(commands)], where)
+            return _tracked_tunes(job, workdir, index, turns)
+
+        workers = int(engine.get("parallel") or min(4, os.cpu_count() or 1))
+        with ThreadPoolExecutor(max_workers=max(workers, 1)) as pool:
+            tunes = list(pool.map(solve, range(count)))
+    return tune_vs_dp(offsets, [tune[0] for tune in tunes], [tune[1] for tune in tunes])
+
+
+ANALYSES = {**dict.fromkeys(_READERS, compute), "chromaticity": chromaticity}
 
 if __name__ == "__main__":
     sys.exit(run_engine(ANALYSES))
