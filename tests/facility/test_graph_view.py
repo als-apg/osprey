@@ -1,8 +1,11 @@
 """The graph view: the facility file written as the knowledge graph's Turtle.
 
 ``data/graph/facility.ttl`` opens with the facility file's sha256, types every
-channel a ``narad_sem:ChannelBinding`` joined to its signal by its role, and
-carries exactly the ``narad_p:`` predicates of :data:`PREDICATES`.
+channel a ``narad_sem:ChannelBinding`` joined to its signal by its role, joins
+each place to its parent by ``partOf`` and each placed device to its place by
+``locatedIn``, writes the names of places, devices and channels as
+``skos:altLabel``, and carries exactly the ``narad_p:`` predicates of
+:data:`PREDICATES`.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
+from tests.facility._graph_relations import expected_located_in, expected_part_of
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -50,6 +54,8 @@ PREDICATES = {
     "ordinalInModel",
     "placePath",
     "lengthM",
+    "partOf",
+    "locatedIn",
 }
 
 
@@ -61,6 +67,7 @@ def _doc() -> dict[str, Any]:
             {"id": "M", "level": "machine", "description": "The machine."},
             {"id": "M/S1", "level": "sector"},
             {"id": "M/S2", "level": "sector", "description": "Sector two."},
+            {"id": "M/S1/C1", "level": "cell", "names": ["C1", "Cell one"]},
         ],
         "devices": [
             {
@@ -76,6 +83,8 @@ def _doc() -> dict[str, Any]:
                 "ordinalInModel": 1,
             },
             {"id": "M/Q1", "class": "Quadrupole", "place": "M/S2"},
+            {"id": "M/LOOSE", "class": "Quadrupole"},
+            {"id": "M/S1/C1/BOX", "place": "M/S1/C1"},
         ],
         "channels": [
             {
@@ -83,6 +92,7 @@ def _doc() -> dict[str, Any]:
                 "on": {"device": "M/BPM1"},
                 "signal": "position_x_readback",
                 "description": "Horizontal position.",
+                "names": ["BPM1 X"],
             },
             {
                 "id": "M:Q1:SP",
@@ -105,6 +115,14 @@ def _doc() -> dict[str, Any]:
             {"id": "M/BPM", "description": "Monitors.", "members": ["M/BPM1"]},
         ],
     }
+
+
+SKOS_ALT_LABEL = URIRef("http://www.w3.org/2004/02/skos/core#altLabel")
+SKOS_LABEL = URIRef("http://www.w3.org/2004/02/skos/core#label")
+
+
+def _node(kind: str, raw: str) -> URIRef:
+    return URIRef(iri("fx", kind, raw))
 
 
 def _graph(text: str) -> Graph:
@@ -261,6 +279,106 @@ def test_the_graph_view_is_always_written() -> None:
     ) == (True, "always written")
 
 
+def test_a_place_below_the_top_is_part_of_its_parent() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    assert list(graph.objects(_node("place", "M/S1"), P.partOf)) == [_node("place", "M")]
+    assert list(graph.objects(_node("place", "M/S2"), P.partOf)) == [_node("place", "M")]
+
+
+def test_a_three_level_place_is_part_of_its_parent_not_the_top() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    assert list(graph.objects(_node("place", "M/S1/C1"), P.partOf)) == [_node("place", "M/S1")]
+    chain = list(graph.transitive_objects(_node("place", "M/S1/C1"), P.partOf))
+    assert chain == [_node("place", "M/S1/C1"), _node("place", "M/S1"), _node("place", "M")]
+
+
+def test_a_top_place_is_part_of_nothing() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    assert list(graph.objects(_node("place", "M"), P.partOf)) == []
+    assert len(list(graph.subject_objects(P.partOf))) == 3
+
+
+def test_a_placed_device_is_located_in_its_place() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    assert list(graph.objects(_node("device", "M/BPM1"), P.locatedIn)) == [_node("place", "M/S1")]
+    assert list(graph.objects(_node("device", "M/Q1"), P.locatedIn)) == [_node("place", "M/S2")]
+
+
+def test_a_device_without_a_place_is_located_nowhere() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    assert list(graph.objects(_node("device", "M/LOOSE"), P.locatedIn)) == []
+    assert _value(graph, "device", "M/LOOSE", "deviceId") == "M/LOOSE"
+
+
+def test_a_device_without_a_class_is_still_located_in_its_place() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+    box = _node("device", "M/S1/C1/BOX")
+
+    assert list(graph.objects(box, RDF.type)) == []
+    assert list(graph.objects(box, P.locatedIn)) == [_node("place", "M/S1/C1")]
+    assert len(list(graph.subject_objects(P.locatedIn))) == 3
+
+
+def test_places_devices_and_channels_carry_their_names_once_each() -> None:
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    def names(kind: str, raw: str) -> list[str]:
+        return sorted(str(name) for name in graph.objects(_node(kind, raw), SKOS_ALT_LABEL))
+
+    assert names("place", "M/S1/C1") == ["C1", "Cell one"]
+    assert names("device", "M/BPM1") == ["BPM1"]
+    assert names("channel", "M:BPM1:X") == ["BPM1 X"]
+    assert names("place", "M") == []
+    assert names("device", "M/Q1") == []
+    assert names("channel", "M:Q1:SP") == []
+
+
+def test_a_name_is_written_once_however_often_it_is_listed() -> None:
+    doc = _doc()
+    doc["devices"][0]["names"] = ["BPM1", "BPM1"]
+    text = graph_text(FacilityRecords(doc))
+
+    assert len(list(_graph(text).objects(_node("device", "M/BPM1"), SKOS_ALT_LABEL))) == 1
+
+
+def test_no_record_label_is_written() -> None:
+    from rdflib import RDFS
+
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+    device = _node("device", "M/BPM1")
+
+    assert list(graph.objects(device, RDFS.label)) == []
+    assert list(graph.objects(device, SKOS_LABEL)) == []
+    assert Literal("BPM 1") not in set(graph.objects())
+
+
+def test_a_document_without_names_gives_no_record_alt_label() -> None:
+    from rdflib import OWL
+
+    doc = _doc()
+    for kind in ("places", "devices", "channels"):
+        for record in doc[kind]:
+            record.pop("names", None)
+    graph = _graph(graph_text(FacilityRecords(doc)))
+
+    labelled = set(graph.subjects(SKOS_ALT_LABEL, None))
+    assert all((subject, RDF.type, OWL.Class) in graph for subject in labelled), labelled
+
+
+def test_part_of_and_located_in_are_object_properties() -> None:
+    from rdflib import OWL
+
+    graph = _graph(graph_text(FacilityRecords(_doc())))
+
+    for predicate in (P.partOf, P.locatedIn):
+        assert set(graph.objects(predicate, RDF.type)) == {OWL.ObjectProperty}, predicate
+
+
 @pytest.mark.slow
 class TestTheBuiltGraph:
     @pytest.fixture(scope="class")
@@ -331,3 +449,41 @@ class TestTheBuiltGraph:
         assert set(graph.subjects(P.facility, Literal(code))) == {
             URIRef(iri(code, "device", device["id"])) for device in facility["devices"]
         }
+
+    def test_every_place_but_a_top_one_is_part_of_its_parent(
+        self, built_demo: BuiltProject, graph: Graph
+    ) -> None:
+        expected = expected_part_of(built_demo.facility)
+
+        assert expected
+        assert {
+            (str(subject), str(obj)) for subject, obj in graph.subject_objects(P.partOf)
+        } == expected
+
+    def test_every_placed_device_is_located_in_its_own_place(
+        self, built_demo: BuiltProject, graph: Graph
+    ) -> None:
+        expected = expected_located_in(built_demo.facility)
+        located = Counter(str(subject) for subject, _ in graph.subject_objects(P.locatedIn))
+
+        assert expected
+        assert {
+            (str(subject), str(obj)) for subject, obj in graph.subject_objects(P.locatedIn)
+        } == expected
+        assert set(located.values()) == {1}, "a device is located in more than one place"
+
+    def test_two_independent_builds_render_equal_bytes(self) -> None:
+        from osprey.facility.build import build_facility
+        from tests._preset_data import packaged_facility_dir
+
+        # Two builds and two read models: graph_text memoizes on the records
+        # object, so one read model rendered twice would compare a string to itself.
+        first, second = (
+            graph_text(
+                FacilityRecords(build_facility(packaged_facility_dir("demo"), project_name="demo"))
+            )
+            for _ in range(2)
+        )
+
+        assert first is not second
+        assert first.encode("utf-8") == second.encode("utf-8")

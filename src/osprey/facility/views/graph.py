@@ -7,27 +7,34 @@ IRI comes from :mod:`osprey.facility.views.graph_iri`.
 
 Nodes and their ``narad_p:`` predicates:
 
-- a place: ``placePath`` (its id) and ``sectionCode`` (the last segment of its
-  id);
-- a device, typed by its class: ``deviceId``, ``facility`` (the identity
-  ``code``), ``rawType`` (the class name), ``system`` (the top place of its
-  place path), ``placePath`` and ``sectionCode`` of its place, ``sourceName``
-  (its id), ``familyDescription`` (the description of the smallest
-  described group naming it), ``systemDescription`` (the top place's
-  description), ``sPositionM``, ``lengthM``, ``ordinalInPlace`` and
-  ``ordinalInModel`` (each only when the facility file carries it), and one
-  ``hasBinding`` per channel it is ``on`` or an ``endpoint_of``;
+- a place: ``placePath`` (its id), ``sectionCode`` (the last segment of its
+  id) and, unless it is a top place, one ``partOf`` to the place whose id is
+  its own without the last segment;
+- a device, typed by its class when it has one: ``deviceId``, ``facility``
+  (the identity ``code``), ``rawType`` (the class name, only with a class),
+  ``sourceName`` (its id), ``familyDescription`` (the description of the
+  smallest described group naming it), ``sPositionM``, ``lengthM``,
+  ``ordinalInPlace`` and ``ordinalInModel`` (each only when the facility file
+  carries it), and one ``hasBinding`` per channel it is ``on`` or an
+  ``endpoint_of``; a device with a place also carries one ``locatedIn`` to
+  that place, ``placePath`` and ``sectionCode`` of the place, ``system`` (the
+  top place of its place path) and ``systemDescription`` (the top place's
+  description);
 - a channel, a ``narad_sem:ChannelBinding``: ``bindingId`` and ``fullPv`` (its
   address), ``description``, and one ``readsSignal`` (a readback) or
   ``writesSignal`` (a setpoint) to ``narad_sem:<signal>`` when it names a
   signal.
 
-A place carries ``hasBinding`` to the channels that are ``on`` it. Each signal
-named is a ``narad_sem:SemanticSignal`` labelled with its name; each device
-class and every class above it is an ``owl:Class`` under its parent, with its
-aliases as ``skos:altLabel``. Subjects follow the facility file's order,
-predicates are sorted with ``rdf:type`` first and objects are sorted, so equal
-facility files give equal bytes.
+A place carries ``hasBinding`` to the channels that are ``on`` it. A place,
+device or channel carries one ``skos:altLabel`` per entry of its ``names``;
+its ``label`` is not written, and groups are not nodes. Each signal named is a
+``narad_sem:SemanticSignal`` labelled with its name; each device class and
+every class above it is an ``owl:Class`` under its parent, with its aliases as
+``skos:altLabel``. The predicates whose objects are nodes (``hasBinding``,
+``readsSignal``, ``writesSignal``, ``partOf``, ``locatedIn``) are declared
+``owl:ObjectProperty``, the rest ``owl:DatatypeProperty``. Subjects follow the
+facility file's order, predicates are sorted with ``rdf:type`` first and
+objects are sorted, so equal facility files give equal bytes.
 """
 
 from __future__ import annotations
@@ -85,8 +92,10 @@ P_FAMILY_DESCRIPTION = "familyDescription"
 P_FULL_PV = "fullPv"
 P_HAS_BINDING = "hasBinding"
 P_LENGTH_M = "lengthM"
+P_LOCATED_IN = "locatedIn"
 P_ORDINAL_IN_MODEL = "ordinalInModel"
 P_ORDINAL_IN_PLACE = "ordinalInPlace"
+P_PART_OF = "partOf"
 P_PLACE_PATH = "placePath"
 P_RAW_TYPE = "rawType"
 P_READS_SIGNAL = "readsSignal"
@@ -110,8 +119,10 @@ PROPERTY_NAMES: tuple[str, ...] = tuple(
             P_FULL_PV,
             P_HAS_BINDING,
             P_LENGTH_M,
+            P_LOCATED_IN,
             P_ORDINAL_IN_MODEL,
             P_ORDINAL_IN_PLACE,
+            P_PART_OF,
             P_PLACE_PATH,
             P_RAW_TYPE,
             P_READS_SIGNAL,
@@ -126,7 +137,9 @@ PROPERTY_NAMES: tuple[str, ...] = tuple(
 )
 
 #: The predicates whose objects are nodes.
-OBJECT_PROPERTY_NAMES: frozenset[str] = frozenset({P_HAS_BINDING, P_READS_SIGNAL, P_WRITES_SIGNAL})
+OBJECT_PROPERTY_NAMES: frozenset[str] = frozenset(
+    {P_HAS_BINDING, P_LOCATED_IN, P_PART_OF, P_READS_SIGNAL, P_WRITES_SIGNAL}
+)
 
 #: A channel role -> the predicate joining it to its signal.
 _SIGNAL_PREDICATE: dict[str, str] = {"readback": P_READS_SIGNAL, "setpoint": P_WRITES_SIGNAL}
@@ -179,6 +192,12 @@ def _last_segment(place_id: str) -> str:
     return place_id.rsplit("/", 1)[-1]
 
 
+def _names(subjects: _Subjects, subject: str, record: Mapping[str, Any]) -> None:
+    """Write each of a record's ``names`` as one ``skos:altLabel``."""
+    for name in record.get("names") or []:
+        _add(subjects, subject, f"{SKOS}altLabel", _text(name))
+
+
 def _family_descriptions(groups: Iterable[Mapping[str, Any]]) -> dict[str, str]:
     """Each device's family description: that of the smallest described group naming it.
 
@@ -225,6 +244,14 @@ def _place_triples(subjects: _Subjects, code: str, places: Iterable[Mapping[str,
         subject = iri(code, "place", place_id)
         _add(subjects, subject, _p(P_PLACE_PATH), _text(place_id))
         _add(subjects, subject, _p(P_SECTION_CODE), _text(_last_segment(place_id)))
+        if "/" in place_id:
+            _add(
+                subjects,
+                subject,
+                _p(P_PART_OF),
+                _iri(iri(code, "place", place_id.rsplit("/", 1)[0])),
+            )
+        _names(subjects, subject, place)
 
 
 def _device_triples(
@@ -250,6 +277,7 @@ def _device_triples(
         place = device.get("place")
         if place:
             top = _top(str(place))
+            _add(subjects, subject, _p(P_LOCATED_IN), _iri(iri(code, "place", str(place))))
             _add(subjects, subject, _p(P_SYSTEM), _text(top))
             _add(subjects, subject, _p(P_PLACE_PATH), _text(place))
             _add(subjects, subject, _p(P_SECTION_CODE), _text(_last_segment(str(place))))
@@ -268,6 +296,7 @@ def _device_triples(
             _add(subjects, subject, _p(P_ORDINAL_IN_PLACE), _integer(device["ordinalInPlace"]))
         if "ordinalInModel" in device:
             _add(subjects, subject, _p(P_ORDINAL_IN_MODEL), _integer(device["ordinalInModel"]))
+        _names(subjects, subject, device)
     return used
 
 
@@ -282,6 +311,7 @@ def _channel_triples(subjects: _Subjects, code: str, records: FacilityRecords) -
         _add(subjects, subject, _p(P_FULL_PV), _text(address))
         if channel.get("description"):
             _add(subjects, subject, _p(P_DESCRIPTION), _text(channel["description"]))
+        _names(subjects, subject, channel)
         predicate = _SIGNAL_PREDICATE.get(str(channel.get("role", DEFAULT_ROLE)))
         signal = channel.get("signal")
         if predicate and signal:

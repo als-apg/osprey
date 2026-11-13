@@ -13,7 +13,8 @@ The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
 the relationship type `hasBinding` — but n10s also has a `LABELS_AND_NODES`
 handling that would uppercase it to `HASBINDING`, and the example queries the
-agent is given all spell the camelCase form. A corpus carrying uppercase names
+agent is given all spell the camelCase form, `partOf` and `locatedIn`
+included. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
 """
 
@@ -62,9 +63,9 @@ DEVICE_TOKEN_PREDICATES = ("system",)
 #: Prose predicates carried once by every device a described group names.
 FAMILY_DESCRIPTION_PREDICATES = ("familyDescription",)
 
-#: n10s' uppercase spellings of the three relationship types the shipped
-#: example queries use. Any of these in the corpus means the queries miss.
-UPPERCASE_N10S_NAMES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL")
+#: n10s' uppercase spellings of the relationship types the shipped example
+#: queries use. Any of these in the corpus means the queries miss.
+UPPERCASE_N10S_NAMES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL", "PARTOF", "LOCATEDIN")
 
 
 @pytest.fixture(scope="module")

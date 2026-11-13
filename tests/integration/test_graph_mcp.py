@@ -113,7 +113,15 @@ BOOKKEEPING_PROPERTIES = ("sha256", "seededAt", "kind")
 #: Relationship types neosemantics writes for the NARAD predicates under
 #: ``applyNeo4jNaming``.  A schema payload missing one of these means the
 #: projection changed shape and every curated example is now wrong.
-NARAD_RELATIONSHIP_TYPES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL", "SUBCLASSOF", "TYPE")
+NARAD_RELATIONSHIP_TYPES = (
+    "HASBINDING",
+    "READSSIGNAL",
+    "WRITESSIGNAL",
+    "SUBCLASSOF",
+    "TYPE",
+    "PARTOF",
+    "LOCATEDIN",
+)
 
 
 # ---------------------------------------------------------------------------

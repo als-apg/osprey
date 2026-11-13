@@ -10,7 +10,16 @@ demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
 that view (1017 binding owners / 4731 bindings / 674 write-only + 4052 read-only
 / 480 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 40928 triples.
+``terminationStatus`` and its 43801 triples.
+
+Beyond the counts, the seeded demo's ``PARTOF`` and ``LOCATEDIN`` edges must be
+exactly the pairs the facility records imply, and the two match strings the
+agent is handed — the record-name rule and the capability manifest's class
+synonym match — must return exactly the nodes the records say they should.
+Both strings are imported, never copied, so a drifted rule fails here. A small
+named document seeds a second store (the session's shared one, wiped first,
+never the demo store the counts read) to show a channel's names land as a list
+on its ``:ChannelBinding``.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -29,10 +38,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.graph_iri import iri
 from tests._builds import BuiltProject
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
@@ -41,6 +53,13 @@ from tests._graphdb_container import (
     WatchedSession,
     WatchedStore,
     watched_graphdb_store,
+    wiped_graphdb_store,
+)
+from tests.facility._graph_relations import (
+    NAMED_KINDS,
+    expected_located_in,
+    expected_name_holders,
+    expected_part_of,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,11 +74,13 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # Verified counts for the demo build's graph view
 # ---------------------------------------------------------------------------
 # The binding and direction counts are the Turtle census pinned in
-# tests/templates/test_demo_ttl.py; the magnet rollup and the
-# triple count were verified against a live n10s import of the same file.
+# tests/templates/test_demo_ttl.py; the magnet rollup was verified against
+# a live n10s import of the same file. The triple count is the view's rdflib
+# triple count, which equalled n10s' count before the view gained partOf,
+# locatedIn and record names (40928 then); this test is what confirms it holds.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 40928
+EXPECTED_TRIPLES_LOADED = 43801
 #: Distinct resources carrying at least one channel binding: the 1016 devices
 #: and the top place ``SR``, which carries the tune, chromaticity, user
 #: beam mode and operation-mode channels.
@@ -80,6 +101,17 @@ MAGNET_CLASS_URI = "https://narad.example.org/schema/shared_semantics/Magnet"
 
 #: What the throwaway store is called in its skip and failure messages.
 SEEDER_STORE_LABEL = "graphdb (neo4j + n10s) for the seeder lifecycle"
+#: The label of the session store this module wipes for its named document.
+NAMED_STORE_LABEL = "graphdb (neo4j + n10s) seeded with a named facility document"
+
+#: A record name that is a substring of other names in the demo (``U10``,
+#: ``U100``, ``TC02U10`` ...): the name lookup must return only its own holders.
+SUBSTRING_NAME = "U1"
+#: A class synonym the vocabulary carries.
+SYNONYM = "steerer"
+
+_OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
+_RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +154,10 @@ MATCH (d:Resource)-[:TYPE]->(cls)
 RETURN count(DISTINCT d) AS n
 """
 
+#: Every edge of one relationship type, as ``(source uri, target uri)`` rows.
+#: Formatted with the type, which is one of the two constants below.
+EDGES_CYPHER = "MATCH (a)-[:{rel}]->(b) RETURN a.uri AS src, b.uri AS dst"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -152,6 +188,48 @@ def demo_ttl(built_demo: BuiltProject) -> str:
     return view.read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="session")
+def demo_records(built_demo: BuiltProject) -> FacilityRecords:
+    """The records the demo build rendered the view from."""
+    return FacilityRecords(built_demo.facility)
+
+
+@pytest.fixture(scope="module")
+def named_document() -> dict:
+    """The named-record document the graph view's unit tests render."""
+    from tests.facility.test_graph_view import _doc
+
+    return _doc()
+
+
+@pytest.fixture(scope="module")
+def named_store(graphdb_session_store: WatchedStore, named_document: dict) -> WatchedStore:
+    """The session's store, wiped, bootstrapped and seeded with the named document.
+
+    Never the module's own ``seeder_store``: that one holds the demo the counts
+    read, and seeding this document means wiping first.
+    """
+    from osprey.facility.views.graph import graph_text
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    store = wiped_graphdb_store(graphdb_session_store, label=NAMED_STORE_LABEL)
+    ttl = graph_text(FacilityRecords(named_document))
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        boot = graph_seeder.bootstrap(session)
+        assert boot.ok, boot.message
+        imported = graph_seeder.import_ttl(session, ttl)
+        assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
+    return store
+
+
 # ---------------------------------------------------------------------------
 # Query helpers
 # ---------------------------------------------------------------------------
@@ -169,7 +247,9 @@ def _scalar(session: WatchedSession, cypher: str, **params) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: str) -> None:
+def test_bootstrap_seed_and_force_reseed(
+    seeder_store: WatchedStore, demo_ttl: str, demo_records: FacilityRecords
+) -> None:
     """Drive the real seeder through a store's whole life against real n10s.
 
     One test rather than five, deliberately: every step's precondition is the
@@ -218,6 +298,7 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
 
         # --- 3. The verified counts -----------------------------------------
         _assert_verified_counts(watched)
+        _assert_view_relations_and_names(watched, demo_records, demo_ttl)
         seeded_resources = graph_seeder.resource_count(session)
 
         # --- 4. Re-bootstrap is a no-op -------------------------------------
@@ -249,6 +330,7 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
 
         assert graph_seeder.read_marker(session) == expected_sha
         _assert_verified_counts(watched)
+        _assert_view_relations_and_names(watched, demo_records, demo_ttl)
 
 
 def _assert_verified_counts(session: WatchedSession) -> None:
@@ -273,3 +355,145 @@ def _assert_verified_counts(session: WatchedSession) -> None:
         "the transitive Magnet rollup is what proves the class hierarchy "
         "imported and is traversable, not just that the device nodes exist"
     )
+
+
+@contextmanager
+def graph_seeder_session(store: WatchedStore) -> Iterator[WatchedSession]:
+    """A watched driver session on ``store``."""
+    from osprey.services.graph_store import seeder as graph_seeder
+
+    with graph_seeder.open_session(
+        store.uri,
+        GRAPHDB_TEST_USERNAME,
+        GRAPHDB_TEST_PASSWORD,
+        database=GRAPHDB_TEST_DATABASE,
+    ) as session:
+        yield WatchedSession(session, store)
+
+
+def _edges(session: WatchedSession, rel: str) -> list[tuple[str, str]]:
+    """Every ``rel`` edge in the store as ``(source uri, target uri)``."""
+    return [(row["src"], row["dst"]) for row in session.records(EDGES_CYPHER.format(rel=rel))]
+
+
+def _assert_view_relations_and_names(
+    session: WatchedSession, records: FacilityRecords, ttl: str
+) -> None:
+    """Assert the place edges and both match strings against the records.
+
+    The expected sets come from the records by the rule the view states
+    (``tests/facility/_graph_relations.py``), never from the store or the
+    writer, so a writer or an import that drifts from the rule fails here.
+    """
+    from osprey.mcp_server.channel_finder_graph.tools.capabilities import _SYNONYMS
+    from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
+
+    # --- partOf / locatedIn: counts and targets ------------------------------
+    for rel, expected in (
+        ("PARTOF", expected_part_of(records)),
+        ("LOCATEDIN", expected_located_in(records)),
+    ):
+        edges = _edges(session, rel)
+        assert expected, f"the demo records imply no {rel} edge: the check would be vacuous"
+        assert len(edges) == len(expected), f"{rel}: {len(edges)} edges, {len(expected)} expected"
+        assert set(edges) == expected, f"{rel} targets differ from the records"
+
+    # --- Record-name rule: whole entry, never a substring --------------------
+    holders = expected_name_holders(records, SUBSTRING_NAME)
+    assert holders, f"no demo record is named {SUBSTRING_NAME!r}"
+    wanted = SUBSTRING_NAME.lower()
+    longer = {
+        str(name)
+        for kind in NAMED_KINDS
+        for record in records.of_kind(kind)
+        for name in record.get("names") or ()
+        if wanted in str(name).lower() and str(name).lower() != wanted
+    }
+    assert longer, f"{SUBSTRING_NAME!r} is no substring of another name: the check is vacuous"
+    rows = session.records(
+        f"{RECORD_NAME_MATCH_RULE} RETURN n.uri AS uri", {"name": SUBSTRING_NAME}
+    )
+    found = [row["uri"] for row in rows]
+    assert len(found) == len(set(found))
+    assert set(found) == holders, f"the record-name rule returned {sorted(found)}"
+
+    # --- The manifest's class synonym match ----------------------------------
+    rows = session.records(
+        f"MATCH (cls:Class) WHERE {_SYNONYMS['match']} RETURN cls.uri AS uri", {"synonym": SYNONYM}
+    )
+    found = [row["uri"] for row in rows]
+    expected_classes = _classes_with_alias(records, ttl, SYNONYM)
+    assert expected_classes, f"no seeded class carries the alias {SYNONYM!r}"
+    assert len(found) == len(set(found))
+    assert set(found) == expected_classes, f"the synonym match returned {sorted(found)}"
+
+
+def _classes_with_alias(records: FacilityRecords, ttl: str, alias: str) -> set[str]:
+    """The IRIs of the view's classes whose vocabulary aliases hold ``alias``.
+
+    Aliases come from the vocabulary and the facility file's own classes, the
+    two sources the view's writer reads; the view decides which classes are
+    declared (those the devices carry and every class above them), so the set
+    is restricted to the classes its Turtle declares.
+    """
+    from rdflib import Graph, URIRef
+
+    from osprey.facility.validate import vocabulary
+
+    sem = "https://narad.example.org/schema/shared_semantics/"
+    wanted = alias.lower()
+    aliases: dict[str, list[str]] = {
+        row.get("iri") or f"{sem}{row['name']}": list(row.get("aliases") or [])
+        for row in vocabulary()["classes"]
+    }
+    for row in records.document.get("classes") or []:
+        aliases[f"{sem}{row['class']}"] = list(row.get("aliases") or [])
+    declared = {
+        str(subject)
+        for subject in Graph()
+        .parse(data=ttl, format="turtle")
+        .subjects(URIRef(_RDF_TYPE), URIRef(_OWL_CLASS))
+    }
+    return {
+        cls
+        for cls, names in aliases.items()
+        if cls in declared and any(str(name).lower() == wanted for name in names)
+    }
+
+
+def test_a_channels_names_are_a_list_on_its_binding(
+    named_store: WatchedStore, named_document: dict
+) -> None:
+    """Each named record's names arrive as a list ``altLabel``, a channel's on its binding.
+
+    n10s is seeded with ``handleMultival: ARRAY`` for ``skos:altLabel``: a
+    single-name record still carries a list, which is what the record-name rule
+    iterates. A channel's names sit on its ``:ChannelBinding`` node.
+    """
+    code = str(named_document["identity"]["code"])
+    with graph_seeder_session(named_store) as session:
+        channels = [c for c in named_document["channels"] if c.get("names")]
+        assert channels, "the named document has no named channel"
+        for channel in channels:
+            row = session.single(
+                "MATCH (b:ChannelBinding {uri: $uri}) RETURN b.altLabel AS names",
+                {"uri": iri(code, "channel", str(channel["id"]))},
+            )
+            assert row is not None, f"channel {channel['id']} is no :ChannelBinding"
+            assert isinstance(row["names"], list), row["names"]
+            assert sorted(row["names"]) == sorted(set(channel["names"]))
+
+        named = [
+            (kind, record)
+            for kind, key in (("place", "places"), ("device", "devices"))
+            for record in named_document[key]
+            if record.get("names")
+        ]
+        for kind, record in named:
+            row = session.single(
+                "MATCH (n:Resource {uri: $uri}) RETURN n.altLabel AS names",
+                {"uri": iri(code, kind, str(record["id"]))},
+            )
+            assert row is not None
+            assert isinstance(row["names"], list), row["names"]
+            assert sorted(row["names"]) == sorted(set(record["names"]))
