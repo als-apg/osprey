@@ -1,7 +1,8 @@
 /**
  * The chat's lifecycle as events, for modules that react to it without a hook
  * in the renderer or the controller (the attention signal, screen-reader
- * announcements, export, the context meter, the sidebar's Agent row).
+ * announcements, export, the context meter and model tag, the sidebar's Agent
+ * row).
  *
  * One page holds one chat, so one bus serves it. A listener gets the detail
  * object. `replay` is true while history is redrawn, so a listener can tell a
@@ -33,6 +34,9 @@
  *   and with `0` at every reset and turn end, so a listener must be
  *   idempotent
  * @property {Record<string, never>} reset - the log was cleared
+ * @property {{ model: string | null }} model - the model that answers in the
+ *   chat, from each snapshot the live feed opens with; null when the feed
+ *   finds no agent for the chat. A live `system` `init` frame names it too
  */
 
 const bus = new EventTarget();

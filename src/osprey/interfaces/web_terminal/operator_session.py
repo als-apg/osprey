@@ -35,6 +35,7 @@ from osprey.agent_runner import (
     ToolStartEvent,
     ToolUseEvent,
     agent_session,
+    resolve_default_model,
 )
 from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
 from osprey.agent_runner.clean_env import add_panel_token, build_clean_env
@@ -424,6 +425,19 @@ class _RenderFacts:
 
 #: The facts of a render that could not be read: no writes, no placement.
 _NO_RENDER = _RenderFacts(config={}, hook_config={}, tier_allows=False)
+
+
+def _default_model(project_dir: str) -> str | None:
+    """The model *project_dir*'s config names for its agent. BLOCKING; never raises.
+
+    ``None`` when the config cannot be read: the chat then names no model until
+    the child reports one.
+    """
+    try:
+        return resolve_default_model(Path(project_dir))
+    except Exception:
+        logger.debug("Could not resolve the default model of %s", project_dir, exc_info=True)
+        return None
 
 
 def _read_render(project_dir: str) -> _RenderFacts:
@@ -1053,6 +1067,9 @@ class OperatorSession:
         # The last context-window reading this child sent, which a tab joining the
         # feed is shown with its snapshot.
         self._last_context: dict[str, Any] | None = None
+        # The model that answers in this chat, as a tab is shown it: the
+        # deployment's default until the child reports the one it runs on.
+        self._model: str | None = None
         # Monotonic timestamp of the last turn boundary. Initialized at
         # creation and re-stamped when a turn's reader completes; the chat
         # registry (issue: chat-registry) uses it as its idle predicate.
@@ -1171,6 +1188,8 @@ class OperatorSession:
         # project's settings and hooks raise reaches ``_can_use_tool``, which
         # puts it in front of the operator on a write-enabled render.
         self._render = await asyncio.to_thread(_read_render, self._cwd)
+        if self._model is None:
+            self._model = await asyncio.to_thread(_default_model, self._cwd)
         # The side-effect surface, read from the render the child runs in, plus every
         # prefix the render's approval hook asks about: the hook asks on each call, so
         # a standing allow there would do nothing or skip its ask. If either cannot be
@@ -1382,10 +1401,11 @@ class OperatorSession:
         """Open a live feed of every frame this session emits, and the snapshot it starts from.
 
         The snapshot (a ``hello`` frame) says whether a turn is running, what it
-        was asked, which permission requests are waiting and the last reading of
-        the context window, so a tab that opens mid-turn can show the turn and
-        answer its cards, and one that opens mid-session shows the meter. A
-        response the CLI started on its own (no prompt behind it) is in flight too.
+        was asked, which permission requests are waiting, the last reading of
+        the context window and the model that answers, so a tab that opens
+        mid-turn can show the turn and answer its cards, and one that opens
+        mid-session shows the meter and the model tag. A response the CLI
+        started on its own (no prompt behind it) is in flight too.
         """
         feed: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_SUBSCRIBER_BUFFER)
         self._subscribers.add(feed)
@@ -1396,6 +1416,7 @@ class OperatorSession:
             "prompt": self._turn_prompt,
             "pending": [pending.frame for pending in self._permissions.values()],
             "context": self._last_context,
+            "model": self._model,
         }
         return feed, hello
 
@@ -1605,9 +1626,13 @@ class OperatorSession:
                         await self._emit(done)
                     if _main_agent_active(event):
                         self._idle_wait = False
+                    # The child reports its model on init, else with its first answer.
+                    self._model = agent.model or self._model
                     frame = _event_to_wire(event)
                     if frame is None:
                         continue
+                    if frame["type"] == "system" and frame["subtype"] == "init":
+                        frame["model"] = self._model
                     if self._conversation_moved(frame):
                         # The turn that moved the conversation is still the
                         # one in flight; the marker goes out before its

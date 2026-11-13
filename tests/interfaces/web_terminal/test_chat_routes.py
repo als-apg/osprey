@@ -184,9 +184,15 @@ _STRIP_CASES = [
         {"type": "result", "is_error": True, "duration_ms": 10, "seq": 2},
     ),
     (
-        "system_init_drops_the_conversation_id",
-        {"type": "system", "subtype": "init", "session_id": "sess-child", "seq": 1},
-        {"type": "system", "subtype": "init", "seq": 1},
+        "system_init_keeps_the_model_drops_the_conversation_id",
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "sess-child",
+            "model": "claude-sonnet-4-5",
+            "seq": 1,
+        },
+        {"type": "system", "subtype": "init", "model": "claude-sonnet-4-5", "seq": 1},
     ),
     (
         "system_agent_done_keeps_what_the_chip_reads",
@@ -284,15 +290,17 @@ class TestStripForChat:
         assert input_event == before
 
     def test_system_fields_are_the_ones_the_chat_reads(self):
-        """The ``system`` allowlist is exactly what ``chat-system.js`` reads, plus ``seq``.
+        """The ``system`` allowlist is exactly what the chat reads, plus ``seq``.
 
-        A field the renderer starts reading must be added to the wire, and a
-        field it stops reading must leave it.
+        ``chat-system.js`` draws the frames and ``chat-context.js`` reads the
+        model off ``init``. A field the chat starts reading must be added to
+        the wire, and a field it stops reading must leave it.
         """
-        js = (Path(chat_module.__file__).parents[1] / "static" / "js" / "chat-system.js").read_text(
-            encoding="utf-8"
-        )
-        read = set(re.findall(r"\bevent\.([a-z_]+)", js))
+        js_dir = Path(chat_module.__file__).parents[1] / "static" / "js"
+        read: set[str] = set()
+        for name in ("chat-system.js", "chat-context.js"):
+            js = (js_dir / name).read_text(encoding="utf-8")
+            read |= set(re.findall(r"\bevent\.([a-z_]+)", js))
         assert chat_module._CHAT_FRAME_FIELDS["system"] == read | {"type", "seq"}
 
     def test_the_conversation_id_rides_no_frame(self):
@@ -823,6 +831,24 @@ class TestChatEventsRoute:
 
         assert [f["type"] for f in frames] == ["hello", "error"]
         assert frames[1]["error_type"] == "AgentExited"
+
+    def test_the_hello_names_the_model_that_answers(self):
+        """A tab that opens on a chat is told its model at once, before any frame."""
+
+        class _EndsWithItsHello(_FakeChatSession):
+            def subscribe(self):
+                feed, hello = super().subscribe()
+                self._stream_ended = True
+                return feed, hello
+
+        session = _EndsWithItsHello([])
+        session._model = "claude-sonnet-4-5"
+        client = TestClient(_make_chat_app(_FakeRegistry(session=session)))
+
+        frames = _data_frames(client.get("/api/chat/c1/events").text)
+
+        assert frames[0]["type"] == "hello"
+        assert frames[0]["model"] == "claude-sonnet-4-5"
 
 
 # ===========================================================================

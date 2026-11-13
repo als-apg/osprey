@@ -111,11 +111,25 @@ describe('the renderer publishes its lifecycle', () => {
     r.reset();
     expect(resets).toHaveLength(1);
   });
+
+  test('an init frame draws nothing and is published with the model it names', () => {
+    const container = document.createElement('div');
+    const r = createChatRenderer(container);
+    const frames = record('frame');
+
+    r.handleEvent({ type: 'system', subtype: 'init', model: 'claude-sonnet-4-5' });
+
+    expect(container.textContent).toBe('');
+    expect(frames).toEqual([
+      { event: expect.objectContaining({ model: 'claude-sonnet-4-5' }), replay: false },
+    ]);
+  });
 });
 
 describe('systemFrame', () => {
   test('frames that draw nothing return null', () => {
-    expect(systemFrame({ type: 'system', subtype: 'init' })).toBeNull();
+    // The model tag reads an init frame's model off the bus; the log draws nothing for it.
+    expect(systemFrame({ type: 'system', subtype: 'init', model: 'claude-sonnet-4-5' })).toBeNull();
     expect(systemFrame({ type: 'system', subtype: 'status', status: 'idle' })).toBeNull();
   });
 

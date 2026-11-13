@@ -311,6 +311,39 @@ async def test_a_turn_is_recorded_only_when_its_result_arrives() -> None:
     assert session.turns[0].index == 0
 
 
+def test_the_model_is_none_until_the_cli_reports_one() -> None:
+    session = AgentSession(_FakeClient([]), max_budget_usd=None)
+    assert session.model is None
+
+
+@pytest.mark.asyncio
+async def test_the_model_is_the_one_the_init_message_names() -> None:
+    init = SystemMessage(subtype="init", data={"session_id": "s", "model": "claude-opus-4-6"})
+    client = _FakeClient([[init, *_text_turn("hi", 0.001)]])
+    session = AgentSession(client, max_budget_usd=None)
+
+    await session.send("q")
+
+    # The answer names "m", but the init message's model wins.
+    assert session.model == "claude-opus-4-6"
+
+
+@pytest.mark.asyncio
+async def test_without_an_init_model_the_first_main_agent_answer_names_it() -> None:
+    subagent = AssistantMessage(
+        content=[TextBlock(text="sub")], model="sub-model", parent_tool_use_id="tu_1"
+    )
+    first = AssistantMessage(content=[TextBlock(text="a")], model="first-model")
+    later = AssistantMessage(content=[TextBlock(text="b")], model="later-model")
+    init = SystemMessage(subtype="init", data={"session_id": "s"})
+    client = _FakeClient([[init, subagent, first, later, _result(0.001)]])
+    session = AgentSession(client, max_budget_usd=None)
+
+    await session.send("q")
+
+    assert session.model == "first-model"
+
+
 @pytest.mark.asyncio
 async def test_submit_refuses_before_sending_once_the_budget_is_spent() -> None:
     client = _FakeClient([_text_turn("a", 0.005)])

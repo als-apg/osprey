@@ -13,6 +13,7 @@
 
 import { test, expect, vi } from 'vitest';
 
+import { onChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
 import { createTurnFollower } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-follow.js';
 
@@ -153,4 +154,21 @@ test('a reconnect whose transcript read fails keeps drawing the turn, and reads 
 
   follower.frame({ type: 'result', is_error: false, duration_ms: 900, seq: 6 });
   expect(reads).toHaveLength(2);
+});
+
+test("each snapshot passes on the chat's model, and no agent means no model", () => {
+  const { follower } = mount();
+  /** @type {Array<string | null>} */
+  const models = [];
+  const stop = onChat('model', ({ model }) => models.push(model));
+  try {
+    follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [], model: 'claude-x' });
+    // A server that names no model, or something that is not one.
+    follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [] });
+    follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [], model: 42 });
+    follower.noAgent();
+  } finally {
+    stop();
+  }
+  expect(models).toEqual(['claude-x', null, null, null]);
 });

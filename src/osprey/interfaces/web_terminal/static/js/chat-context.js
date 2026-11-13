@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — operator chat: the context meter.
+ * OSPREY Web Terminal — operator chat: the context meter and the model tag.
  *
  * The meter is a quiet line under the composer. It shows how full the
  * conversation's context window is, from the `context` frame the server sends
@@ -8,8 +8,13 @@
  * the operator can do about it. It is a `meter`, so a screen reader reports the
  * percentage when the operator reaches it.
  *
+ * The same line names the model that answers in the chat, short (see
+ * {@link modelLabel}), with the full id in its title. The live feed's snapshot
+ * names the model (the `model` chat event), and so does each `init` frame.
+ * The tag only shows the model: it is not a control.
+ *
  * A replayed frame is history being redrawn, not something that happened now,
- * so it never changes the meter.
+ * so it never changes the meter or the tag.
  *
  * @module chat-context
  */
@@ -33,6 +38,22 @@ export function contextLevel(percent) {
 }
 
 /**
+ * A model id as the tag shows it: without a gateway prefix (`anthropic/`), a
+ * leading `claude-`, a release date (`-20250929`) or a bracket suffix (`[1m]`).
+ * An id with nothing left after that is shown whole.
+ * @param {string} model
+ * @returns {string}
+ */
+export function modelLabel(model) {
+  const label = model
+    .slice(model.lastIndexOf('/') + 1)
+    .replace(/\[[^\]]*\]$/, '')
+    .replace(/^claude-/, '')
+    .replace(/-\d{8}$/, '');
+  return label || model;
+}
+
+/**
  * A reading's percentage as the meter states it: a whole number from 0 to 100.
  * @param {unknown} value
  * @returns {number}
@@ -45,9 +66,9 @@ function wholePercent(value) {
 let nextHintId = 0;
 
 /**
- * Start the meter.
+ * Start the meter and the model tag.
  * @param {import('./chat-features.js').ChatFeatureContext} ctx
- * @returns {() => void} stop listening and remove the meter
+ * @returns {() => void} stop listening and remove the line
  */
 export function initChatContext(ctx) {
   const root = elem('div', 'op-context');
@@ -63,20 +84,35 @@ export function initChatContext(ctx) {
   const hint = elem('span', 'op-context-hint', CONTEXT_HINT);
   hint.id = `op-context-hint-${nextHintId++}`;
   hint.hidden = true;
-  root.append(bar, label, hint);
+  // The tag ends the line and takes only the room the meter leaves (see operator.css).
+  const tag = elem('span', 'op-context-model');
+  tag.setAttribute('role', 'note');
+  tag.hidden = true;
+  root.append(bar, label, hint, tag);
   ctx.inputArea.append(root);
 
-  /** @param {Record<string, any>} reading - a `context` frame */
-  function show(reading) {
-    const percent = wholePercent(reading.percent);
+  /** Whether the meter has a reading to show. */
+  let reading = false;
+
+  /** The line shows while the meter has a reading or the tag names a model. */
+  function syncLine() {
+    bar.hidden = !reading;
+    label.hidden = !reading;
+    root.hidden = !reading && tag.hidden;
+  }
+
+  /** @param {Record<string, any>} frame - a `context` frame */
+  function show(frame) {
+    const percent = wholePercent(frame.percent);
     const level = contextLevel(percent);
-    root.hidden = false;
+    reading = true;
+    syncLine();
     root.dataset.level = level;
     fill.style.width = `${percent}%`;
     label.textContent = `Context ${percent}%`;
     bar.setAttribute('aria-valuenow', String(percent));
     bar.setAttribute('aria-valuetext', `${percent}% used`);
-    const { used_tokens: used, window_tokens: window } = reading;
+    const { used_tokens: used, window_tokens: window } = frame;
     if (typeof used === 'number' && typeof window === 'number') {
       bar.title = `${used.toLocaleString()} of ${window.toLocaleString()} tokens`;
     } else {
@@ -89,7 +125,8 @@ export function initChatContext(ctx) {
 
   /** Nothing is known about the conversation on screen: the meter has no reading. */
   function clear() {
-    root.hidden = true;
+    reading = false;
+    syncLine();
     root.dataset.level = 'ok';
     fill.style.width = '0%';
     label.textContent = '';
@@ -97,12 +134,31 @@ export function initChatContext(ctx) {
     bar.removeAttribute('aria-describedby');
   }
 
+  /** @param {unknown} model - the model id the server names; anything else hides the tag */
+  function showModel(model) {
+    const id = typeof model === 'string' ? model.trim() : '';
+    tag.hidden = !id;
+    tag.textContent = id ? modelLabel(id) : '';
+    if (id) {
+      tag.title = `Model: ${id}`;
+      tag.setAttribute('aria-label', `Model: ${id}`);
+    } else {
+      tag.removeAttribute('title');
+      tag.removeAttribute('aria-label');
+    }
+    syncLine();
+  }
+
   const stops = [
     onChat('frame', ({ event, replay }) => {
       if (replay) return;
       if (event.type === 'context') show(event);
+      else if (event.type === 'system' && event.subtype === 'init') showModel(event.model);
     }),
+    // A cleared log clears the meter. The tag follows the feed and the init
+    // frames, which say when the chat's model changes, not the log.
     onChat('reset', clear),
+    onChat('model', ({ model }) => showModel(model)),
   ];
 
   return () => {

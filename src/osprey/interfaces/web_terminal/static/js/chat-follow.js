@@ -15,6 +15,7 @@
  * @module chat-follow
  */
 
+import { emitChat } from './chat-events.js';
 import { endsTurn, isResponseFrame } from './chat-frames.js';
 
 /** @typedef {import('./chat-client.js').ChatEvent} ChatEvent */
@@ -167,8 +168,8 @@ export function createTurnFollower(host) {
 
   /**
    * The snapshot each (re)connect of the feed opens with: whether a turn runs,
-   * the requests it waits on, the newest frame's number and the window's last
-   * reading.
+   * the requests it waits on, the newest frame's number, the window's last
+   * reading and the model that answers.
    * @param {ChatEvent} hello
    */
   function onHello(hello) {
@@ -189,6 +190,8 @@ export function createTurnFollower(host) {
     }
     // The window's last reading, so the meter is right on a tab that opens mid-session.
     if (hello.context) host.draw(hello.context);
+    // The model, so the tag shows on a tab that opens before the next turn.
+    emitChat('model', { model: typeof hello.model === 'string' ? hello.model : null });
   }
 
   /**
@@ -234,7 +237,11 @@ export function createTurnFollower(host) {
 
   return {
     frame,
-    noAgent,
+    noAgent() {
+      // No agent runs for the chat, so no model answers in it yet.
+      emitChat('model', { model: null });
+      noAgent();
+    },
     restart() {
       mirroring = null;
       lastSeq = null;

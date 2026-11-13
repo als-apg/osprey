@@ -151,11 +151,11 @@ def clip_input(value: Any, depth: int = 0) -> Any:
 
 #: The fields the chat client receives, per frame type the wire reduces: what
 #: the chat renders and nothing else. ``seq`` rides every frame (the follower
-#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` reads,
-#: so the child's conversation id (``session_id`` on init) reaches the chat on
-#: no frame; the browser learns it only from the hand-off door. Cost and turn
-#: counts on ``result``, and the breakdowns of a ``context`` reading, are never
-#: sent.
+#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` and
+#: the model tag (``model`` on init) read, so the child's conversation id
+#: (``session_id`` on init) reaches the chat on no frame; the browser learns it
+#: only from the hand-off door. Cost and turn counts on ``result``, and the
+#: breakdowns of a ``context`` reading, are never sent.
 _CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
     "result": frozenset({"type", "seq", "is_error", "duration_ms"}),
     "context": frozenset({"type", "seq", "used_tokens", "window_tokens", "percent"}),
@@ -164,6 +164,8 @@ _CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
             "type",
             "seq",
             "subtype",
+            # init
+            "model",
             # agent_done
             "tool_use_id",
             "status",

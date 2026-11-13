@@ -1,20 +1,24 @@
 /**
- * Unit tests for the chat chat's context meter (chat-context.js), driven
- * through the renderer as the chat drives it:
+ * Unit tests for the chat's context meter and model tag (chat-context.js),
+ * driven through the renderer and the chat bus as the chat drives them:
  *   npx vitest run tests/interfaces/web_terminal/chat-context.test.mjs
  *
  * The meter reads the `context` frames the server sends as a response ends,
- * and warns from the threshold up. It does not react to a replayed frame:
- * history being redrawn is not something that has just happened.
+ * and warns from the threshold up. The tag names the model from the feed's
+ * snapshot (the `model` chat event) and from `init` frames. Neither reacts to
+ * a replayed frame: history being redrawn is not something that has just
+ * happened.
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
+import { emitChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
 import {
   CONTEXT_WARN_PERCENT,
   contextLevel,
   initChatContext,
+  modelLabel,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-context.js';
 
 /** @type {Array<() => void>} */
@@ -152,5 +156,86 @@ describe('the context meter', () => {
 
     expect(inputArea.querySelector('.op-context')).toBeNull();
     expect(messages.textContent).toContain('kept');
+  });
+});
+
+describe('the model label', () => {
+  test.each([
+    ['claude-sonnet-4-5-20250929', 'sonnet-4-5'],
+    ['anthropic/claude-opus-4-6', 'opus-4-6'],
+    ['gemini-3-flash', 'gemini-3-flash'],
+    ['claude-haiku-4-5-20251001[1m]', 'haiku-4-5'],
+    ['gateway/team/claude-opus-5', 'opus-5'],
+    ['anthropic/', 'anthropic/'],
+  ])('%s is shown as %s', (model, label) => {
+    expect(modelLabel(model)).toBe(label);
+  });
+});
+
+describe('the model tag', () => {
+  /** The tag in a mounted line. */
+  function tagOf(/** @type {HTMLElement} */ meter) {
+    return /** @type {HTMLElement} */ (meter.querySelector('.op-context-model'));
+  }
+
+  test('stays hidden, and the line with it, while no model is known', () => {
+    const { meter } = mount();
+    expect(tagOf(meter).hidden).toBe(true);
+    expect(tagOf(meter).textContent).toBe('');
+    expect(meter.hidden).toBe(true);
+  });
+
+  test("the feed's snapshot shows the short name, with the full id as title and name", () => {
+    const { meter, bar } = mount();
+    emitChat('model', { model: 'claude-sonnet-4-5-20250929' });
+    const tag = tagOf(meter);
+    expect(meter.hidden).toBe(false);
+    expect(tag.hidden).toBe(false);
+    expect(tag.textContent).toBe('sonnet-4-5');
+    expect(tag.title).toBe('Model: claude-sonnet-4-5-20250929');
+    expect(tag.getAttribute('aria-label')).toBe('Model: claude-sonnet-4-5-20250929');
+    // No reading yet: the line shows the tag alone.
+    expect(bar.hidden).toBe(true);
+  });
+
+  test('an init frame names the model, and a replayed one does not', () => {
+    const { renderer, meter } = mount();
+    renderer.replay([
+      {
+        role: 'assistant',
+        content: '',
+        events: [{ type: 'system', subtype: 'init', model: 'claude-old' }, { type: 'result' }],
+      },
+    ]);
+    expect(tagOf(meter).hidden).toBe(true);
+
+    renderer.handleEvent({ type: 'system', subtype: 'init', model: 'anthropic/claude-opus-4-6' });
+    expect(tagOf(meter).textContent).toBe('opus-4-6');
+  });
+
+  test('a later name replaces the tag, and no model hides it', () => {
+    const { renderer, meter } = mount();
+    emitChat('model', { model: 'claude-sonnet-4-5' });
+    renderer.handleEvent({ type: 'system', subtype: 'init', model: 'gemini-3-flash' });
+    expect(tagOf(meter).textContent).toBe('gemini-3-flash');
+
+    emitChat('model', { model: null });
+    expect(tagOf(meter).hidden).toBe(true);
+    expect(tagOf(meter).hasAttribute('title')).toBe(false);
+    expect(meter.hidden).toBe(true);
+  });
+
+  test('the tag sits beside the reading, and outlasts a reset of the log', () => {
+    const { renderer, meter, bar } = mount();
+    emitChat('model', { model: 'claude-sonnet-4-5' });
+    renderer.handleEvent(reading(42));
+    expect(bar.hidden).toBe(false);
+    expect(meter.textContent).toContain('42%');
+    expect(tagOf(meter).hidden).toBe(false);
+
+    renderer.reset();
+    expect(bar.hidden).toBe(true);
+    expect(meter.hidden).toBe(false);
+    expect(tagOf(meter).textContent).toBe('sonnet-4-5');
   });
 });
