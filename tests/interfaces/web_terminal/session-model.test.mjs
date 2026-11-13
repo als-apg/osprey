@@ -561,6 +561,30 @@ describe('a new session’s title during its first turn', () => {
     expect(model.activeRow()?.title).toBe('New session');
   });
 
+  test('a re-listing that fails does not end the re-listings', async () => {
+    await boot();
+    pointer.setPointer(KNEW);
+    await vi.advanceTimersByTimeAsync(model.REFRESH_THROTTLE_MS + 10);
+    send(PROMPT);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const answer = /** @type {any} */ (vi.mocked(fetch).getMockImplementation());
+    let down = true;
+    vi.mocked(fetch).mockImplementation(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const listing = (init?.method ?? 'GET') === 'GET' && String(url).includes('/api/sessions');
+      if (down && listing) {
+        down = false;
+        throw new Error('hub unreachable');
+      }
+      return answer(url, init);
+    });
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[0] + model.REFRESH_THROTTLE_MS);
+    expect(down).toBe(false);
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(TITLE_CHASE_MS[1] + model.REFRESH_THROTTLE_MS);
+    expect(listings()).toHaveLength(1);
+    warn.mockRestore();
+  });
+
   test('the shortened prompt matches the hub’s rule', () => {
     expect(shortenedPrompt('  short\n prompt ')).toBe('short prompt');
     const long = shortenedPrompt('word '.repeat(30));

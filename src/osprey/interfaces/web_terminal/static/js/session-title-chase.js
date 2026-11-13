@@ -123,6 +123,10 @@ export function createTitleChase({ pointer, activeRow, held, refresh, changed })
       paint();
       if (chase && !timer) next();
     },
+    /** A re-listing failed: the chase goes on to its next delay. */
+    failed() {
+      if (chase && !timer) next();
+    },
     /** @param {string} key @returns {string|null} the stand-in title for a synthesized row */
     standInFor: (key) => (standIn?.key === key ? standIn.title : null),
     reset() {

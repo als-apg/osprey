@@ -196,6 +196,7 @@ export function resetSessionModel() {
   if (refreshTimer) clearTimeout(refreshTimer);
   titles.reset();
   lastActiveTimer = refreshTimer = null;
+  listeners.clear();
   loaded = [];
   pinnedListed = [];
   pinOverrides.clear();
@@ -203,8 +204,7 @@ export function resetSessionModel() {
   more = false;
   record = 'complete';
   firstLoaded = false;
-  pickId = null;
-  pendingPick = null;
+  pickId = pendingPick = null;
   lastRefreshAt = -Infinity;
   inFlight = null;
   generation += 1;
@@ -563,7 +563,7 @@ async function runRefresh() {
     body = await fetchJSON(listUrl(null, false));
   } catch (err) {
     console.warn('[session-model] refresh failed', err);
-    return;
+    return void titles.failed();
   }
   if (gen !== generation) return;
   const first = rowsOf(body);
