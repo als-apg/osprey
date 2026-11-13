@@ -21,6 +21,10 @@ token, scanned over the folded text of ``TWO_KIND_SCAN_PATHS``, so a wrapped
 phrase is found as an unwrapped one is. A file that must keep it is a
 ``RETIRED_TWO_KIND_READERS`` row with its reason; an allowlist row that stops
 matching anything fails, so the list only shrinks.
+
+The phrase that called a built-in feature an app (``RETIRED_BUILT_IN_APP_PHRASE``)
+is a fifth token, scanned the same way over ``BUILT_IN_APP_SCAN_PATHS``, with
+``RETIRED_BUILT_IN_APP_READERS`` as its allowlist.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ import pytest
 
 from tests._vocabulary import (
     ENGINE_WORDS,
+    RETIRED_BUILT_IN_APP_PHRASE,
     RETIRED_ROSTER_WORD,
     RETIRED_TWO_KIND_PHRASE,
     SITE_EXAMPLE_WORD,
@@ -105,6 +110,7 @@ def test_fold_lines_maps_an_offset_to_its_original_line() -> None:
 
 def test_the_two_kind_row_is_a_phrase_and_the_word_rows_are_not() -> None:
     assert isinstance(RETIRED_TWO_KIND_PHRASE, Phrase)
+    assert isinstance(RETIRED_BUILT_IN_APP_PHRASE, Phrase)
     for row in (ENGINE_WORDS, RETIRED_ROSTER_WORD, SITE_EXAMPLE_WORD):
         assert not isinstance(row, Phrase)
 
@@ -508,6 +514,109 @@ def test_every_two_kind_allowlist_entry_still_matches() -> None:
     hit_paths = {hit.rsplit(":", 1)[0] for hit in two_kind_phrase_hits(REPO_ROOT, allowed={})}
     stale = []
     for glob in RETIRED_TWO_KIND_READERS:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+# --- the retired built-in-app phrase ----------------------------------------------
+
+#: The core text the phrase never enters.
+BUILT_IN_APP_SCAN_PATHS: tuple[str, ...] = ("src/osprey", "docs/source", "plugins")
+
+#: Where the phrase stays for good, each with why.
+RETIRED_BUILT_IN_APP_READERS: dict[str, str] = {}
+
+
+def built_in_app_phrase_hits(
+    root: Path, allowed: Mapping[str, str] = RETIRED_BUILT_IN_APP_READERS
+) -> list[str]:
+    """Every ``path:line`` under ``BUILT_IN_APP_SCAN_PATHS`` calling a built-in an app."""
+    excludes = [f":(exclude,glob){glob}" for glob in allowed]
+    return phrase_hits(root, RETIRED_BUILT_IN_APP_PHRASE, [*BUILT_IN_APP_SCAN_PATHS, *excludes])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the channel-finder app runs",
+        "the Channel Finder app",
+        "the shipped ARIEL app",
+        "for the logbook app",
+        "the knowledge app is the graph",
+        "the Bluesky app",
+        "the bundled logbook, knowledge and channel-finder apps",
+        "the knowledge and logbook apps",
+        "LOGBOOK APP",
+    ],
+)
+def test_built_in_app_phrase_finds_the_phrase(text: str) -> None:
+    assert re.search(RETIRED_BUILT_IN_APP_PHRASE, text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the channel finder reads it",
+        "the channel-finder login",
+        "the logbook login's render",
+        '<div class="app-container" id="ariel-app">',
+        "the bluesky-app fixture",
+        "knowledge-app-mcp",
+        "Create the Channel Finder FastAPI application",
+        "the logbook application",
+        "an app's panel",
+        "the knowledge graph app",
+    ],
+)
+def test_built_in_app_phrase_leaves_other_words(text: str) -> None:
+    assert re.search(RETIRED_BUILT_IN_APP_PHRASE, text) is None
+
+
+def test_a_planted_built_in_app_phrase_is_flagged(tmp_path: Path) -> None:
+    line = "the channel-finder app reads it\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/osprey/x.py": line,
+            "docs/source/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "src/other/x.py": line,
+            "docs/other/x.md": line,
+            "tests/x.py": line,
+            "changelog.d/x.changed.md": line,
+            "src/osprey/clean.py": "# the channel finder; the channel-finder login\n",
+            "src/osprey/ident.html": '<div id="ariel-app"></div>\n',
+            # Wrapped across lines, reported at the line the phrase starts on.
+            "src/osprey/comment.py": "x = 1\n# the shipped ARIEL\n# app ingests\n",
+            "docs/source/paragraph.rst": "Intro.\n\nThe bundled logbook and knowledge\napps are built.\n",
+        },
+    )
+
+    assert built_in_app_phrase_hits(root) == [
+        "docs/source/paragraph.rst:3",
+        "docs/source/x.rst:1",
+        "plugins/x/SKILL.md:1",
+        "src/osprey/comment.py:2",
+        "src/osprey/x.py:1",
+    ]
+
+
+def test_no_core_text_calls_a_built_in_an_app() -> None:
+    assert built_in_app_phrase_hits(REPO_ROOT) == []
+
+
+def test_every_built_in_app_allowlist_entry_still_matches() -> None:
+    hit_paths = {hit.rsplit(":", 1)[0] for hit in built_in_app_phrase_hits(REPO_ROOT, allowed={})}
+    stale = []
+    for glob in RETIRED_BUILT_IN_APP_READERS:
         covered = subprocess.run(
             ["git", "ls-files", "--", f":(glob){glob}"],
             cwd=REPO_ROOT,

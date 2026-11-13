@@ -13,6 +13,9 @@ matches it.
 ``RETIRED_TWO_KIND_PHRASE`` is the phrase that named two login kinds, which no
 core text carries; the fourth scan in :mod:`tests.facility.test_word_ratchet`
 matches it.
+``RETIRED_BUILT_IN_APP_PHRASE`` is the phrase that called a built-in feature an
+app, which no core text carries; the fifth scan in
+:mod:`tests.facility.test_word_ratchet` matches it.
 
 A row is a word or a phrase. A word row is a plain pattern string matched line
 by line. A phrase row is a :class:`Phrase`, matched over each file's text as
@@ -158,6 +161,17 @@ RETIRED_TWO_KIND_PHRASE = Phrase(
     r"(?i)\btiers?,?\s+(?:or|and|/)\s+(?:an?\s+)?apps?\b"
     r"|\btiers?/apps?\b"
     r"|(?<!,\s)\btiers?,\s+(?:an?\s+)?apps?\s+and\b"
+)
+
+#: The phrase that called a built-in feature an app: the channel finder, ARIEL,
+#: the logbook, facility knowledge or Bluesky followed by ``app`` or ``apps``, in
+#: any case. OSPREY ships no app of its own; prose says "the channel finder" for
+#: the feature and "the channel-finder login" for its render. Only white space
+#: joins the two words, so an identifier such as ``ariel-app`` is not a match,
+#: nor is the web framework's "application". A :class:`Phrase`, matched over
+#: folded text.
+RETIRED_BUILT_IN_APP_PHRASE = Phrase(
+    r"(?i)\b(?:channel[-\s]finder|ariel|logbook|knowledge|bluesky)\s+apps?\b"
 )
 
 #: The example deployment name that named a site; examples use ``my-assistant``.
