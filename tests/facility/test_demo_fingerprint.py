@@ -127,8 +127,8 @@ def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> N
     assert built_demo.facility["schema"] == FACILITY_HEADER
 
 
-def test_the_sources_validate_with_only_the_relation_warnings(built_demo: BuiltProject) -> None:
-    """The example ships no ``policy.yaml``, so its claims warn and nothing else does."""
+def test_the_sources_validate_with_only_the_coarse_warning(built_demo: BuiltProject) -> None:
+    """The example's ``policy.yaml`` settles its one dispute; only the coarse cable warns."""
     from osprey.facility.validate import validate
 
     out = io.StringIO()
@@ -143,10 +143,6 @@ def test_the_sources_validate_with_only_the_relation_warnings(built_demo: BuiltP
             "facility: relation-coarse: relation type cabled_to — 1 claim states less than"
             " the facility knows (1 place end); fix: name the device, port, unit or key"
             " attribute the claims leave out",
-            "facility: relation-contested: located_in device SR/QF05-PS — claims"
-            " qf05-ps-rack-a, qf05-ps-rack-b state different ends and none ranks first;"
-            " fix: rank the kinds of their documents in policy.yaml, or correct the wrong"
-            " claim",
         ],
     )
 

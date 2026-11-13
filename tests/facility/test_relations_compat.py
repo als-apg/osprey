@@ -400,9 +400,10 @@ def _view_files(files: dict[str, bytes]) -> dict[str, bytes]:
 
 
 def _unrelated(source: Path, document: dict[str, Any], root: Path) -> Path:
-    """The shipped example minus its documents and claims, projected places authored."""
+    """The shipped example minus its documents, policy and claims, projected places authored."""
     shutil.copytree(source, root)
     (root / "documents.yaml").unlink()
+    (root / "policy.yaml").unlink()
     (root / "records" / "relations.yaml").unlink()
     projected = {
         d["id"]: d["place"]

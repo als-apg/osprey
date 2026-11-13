@@ -230,7 +230,6 @@
           "ElectronicsChassis",
           "Host",
           "NetworkSwitch",
-          "PowerSupply",
           "Quadrupole",
           "TimingChannel",
           "UtilityLoop"
@@ -241,7 +240,8 @@
         "BTS": [],
         "GTL": [],
         "HALL": [
-          "ElectronicsChassis"
+          "ElectronicsChassis",
+          "PowerSupply"
         ],
         "LINE": [],
         "LN": [],
@@ -602,7 +602,7 @@
     {
       "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_SYSTEM_DESCRIBED",
-      "value": 1017
+      "value": 1018
     },
     {
       "file": "tests/templates/test_demo_ttl.py",
@@ -687,7 +687,7 @@
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
       "pin": "assign:EXPECTED_SYSTEM_DESCRIBED",
-      "value": 1017
+      "value": 1018
     },
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",

@@ -120,20 +120,17 @@ def test_a_clean_repo_exits_0_and_prints_nothing(
     assert (result.stdout, result.stderr) == ("", "")
 
 
-#: What ``facility validate`` prints for the demo: one ``relation-coarse`` and
-#: one ``relation-contested`` warning, then the relation summary.
+#: What ``facility validate`` prints for the demo: one ``relation-coarse``
+#: warning, then the relation summary.
 DEMO_STDERR = [
     "facility: relation-coarse: relation type cabled_to \u2014 1 claim states less than the"
     " facility knows (1 place end); fix: name the device, port, unit or key attribute the"
     " claims leave out",
-    "facility: relation-contested: located_in device SR/QF05-PS \u2014 claims qf05-ps-rack-a,"
-    " qf05-ps-rack-b state different ends and none ranks first; fix: rank the kinds of their"
-    " documents in policy.yaml, or correct the wrong claim",
-    "relations: 18 claims (16 stated, 2 inferred); 16 accepted, 2 contested",
+    "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded",
 ]
 
 
-def test_the_demo_exits_0_with_its_relation_warnings_and_summary(repo: Path) -> None:
+def test_the_demo_exits_0_with_its_relation_warning_and_summary(repo: Path) -> None:
     result = _validate(repo)
 
     assert result.exit_code == 0, result.output
@@ -421,17 +418,18 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
     assert result.exit_code == 2
 
 
-def _add_policy(repo: Path, variant: Variant) -> None:
-    """Write the ``policy.yaml`` of an Appendix A variant into the demo repo.
+def _set_policy(repo: Path, variant: Variant) -> None:
+    """Give the demo repo the ``policy.yaml`` of an Appendix A variant.
 
-    The demo already ships the Appendix A records and claims; a variant
-    differs only by its policy, and ``no_policy`` writes nothing.
+    The demo ships the Appendix A records, claims and policy; a variant
+    differs only by its policy, and ``no_policy`` removes the file.
     """
+    path = repo / "data" / "facility" / "policy.yaml"
     policy = appendix_a_tree(variant).get("policy.yaml")
-    if policy is not None:
-        (repo / "data" / "facility" / "policy.yaml").write_text(
-            yaml.safe_dump(policy, sort_keys=False), encoding="utf-8"
-        )
+    if policy is None:
+        path.unlink()
+    else:
+        path.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
 
 
 #: The summary line per Appendix A variant: two contested ``located_in``
@@ -449,7 +447,7 @@ def test_a_facility_with_claims_closes_with_the_relation_summary(
     repo: Path, variant: Variant
 ) -> None:
     """The summary counts claims by basis and standing, after every warning."""
-    _add_policy(repo, variant)
+    _set_policy(repo, variant)
 
     result = _validate(repo)
 

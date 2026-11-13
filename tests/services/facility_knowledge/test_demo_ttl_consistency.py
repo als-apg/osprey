@@ -58,8 +58,8 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 EXPECTED_CHANNELS = 2908
 EXPECTED_BINDINGS = 4731
 EXPECTED_DEVICES = 1027
-#: Devices placed in a system: every device but the ten placed nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1017
+#: Devices placed in a system: every device but the nine placed nowhere.
+EXPECTED_SYSTEM_DESCRIBED = 1018
 
 #: Devices carrying each device prose predicate: every device placed in a
 #: system carries its system's text, and only a device some described group names carries a

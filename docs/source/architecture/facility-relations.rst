@@ -78,16 +78,18 @@ the storage-ring quadrupole ``SR/QF05`` and the monitor ``SR/BPM13``: four
 documents (an equipment list, a rack layout, a cable schedule and a network
 plan), eleven devices, the rack row ``HALL/ROW3`` with racks ``RK07`` and
 ``RK08``, the vacuum-section group ``SR/VS03``, and 18 claims, 16 stated and 2
-inferred. It ships no ``policy.yaml``. Built as it ships, 16 claims are
-accepted and 2 contested, and ``osprey facility validate`` prints two warnings
-and exits 0.
+inferred, and a ``policy.yaml``. Built as it ships, 17 claims are accepted
+and 1 superseded, and ``osprey facility validate`` prints one warning and
+exits 0.
 
-**The contested rack.** ``qf05-ps-rack-a`` puts the supply ``SR/QF05-PS`` in
+**The disputed rack.** ``qf05-ps-rack-a`` puts the supply ``SR/QF05-PS`` in
 ``HALL/ROW3/RK07``, citing the released rack layout; ``qf05-ps-rack-b`` puts
-it in ``HALL/ROW3/RK08``, citing the in-work cable schedule. Neither document
-ranks first, so both claims are contested, the build warns
-``relation-contested``, the graph holds two ``LOCATEDINCONTESTED`` edges, and
-``SR/QF05-PS`` stays unplaced.
+it in ``HALL/ROW3/RK08``, citing the in-work cable schedule. The shipped
+``policy.yaml`` states ``precedence: {located_in: [rack-layout,
+cable-schedule]}``, so the rack layout ranks first: ``qf05-ps-rack-a`` is
+accepted and ``qf05-ps-rack-b`` superseded. ``SR/QF05-PS`` takes the place
+``HALL/ROW3/RK07`` with ``place_from: relation``; the graph holds one
+``LOCATEDIN`` edge for it, and the superseded claim is no edge.
 
 **The coarse cable.** ``w-03-0240`` cables port ``A`` of ``SR/BPM13`` to the
 rack ``HALL/ROW3/RK08`` rather than to a device in it. The claim is accepted
@@ -109,13 +111,10 @@ own in the facts view, the graph and the demo's device counts.
 keeps its description and its members and is no family: it describes none of
 its members and is no channel-finder Family.
 
-**Adding the precedence policy.** A ``policy.yaml`` with
-``precedence: {located_in: [rack-layout, cable-schedule]}`` ranks the rack
-layout first. ``qf05-ps-rack-a`` is then accepted and ``qf05-ps-rack-b``
-superseded: 17 claims accepted, 1 superseded. ``SR/QF05-PS`` takes the place
-``HALL/ROW3/RK07`` with ``place_from: relation``, the contested warning goes,
-and only the coarse warning remains. In the graph the two contested edges
-become one ``LOCATEDIN``, and the superseded claim is no edge.
+**Without the policy.** With ``policy.yaml`` deleted neither document ranks
+first: both rack claims are contested (16 accepted, 2 contested), the build
+also warns ``relation-contested``, ``SR/QF05-PS`` stays unplaced, and the
+graph holds two ``LOCATEDINCONTESTED`` edges in place of the ``LOCATEDIN``.
 
 Divergence from NARAD
 =====================

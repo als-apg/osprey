@@ -1,0 +1,7 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+schema: osprey.facility.policy/1
+relations:
+  precedence:
+    located_in:
+    - rack-layout
+    - cable-schedule

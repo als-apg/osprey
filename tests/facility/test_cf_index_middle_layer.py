@@ -997,12 +997,12 @@ DEMO_GROUPS = {
 DEMO_DERIVED = {
     "-": [
         *("Circuit", "ControlApplication", "ElectronicsChassis", "Host", "NetworkSwitch"),
-        *("PowerSupply", "Quadrupole", "TimingChannel", "UtilityLoop"),
+        *("Quadrupole", "TimingChannel", "UtilityLoop"),
     ],
     "BR": ["BeamCurrentMonitor"],
     "BTS": [],
     "GTL": [],
-    "HALL": ["ElectronicsChassis"],
+    "HALL": ["ElectronicsChassis", "PowerSupply"],
     "LINE": [],
     "LN": [],
     "LTB": [],

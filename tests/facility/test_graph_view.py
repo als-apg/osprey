@@ -6,10 +6,10 @@ each place to its parent by ``partOf`` and each placed device to its place by
 ``locatedIn``, writes the names of places, devices and channels as
 ``skos:altLabel``, and carries exactly the ``narad_p:`` predicates of
 :data:`PREDICATES` when no relation is claimed. The demo, which ships the
-Appendix A claims, adds :data:`DEMO_RELATION_PREDICATES`: each accepted claim
-is one plain edge, each contested claim one ``…Contested`` edge, each claim one
+Appendix A claims and policy, adds :data:`DEMO_RELATION_PREDICATES`: each
+accepted claim is one plain edge, the superseded claim no edge, each claim one
 ``narad_sem:Claim`` node, and a group a claim names one ``narad_sem:Group``
-node with ``groupId`` and ``hasMember``.
+node with ``groupId``, ``groupKind`` and ``hasMember``.
 """
 
 from __future__ import annotations
@@ -81,8 +81,6 @@ DEMO_RELATION_PREDICATES = {
     "sameAs",
     "suppliedBy",
     "triggeredBy",
-    # the two contested located_in claims
-    "locatedInContested",
     # the claim nodes
     "basis",
     "claimId",
@@ -112,10 +110,10 @@ DEMO_RELATION_PREDICATES = {
     "hasMember",
 }
 
-#: The claims the demo ships, and how they stand without a policy.
+#: The claims the demo ships, and how they stand under its policy.
 DEMO_CLAIMS = 18
-DEMO_ACCEPTED = 16
-DEMO_CONTESTED = 2
+DEMO_ACCEPTED = 17
+DEMO_SUPERSEDED = 1
 
 
 def _doc() -> dict[str, Any]:
@@ -541,7 +539,7 @@ class TestTheBuiltGraph:
         standings = Counter(claim["standing"] for claim in claims)
 
         assert len(claims) == DEMO_CLAIMS
-        assert standings == {"accepted": DEMO_ACCEPTED, "contested": DEMO_CONTESTED}
+        assert standings == {"accepted": DEMO_ACCEPTED, "superseded": DEMO_SUPERSEDED}
         for claim in claims:
             subject_end = end_identity(claim["subject"])
             object_end = end_identity(claim["object"])
@@ -550,29 +548,23 @@ class TestTheBuiltGraph:
             obj = URIRef(iri(code, *object_end))
             name = relation_predicate(claim["type"])
             plain, contested = P[name], P[name + "Contested"]
-            edge, other = (
-                (plain, contested)
-                if claim["standing"] == "accepted"
-                else (
-                    contested,
-                    plain,
-                )
-            )
             ends = (
                 {(subject, obj), (obj, subject)} if claim["type"] in symmetric else {(subject, obj)}
             )
-            assert any((s, edge, o) in graph for s, o in ends), claim["id"]
-            assert not any((s, other, o) in graph for s, o in ends), claim["id"]
+            accepted = claim["standing"] == "accepted"
+            assert any((s, plain, o) in graph for s, o in ends) is accepted, claim["id"]
+            assert not any((s, contested, o) in graph for s, o in ends), claim["id"]
 
-    def test_the_contested_claims_place_the_power_supply_in_two_racks(
+    def test_the_policy_places_the_power_supply_in_one_rack(
         self, built_demo: BuiltProject, graph: Graph
     ) -> None:
         code = built_demo.facility["identity"]["code"]
+        supply = URIRef(iri(code, "device", "SR/QF05-PS"))
 
-        assert set(graph.subject_objects(P.locatedInContested)) == {
-            (URIRef(iri(code, "device", "SR/QF05-PS")), URIRef(iri(code, "place", rack)))
-            for rack in ("HALL/ROW3/RK07", "HALL/ROW3/RK08")
-        }
+        assert list(graph.objects(supply, P.locatedIn)) == [
+            URIRef(iri(code, "place", "HALL/ROW3/RK07"))
+        ]
+        assert not set(graph.subject_objects(P.locatedInContested))
 
     def test_every_claim_is_one_claim_node(self, built_demo: BuiltProject, graph: Graph) -> None:
         nodes = set(graph.subjects(RDF.type, SEM.Claim))

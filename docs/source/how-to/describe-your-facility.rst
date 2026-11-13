@@ -48,8 +48,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``signals.yaml``,
-``policy.yaml``, ``fixes.yaml`` and ``imported/``; the hello-world preset ships
+demo preset ships all of them except ``signals.yaml``, ``fixes.yaml`` and
+``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
