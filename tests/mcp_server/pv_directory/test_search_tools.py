@@ -330,7 +330,8 @@ async def test_a_directory_that_does_not_answer_refuses_service_unavailable(
     details = refused["envelope"]["details"]
     assert details["outcome"] == "unavailable"
     assert details["source"]["service"] == "channelfinder"
-    assert "connection refused" in details["reason"]
+    assert details["reason"] == "the service failed: RuntimeError"
+    assert "connection refused" not in json.dumps(details)
 
 
 # -- directory_properties -----------------------------------------------------

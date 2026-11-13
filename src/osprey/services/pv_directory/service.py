@@ -53,6 +53,7 @@ from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
 from osprey.services.pv_directory.archive import Extent, read_extent
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey.services.pv_directory.origin import Origin, mark
+from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
 from osprey_connectors.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
@@ -701,7 +702,7 @@ class DirectoryService:
             return Unavailable(f"no answer within {deadline:g} s")
         except Exception as failure:
             logger.warning("directory backend failed", exc_info=True)
-            return Unavailable(f"the service failed: {failure}")
+            return Unavailable(service_failed(failure))
 
     def _cached(self, at: Any, key: tuple[Any, ...]) -> Any:
         entry = self._sets.get((at, *key))
@@ -757,7 +758,7 @@ def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     failure = task.exception()
     if failure is not None:
         logger.warning("directory backend failed", exc_info=failure)
-        return Unavailable(f"the service failed: {failure}")
+        return Unavailable(service_failed(failure))
     return task.result()
 
 

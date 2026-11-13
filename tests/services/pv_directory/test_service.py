@@ -395,6 +395,42 @@ async def test_a_zero_count_drops_the_backend_count_partial(
     await directory.aclose()
 
 
+class _Leak(ConnectionError):
+    """A backend failure whose message carries a URL with a login."""
+
+
+async def _leak(*_args: Any, **_kwargs: Any) -> Any:
+    raise _Leak("cannot reach https://reader:secret@cf.example/api")
+
+
+@pytest.mark.parametrize("method", ["search", "count"])
+async def test_a_raising_search_names_the_failure_class_never_its_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    monkeypatch.setattr(FakeDirectory, method, _leak)
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    page = await directory.search(words="BPM")
+
+    reasons = [page.get("reason"), *(part["reason"] for part in page["partial"])]
+    assert "the service failed: _Leak" in reasons
+    assert "cf.example" not in json.dumps(page) and "secret" not in json.dumps(page)
+    await directory.aclose()
+
+
+async def test_a_raising_describe_names_the_failure_class_never_its_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(FakeDirectory, "describe", _leak, raising=False)
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    answer = await directory.describe("SR:BPM1")
+
+    assert answer["reason"] == "the service failed: _Leak"
+    assert "secret" not in json.dumps(answer)
+    await directory.aclose()
+
+
 async def test_search_past_its_deadline_leaves_no_task(tmp_path: Path) -> None:
     FakeDirectory.rows = [_row("SR:BPM1")]
     FakeDirectory.count_delay = 5.0
