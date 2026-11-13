@@ -90,20 +90,40 @@ def _loose_delimiter(line: str) -> bool:
     return line.removeprefix("\ufeff").startswith("---") or line.strip() == "---"
 
 
+#: The characters ``str.splitlines()`` breaks a line on, besides the newline itself.
+_OTHER_LINE_BREAKS = frozenset("\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+
+
+def _opens_after_stripping(md_text: str) -> bool:
+    """Whether the text starts with ``---`` once leading whitespace and marks are dropped.
+
+    A reader that strips the file first (Unicode whitespace, blank lines, byte-order
+    marks) opens a block there.
+    """
+    start = 0
+    while start < len(md_text) and (md_text[start].isspace() or md_text[start] == "\ufeff"):
+        start += 1
+    return md_text.startswith("---", start)
+
+
 def _unreadable_frontmatter(md_text: str) -> bool:
     """Whether the text opens a frontmatter block a reader could take differently.
 
-    True when a looser reader opens a block on the first line but the delimiter rule
-    does not, when no delimiter line closes the block, when a line inside it a looser
-    reader would close on (one starting with ``---``, or ``---`` after a Unicode strip)
-    hides the keys after it, or when the block is not a YAML mapping. A caller that
-    copies the file on refuses it.
+    True when a looser reader opens a block (after stripping the text first) but the
+    delimiter rule does not open one on the first line, when no delimiter line closes
+    the block, when a line inside it a looser reader would close on (one starting with
+    ``---``, or ``---`` after a Unicode strip) hides the keys after it, when the block
+    holds a line break other than the newline (a reader splitting on it sees other
+    lines), or when the block is not a YAML mapping. A caller that copies the file on
+    refuses it.
     """
     block = _frontmatter_lines(md_text)
     if block is None:
-        return _loose_delimiter(md_text.split("\n", 1)[0])
+        return _opens_after_stripping(md_text)
     lines, closed = block
     if not closed or any(_loose_delimiter(line) for line in lines):
+        return True
+    if any(char in _OTHER_LINE_BREAKS for line in lines for char in line):
         return True
     return _parse_frontmatter(md_text) is None
 
