@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.validate_claude_artifacts import (
+    _normalised_text,
     _parse_frontmatter,
     _unreadable_frontmatter,
     agent_file_models,
@@ -241,11 +242,10 @@ def test_a_pin_on_an_agent_file_with_no_model_line_is_refused(tmp_path):
     "text",
     [
         "---\nname: a\n---\nbody\n",
-        "--- \t\nname: a\n---  \nbody\n",
         "---\nname: a\n---",
         "---\nname: a\n---\nbody\n\n---\n\nmore\n",
     ],
-    ids=["plain", "trailing-blanks", "close-at-end-of-file", "horizontal-rule-in-body"],
+    ids=["plain", "close-at-end-of-file", "horizontal-rule-in-body"],
 )
 def test_the_block_closes_on_an_exact_line(text):
     assert _parse_frontmatter(text) == {"name": "a"}
@@ -299,6 +299,50 @@ def test_a_first_line_a_looser_reader_opens_on_is_unreadable(first):
 def test_a_closing_candidate_inside_the_block_is_unreadable(line):
     text = f"---\nname: a\n{line}\nhooks: 1\n---\nbody\n"
     assert _unreadable_frontmatter(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["--- \nname: a\n---\nbody\n", "---\nname: a\n---\t\nbody\n---\nmore\n"],
+    ids=["opening-trailing-space", "closing-trailing-tab"],
+)
+def test_a_delimiter_with_trailing_blanks_is_unreadable(text):
+    assert _unreadable_frontmatter(text)
+
+
+def _read_back(tmp_path: Path, raw: bytes) -> str:
+    path = tmp_path / "SKILL.md"
+    path.write_bytes(raw)
+    return _normalised_text(path)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"---\rhooks: {}\n---\n",
+        b"---\nname: x\rhooks: {}\n---\nbody\n",
+        b"---\nname: x\n---\rhooks: {}\n---\nbody\n",
+    ],
+    ids=["opening-line", "inside-the-block", "closing-line"],
+)
+def test_a_lone_carriage_return_in_the_frontmatter_is_unreadable(tmp_path, raw):
+    """The check sees the characters the copy carries: a lone CR is not a line end to it."""
+    assert _unreadable_frontmatter(_read_back(tmp_path, raw))
+
+
+def test_crlf_line_endings_with_exact_delimiters_read(tmp_path):
+    text = _read_back(tmp_path, b"---\r\nname: a\r\nmodel: m\r\n---\r\nbody\r\n")
+    assert not _unreadable_frontmatter(text)
+    assert _parse_frontmatter(text) == {"name": "a", "model": "m"}
+
+
+@pytest.mark.parametrize(
+    "body", [b"one\rtwo\n", b"--- \nmore\n"], ids=["lone-carriage-return", "trailing-blanks"]
+)
+def test_the_body_after_a_closed_block_stays_readable(tmp_path, body):
+    text = _read_back(tmp_path, b"---\nname: a\n---\n" + body)
+    assert not _unreadable_frontmatter(text)
+    assert _parse_frontmatter(text) == {"name": "a"}
 
 
 def test_an_agent_file_with_a_byte_order_mark_is_audited(tmp_path):
