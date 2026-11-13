@@ -205,6 +205,9 @@ the chat shows the cleared conversation too.
 
 Beneath the composer, a context meter shows how full the context window is.
 From 80 percent it suggests ``/compact`` or a new conversation.
+On the same line, a tag shows the name of the model that answers in the chat.
+Hover over the tag to see the full model ID. The tag shows the model only: you
+cannot change the model from the chat.
 
 Attaching a file
 ~~~~~~~~~~~~~~~~
