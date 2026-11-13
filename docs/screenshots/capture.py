@@ -456,8 +456,15 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     One stack serves every theme. Each theme boots on the operator chat and is
     driven into ``shot.stage`` before the shot, through the same routine the
     contact sheet uses, so the doc image and the review card cannot drift apart.
+
+    A recipe naming a ``hub`` is a page of that hub instead, captured as a
+    standalone interface's is.
     """
     from docs.screenshots.contact_sheet import capture_hub_view, hermetic_hub
+
+    if shot.hub is not None:
+        with _resolve_app_factory(shot.hub)() as hub:
+            return capture_shot(browser, hub.base_url, shot)
 
     dest_dir = output_dir()
     dest_dir.mkdir(parents=True, exist_ok=True)
