@@ -1203,6 +1203,23 @@ def has_web_terminal_roster(config: Any) -> bool:
     return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
 
 
+def single_user_alias_services(config: Any) -> frozenset[str]:
+    """The services whose panel may accept the deployment-wide terminal secret.
+
+    The rows of :func:`panel_roster_grant_table` with ``single_user_alias``, on
+    a deployment with no roster: the candidates :func:`service_panel_grant`
+    grants the alias to. Its further conditions (bind address, a nameable
+    operator) only ever narrow this set.
+
+    :param config: The parsed deploy config.
+    """
+    if has_web_terminal_roster(config):
+        return frozenset()
+    return frozenset(
+        row.service for row in panel_roster_grant_table(config).values() if row.single_user_alias
+    )
+
+
 def service_panel_grant(
     config: Any,
     project_root: Any,
