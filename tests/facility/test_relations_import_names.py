@@ -68,6 +68,16 @@ def _run(tmp_path: Path, body: str, groups: set[str] | None = None):
     return stubs, {p["id"]: p for p in places}, refusals
 
 
+def _run_named(tmp_path: Path, body: str):
+    """The records the layer states only to name a thing another source has."""
+    stubs, places = _layer()
+    refusals = Refusals()
+    devices, named_places = names(
+        _rows(tmp_path, body), _index(tmp_path), refusals, stubs=stubs, places=places
+    )
+    return devices, named_places, {p["id"]: p for p in places}, refusals
+
+
 class TestNamesLand:
     def test_a_name_lands_on_a_stub_device(self, tmp_path: Path) -> None:
         stubs, _, refusals = _run(tmp_path, "PS1,PS-Q-0301,cable-schedule,,,cs,B,p. 4\n")
@@ -137,32 +147,64 @@ class TestKeyedSet:
         assert len(stubs["PS1"]["scheme_names"]) == 2
 
 
+class TestAnotherSourcesRecord:
+    def test_an_authored_device_gets_a_record_carrying_only_the_name(self, tmp_path: Path) -> None:
+        devices, places, _, refusals = _run_named(tmp_path, "QF1,Q-0301,cables,,,cs,B,\n")
+        assert not refusals
+        assert devices == [
+            {
+                "id": "QF1",
+                "scheme_names": [
+                    {
+                        "name": "Q-0301",
+                        "scheme": "cables",
+                        "source": {"document": "cs", "version": "B"},
+                    }
+                ],
+            }
+        ]
+        assert places == []
+
+    def test_another_layers_device_is_named_too(self, tmp_path: Path) -> None:
+        devices, _, _, refusals = _run_named(tmp_path, "BPM1,B,s,,,,,\nBPM1,A,s,,,,,\n")
+        assert not refusals
+        assert devices == [
+            {
+                "id": "BPM1",
+                "scheme_names": [{"name": "A", "scheme": "s"}, {"name": "B", "scheme": "s"}],
+            }
+        ]
+
+    def test_an_authored_place_gets_a_record_carrying_only_the_name(self, tmp_path: Path) -> None:
+        devices, places, created, refusals = _run_named(tmp_path, "SR/S01,X,s,,,,,\n")
+        assert not refusals
+        assert devices == []
+        assert places == [{"id": "SR/S01", "scheme_names": [{"name": "X", "scheme": "s"}]}]
+        assert "SR/S01" not in created
+
+    def test_a_created_place_another_layer_has_is_named_on_the_created_record(
+        self, tmp_path: Path
+    ) -> None:
+        devices, places, created, refusals = _run_named(tmp_path, "SR/S02,X,s,,,,,\n")
+        assert not refusals
+        assert (devices, places) == ([], [])
+        assert created["SR/S02"]["scheme_names"] == [{"name": "X", "scheme": "s"}]
+
+    def test_records_come_sorted_by_id(self, tmp_path: Path) -> None:
+        devices, _, _, _ = _run_named(tmp_path, "QF1,Q,s,,,,,\nBPM1,B,s,,,,,\n")
+        assert [d["id"] for d in devices] == ["BPM1", "QF1"]
+
+    def test_a_refused_row_states_no_record(self, tmp_path: Path) -> None:
+        devices, _, _, refusals = _run_named(tmp_path, "QF1,Q,s,guessed,,,,\n")
+        assert refusals
+        assert devices == []
+
+
 class TestRefused:
-    def test_an_authored_device_is_refused(self, tmp_path: Path) -> None:
-        _, _, refusals = _run(tmp_path, "QF1,Q,s,,,,,\n")
-        (message,) = _messages(refusals)
-        assert "QF1" in message and "another source" in message
-
-    def test_an_mml_layer_device_is_refused(self, tmp_path: Path) -> None:
-        _, _, refusals = _run(tmp_path, "BPM1,B,s,,,,,\n")
-        (message,) = _messages(refusals)
-        assert "BPM1" in message and "another source" in message
-
     def test_a_device_of_the_replaced_layer_is_unknown(self, tmp_path: Path) -> None:
         _, _, refusals = _run(tmp_path, "OLD,O,s,,,,,\n")
         (message,) = _messages(refusals)
         assert "unknown thing" in message
-
-    def test_an_authored_place_is_refused(self, tmp_path: Path) -> None:
-        _, _, refusals = _run(tmp_path, "SR/S01,X,s,,,,,\n")
-        (message,) = _messages(refusals)
-        assert "a place another source has" in message
-
-    def test_a_created_place_another_layer_has_is_refused(self, tmp_path: Path) -> None:
-        _, places, refusals = _run(tmp_path, "SR/S02,X,s,,,,,\n")
-        (message,) = _messages(refusals)
-        assert "a place another source has" in message
-        assert "scheme_names" not in places["SR/S02"]
 
     def test_a_group_is_refused(self, tmp_path: Path) -> None:
         _, _, refusals = _run(tmp_path, "QUADS,Q,s,,,,,\nRACKED,R,s,,,,,\n", groups={"RACKED"})

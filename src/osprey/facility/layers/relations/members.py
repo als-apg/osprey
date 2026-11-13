@@ -1,16 +1,18 @@
 """The ``--members`` table: rows into the group records a relations layer writes.
 
 One row is one member of a group. Members are devices, so ``member_kind`` is
-``device`` or empty. ``group_kind`` is the kind of a group the layer creates,
+``device`` or empty. ``group_kind`` is the kind of a group the layer states,
 ``family`` or ``section``; a group no row gives one states none, and a row
-giving a second kind for its group is refused. Group membership is a whole set per layer (p5-r3):
+giving a second kind for its group is refused. A group carries every member
+any source states:
 
 * a group no other source has is created in the layer's ``groups.yaml`` with
   every member its rows name;
-* a row for a group the facility already has is accepted only if that group
-  already holds the member, and is then written nowhere; otherwise it is
-  refused, since a second layer stating the group would be a
-  ``layer-conflict``.
+* rows for a group the facility already has, all naming members it holds, are
+  written nowhere;
+* once one such row names a member the group lacks, the layer states the group
+  too, with every member its rows name. The build then reports
+  ``members-disagree`` unless the sources state the same members.
 
 A member must be a device of the facility or a stub device of this layer. A
 group record carries no citation (``Group`` has no ``citations`` slot); the
@@ -76,8 +78,8 @@ def groups(
         table: The table's file name in refusals.
 
     Returns:
-        One ``{"id", "members"}`` record per created group, sorted by id, its
-        members sorted, with the ``kind`` its rows state between the two.
+        One ``{"id", "members"}`` record per group the layer states, sorted by
+        id, its members sorted, with the ``kind`` its rows state between the two.
     """
     created: dict[str, set[str]] = {}
     kinds: dict[str, str] = {}
@@ -106,21 +108,8 @@ def groups(
                 remedy="write `family` or `section` in `group_kind` or leave it empty",
             )
             continue
-        held = index.groups.get(group)
-        if held is not None:
-            if member not in held:
-                refusals.refuse(
-                    table,
-                    row.line,
-                    record_kind="member",
-                    value=member,
-                    problem=f"not a member of group `{group}`, which another source has",
-                    remedy=(
-                        f"add the member to `{group}` where that group is stated, or remove the row"
-                    ),
-                )
-            continue
-        if member not in index.devices and member not in stubs:
+        held = member in index.groups.get(group, ())
+        if not held and member not in index.devices and member not in stubs:
             refusals.refuse(
                 table,
                 row.line,
@@ -143,7 +132,7 @@ def groups(
             continue
         created.setdefault(group, set()).add(member)
         source = citation(row.cells)
-        if member in stubs and source is not None:
+        if not held and member in stubs and source is not None:
             cited.setdefault(member, []).append(source)
     for member, sources in cited.items():
         _add_citations(stubs[member], sources)
@@ -154,6 +143,7 @@ def groups(
             "members": sorted(members),
         }
         for group, members in sorted(created.items())
+        if not (group in index.groups and members <= index.groups[group])
     ]
 
 

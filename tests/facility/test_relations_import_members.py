@@ -1,4 +1,4 @@
-"""The ``--members`` table of a relations import: rows into group records (p5-r3)."""
+"""The ``--members`` table of a relations import: rows into group records."""
 
 from __future__ import annotations
 
@@ -123,17 +123,38 @@ class TestGroupAnotherSourceHas:
         assert groups(rows, _index(tmp_path), {}, refusals) == []
         assert not refusals
 
-    def test_an_unheld_member_is_refused(self, tmp_path: Path) -> None:
+    def test_an_unheld_member_is_added_in_this_layer(self, tmp_path: Path) -> None:
         rows = _rows(tmp_path, "SUPPLIES,QF1,,,,\nSUPPLIES,QF1,,,,\nRACKED,QF2,,,,\n")
         refusals = Refusals()
         written = groups(rows, _index(tmp_path), {}, refusals)
-        assert written == [{"id": "RACKED", "members": ["QF2"]}]
+        assert written == [
+            {"id": "RACKED", "members": ["QF2"]},
+            {"id": "SUPPLIES", "members": ["QF1"]},
+        ]
+        assert not refusals
+
+    def test_the_layer_states_every_member_its_rows_name_once_one_is_new(
+        self, tmp_path: Path
+    ) -> None:
+        rows = _rows(tmp_path, "SUPPLIES,PS1,,,,\nSUPPLIES,QF1,,,,\n")
+        assert groups(rows, _index(tmp_path), {}, Refusals()) == [
+            {"id": "SUPPLIES", "members": ["PS1", "QF1"]}
+        ]
+
+    def test_an_added_stub_member_takes_the_row_citation(self, tmp_path: Path) -> None:
+        stub: dict[str, Any] = {"id": "PDU"}
+        rows = _rows(tmp_path, "SUPPLIES,PDU,,schedule,A,p. 1\n")
+        written = groups(rows, _index(tmp_path), {"PDU": stub}, Refusals())
+        assert written == [{"id": "SUPPLIES", "members": ["PDU"]}]
+        assert stub["citations"] == [{"document": "schedule", "version": "A", "locator": "p. 1"}]
+
+    def test_an_unknown_member_of_another_sources_group_is_refused(self, tmp_path: Path) -> None:
+        rows = _rows(tmp_path, "SUPPLIES,NOPE,,,,\n")
+        refusals = Refusals()
+        assert groups(rows, _index(tmp_path), {}, refusals) == []
         (error,) = refusals.errors()
-        assert error.record_id == "QF1"
-        assert error.sources == ("members.csv",)
-        assert error.detail == (
-            "not a member of group `SUPPLIES`, which another source has (members.csv rows 2, 3)"
-        )
+        assert error.record_id == "NOPE"
+        assert error.detail == "unknown device (members.csv row 2)"
 
     def test_a_held_stub_row_adds_no_citation(self, tmp_path: Path) -> None:
         index = _index(tmp_path)

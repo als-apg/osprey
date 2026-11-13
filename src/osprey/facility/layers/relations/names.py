@@ -1,19 +1,18 @@
-"""The ``--names`` table: rows into the ``scheme_names`` of records a relations layer creates.
+"""The ``--names`` table: rows into the ``scheme_names`` of devices and places.
 
 One row is one name of a thing: ``name`` in ``scheme``, with an optional
-``basis``/``rule`` and a citation that becomes the alias's ``source``. Layers are
-never unioned (p5-r4 as amended), so the table names only what the layer itself
-creates:
+``basis``/``rule`` and a citation that becomes the alias's ``source``. The thing
+is a device or a place any source has:
 
-* a stub device of this layer (the relations table's ends);
-* a place this layer creates that no other source has.
+* a stub device or a place this layer creates takes the name on its record;
+* a device or place the authored file or another imported layer has gets a
+  record in this layer carrying only its id and the names. The build joins a
+  record's ``scheme_names`` across its sources, so the thing carries every name
+  any source states; one ``(name, scheme)`` key two sources give different
+  contents is a ``layer-conflict`` at build.
 
-A row whose ``thing`` is a device or place the authored file or another
-imported layer has is refused, since a second layer stating that record's
-names would be a ``layer-conflict``; this includes a place this layer creates
-that another imported layer also has. A group is refused too (``Group`` has no
-``scheme_names`` slot), as is a thing nobody has. A flat place name matching
-several places is refused listing them.
+A group is refused (``Group`` has no ``scheme_names`` slot), as is a thing
+nobody has. A flat place name matching several places is refused listing them.
 
 ``scheme_names`` is a keyed set on ``(name, scheme)``: equal entries are one
 entry, and one key stated with two contents is refused on every row stating it.
@@ -49,12 +48,13 @@ def names(
     places: Iterable[dict[str, Any]],
     groups: Iterable[str] = (),
     table: str = TABLE,
-) -> None:
-    """Add the names table's aliases to the layer's stub devices and places.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Add the names table's aliases to the layer's records.
 
-    The records are changed in place: an accepted row's alias is added to the
-    record's ``scheme_names`` (equal entries once, in the build's keyed order).
-    A refused row contributes nothing.
+    The layer's stub devices and created places are changed in place: an
+    accepted row's alias is added to the record's ``scheme_names`` (equal
+    entries once, in the build's keyed order). A refused row contributes
+    nothing.
 
     Args:
         rows: The names table's rows.
@@ -64,15 +64,21 @@ def names(
         places: The place records the layer creates.
         groups: The ids of the groups the layer creates.
         table: The table's file name in refusals.
+
+    Returns:
+        The device records and the place records, each sorted by id, that the
+        layer states only to name a thing another source has: an id and its
+        ``scheme_names``.
     """
     created = {record["id"]: record for record in places}
     own_groups = set(groups)
+    named: dict[str, dict[str, dict[str, Any]]] = {"device": {}, "place": {}}
     # record id -> (name, scheme) -> [(line, canonical content, entry)]
     stated: dict[str, dict[tuple[str, str], list[tuple[int, str, dict[str, Any]]]]] = {}
     targets: dict[str, dict[str, Any]] = {}
     for row in rows:
         entry = _entry(row, refusals, table)
-        record = _target(row, index, stubs, created, own_groups, refusals, table)
+        record = _target(row, index, stubs, created, own_groups, named, refusals, table)
         if entry is None or record is None:
             continue
         key = (entry["name"], entry["scheme"])
@@ -99,6 +105,11 @@ def names(
         if accepted:
             record = targets[rid]
             record[_SLOT] = keyed_order(_SLOT, [*(record.get(_SLOT) or []), *accepted])
+    devices, others = (
+        [records[rid] for rid in sorted(records) if _SLOT in records[rid]]
+        for records in (named["device"], named["place"])
+    )
+    return devices, others
 
 
 def _entry(row: Row, refusals: Refusals, table: str) -> dict[str, Any] | None:
@@ -141,6 +152,7 @@ def _target(
     stubs: Mapping[str, dict[str, Any]],
     created: Mapping[str, dict[str, Any]],
     groups: set[str],
+    named: dict[str, dict[str, dict[str, Any]]],
     refusals: Refusals,
     table: str,
 ) -> dict[str, Any] | None:
@@ -151,19 +163,14 @@ def _target(
             table, row.line, record_kind="thing", value=thing, problem=problem, remedy=remedy
         )
 
-    owned_remedy = (
-        "state the name where that record is stated, or remove the row; "
-        "this layer names only the stub devices and places it creates"
-    )
     if thing in stubs:
         return stubs[thing]
     if thing in index.devices:
-        refuse("a device another source has", owned_remedy)
-        return None
+        return named["device"].setdefault(thing, {"id": thing})
     if thing in groups or thing in index.groups:
         refuse(
             "a group; a group has no `scheme_names`",
-            "remove the row, or name a stub device or a place this layer creates",
+            "remove the row, or name a device or a place",
         )
         return None
     found = index.resolve_place(thing, set(created))
@@ -176,14 +183,12 @@ def _target(
     if found is None:
         refuse(
             "unknown thing",
-            "name a stub device of the relations table or a place this layer creates, "
-            "or remove the row",
+            "name a device or a place a source has, or remove the row",
         )
         return None
-    if found not in created or found in index.places:
-        refuse("a place another source has", owned_remedy)
-        return None
-    return created[found]
+    if found in created:
+        return created[found]
+    return named["place"].setdefault(found, {"id": found})
 
 
 def _canonical(entry: Mapping[str, Any]) -> str:

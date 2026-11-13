@@ -54,9 +54,9 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
   ``handleMultival: ARRAY`` for that predicate. A class carries its synonyms
   there, and a place, device or channel its names. Matching therefore uses list
   semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
-  against ``altLabel`` itself would be a bug, not a shortcut. A record name is
-  matched on the whole entry, case-insensitively, over nodes that are not
-  ``:Class``.
+  against ``altLabel`` itself would be a bug, not a shortcut. A class synonym
+  is matched loosely, with ``CONTAINS`` on each entry; a record name is matched
+  on the whole entry, over nodes that are not ``:Class``. Both ignore case.
 
 Corpora
 -------
@@ -174,7 +174,7 @@ _BY_CLASS_AND_SIGNAL = ExampleQuery(
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
@@ -272,15 +272,15 @@ _BY_SYNONYM = ExampleQuery(
         "without the query naming them.\n"
         "\n"
         "Synonyms are a list on each class, so the match is over the list's "
-        "elements. It is an exact match on the whole synonym, not a substring, "
-        "which is what keeps 'pm' from matching 'pump'.\n"
+        "elements. A synonym is a phrase, so the word is looked for inside each "
+        "entry: 'quad' finds 'quadrupole'.\n"
         "\n"
         "$synonym — one word or phrase as an operator would say it. Case does "
         "not matter."
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
@@ -309,7 +309,7 @@ _CENSUS = ExampleQuery(
     ),
     cypher="""
 MATCH (cls:Class)
-WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
+WHERE ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 OPTIONAL MATCH (d)-[:HASBINDING]->(b:ChannelBinding)

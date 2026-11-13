@@ -34,8 +34,15 @@ FAMILY_DESCRIPTION = URIRef(f"{NARAD_P}familyDescription")
 
 
 def _tree(kind: str | None) -> dict[str, Any]:
-    """The Appendix A tree, its one group described and of ``kind`` (``None``: unstated)."""
+    """The Appendix A tree, its one group described and of ``kind`` (``None``: unstated).
+
+    Each member holds one channel, so that it counts in the middle-layer index.
+    """
     tree = appendix_a_tree()
+    tree["records/channels.yaml"] = [
+        {"id": f"{member}:STATE", "on": {"device": member}, "description": "State"}
+        for member in MEMBERS
+    ]
     [group] = tree["records/groups.yaml"]
     group.pop("kind", None)
     group["description"] = TEXT

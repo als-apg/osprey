@@ -689,17 +689,15 @@ def _stub_warnings(
 def _place_warnings(
     document: Mapping[str, Any], relations_layers: frozenset[str]
 ) -> list[FacilityBuildWarning]:
-    """``place-parents-disagree`` and ``place-unplaced`` lines for the places relations layers create.
+    """``place-unplaced`` lines for the places relations layers create.
 
     A place is created by relations layers when no authored source states it
     and every imported layer that does is in *relations_layers*. One
-    ``place-parents-disagree`` line per last path segment such places carry
-    under two or more parents (a top-level place has no parent and disagrees
-    with nothing); one ``place-unplaced`` line per such place with no parent and
-    no citation.
+    ``place-unplaced`` line per such place with no parent and no citation. A
+    last path segment repeated under several parents is ordinary naming and
+    raises nothing.
     """
     found: list[FacilityBuildWarning] = []
-    parented: dict[str, list[str]] = {}
     for kind, record in _records(document):
         layers = _imported_layers(record)
         if kind != "place" or not layers or not layers <= relations_layers:
@@ -709,10 +707,7 @@ def _place_warnings(
         if any(isinstance(src, Mapping) and src.get("layer") == AUTHORED for src in sources or []):
             continue
         rid = str(record.get("id"))
-        parent, _, name = rid.rpartition("/")
-        if parent:
-            parented.setdefault(name, []).append(rid)
-        elif not record.get("citations"):
+        if "/" not in rid and not record.get("citations"):
             names = sorted(layers)
             several = len(names) > 1
             found.append(
@@ -728,21 +723,6 @@ def _place_warnings(
                     remedy="give it a parent or a citation in the layer's places table",
                 )
             )
-    for name, paths in sorted(parented.items()):
-        if len({path.rpartition("/")[0] for path in paths}) < 2:
-            continue
-        found.append(
-            FacilityBuildWarning(
-                kind="place-parents-disagree",
-                record_kind="place",
-                record_id=name,
-                detail=(
-                    f"relations layers create it under {len(paths)} parents: "
-                    f"{', '.join(sorted(paths))}"
-                ),
-                remedy="place it under one parent, or give each place its own name",
-            )
-        )
     return found
 
 
@@ -757,8 +737,8 @@ def fill_relation_slots(validated: Validated) -> list[FacilityBuildError]:
     ``identity-ambiguous`` per same_as component holding two records of one
     imported layer, one ``part-cycle`` per loop of part_of and runs_on claims
     and one ``relation-stub`` per imported layer with Unidentified devices that
-    claims name, with the ``place-parents-disagree`` and ``place-unplaced``
-    lines of the places relations layers create, sorted by (kind, record kind,
+    claims name, with the ``place-unplaced`` lines of the places relations
+    layers create, sorted by (kind, record kind,
     record id). Superseded claims join no component and close no loop. A file
     without claims is left as it is and can only warn ``alias-shared`` and of
     those places.

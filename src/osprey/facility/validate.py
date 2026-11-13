@@ -257,6 +257,7 @@ def run_stages(
     validated.combined = combined
     if combined.errors:
         return _failed("combine", combined.errors, validated)
+    validated.warnings.extend(combined.warnings)
     document = schema_document(combined.document, loaded.sources, project_name=project_name)
     validated.document = document
     checks: list[tuple[str, Stage]] = [

@@ -126,6 +126,78 @@ class TestWrite:
         assert "cables" in result.sources.relations_layers
 
 
+class TestMemberOfAnotherSourcesGroup:
+    def test_the_layer_states_the_group_and_the_build_carries_the_union(
+        self, tmp_path: Path
+    ) -> None:
+        facility = _tree(tmp_path)
+        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,PS1\n")
+        import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", members=members)
+        written = yaml.safe_load((facility / "imported/cables/groups.yaml").read_text())
+        assert written == [{"id": "QUADS", "members": ["PS1"]}]
+        from osprey.facility.combine import combine
+        from osprey.facility.sources import load_sources
+
+        loaded = load_sources(facility)
+        assert loaded.errors == []
+        combined = combine(loaded.sources)
+        assert combined.errors == []
+        assert combined.document["groups"][0]["members"] == ["PS1", "QF1", "QF2"]
+        assert [w.kind for w in combined.warnings] == ["members-disagree"]
+
+
+class TestNameOfAnotherSourcesRecord:
+    def test_the_layer_states_the_name_and_the_build_carries_both(self, tmp_path: Path) -> None:
+        from osprey.facility.combine import combine
+        from osprey.facility.sources import load_sources
+
+        facility = _tree(
+            tmp_path,
+            {
+                "records/devices.yaml": [
+                    {
+                        "id": "QF1",
+                        "class": "Quadrupole",
+                        "scheme_names": [{"name": "QF1", "scheme": "lattice"}],
+                    },
+                    {"id": "PS1", "class": "PowerSupply"},
+                ]
+            },
+        )
+        names = _csv(
+            tmp_path, "aka.csv", "thing,name,scheme\nQF1,Q-0301,cables\nSR/S01,Sector 1,cables\n"
+        )
+        import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", names=names)
+        layer = facility / "imported" / "cables"
+        assert yaml.safe_load((layer / "devices.yaml").read_text(encoding="utf-8")) == [
+            {"id": "QF1", "scheme_names": [{"name": "Q-0301", "scheme": "cables"}]}
+        ]
+        assert yaml.safe_load((layer / "places.yaml").read_text(encoding="utf-8")) == [
+            {"id": "SR/S01", "scheme_names": [{"name": "Sector 1", "scheme": "cables"}]}
+        ]
+
+        loaded = load_sources(facility)
+        assert loaded.errors == []
+        combined = combine(loaded.sources)
+        assert combined.errors == []
+        (device,) = [d for d in combined.document["devices"] if d["id"] == "QF1"]
+        assert device["class"] == "Quadrupole"
+        assert [(a["name"], a["scheme"]) for a in device["scheme_names"]] == [
+            ("Q-0301", "cables"),
+            ("QF1", "lattice"),
+        ]
+        (place,) = [p for p in combined.document["places"] if p["id"] == "SR/S01"]
+        assert place["scheme_names"] == [{"name": "Sector 1", "scheme": "cables"}]
+
+    def test_re_import_is_byte_identical(self, tmp_path: Path) -> None:
+        facility = _tree(tmp_path)
+        names = _csv(tmp_path, "aka.csv", "thing,name,scheme\nQF1,Q-0301,cables\n")
+        import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", names=names)
+        first = _snapshot(facility)
+        import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", names=names)
+        assert _snapshot(facility) == first
+
+
 class TestReplace:
     def test_stale_file_of_the_previous_import_is_gone(self, tmp_path: Path) -> None:
         facility = _tree(tmp_path)
@@ -209,12 +281,12 @@ class TestRefused:
         facility = _tree(tmp_path)
         before = _snapshot(facility)
         bad = _relations(tmp_path, "powered_by,NOSUCH,PS1,,,,,,\n")
-        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,PS1\n")
+        members = _csv(tmp_path, "who.csv", "group,member\nQUADS,NOPE\n")
         with pytest.raises(LayerSourceInvalid) as caught:
             import_relations(bad, facility, "cables", members=members)
         text = "\n".join(e.format_message() for e in caught.value.errors)
         assert "NOSUCH" in text
-        assert "QUADS" in text or "PS1" in text
+        assert "NOPE" in text
         assert _snapshot(facility) == before
 
 

@@ -95,6 +95,16 @@ class TestGroupNodes:
         members = {str(member) for member in graph.objects(node, HAS_MEMBER)}
         assert members == {iri(CODE, "device", m) for m in _group(document, VS03)["members"]}
 
+    def test_has_member_covers_every_member_any_source_states(self, tmp_path: Path) -> None:
+        tree = appendix_a_tree()
+        tree["imported/controls/groups.yaml"] = [{"id": VS03, "members": ["SR/VALVE03"]}]
+        document = build_appendix_a(tmp_path / "facility", tree=tree)
+        members = set(_graph(document).objects(URIRef(iri(CODE, "group", VS03)), HAS_MEMBER))
+        assert members == {
+            URIRef(iri(CODE, "device", m))
+            for m in ("SR/BPM13", "SR/ION-PUMP13", "SR/QF05", "SR/VALVE03")
+        }
+
     def test_groups_not_claim_ends_get_no_node(self, tmp_path: Path) -> None:
         tree = appendix_a_tree()
         tree["records/relations.yaml"] = [
