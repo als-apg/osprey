@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 import yaml
 
@@ -23,8 +24,6 @@ from osprey.facility.layers.mml.mapping import (
     read_mapping,
 )
 from osprey.facility.records import FacilityRecords
-
-at = pytest.importorskip("at")
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 SPEAR3 = FIXTURES / "spear3"

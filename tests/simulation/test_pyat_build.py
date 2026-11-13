@@ -11,19 +11,17 @@ import subprocess
 import sys
 from typing import Any
 
+import at
+import numpy as np
 import pytest
+from lume_pyat.exceptions import OrbitSolveError
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
-
-from osprey.facility.errors import FacilityBuildError  # noqa: E402
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines import pyat_faults  # noqa: E402
-from osprey.simulation.engines.pyat_model import CHROMATICITY, TUNES  # noqa: E402
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines import pyat_faults
+from osprey.simulation.engines.pyat_model import CHROMATICITY, TUNES
 
 MODEL = "SR"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"

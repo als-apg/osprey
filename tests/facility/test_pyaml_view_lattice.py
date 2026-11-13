@@ -33,8 +33,7 @@ from tests.facility._synthetic_trees import Deck
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-pytest.importorskip("pyaml")
-at = pytest.importorskip("at")
+import at
 
 #: A corrector step small enough to stay linear, in rad.
 KICK = 1.0e-5

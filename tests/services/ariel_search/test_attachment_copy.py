@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
 import pytest
 
+from osprey.imaging.formats import is_viewable
+from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.services.ariel_search.attachments import copy as copy_mod
+from osprey.services.ariel_search.attachments import prepare as prepare_mod
 from osprey.services.ariel_search.attachments.copy import (
+    CopyRun,
+    HostBreaker,
+    copy_entry,
     eligible_for_mode,
     still_skipped,
     validated_declared_type,
 )
+from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.attachments.formats import CONFIG_SKIP_REASONS
+from osprey.services.ariel_search.attachments.prepare import (
+    PreparedPicture,
+    RenderUnavailable,
+)
 from osprey.services.ariel_search.config import ARIELConfig, AttachmentsConfig
 
 MB = 1024 * 1024
@@ -233,24 +249,6 @@ def test_still_skipped_accepts_an_attachments_config_directly():
 
 # --- copy_entry ----------------------------------------------------------------
 
-import asyncio  # noqa: E402
-import inspect  # noqa: E402
-from datetime import UTC, datetime, timedelta  # noqa: E402
-from pathlib import Path  # noqa: E402
-
-from osprey.imaging.formats import is_viewable  # noqa: E402
-from osprey.services.ariel_search.attachments import attachment_id_for  # noqa: E402
-from osprey.services.ariel_search.attachments import prepare as prepare_mod  # noqa: E402
-from osprey.services.ariel_search.attachments.copy import (  # noqa: E402
-    CopyRun,
-    HostBreaker,
-    copy_entry,
-)
-from osprey.services.ariel_search.attachments.fetch import FetchOutcome  # noqa: E402
-from osprey.services.ariel_search.attachments.prepare import (  # noqa: E402
-    PreparedPicture,
-    RenderUnavailable,
-)
 
 ENTRY = "copy-unit-1"
 HOST = "https://logbook.example.org"

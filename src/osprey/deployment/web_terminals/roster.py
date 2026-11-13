@@ -326,6 +326,24 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     return panel_spec_enabled(panel)
 
 
+def config_code_panels(config: Any) -> tuple[str, ...]:
+    """The panels ``config`` shows that run code a person types, in registry order.
+
+    The sidecar panels whose registry entry says so
+    (:attr:`~osprey.profiles.sidecar_panels.SidecarPanel.runs_code`) and that
+    ``config`` declares (:func:`config_declares_panel`). A panel switched off
+    starts no process and counts for nothing.
+
+    :param config: A parsed project config.
+    :return: The panel ids; empty when the project shows no such panel.
+    """
+    return tuple(
+        panel_id
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.runs_code and config_declares_panel(config, panel_id)
+    )
+
+
 def config_needs_dispatcher_token(config: Any) -> bool:
     """True if ``config`` declares the EVENTS panel and so needs the dispatcher bearer.
 
@@ -1201,6 +1219,23 @@ def has_web_terminal_roster(config: Any) -> bool:
     """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
+
+
+def single_user_alias_services(config: Any) -> frozenset[str]:
+    """The services whose panel may accept the deployment-wide terminal secret.
+
+    The rows of :func:`panel_roster_grant_table` with ``single_user_alias``, on
+    a deployment with no roster: the candidates :func:`service_panel_grant`
+    grants the alias to. Its further conditions (bind address, a nameable
+    operator) only ever narrow this set.
+
+    :param config: The parsed deploy config.
+    """
+    if has_web_terminal_roster(config):
+        return frozenset()
+    return frozenset(
+        row.service for row in panel_roster_grant_table(config).values() if row.single_user_alias
+    )
 
 
 def service_panel_grant(

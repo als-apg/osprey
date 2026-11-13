@@ -28,8 +28,6 @@ from osprey.facility.views.pyaml import (
 )
 from tests.facility._pyaml_trees import measured_tree, view_inputs, write_view
 
-pytest.importorskip("pyaml")
-
 
 def _measurement(doc: dict[str, Any], model: str) -> dict[str, Any]:
     (record,) = [record for record in doc["models"] if record["name"] == model]

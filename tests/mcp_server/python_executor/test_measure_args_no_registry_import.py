@@ -22,8 +22,6 @@ import pytest
 from osprey.facility.render import render_facility_outputs
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
-pytest.importorskip("pyaml")
-
 _SRC = str(Path(__file__).resolve().parents[3] / "src")
 
 #: The modules a runtime reader of the kind block never loads.

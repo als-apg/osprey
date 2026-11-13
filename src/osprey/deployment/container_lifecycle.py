@@ -5,6 +5,7 @@ Docker or Podman compose.
 """
 
 import contextlib
+import functools
 import hashlib
 import ipaddress
 import json
@@ -29,7 +30,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -121,7 +122,11 @@ from osprey.deployment.web_terminals.render_images import (
     render_build_session,
     verify_renders,
 )
-from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
+from osprey.deployment.web_terminals.roster import (
+    dispatch_tier_name,
+    resolve_cards,
+    single_user_alias_services,
+)
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 from osprey_connectors.config import config_anchored_at, load_project_config
@@ -253,17 +258,26 @@ def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any
 
 
 def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
-    """:data:`_SERVICE_TOKEN_VARS` merged with the projected panels' launch tokens.
+    """:data:`_SERVICE_TOKEN_VARS` merged with what the projected panels read.
 
     A projected panel that declares ``launch_token`` carries the variable's name
     as ``services.<key>.launch_token_env``, whatever its container runs; that
-    recorded name is minted as it stands.
+    recorded name is minted as it stands. One whose panel accepts the
+    deployment-wide terminal secret (:func:`single_user_alias_services`) reads
+    that secret with no default, so it is minted for it as it is for the
+    built-in panels.
     """
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
     merged = dict(_SERVICE_TOKEN_VARS)
+    alias = single_user_alias_services(config)
     for key, row in _projected_services(config).items():
         name = row.get("launch_token_env")
-        if name:
-            merged[key] = (str(name),)
+        names = (str(name),) if name else ()
+        if key in alias:
+            names = (*names, OPERATOR_SECRET_ENV)
+        if names:
+            merged[key] = names
     return merged
 
 
@@ -2794,12 +2808,15 @@ def _build_project_image(
         # below is what reports the finished image.
         _report_group("images")
         with (report := single_image_build_reporter(project_image)):
-            run_captured(
+            run_image_build(
                 cmd,
-                env=env,
-                spool_name="build-project-image",
-                repo_root=resolve_repo_root(config),
-                on_line=report,
+                functools.partial(
+                    run_captured,
+                    env=env,
+                    spool_name="build-project-image",
+                    repo_root=resolve_repo_root(config),
+                    on_line=report,
+                ),
             )
         _report_step(f"project image {project_image}")
     finally:
@@ -7003,12 +7020,15 @@ def _start_stack(
                 # (and its heartbeats) must go quiet the moment compose returns,
                 # before the closing step line below.
                 with (report := compose_build_step_reporter()):
-                    run_captured(
+                    run_image_build(
                         build_cmd,
-                        env=run_env,
-                        spool_name="compose-build",
-                        repo_root=repo_root,
-                        on_line=report,
+                        functools.partial(
+                            run_captured,
+                            env=run_env,
+                            spool_name="compose-build",
+                            repo_root=repo_root,
+                            on_line=report,
+                        ),
                     )
                 _report_step("service images built")
             # The images have read the bundle, and the `up` below carries

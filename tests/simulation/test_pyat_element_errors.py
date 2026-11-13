@@ -17,11 +17,15 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
+from lume_pyat.exceptions import OrbitSolveError, UnknownElementError
 
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_faults
 from osprey.simulation.engines.pyat_faults import (
     ELEMENT_SCOPE,
@@ -394,13 +398,6 @@ def test_an_error_on_an_unbound_element_stops_a_model_that_does_not_declare_it(
 
 # -- the engine build, over the demo deck -------------------------------------------
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError, UnknownElementError  # noqa: E402
-
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
 
 MODEL = "SR"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"

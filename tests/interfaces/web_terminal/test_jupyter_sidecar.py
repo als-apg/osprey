@@ -37,6 +37,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     starter_read_channel,
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
+from osprey.mcp_server.sandbox_env import ENV_CHAIN_APPLIED_ENV
 from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
@@ -193,6 +194,115 @@ def test_the_kernelspec_runs_the_agent_interpreter_with_the_two_env_keys(
     assert spec["env"] == {"JUPYTER_TOKEN": "", "OSPREY_AGENT_DATA_ROOT": str(shared_root)}
     assert sidecar.notebooks_dir == shared_root / "notebooks"
     assert sidecar.notebooks_dir.is_dir()
+
+
+#: Names a terminal container holds for its own server and agent, none of them
+#: on the execution allowlist. One or more per class of credential a terminal
+#: carries: the model provider's key under its vendor names and under a name a
+#: deployment's own provider gives it, the logbook database's password and DSN,
+#: the graph store's password, the agent record's login, and a name nobody has
+#: listed anywhere.
+_TERMINAL_ONLY_NAMES = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "FACILITY_GATEWAY_API_KEY",
+    "ARIEL_DB_PASSWORD",
+    "ARIEL_DB_READONLY_PASSWORD",
+    "ARIEL_DSN",
+    "GRAPHDB_PASSWORD",
+    "OSPREY_GRAPHDB_PASSWORD",
+    "OSPREY_AGENT_RECORD_LOGIN",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "A_NAME_ADDED_TO_THE_HOST_LATER",
+)
+
+
+@pytest.mark.parametrize("name", _TERMINAL_ONLY_NAMES)
+@pytest.mark.usefixtures("config_env")
+def test_a_credential_the_terminal_holds_does_not_reach_a_kernel(
+    monkeypatch: pytest.MonkeyPatch, shared_root: Path, tmp_path: Path, name: str
+) -> None:
+    """One case per name, so a regression says which credential came back."""
+    monkeypatch.setenv(name, "held-by-the-terminal")
+
+    env = JupyterSidecar(shared_root, "", None)._child_env(
+        "launch-token", tmp_path / "rt", tmp_path / "cfg"
+    )
+
+    assert name not in env
+    assert "held-by-the-terminal" not in env.values()
+
+
+@pytest.mark.usefixtures("config_env")
+def test_the_child_environment_is_the_execution_allowlist(
+    monkeypatch: pytest.MonkeyPatch, shared_root: Path, tmp_path: Path
+) -> None:
+    """The server and its kernels get the names executed code gets, and no other.
+
+    A cell reads what its kernel inherited, so what the terminal holds for its
+    own use must not be in the sidecar's environment in the first place.
+    """
+    for name in _TERMINAL_ONLY_NAMES:
+        monkeypatch.setenv(name, "held-by-the-terminal")
+    monkeypatch.setenv("EPICS_CA_ADDR_LIST", "gateway.example")
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "operator")
+    monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "held-by-the-terminal")
+
+    env = JupyterSidecar(shared_root, "", None)._child_env(
+        "launch-token", tmp_path / "rt", tmp_path / "cfg"
+    )
+
+    assert [name for name in _TERMINAL_ONLY_NAMES if name in env] == []
+    assert "held-by-the-terminal" not in env.values()
+    assert env["EPICS_CA_ADDR_LIST"] == "gateway.example"
+    assert env["OSPREY_AUDIT_IDENTITY"] == "operator"
+    assert env["OSPREY_CONFIG"] == os.environ["OSPREY_CONFIG"]
+    assert env["PATH"] == os.environ["PATH"]
+    assert env["JUPYTER_TOKEN"] == "launch-token"
+    assert env["JUPYTER_RUNTIME_DIR"] == str(tmp_path / "rt")
+    assert env[ENV_CHAIN_APPLIED_ENV]
+
+
+@pytest.mark.usefixtures("config_env")
+def test_the_child_environment_takes_the_deployment_passthrough(
+    monkeypatch: pytest.MonkeyPatch, shared_root: Path, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HDF5_PLUGIN_PATH", "/opt/hdf5/plugins")
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    monkeypatch.setattr(
+        jupyter_sidecar,
+        "_deployment_config",
+        lambda: {"python_executor": {"child_env_passthrough": ["HDF5_PLUGIN_PATH"]}},
+    )
+
+    env = JupyterSidecar(shared_root, "", None)._child_env("t", tmp_path / "rt", tmp_path / "cfg")
+
+    assert env["HDF5_PLUGIN_PATH"] == "/opt/hdf5/plugins"
+    assert "OMP_NUM_THREADS" not in env
+
+
+@pytest.mark.usefixtures("config_env")
+def test_a_refused_passthrough_costs_the_names_not_the_panel(
+    monkeypatch: pytest.MonkeyPatch, shared_root: Path, tmp_path: Path
+) -> None:
+    """A list that names a credential is refused whole; the launch goes on without it."""
+    monkeypatch.setenv("HDF5_PLUGIN_PATH", "/opt/hdf5/plugins")
+    monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "held-by-the-terminal")
+    monkeypatch.setattr(
+        jupyter_sidecar,
+        "_deployment_config",
+        lambda: {
+            "python_executor": {
+                "child_env_passthrough": ["HDF5_PLUGIN_PATH", "OSPREY_TERMINAL_SECRET"]
+            }
+        },
+    )
+
+    env = JupyterSidecar(shared_root, "", None)._child_env("t", tmp_path / "rt", tmp_path / "cfg")
+
+    assert "HDF5_PLUGIN_PATH" not in env
+    assert "OSPREY_TERMINAL_SECRET" not in env
+    assert env["JUPYTER_TOKEN"] == "t"
 
 
 @pytest.mark.usefixtures("config_env")

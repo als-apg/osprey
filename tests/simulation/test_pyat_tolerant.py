@@ -14,24 +14,22 @@ import copy
 import math
 from typing import Any
 
+import at
+import numpy as np
 import pytest
+from lume_pyat.exceptions import OrbitSolveError
+from lume_pyat.simulator import PyATSimulator
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
-from lume_pyat.simulator import PyATSimulator  # noqa: E402
-
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines.pyat_model import (  # noqa: E402
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines.pyat_model import (
     BETA_AT_MONITORS,
     CHROMATICITY,
     ORBIT_AT_MONITORS,
     TUNES,
 )
-from osprey.simulation.engines.pyat_tolerant import (  # noqa: E402
+from osprey.simulation.engines.pyat_tolerant import (
     NoClosedOrbit,
     TolerantPeriodicSimulator,
 )

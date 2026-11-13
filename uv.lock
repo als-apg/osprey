@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -27,9 +27,9 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-lume-pyat = "2026-09-18T00:00:00Z"
-lume-pva-apg = "2026-11-11T00:00:00Z"
 accelerator-middle-layer-apg = "2026-10-17T00:00:00Z"
+lume-pva-apg = "2026-11-11T00:00:00Z"
+lume-pyat = "2026-09-18T00:00:00Z"
 
 [manifest]
 members = [
@@ -431,25 +431,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ee/67/531ea369ba64dcff5ec9c3402f9f51bf748cec26dde048a2f973a4eea7f5/annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89", size = 16081, upload-time = "2024-05-20T21:33:25.928Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53", size = 13643, upload-time = "2024-05-20T21:33:24.1Z" },
-]
-
-[[package]]
-name = "anthropic"
-version = "0.79.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "distro" },
-    { name = "docstring-parser" },
-    { name = "httpx" },
-    { name = "jiter" },
-    { name = "pydantic" },
-    { name = "sniffio" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/15/b1/91aea3f8fd180d01d133d931a167a78a3737b3fd39ccef2ae8d6619c24fd/anthropic-0.79.0.tar.gz", hash = "sha256:8707aafb3b1176ed6c13e2b1c9fb3efddce90d17aee5d8b83a86c70dcdcca871", size = 509825, upload-time = "2026-02-07T18:06:18.388Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/b2/cc0b8e874a18d7da50b0fda8c99e4ac123f23bf47b471827c5f6f3e4a767/anthropic-0.79.0-py3-none-any.whl", hash = "sha256:04cbd473b6bbda4ca2e41dd670fe2f829a911530f01697d0a1e37321eb75f3cf", size = 405918, upload-time = "2026-02-07T18:06:20.246Z" },
 ]
 
 [[package]]
@@ -4994,22 +4975,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nltk"
-version = "3.10.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-    { name = "defusedxml" },
-    { name = "joblib" },
-    { name = "regex" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/cb/bbaa9be58e95d21729c6b9194376610230e0755f6de0bf38b6acc0dce079/nltk-3.10.4.tar.gz", hash = "sha256:44679f4e9220abfd496d2c8cdb22f8425ccbe557604f9aa5cacb1c44003dabc1", size = 4300570, upload-time = "2026-10-21T11:34:35.851Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/04/e7816813e409ca874ba2fcc35455db0e4130b79eb277e1f9edd270ca3c69/nltk-3.10.4-py3-none-any.whl", hash = "sha256:769ba5413f265b7d3e87cd163cc28efa01e29eeef8bb6080bc907949d9fcfb51", size = 1722994, upload-time = "2026-10-21T11:34:27.975Z" },
-]
-
-[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5220,19 +5185,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e9/3c/dfccc9e7dee357fb2aa13c3890d952a370dd0ed071e0f7ed62ed0df567c1/numpydoc-1.10.0.tar.gz", hash = "sha256:3f7970f6eee30912260a6b31ac72bba2432830cd6722569ec17ee8d3ef5ffa01", size = 94027, upload-time = "2025-12-02T16:39:12.937Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/5e/3a6a3e90f35cea3853c45e5d5fb9b7192ce4384616f932cf7591298ab6e1/numpydoc-1.10.0-py3-none-any.whl", hash = "sha256:3149da9874af890bcc2a82ef7aae5484e5aa81cb2778f08e3c307ba6d963721b", size = 69255, upload-time = "2025-12-02T16:39:11.561Z" },
-]
-
-[[package]]
-name = "ollama"
-version = "0.6.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/72/5f12423b6b39ca8430fbe56f77fcf4ef60f63067c7c4a2e30e200ed9ec16/ollama-0.6.2.tar.gz", hash = "sha256:936d55daa684f474364c098611c933626f8d6c7d67065c5b7ae0c477b508b07f", size = 53145, upload-time = "2026-04-29T21:21:15.018Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/ab/d6722beeb2d10f7a3b9ff49375708904fde18f82b5609a0bc4aeb5996a4d/ollama-0.6.2-py3-none-any.whl", hash = "sha256:3ad7daab28e5a973445c36a73882a3ef698c2ebb00e21e308652741577509f7d", size = 15115, upload-time = "2026-04-29T21:21:13.794Z" },
 ]
 
 [[package]]
@@ -5529,7 +5481,7 @@ dependencies = [
     { name = "accelerator-toolbox", extra = ["plot"] },
     { name = "aiohttp" },
     { name = "aiohttp-socks" },
-    { name = "anthropic" },
+    { name = "anyio" },
     { name = "authlib" },
     { name = "bluesky" },
     { name = "bluesky-queueserver-api" },
@@ -5558,17 +5510,15 @@ dependencies = [
     { name = "markdown" },
     { name = "markupsafe" },
     { name = "matplotlib" },
-    { name = "nbclient" },
     { name = "nbconvert" },
     { name = "nbformat" },
     { name = "neo4j" },
-    { name = "nltk" },
     { name = "numpy" },
-    { name = "ollama" },
     { name = "openai" },
     { name = "opentelemetry-proto" },
     { name = "ophyd-async", extra = ["ca"] },
     { name = "osprey-connectors" },
+    { name = "packaging" },
     { name = "pandas" },
     { name = "pillow" },
     { name = "playwright" },
@@ -5579,7 +5529,6 @@ dependencies = [
     { name = "pyaml-cs-osprey" },
     { name = "pydantic" },
     { name = "pymongo" },
-    { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "pyyaml" },
@@ -5592,14 +5541,12 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "seaborn" },
-    { name = "tenacity" },
+    { name = "starlette" },
     { name = "tiled", extra = ["client"] },
     { name = "typing-extensions" },
-    { name = "unique-namer" },
     { name = "urllib3" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
-    { name = "websocket-client" },
     { name = "websockets" },
 ]
 
@@ -5737,7 +5684,7 @@ requires-dist = [
     { name = "aiohttp-socks", specifier = ">=0.8.0" },
     { name = "aiohttp-socks", marker = "extra == 'ariel-proxy'", specifier = ">=0.8.0" },
     { name = "aiokafka", marker = "extra == 'alarm-state'", specifier = ">=0.12" },
-    { name = "anthropic" },
+    { name = "anyio", specifier = ">=4.14" },
     { name = "authlib", specifier = ">=1.7.2" },
     { name = "azure-servicebus", marker = "extra == 'all'", specifier = ">=7.11" },
     { name = "azure-servicebus", marker = "extra == 'teams'", specifier = ">=7.11" },
@@ -5793,13 +5740,10 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1,<1.20" },
     { name = "myst-parser", marker = "extra == 'all'" },
     { name = "myst-parser", marker = "extra == 'docs'" },
-    { name = "nbclient" },
     { name = "nbconvert", specifier = ">=7.0.0" },
     { name = "nbformat", specifier = ">=5.0.0" },
     { name = "neo4j", specifier = ">=5.20" },
-    { name = "nltk", specifier = ">=3.10.0" },
     { name = "numpy", specifier = ">=2.2.6" },
-    { name = "ollama", specifier = ">=0.6.2" },
     { name = "openai", specifier = ">=2.53.0,<3" },
     { name = "opentelemetry-proto", specifier = ">=1.44.0,<2" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
@@ -5807,6 +5751,7 @@ requires-dist = [
     { name = "osprey-optimizer", marker = "extra == 'all'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'dev'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'optimizer'", editable = "packages/osprey-optimizer" },
+    { name = "packaging", specifier = ">=26.3" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pillow", specifier = ">=12.3" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=10" },
@@ -5852,7 +5797,6 @@ requires-dist = [
     { name = "pytest-timeout", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'all'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "python-xlib", marker = "extra == 'all'", specifier = ">=0.33" },
@@ -5884,7 +5828,7 @@ requires-dist = [
     { name = "sphinx-reredirects", marker = "extra == 'docs'", specifier = "==1.1.0" },
     { name = "sphinxcontrib-jsmath", marker = "extra == 'all'", specifier = ">=1.0.1" },
     { name = "sphinxcontrib-jsmath", marker = "extra == 'docs'", specifier = ">=1.0.1" },
-    { name = "tenacity", specifier = ">=9.1.4" },
+    { name = "starlette", specifier = ">=1.3" },
     { name = "testcontainers", extras = ["mongodb"], marker = "extra == 'all'", specifier = ">=4.15.0" },
     { name = "testcontainers", extras = ["mongodb"], marker = "extra == 'dev'", specifier = ">=4.15.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'all'", specifier = ">=4.15.0" },
@@ -5897,11 +5841,9 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'all'" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
-    { name = "unique-namer", specifier = ">=1.6.2" },
     { name = "urllib3", specifier = ">=2.7.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
     { name = "watchdog", specifier = ">=6.0.0" },
-    { name = "websocket-client", specifier = ">=1.7.0" },
     { name = "websockets", specifier = ">=15" },
 ]
 provides-extras = ["alarm-state", "all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "optimizer", "screen-capture-linux", "teams", "virtual-accelerator"]
@@ -9365,15 +9307,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/68/35c1d87e608940badbcfeb630347aa0509897284684f61fab6423d02b253/uncalled_for-0.3.1.tar.gz", hash = "sha256:5e412ac6708f04b56bef5867b5dcf6690ebce4eb7316058d9c50787492bb4bca", size = 49693, upload-time = "2026-04-07T13:05:06.462Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/11/e1/7ec67882ad8fc9f86384bef6421fa252c9cbe5744f8df6ce77afc9eca1f5/uncalled_for-0.3.1-py3-none-any.whl", hash = "sha256:074cdc92da8356278f93d0ded6f2a66dd883dbecaf9bc89437646ee2289cc200", size = 11361, upload-time = "2026-04-07T13:05:05.341Z" },
-]
-
-[[package]]
-name = "unique-namer"
-version = "1.6.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4d/2e/d9d71f39d37100c331358c1d3e1092d9f33a1b99896896d602ee0ead603d/unique_namer-1.6.2.tar.gz", hash = "sha256:5dab8e0f9be6e72df30d6516381ed768cc1a3e79f1fcd7d22fb45c2f7294b001", size = 73240, upload-time = "2025-07-03T10:25:21.273Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/ff/0922dd67c42e68dcb7cf88560ee9789b79963d1c98509a83caee053d271b/unique_namer-1.6.2-py3-none-any.whl", hash = "sha256:d23214dc286a362b202ab7d8d5f01e04dc240195bbe885d119e2aad97fced448", size = 71051, upload-time = "2025-07-03T10:25:20.077Z" },
 ]
 
 [[package]]

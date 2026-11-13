@@ -4,7 +4,8 @@ Three call sites spawn a local subprocess to run agent-generated Python:
 ``python_executor.executor`` (the general-purpose Python execution sandbox),
 ``workspace.execution.sandbox_executor`` (the lighter visualization-only
 sandbox), and ``services.bluesky_bridge.plan_validation`` (plan import
-checking). All three build the child's environment with
+checking). A fourth, the notebook sidecar, spawns the server whose kernels run
+the cells a person types. All four build the child's environment with
 :func:`scrub_sandbox_child_env`, which starts from an ALLOWLIST: the child gets
 the names its own code reads (process basics, locale, interpreter and linker,
 TLS trust, proxies, plotting caches, the control-system client families and the
@@ -26,9 +27,10 @@ The child is also stamped with
 :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV`, so its own config
 loading does not read the project's env chain back into it.
 
-The notebook sidecar is the one caller of the two denylists alone
-(:func:`drop_sandbox_denied_env`): its kernels run code the operator types, the
-PTY child's policy rather than an execution sandbox's.
+The one caller of the two denylists alone (:func:`drop_sandbox_denied_env`) is
+the CANOPY sidecar, which is not a code-execution child: it runs the
+deployment's own screen server and keeps the terminal's environment minus the
+credential set, the sandbox-only drop and its own configuration families.
 """
 
 from collections.abc import Iterable, Mapping
@@ -287,7 +289,7 @@ def drop_sandbox_denied_env(env: Mapping[str, str]) -> dict[str, str]:
     name starting with one of :data:`SANDBOX_CHILD_ENV_DROP_PREFIXES`.
 
     :func:`scrub_sandbox_child_env` runs this over its allowlisted result, and
-    the notebook sidecar uses it alone. *env* is not mutated, so ``os.environ``
+    the CANOPY sidecar uses it alone. *env* is not mutated, so ``os.environ``
     may be passed directly.
     """
     scrubbed = scrub_sensitive_env(env)
@@ -311,9 +313,9 @@ def scrub_sandbox_child_env(
     re-admit a credential or a terminal name; then sets
     :data:`ENV_CHAIN_APPLIED_ENV` so the child does not load the env chain.
 
-    Every spawn site that runs agent code calls THIS function, so a name added
-    for one path cannot go missing on another. *env* is not mutated, so
-    ``os.environ`` may be passed directly.
+    Every spawn site that runs agent code calls THIS function, and so does the
+    notebook sidecar, so a name added for one path cannot go missing on another.
+    *env* is not mutated, so ``os.environ`` may be passed directly.
 
     Args:
         env: The parent environment.

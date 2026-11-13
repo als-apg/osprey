@@ -1,8 +1,6 @@
 """RunEngine integration test for the shipped `orm` plan.
 
-The bluesky stack is a core dependency, so these run in the normal unit
-lane; the `pytest.importorskip` guards below only skip them in a slimmed
-install where `bluesky`/`ophyd-async` are absent.
+The bluesky stack is a core dependency, so these run in the normal unit lane.
 
 Drives a real bluesky `RunEngine` through the real `orm` plan
 (`plans_core/orm.py`, resolved through the layered directory loader —
@@ -23,21 +21,18 @@ from typing import Any
 
 import pytest
 
-bluesky = pytest.importorskip("bluesky")
-ophyd_async = pytest.importorskip("ophyd_async")
-
-from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
-from osprey.services.bluesky_bridge.devices._connect import connect_all  # noqa: E402
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable  # noqa: E402
-from osprey.services.bluesky_bridge.devices.mock import (  # noqa: E402
+from osprey.services.bluesky_bridge import live_rows, plan_loader
+from osprey.services.bluesky_bridge.devices._connect import connect_all
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.devices.mock import (
     MockReadable,
     MockSettable,
     build_devices,
 )
-from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix  # noqa: E402
-from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column  # noqa: E402
+from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
+from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column
 
-from .bluesky_plan_drive import run_plan  # noqa: E402
+from .bluesky_plan_drive import run_plan
 
 
 @pytest.fixture
