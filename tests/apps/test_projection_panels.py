@@ -72,10 +72,11 @@ def _login(
     shown: bool = True,
     app: str = "dial-demo",
     audience: str = "person",
+    panel_hidden: bool = False,
 ) -> LoginSelection:
     return LoginSelection(
         audience=audience,  # type: ignore[arg-type]
-        apps={app: AppSelection(shown=shown)},
+        apps={app: AppSelection(shown=shown, panel_hidden=panel_hidden)},
         tier=tier,  # type: ignore[arg-type]
         shared_cards=("control-room",) if audience == "shared" else (),
     )
@@ -83,6 +84,19 @@ def _login(
 
 def _block(result: dict[str, Any], panel_id: str = "dial-demo") -> dict[str, Any]:
     return result["web"]["panels"][panel_id]
+
+
+def test_the_block_carries_an_icon_only_when_the_manifest_names_one() -> None:
+    assert "icon" not in _block(project_login([_manifest()], CONFIG, _login()))
+    named = _block(project_login([_manifest(icon="chart-column")], CONFIG, _login()))
+    assert named["icon"] == "chart-column"
+
+
+def test_the_block_is_hidden_only_when_the_login_keeps_the_panel_off_the_sidebar() -> None:
+    assert "hidden" not in _block(project_login([_manifest()], CONFIG, _login()))
+    kept_off = project_login([_manifest()], CONFIG, _login(panel_hidden=True))
+    assert _block(kept_off)["hidden"] is True
+    assert kept_off["web_panels"] == ["dial-demo"]
 
 
 def test_a_shown_panel_is_projected_with_its_address_entry_and_application() -> None:

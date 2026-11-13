@@ -302,6 +302,8 @@ def project_login(
             "url": f"http://{_LOOPBACK}:{port}",
             "path": panel.entry,
         }
+        if shown.panel_hidden:
+            block["hidden"] = True
         health = manifest.containers[panel.container].health
         if health is not None:
             block["health_endpoint"] = health

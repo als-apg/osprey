@@ -162,6 +162,40 @@ the host-local one for the call:
 
 See :doc:`/reference/cli` for both.
 
+.. _agent-record-read-a-session:
+
+Read a session
+==============
+
+The Activity page shows what the agent did in one session and what was decided
+about each call. It reads the record, so a past session reads the same as the
+live one. In the web terminal, **☰ More** › **Activity log** opens it on the
+session in the terminal; its sidebar lists your sessions. It has four views:
+
+- **Timeline** — prompts, answers and tool calls in order, a subagent's calls
+  under the call that started it. Open a call for its arguments, its result
+  and the safety decisions on it.
+- **Tool calls** — every call as a table, built-in tools included. Sort it, or
+  narrow it to **Control system and services** or to **Built in**.
+- **Safety** — how many calls were allowed without asking and by what, how
+  many asked the operator, and how many were refused without asking; each
+  approval with what was asked and how long the answer took; and the calls a
+  server gate filed an entry for.
+- **Artifacts** — what the session saved, each with the call that saved it.
+
+The chip in the toolbar says how much of this the record vouches for. Click it
+for the reason:
+
+- **Record complete** — the record returned the whole session.
+- **Record incomplete** — the read did not return the whole session. What is
+  shown is correct, but entries may be missing.
+- **Record unavailable** — the session could not be read. The page keeps the
+  last reading it has of that session and says so, offers **Try again**, and
+  tries again by itself every 10 seconds.
+
+The session in the terminal is read again every 10 seconds. A session picked
+from the sidebar is read again only while it is live.
+
 Permissions
 ===========
 

@@ -134,6 +134,7 @@ ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
 #: Saves the qmd sidecar layer cache in main's scope; see the qmd section below.
 QMD_WARMUP_JOB = "qmd-cache-warmup"
+DEPLOY_CACHE_WARMUP_JOB = "deploy-cache-warmup"
 VA_LIVE_JOB = "va-live-e2e"
 VA_BLUESKY_JOB = "va-live-e2e[plan-deploy]"
 #: The run step of each lane that executes modules from tests/va/e2e/. The
@@ -147,7 +148,7 @@ TWO_SHAPE_JOB = "two-shape-boot-e2e"
 TWO_SHAPE_TEST_FILE = "tests/e2e/test_two_shape_boot.py"
 TWO_SHAPE_BOOT_STEP = "Run two-shape boot E2E (podman)"
 TWO_SHAPE_PROVIDER_STEP = "Step 0 — assert the compose provider is podman-compose 1.0.6"
-#: The parse-only counterpart runs in a Tier 0 job, not a lane of its own —
+#: The parse-only counterpart runs in the preset static checks job, not a lane of its own —
 #: it needs no container runtime, only a renderer and a YAML parser.
 PARSE_ONLY_JOB = "static-checks"
 PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no containers)"
@@ -1132,7 +1133,7 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_a_flag(
 # ---------------------------------------------------------------------------
 
 BOOT_SMOKE_JOB = "build-boot-smoke"
-BOOT_SMOKE_STEP = "Run Tier 1 boot smoke for preset"
+BOOT_SMOKE_STEP = "Run the build + MCP boot smoke for the preset"
 BOOT_SMOKE_TEST_FILE = "tests/integration/test_build_boot.py"
 #: The module-level list every test in the boot module is parametrised over, and
 #: the source the lane's matrix has to reproduce one value at a time.
@@ -1362,6 +1363,7 @@ UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
         "tests/va/test_lume_pva_seam.py",
         "tests/va/test_timed_passes_live.py",
         "tests/va/test_injection_live.py",
+        "tests/va/test_turn_by_turn_live.py",
     }
 )
 
@@ -1528,7 +1530,7 @@ PRESET_BUILD_TEST_FILE = "tests/integration/test_preset_build.py"
 def test_the_preset_build_runs_in_the_static_job_and_not_in_the_unit_lane(
     workflow: dict[str, Any],
 ) -> None:
-    """Every preset is built once per event, by the Tier 0 static job, rather
+    """Every preset is built once per event, by the preset static checks job, rather
     than once per cell of the unit lane's matrix."""
     assert PRESET_BUILD_TEST_FILE in _unit_lane_ignored_files(workflow)
     assert _unconditional_hosts(workflow, PRESET_BUILD_TEST_FILE) == [PARSE_ONLY_JOB]
@@ -3053,55 +3055,6 @@ def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() 
         test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
 
 
-ORM_OVERLAY2_STEP = "Use the overlay2 image store"
-
-
-def _orm_overlay2_violations(wf: dict[str, Any]) -> list[str]:
-    """Why the ORM job's images would not all land in the overlay2 store, if they would not."""
-    steps = _jobs(wf)[ORM_JOB]["steps"]
-    names = [step.get("name", "") for step in steps]
-    if ORM_OVERLAY2_STEP not in names:
-        return [f"no {ORM_OVERLAY2_STEP!r} step"]
-    at = names.index(ORM_OVERLAY2_STEP)
-    run = steps[at].get("run", "")
-    problems = [
-        f"{needle!r} missing from the step"
-        for needle in ('"containerd-snapshotter"] = false', "systemctl restart docker", "overlay2")
-        if needle not in run
-    ]
-    first_pytest = next(i for i, step in enumerate(steps) if "pytest" in step.get("run", ""))
-    if at > first_pytest:
-        problems.append("the switch runs after a stack has already built into the containerd store")
-    return problems
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store(workflow: dict[str, Any]) -> None:
-    """Four stacks in a row fit an AWS 72 GB runner only under overlay2: the
-    containerd image store keeps every layer compressed and unpacked and, while
-    a cached stack builds in parallel, unpacks a shared layer once per image
-    (measured on amd64 at a 37 GB cap: ENOSPC at the fourth stack, against a
-    16.7 GiB peak under overlay2). Dropping the switch, or moving it after the
-    first build, reds the lane only on the runners that happen to be small."""
-    assert _orm_overlay2_violations(workflow) == []
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_drops_the_step() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[ORM_JOB]["steps"]
-    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s.get("name") != ORM_OVERLAY2_STEP]
-    assert _orm_overlay2_violations(mutated) == [f"no {ORM_OVERLAY2_STEP!r} step"]
-
-
-def test_orm_roundtrip_job_builds_into_the_overlay2_store__mutation_moves_it_last() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    steps = _jobs(mutated)[ORM_JOB]["steps"]
-    switch = next(s for s in steps if s.get("name") == ORM_OVERLAY2_STEP)
-    _jobs(mutated)[ORM_JOB]["steps"] = [s for s in steps if s is not switch] + [switch]
-    assert _orm_overlay2_violations(mutated) == [
-        "the switch runs after a stack has already built into the containerd store"
-    ]
-
-
 def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
     """Inverse of the secret-free checks: the overlay test runs a REAL agent
     turn, and its fixture skips outright without ALS_APG_API_KEY — a job
@@ -4018,9 +3971,6 @@ def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any
 #: How the model-free step derives its paths: the lane's modules, read at run time.
 NO_MODEL_MODULES_CMD = f"python3 scripts/ci/e2e_shared_lane.py modules {NO_MODEL_JOB}"
 NO_MODEL_SPLICE = 'uv run pytest "${modules[@]}"'
-_EMPTY_MODULES_REFUSAL = re.compile(
-    r'\[ "\$\{#modules\[@\]\}" -gt 0 \] \|\| \{ echo "::error::[^"]+"; exit 1; \}'
-)
 
 
 def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
@@ -4028,14 +3978,11 @@ def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
     run = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
     asked = re.search(rf"{re.escape(NO_MODEL_MODULES_CMD)}\s", run)
     derive, splice = asked.start() if asked else -1, run.find(NO_MODEL_SPLICE)
-    refusal = _EMPTY_MODULES_REFUSAL.search(run)
     problems = []
     if derive < 0:
         problems.append(f"does not run {NO_MODEL_MODULES_CMD!r}")
     if splice < 0:
         problems.append("hands pytest no derived list")
-    if refusal is None or not derive < refusal.start() < splice:
-        problems.append("runs an empty list instead of refusing it")
     if named := [token for token in run.split() if token.startswith("tests/")]:
         problems.append(f"names {named} itself")
     return problems
@@ -4043,18 +3990,14 @@ def _model_free_step_problems(wf: dict[str, Any]) -> list[str]:
 
 def test_model_free_step_runs_its_lanes_modules(workflow: dict[str, Any]) -> None:
     """The step takes its paths from the lane, as the shared lane takes its
-    ``--ignore`` list, and refuses an empty one: pytest handed no path collects
-    the whole tree, where every test not marked ``model_free`` is refused."""
+    ``--ignore`` list. Handed no path, pytest would collect the whole tree, and
+    the conftest's provider refusal would not stop it: ci.yml names
+    ``OSPREY_E2E_PROVIDER`` workflow-wide. So an empty list never gets there:
+    the script refuses a lane that names no modules and ``bash -e`` ends the
+    step (tests/scripts/test_e2e_shared_lane.py), and the marker tests above
+    red on a lane emptied while its modules keep ``model_free``. Past both,
+    only the lane's ``-p no_skips`` gate would red the run, at its end."""
     assert _model_free_step_problems(workflow) == []
-
-
-def test_model_free_step_runs_its_lanes_modules__mutation_drops_the_refusal() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
-    refusal = _EMPTY_MODULES_REFUSAL.search(step["run"])
-    assert refusal, "the step refuses no empty list; stale"
-    step["run"] = step["run"].replace(refusal.group(), "")
-    assert _model_free_step_problems(mutated) == ["runs an empty list instead of refusing it"]
 
 
 def test_model_free_step_runs_its_lanes_modules__mutation_asks_another_lane() -> None:
@@ -6074,7 +6017,7 @@ def test_unit_lane_passes_per_test_timeout__mutation_switches_to_the_thread_meth
 # step in `static-checks` is the cheap half: it renders the same kind of
 # deployment and hands podman-compose OSPREY's own argv, so a merged document
 # that no longer parses, or an env chain that stops interpolating, is caught in
-# a Tier 0 job in seconds rather than after a ~20-minute image build.
+# the preset static checks job in seconds rather than after a ~20-minute image build.
 #
 # The provider is the load-bearing fact for both. `podman compose` delegates to
 # whichever external provider it finds, and on a GitHub runner the first one is
@@ -6584,7 +6527,7 @@ def test_parse_only_step_lives_in_a_fast_job__mutation_gates_the_host_job() -> N
 
 def test_parse_only_job_has_a_timeout(workflow: dict[str, Any]) -> None:
     """The job now shells out to `osprey init`, `osprey build` and a compose
-    parse. None can hang in principle, but all are new shapes for a Tier 0 job
+    parse. None can hang in principle, but all are new shapes for the preset static checks job
     that otherwise inherits the 6-hour default."""
     assert "timeout-minutes" in _jobs(workflow)[PARSE_ONLY_JOB], (
         f"'{PARSE_ONLY_JOB}' must bound its runtime"
@@ -6694,7 +6637,7 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 #: reason: ``benchmarks`` is a manually dispatched quality score and model
 #: benchmark (pinned by ``test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it``
 #: and ``test_tier2_job_is_dispatch_gated_and_lane_ignores_it``), ``qmd-cache-warmup``
-#: runs on main pushes only, whose own run its failure already turns red (needed,
+#: and ``deploy-cache-warmup`` run on main pushes only, whose own run their failure already turns red (needed,
 #: it failed every revalidation as a skipped lane), ``stop-on-failed-cheap-lane`` only cancels
 #: the run (pinned by ``test_cheap_lanes_cancel_a_failed_pull_request_run``), and the gate
 #: cannot depend on itself. Anything else that is not in
@@ -6705,6 +6648,7 @@ JOBS_OUTSIDE_THE_GATE = frozenset(
         BENCHMARKS_JOB,
         TIER2_JOB,
         QMD_WARMUP_JOB,
+        DEPLOY_CACHE_WARMUP_JOB,
         GATE_JOB,
         "stop-on-failed-cheap-lane",
     }
@@ -7281,22 +7225,16 @@ VA_REMOVE_ACTION_YML = (
 )
 BENCH_IOC_ACTION = "./.github/actions/build-bench-ioc-image"
 BENCH_IOC_ACTION_YML = REPO_ROOT / ".github" / "actions" / "build-bench-ioc-image" / "action.yml"
-BENCH_IOC_CACHE_DIR = "/tmp/bench-ioc-buildx-cache"
-BENCH_IOC_CACHE_EXPORT_DIR = "/tmp/bench-ioc-buildx-cache-new"
+#: The image's tag in the registry layer cache, beside the deploy recipes' keys.
+BENCH_IOC_CACHE_KEY = "bench-ioc"
 BENCH_IOC_CONTAINERFILE = "docker/bench-ioc/Containerfile"
 #: The tag the bench fixture starts, read from source like ``VA_IMAGE_TAG``.
 BENCH_IOC_TAG = _module_constant(REPO_ROOT / "tests" / "fixtures" / "bench_ioc.py", "IMAGE")
 #: Matched as a prefix, so a version bump of the setup action does not have
 #: to be made here as well.
 BUILDX_ACTION = "docker/setup-buildx-action@"
-VA_CACHE_DIR = "/tmp/va-buildx-cache"
-VA_CACHE_EXPORT_DIR = "/tmp/va-buildx-cache-new"
-VA_CACHE_KEY_PREFIX = "va-full-buildx-"
-#: Every workspace member's manifest, by glob rather than by name: the image
-#: installs each member under packages/, so a member's dependency change must
-#: invalidate the layers as surely as the framework's does, including a member
-#: added after this key was written.
-VA_CACHE_MEMBER_GLOB = "'packages/*/pyproject.toml'"
+#: The image's tag in the registry layer cache, beside the deploy recipes' keys.
+VA_CACHE_KEY = "va-full"
 #: The fixture constant the built tag has to agree with, and the tag itself,
 #: read from source rather than restated, for the reason the xdist pairing is
 #: read from source.
@@ -7388,10 +7326,11 @@ def test_every_virtual_accelerator_lane_builds_through_the_shared_action(
 ) -> None:
     """Every lane that needs this image gets it from the one shared recipe.
 
-    At the baseline the two are ``target-switch-agentic-e2e`` and
-    ``va-live-e2e`` (whose cells include the target switch), and the set is
-    derived rather than listed: a third job joins it by naming the image, not
-    by being added here.
+    At the baseline the lanes are ``target-switch-agentic-e2e`` and
+    ``va-live-e2e`` (whose cells include the target switch), with main's
+    ``deploy-cache-warmup`` building the same recipe to write its layers. The
+    set is derived rather than listed: another job joins it by naming the
+    image, not by being added here.
     """
     wrong = {
         name: len(_va_action_steps(workflow, name)) for name in sorted(_va_image_jobs(workflow))
@@ -7436,18 +7375,42 @@ def test_every_virtual_accelerator_lane_builds_through_the_shared_action__mutati
         test_every_virtual_accelerator_lane_builds_through_the_shared_action(mutated)
 
 
-def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
-    va_image_action: dict[str, Any],
-) -> None:
-    """The recipe itself, pinned where the two quiet failures live.
+def _cache_flags_an_action_build_passes(
+    script: str, key: str, environ: dict[str, str]
+) -> list[str]:
+    """The layer-cache flags an image action's build step computes under *environ*.
 
-    ``--cache-to`` and the rotation have no other witness. Without the export
-    the cache never advances; without the rotation the job's cache save writes
-    back the layers it restored instead of the ones it produced. Both stay
-    green, and both cost a full build on every run that follows.
+    Runs the step's own flag helper, the one ``python -c`` that names *key*,
+    under this interpreter, so what is asserted is what the step would hand
+    ``docker buildx build`` and not a restatement of it.
     """
-    assert va_image_action["runs"]["using"] == "composite"
-    steps = va_image_action["runs"]["steps"]
+    helpers = [
+        code for code in re.findall(r"uv run python -c '([^']+)'", script) if "build_cache" in code
+    ]
+    assert len(helpers) == 1, f"expected one layer-cache flag helper in the step; found {helpers}"
+    assert f'build_cache_args("docker", "{key}")' in helpers[0], (
+        f"the build no longer reads the registry cache under the key {key!r}: {helpers[0]}"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OSPREY_BUILD_CACHE_")}
+    done = subprocess.run(
+        [sys.executable, "-c", helpers[0]],
+        env=env | environ,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    # As the step reads it: `$(...)` drops the trailing newline, and an empty result adds no flag.
+    flags = done.stdout.rstrip("\n")
+    return flags.split("\n") if flags else []
+
+
+def _assert_an_image_action_caches_through_the_registry(
+    action: dict[str, Any], tag: str, key: str
+) -> str:
+    """The shape both image actions share; returns the build step's script."""
+    assert action["runs"]["using"] == "composite"
+    steps = action["runs"]["steps"]
 
     unshelled = [
         step.get("name") for step in steps if "run" in step and step.get("shell") != "bash"
@@ -7456,72 +7419,82 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
         f"every `run:` step of a composite action needs `shell: bash`; {unshelled} lack it, "
         f"which is a workflow-parse error at the moment a lane calls the action."
     )
-
-    cache = [i for i, step in enumerate(steps) if "actions/cache@" in str(step.get("uses", ""))]
-    assert len(cache) == 1, f"expected exactly one cache step; found {len(cache)}"
-    cache_with = steps[cache[0]]["with"]
-    assert cache_with["path"] == VA_CACHE_DIR
-    assert cache_with["key"].startswith(VA_CACHE_KEY_PREFIX), (
-        f"a lane-specific cache key prefix buys a second copy of identical layers against "
-        f"the repository's cache quota; got {cache_with['key']}"
+    assert "inputs" not in action, (
+        "the action takes no inputs: what it reads and writes is the job's environment's to say"
     )
-    for hashed in (
-        "docker/virtual-accelerator/Containerfile",
-        "'pyproject.toml'",
-        # The image's third-party install is the lock's export, so a lock bump
-        # must change the key: a cache entry is never overwritten, and under an
-        # unchanged key the new closure's layers would never be saved.
-        "'uv.lock'",
-        VA_CACHE_MEMBER_GLOB,
-    ):
-        assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
 
-    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", f"builds {VA_IMAGE_TAG}")
+    actions_cache = [
+        step.get("name") for step in steps if str(step.get("uses", "")).startswith("actions/cache")
+    ]
+    assert actions_cache == [], (
+        f"the layers live in the registry cache main writes; an Actions cache entry saved by a "
+        f"pull request is readable by that pull request alone: {actions_cache}"
+    )
+
+    build = _sole_step_whose_script(steps, f"--tag {tag}", f"builds {tag}")
     script = steps[build]["run"]
-    assert f"--cache-from type=local,src={VA_CACHE_DIR}" in script
-    assert f"--cache-to type=local,dest={VA_CACHE_EXPORT_DIR},mode=max" in script
-
-    rotate = _sole_step_whose_script(
-        steps,
-        f"mv {VA_CACHE_EXPORT_DIR} {VA_CACHE_DIR}",
-        "rotates the export directory in",
-    )
-    assert rotate > build, (
-        "the rotation must follow the build: run first, it deletes the restored cache and "
-        "then fails its own `mv`."
+    assert "type=local" not in script, "the build still names a local cache directory"
+    assert "--load" in script, f"the lanes run {tag} from the job's image store"
+    assert '"${cache_flags[@]}"' in script, "the build no longer passes the layer-cache flags"
+    assert 'flags="$(uv run python -c' in script, (
+        "the flag helper runs in an assignment, where its failure stops the step"
     )
 
+    source = f"type=registry,ref=registry.example/cache:{key}"
+    sink = f"{source},mode=max"
+    spec = "type=registry,ref=registry.example/cache:{key}"
+    # A job that names no cache builds cold; a lane reads; main's warm-up reads and writes.
+    assert _cache_flags_an_action_build_passes(script, key, {}) == []
+    assert _cache_flags_an_action_build_passes(script, key, {"OSPREY_BUILD_CACHE_FROM": spec}) == [
+        "--cache-from",
+        source,
+    ]
+    assert _cache_flags_an_action_build_passes(
+        script,
+        key,
+        {"OSPREY_BUILD_CACHE_FROM": spec, "OSPREY_BUILD_CACHE_TO": f"{spec},mode=max"},
+    ) == ["--cache-from", source, "--cache-to", sink]
+    return script
 
-def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_names_one_member() -> (
+
+def test_the_shared_action_builds_the_tag_through_the_registry_cache(
+    va_image_action: dict[str, Any],
+) -> None:
+    """The recipe itself, pinned where its quiet failure lives.
+
+    A build that lost its cache flags stays green and costs a full build on
+    every run that follows. The flags are the job's environment's, read through
+    ``osprey.deployment.build_cache`` as every ``osprey up`` build reads them:
+    a lane names the source and reads main's layers, and only the warm-up on
+    main names a sink.
+    """
+    _assert_an_image_action_caches_through_the_registry(va_image_action, VA_IMAGE_TAG, VA_CACHE_KEY)
+
+
+def test_the_shared_action_builds_the_tag_through_the_registry_cache__mutation_restores_an_actions_cache() -> (
     None
 ):
-    """A key naming one member's manifest serves stale layers the day another
-    member's dependencies move."""
+    """The arrangement this replaced: an entry no other pull request can read."""
     mutated = copy.deepcopy(_load_va_image_action())
-    for step in mutated["runs"]["steps"]:
-        if "actions/cache@" in str(step.get("uses", "")):
-            step["with"]["key"] = step["with"]["key"].replace(
-                VA_CACHE_MEMBER_GLOB, "'packages/osprey-connectors/pyproject.toml'"
-            )
-    with pytest.raises(AssertionError, match="no longer hashes"):
-        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+    mutated["runs"]["steps"].insert(
+        1, {"name": "Cache the layers", "uses": "actions/cache/restore@v6", "with": {"path": "/x"}}
+    )
+    with pytest.raises(AssertionError, match="that pull request alone"):
+        test_the_shared_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
-def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_drops_the_rotation() -> (
+def test_the_shared_action_builds_the_tag_through_the_registry_cache__mutation_drops_the_flags() -> (
     None
 ):
     mutated = copy.deepcopy(_load_va_image_action())
     steps = mutated["runs"]["steps"]
-    steps.pop(
-        _sole_step_whose_script(
-            steps, f"mv {VA_CACHE_EXPORT_DIR} {VA_CACHE_DIR}", "rotates the cache"
-        )
-    )
-    with pytest.raises(AssertionError):
-        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
+    steps[build]["run"] = steps[build]["run"].replace('"${cache_flags[@]}" \\\n', "")
+    with pytest.raises(AssertionError, match="no longer passes the layer-cache flags"):
+        test_the_shared_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
-def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_changes_the_built_tag() -> (
+def test_the_shared_action_builds_the_tag_through_the_registry_cache__mutation_changes_the_built_tag() -> (
     None
 ):
     mutated = copy.deepcopy(_load_va_image_action())
@@ -7529,18 +7502,20 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_cha
     build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
     steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
     with pytest.raises(AssertionError):
-        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+        test_the_shared_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
-def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_gives_the_cache_a_lane_prefix() -> (
+def test_the_shared_action_builds_the_tag_through_the_registry_cache__mutation_reads_another_recipes_key() -> (
     None
 ):
+    """Under the project image's key the build would read layers it cannot use
+    and, on main, overwrite the ones the deploy lanes can."""
     mutated = copy.deepcopy(_load_va_image_action())
-    for step in mutated["runs"]["steps"]:
-        if "actions/cache@" in str(step.get("uses", "")):
-            step["with"]["key"] = f"target-switch-{step['with']['key']}"
-    with pytest.raises(AssertionError):
-        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+    steps = mutated["runs"]["steps"]
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
+    steps[build]["run"] = steps[build]["run"].replace(f'"{VA_CACHE_KEY}"', '"project"')
+    with pytest.raises(AssertionError, match="under the key"):
+        test_the_shared_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
 def test_the_shared_action_sets_up_the_builder_before_it_builds(
@@ -7548,10 +7523,10 @@ def test_the_shared_action_sets_up_the_builder_before_it_builds(
 ) -> None:
     """The builder is a precondition of the build, not a companion to it.
 
-    ``--cache-to type=local`` needs a driver the default docker builder does
-    not provide, and it errors rather than skipping the export — so the setup
-    is a precondition of the build, and a setup placed after it is no setup at
-    all.
+    Where main writes the registry cache, ``--cache-to`` needs a builder that
+    can export one, and the classic image store's own builder errors rather
+    than skipping the export — so the setup is a precondition of the build, and
+    a setup placed after it is no setup at all.
     """
     steps = va_image_action["runs"]["steps"]
     setup = [i for i, step in enumerate(steps) if BUILDX_ACTION in str(step.get("uses", ""))]
@@ -7561,8 +7536,8 @@ def test_the_shared_action_sets_up_the_builder_before_it_builds(
     build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", f"builds {VA_IMAGE_TAG}")
     assert setup[0] < build, (
         f"the builder setup is a precondition of the build, not a companion to it: it sits at "
-        f"index {setup[0]} and the build at index {build}, and `--cache-to type=local` against "
-        f"the default docker builder errors rather than skipping the export."
+        f"index {setup[0]} and the build at index {build}, and a `--cache-to` against the "
+        f"classic image store's builder errors rather than skipping the export."
     )
 
 
@@ -7626,7 +7601,7 @@ def test_every_lane_builds_after_the_shared_builder(workflow: dict[str, Any]) ->
 
     These lanes have no builder of their own, so the one their bench IOC build
     runs on is the action's; a build placed before the action call gets the
-    default docker driver and its ``--cache-to type=local`` errors out.
+    default docker driver, not the one the cached layers were written through.
     """
     early = {}
     for name in sorted(_va_image_jobs(workflow)):
@@ -7644,7 +7619,7 @@ def test_every_lane_builds_after_the_shared_builder(workflow: dict[str, Any]) ->
             early[name] = too_early
     assert early == {}, (
         f"these lanes build before the action that sets the builder up, so the build gets the "
-        f"default docker driver and its `--cache-to type=local` errors out: {early}"
+        f"default docker driver, not the one the cached layers were written through: {early}"
     )
 
 
@@ -7671,10 +7646,9 @@ def _bench_ioc_jobs(wf: dict[str, Any]) -> set[str]:
 def test_every_bench_ioc_lane_builds_through_the_shared_action(workflow: dict[str, Any]) -> None:
     """One recipe for the bench IOC image, as for the virtual accelerator's.
 
-    The two switch lanes used to carry their own copies of the cache, build
-    and rotate steps, and the copies' comments had already drifted apart. A
-    lane that names the image calls the action once, and no job spells the
-    build or the cache itself.
+    The two switch lanes used to carry their own copies of the build steps,
+    and the copies' comments had already drifted apart. A lane that names the
+    image calls the action once, and no job spells the build itself.
     """
     lanes = _bench_ioc_jobs(workflow)
     # The switch cell runs in the VA live job, so that job is the one naming the image.
@@ -7695,9 +7669,8 @@ def test_every_bench_ioc_lane_builds_through_the_shared_action(workflow: dict[st
         for name, job in _jobs(workflow).items()
         for step in job.get("steps", [])
         if BENCH_IOC_CONTAINERFILE in str(step.get("run", ""))
-        or BENCH_IOC_CACHE_DIR in json.dumps(step.get("with") or {})
     )
-    assert inline == [], f"these steps build or cache {BENCH_IOC_TAG} inline: {inline}"
+    assert inline == [], f"these steps build {BENCH_IOC_TAG} inline: {inline}"
 
 
 def test_every_bench_ioc_lane_builds_through_the_shared_action__mutation_inlines_the_steps() -> (
@@ -7721,60 +7694,36 @@ def bench_ioc_action() -> dict[str, Any]:
     return _load_action_yml(BENCH_IOC_ACTION_YML)
 
 
-def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(
+def test_the_bench_ioc_action_builds_the_tag_through_the_registry_cache(
     bench_ioc_action: dict[str, Any],
 ) -> None:
     """The recipe, pinned where its quiet failures live, as the virtual
     accelerator action's is. It sets up no builder: it builds on the one that
-    action leaves as the job's default, and a second setup would export its
-    cache through a different BuildKit container."""
-    assert bench_ioc_action["runs"]["using"] == "composite"
+    action leaves as the job's default."""
     steps = bench_ioc_action["runs"]["steps"]
-    unshelled = [
-        step.get("name") for step in steps if "run" in step and step.get("shell") != "bash"
-    ]
-    assert unshelled == [], (
-        f"every `run:` step of a composite action needs `shell: bash`: {unshelled}"
-    )
     setups = [step.get("name") for step in steps if BUILDX_ACTION in str(step.get("uses", ""))]
     assert setups == [], f"the action builds on the caller's builder; it sets up its own: {setups}"
-
-    cache = [i for i, step in enumerate(steps) if "actions/cache@" in str(step.get("uses", ""))]
-    assert len(cache) == 1, f"expected exactly one cache step; found {len(cache)}"
-    cache_with = steps[cache[0]]["with"]
-    assert cache_with["path"] == BENCH_IOC_CACHE_DIR
-    for hashed in ("Containerfile", "bench.db", "bench.acf", "st.cmd"):
-        assert f"'docker/bench-ioc/{hashed}'" in cache_with["key"], (
-            f"the cache key no longer hashes docker/bench-ioc/{hashed}"
-        )
-
-    build = _sole_step_whose_script(steps, f"--tag {BENCH_IOC_TAG}", f"builds {BENCH_IOC_TAG}")
-    script = steps[build]["run"]
-    assert f"-f {BENCH_IOC_CONTAINERFILE}" in script
-    assert f"--cache-from type=local,src={BENCH_IOC_CACHE_DIR}" in script
-    assert f"--cache-to type=local,dest={BENCH_IOC_CACHE_EXPORT_DIR},mode=max" in script
-
-    rotate = _sole_step_whose_script(
-        steps, f"mv {BENCH_IOC_CACHE_EXPORT_DIR} {BENCH_IOC_CACHE_DIR}", "rotates the cache"
+    script = _assert_an_image_action_caches_through_the_registry(
+        bench_ioc_action, BENCH_IOC_TAG, BENCH_IOC_CACHE_KEY
     )
-    assert rotate > build, "the rotation must follow the build"
+    assert f"-f {BENCH_IOC_CONTAINERFILE}" in script
 
 
-def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation__mutation_drops_the_rotation() -> (
+def test_the_bench_ioc_action_builds_the_tag_through_the_registry_cache__mutation_shares_the_va_key() -> (
     None
 ):
+    """One tag for two recipes: each warm-up export would replace the other's layers."""
     mutated = copy.deepcopy(_load_action_yml(BENCH_IOC_ACTION_YML))
     steps = mutated["runs"]["steps"]
-    steps.pop(
-        _sole_step_whose_script(
-            steps, f"mv {BENCH_IOC_CACHE_EXPORT_DIR} {BENCH_IOC_CACHE_DIR}", "rotates the cache"
-        )
+    build = _sole_step_whose_script(steps, f"--tag {BENCH_IOC_TAG}", "builds the image")
+    steps[build]["run"] = steps[build]["run"].replace(
+        f'"{BENCH_IOC_CACHE_KEY}"', f'"{VA_CACHE_KEY}"'
     )
-    with pytest.raises(AssertionError):
-        test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+    with pytest.raises(AssertionError, match="under the key"):
+        test_the_bench_ioc_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
-def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation__mutation_sets_up_a_builder() -> (
+def test_the_bench_ioc_action_builds_the_tag_through_the_registry_cache__mutation_sets_up_a_builder() -> (
     None
 ):
     mutated = copy.deepcopy(_load_action_yml(BENCH_IOC_ACTION_YML))
@@ -7782,7 +7731,7 @@ def test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation__mutation_
         0, {"name": "Set up Docker Buildx", "uses": "docker/setup-buildx-action@v3"}
     )
     with pytest.raises(AssertionError, match="caller's builder"):
-        test_the_bench_ioc_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+        test_the_bench_ioc_action_builds_the_tag_through_the_registry_cache(mutated)
 
 
 @pytest.mark.parametrize("site", sorted(VA_TAG_SITES))
@@ -9400,8 +9349,11 @@ def test_the_dockerfile_agent_turn__mutation_runs_both_modules_in_the_model_free
 # The write token sits in one job that runs no code under test
 # ---------------------------------------------------------------------------
 #
-# The workflow token is read-only, and no job but the canceller (actions: write)
-# and the baseline push widens it. visual-theming-agent renders the Linux
+# The workflow token is read-only, and no job but the canceller (actions: write),
+# the deploy layer-cache warm-up (packages: write) and the baseline push widens
+# it. The warm-up runs repo code, but only on pushes to main: merged code, never
+# a PR's, holds its token, and the builds that run under it never read the
+# credential (BuildKit uses it for the registry push alone). visual-theming-agent renders the Linux
 # baselines from the PR's code, so its checkout keeps no credentials;
 # visual-baselines-push, the only job with a write scope, checks out the PR
 # branch, downloads what the test job uploaded and commits it through the
@@ -9443,8 +9395,14 @@ def test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(
     wf = workflow if workflow is not None else _load_workflow()
     assert wf["permissions"] == {"contents": "read"}, "the workflow token is not read-only"
     # The canceller's actions: write cancels the run and nothing else (pinned with it).
-    assert _write_scopes(wf) == {BASELINE_PUSH_JOB: {"contents"}, CANCEL_JOB: {"actions"}}, (
-        f"write scopes outside the push job: {_write_scopes(wf)}"
+    assert _write_scopes(wf) == {
+        BASELINE_PUSH_JOB: {"contents"},
+        CANCEL_JOB: {"actions"},
+        DEPLOY_CACHE_WARMUP_JOB: {"packages"},
+    }, f"write scopes outside the push job: {_write_scopes(wf)}"
+    # The warm-up's packages: write is merged code's alone.
+    assert _jobs(wf)[DEPLOY_CACHE_WARMUP_JOB].get("if") == QMD_WARMUP_CONDITION, (
+        f"{DEPLOY_CACHE_WARMUP_JOB} holds packages: write on more than pushes to main"
     )
     persisting = [
         name
@@ -9480,6 +9438,14 @@ def test_only_the_baseline_push_job_can_write__mutation_test_job_writes() -> Non
     mutated = _load_workflow()
     _jobs(mutated)[BROWSER_AGENT_JOB]["permissions"] = {"contents": "write"}
     with pytest.raises(AssertionError, match="write scopes outside the push job"):
+        test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
+
+
+def test_only_the_baseline_push_job_can_write__mutation_warmup_runs_on_prs() -> None:
+    mutated = _load_workflow()
+    job = _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]
+    job["if"] = f"{job['if']} || github.event_name == 'pull_request'"
+    with pytest.raises(AssertionError, match="more than pushes to main"):
         test_only_the_baseline_push_job_can_write_and_it_runs_no_repo_code(mutated)
 
 
@@ -9951,7 +9917,8 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 WORKFLOWS_DIR = CI_YML.parent
 
 _TRIGGER_SCOPE_PHRASE = re.compile(
-    r"PRs? into|\bon main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul",
+    r"PRs? into|\b(on|to) main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul"
+    r"|on[ -]demand|\bpush(es)? to\b",
     re.IGNORECASE,
 )
 
@@ -9990,6 +9957,40 @@ def test_no_job_display_name_states_when_it_runs__mutation_names_a_trigger() -> 
     )
     with pytest.raises(AssertionError, match="PRs into"):
         _assert_no_display_name_states_when_it_runs(_job_display_names(CI_YML, mutated))
+
+
+def _assert_matrix_names_end_in_their_cell(names: dict[tuple[str, str], str]) -> None:
+    """A matrix job is `<Class> — <cells>`: GitHub shows a skipped matrix job's name
+    template unexpanded, so the class before the one em dash must read on its own."""
+    for (file, job_id), name in sorted(names.items()):
+        if "${{" not in name:
+            continue
+        cls, dash, _cells = name.partition(" — ")
+        assert dash and "${{" not in cls and name.count("—") == 1, (
+            f"{file}: matrix job {job_id!r} is named {name!r}; name it `<Class> — <cells>`, "
+            "with no expression before the one em dash"
+        )
+
+
+def test_matrix_job_names_end_in_their_cell() -> None:
+    names: dict[tuple[str, str], str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        names.update(_job_display_names(path, yaml.safe_load(path.read_text())))
+    _assert_matrix_names_end_in_their_cell(names)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Test Python ${{ matrix.python-version }} on ubuntu-latest — ${{ matrix.shard }}",
+        "Connectors HEAD under framework ${{ matrix.framework }}",
+        "Tier 1 — Build — ${{ matrix.preset }}",
+    ],
+)
+def test_matrix_job_names_end_in_their_cell__mutation(name: str) -> None:
+    """An expression before the dash, no dash at all, or a dash inside the class fails."""
+    with pytest.raises(AssertionError, match="<Class> — <cells>"):
+        _assert_matrix_names_end_in_their_cell({("ci.yml", "x"): name})
 
 
 # ---------------------------------------------------------------------------
@@ -11859,6 +11860,9 @@ def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str
             _module_constant(REPO_ROOT / ARCHIVER_TEST_FILE, "PROJECT_NAME"),
         ),
         (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP): (_deploy_e2e_project(wf),),
+        (DEPLOY_CACHE_WARMUP_JOB, "Clean up any stranded warm-up resources"): (
+            "deploy-cache-warmup",
+        ),
     }
 
 
@@ -15228,6 +15232,185 @@ def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() ->
     mutated = copy.deepcopy(_load_workflow())
     _find_named_step(mutated, QMD_WARMUP_JOB, "Warm the qmd layer cache").pop("with")
     assert len(_warmup_problems(mutated)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The deploy layer cache: main writes it, the deploying lanes read it
+# ---------------------------------------------------------------------------
+#
+# osprey.deployment.build_cache hands every image build OSPREY runs the specs in
+# OSPREY_BUILD_CACHE_FROM / _TO. Main's warm-up builds the demo preset with both
+# set; the lanes that deploy through `osprey up` set only the first, so PR code
+# reads main's layers and never writes any. The two target images the virtual
+# accelerator lanes build outside `osprey up` ride the same two variables,
+# through the actions that build them.
+
+DEPLOY_CACHE_READ_STEP = "Read the deploy image layers from main's cache"
+#: The jobs that build images through `osprey up`. Not here: the podman-only
+#: two-shape lane (podman reads neither variable), the Dockerfile lanes (their
+#: own `docker build`, not OSPREY's) and lanes that start no container.
+DEPLOY_CACHE_READERS = frozenset(
+    {
+        "agent-record-e2e",
+        "deploy-e2e",
+        "dispatch-stack-e2e",
+        "e2e-no-model",
+        "e2e-tests",
+        "full-chain-auth-e2e",
+        "gchat-bridge-e2e",
+        "multi-user-deploy-lifecycle-e2e",
+        "nextcloud-talk-bridge-e2e",
+        "orm-roundtrip-e2e",
+        "privilege-split-e2e",
+        "qmd-sidecar-e2e",
+        "stack-e2e",
+        "target-switch-agentic-e2e",
+        "va-live-e2e",
+    }
+)
+
+
+def _deploy_cache_problems(wf: dict[str, Any]) -> list[str]:
+    problems = []
+    for name, job in _jobs(wf).items():
+        reads = any(s.get("name") == DEPLOY_CACHE_READ_STEP for s in job.get("steps", []))
+        if reads != (name in DEPLOY_CACHE_READERS | {DEPLOY_CACHE_WARMUP_JOB}):
+            problems.append(f"{name}: reads the deploy layer cache: {reads}")
+        if name != DEPLOY_CACHE_WARMUP_JOB and "OSPREY_BUILD_CACHE_TO" in json.dumps(job):
+            problems.append(f"{name}: writes the deploy layer cache")
+    read = _find_named_step(wf, DEPLOY_CACHE_WARMUP_JOB, DEPLOY_CACHE_READ_STEP)["run"]
+    if "OSPREY_BUILD_CACHE_FROM=" not in read or "OSPREY_BUILD_CACHE_TO" in read:
+        problems.append(f"the read step sets more than the source: {read}")
+    if _jobs(wf)[DEPLOY_CACHE_WARMUP_JOB].get("if") != QMD_WARMUP_CONDITION:
+        problems.append(f"{DEPLOY_CACHE_WARMUP_JOB} runs on more than pushes to main")
+    return problems
+
+
+DEPLOY_CACHE_WRITE_STEP = "Write this job's image layers to the cache"
+DEPLOY_CACHE_DEMO_STEP = "Write the demo deployment's image layers to the cache"
+#: The actions that pass the job's cache specs to a ``docker buildx build`` of their own.
+TARGET_IMAGE_ACTIONS = (VA_IMAGE_ACTION, BENCH_IOC_ACTION)
+
+
+def _target_image_cache_problems(wf: dict[str, Any]) -> list[str]:
+    """Where a target-image build runs without the cache it is meant to read or write."""
+    problems = []
+    for name, job in _jobs(wf).items():
+        names = [step.get("name") for step in job.get("steps", [])]
+        builds = [i for a in TARGET_IMAGE_ACTIONS for i in _steps_using(wf, name, a)]
+        if not builds:
+            continue
+        # The action reads the variable when it runs, so the step that sets it comes first.
+        if DEPLOY_CACHE_READ_STEP not in names or names.index(DEPLOY_CACHE_READ_STEP) > min(builds):
+            problems.append(f"{name}: builds a target image before it names main's cache")
+
+    warmup = _jobs(wf)[DEPLOY_CACHE_WARMUP_JOB]
+    names = [step.get("name") for step in warmup["steps"]]
+    for action in TARGET_IMAGE_ACTIONS:
+        if len(_steps_using(wf, DEPLOY_CACHE_WARMUP_JOB, action)) != 1:
+            problems.append(f"{DEPLOY_CACHE_WARMUP_JOB}: does not write the layers of {action}")
+    if problems:
+        return problems
+    order = [
+        names.index("Log in to GHCR"),
+        names.index(DEPLOY_CACHE_WRITE_STEP),
+        # The demo images first: the VA action switches the job's default builder.
+        names.index(DEPLOY_CACHE_DEMO_STEP),
+        *(_steps_using(wf, DEPLOY_CACHE_WARMUP_JOB, action)[0] for action in TARGET_IMAGE_ACTIONS),
+    ]
+    if order != sorted(order):
+        problems.append(
+            f"{DEPLOY_CACHE_WARMUP_JOB}: login, sink, demo, VA, bench IOC run as {order}"
+        )
+    source = _find_named_step(wf, DEPLOY_CACHE_WARMUP_JOB, DEPLOY_CACHE_READ_STEP)["run"]
+    sink = _find_named_step(wf, DEPLOY_CACHE_WARMUP_JOB, DEPLOY_CACHE_WRITE_STEP)["run"]
+    spec = re.search(r"OSPREY_BUILD_CACHE_FROM=(\S+?)\"", source)
+    if (
+        spec is None
+        or f'"OSPREY_BUILD_CACHE_TO={spec.group(1)},mode=max" >> "$GITHUB_ENV"' not in sink
+    ):
+        problems.append(f"the sink is not the source with every layer kept: {sink}")
+    return problems
+
+
+def test_the_target_images_read_and_write_the_deploy_layer_cache(workflow: dict[str, Any]) -> None:
+    """A lane's target-image build reads what main's warm-up wrote for that recipe.
+
+    No run on main built these two images before, so nothing a pull request
+    could read was ever written. The warm-up builds them through the lanes' own
+    actions with the sink set for the whole job, after logging in.
+    """
+    assert _target_image_cache_problems(workflow) == []
+
+
+def test_the_target_images_read_and_write_the_deploy_layer_cache__mutation_warmup_skips_an_image() -> (
+    None
+):
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]["steps"]
+    del steps[_steps_using(mutated, DEPLOY_CACHE_WARMUP_JOB, BENCH_IOC_ACTION)[0]]
+    assert _target_image_cache_problems(mutated) == [
+        f"{DEPLOY_CACHE_WARMUP_JOB}: does not write the layers of {BENCH_IOC_ACTION}"
+    ]
+
+
+def test_the_target_images_read_and_write_the_deploy_layer_cache__mutation_sink_set_in_one_step() -> (
+    None
+):
+    """The shape before: an ``export`` inside the demo step, which no later step sees."""
+    mutated = _load_workflow()
+    sink = _find_named_step(mutated, DEPLOY_CACHE_WARMUP_JOB, DEPLOY_CACHE_WRITE_STEP)
+    sink["run"] = sink["run"].replace(' >> "$GITHUB_ENV"', "")
+    assert len(_target_image_cache_problems(mutated)) == 1
+
+
+def test_the_target_images_read_and_write_the_deploy_layer_cache__mutation_builds_before_the_demo() -> (
+    None
+):
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]["steps"]
+    names = [step.get("name") for step in steps]
+    build = steps.pop(_steps_using(mutated, DEPLOY_CACHE_WARMUP_JOB, VA_IMAGE_ACTION)[0])
+    steps.insert(names.index(DEPLOY_CACHE_DEMO_STEP), build)
+    assert len(_target_image_cache_problems(mutated)) == 1
+
+
+def test_the_target_images_read_and_write_the_deploy_layer_cache__mutation_a_lane_reads_too_late() -> (
+    None
+):
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    names = [step.get("name") for step in steps]
+    steps.append(steps.pop(names.index(DEPLOY_CACHE_READ_STEP)))
+    assert _target_image_cache_problems(mutated) == [
+        f"{VA_LIVE_JOB}: builds a target image before it names main's cache"
+    ]
+
+
+def test_only_main_writes_the_deploy_layer_cache(workflow: dict[str, Any]) -> None:
+    """Every PR lane reads what the warm-up writes, so a PR's own code must never write it."""
+    assert _deploy_cache_problems(workflow) == []
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_a_lane_writes() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)["deploy-e2e"].setdefault("env", {})["OSPREY_BUILD_CACHE_TO"] = "type=inline"
+    assert _deploy_cache_problems(mutated) == ["deploy-e2e: writes the deploy layer cache"]
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_a_lane_forgets_to_read() -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)["stack-e2e"]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != DEPLOY_CACHE_READ_STEP]
+    assert _deploy_cache_problems(mutated) == ["stack-e2e: reads the deploy layer cache: False"]
+
+
+def test_only_main_writes_the_deploy_layer_cache__mutation_warmup_on_any_push() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[DEPLOY_CACHE_WARMUP_JOB]["if"] = "github.event_name == 'push'"
+    assert _deploy_cache_problems(mutated) == [
+        f"{DEPLOY_CACHE_WARMUP_JOB} runs on more than pushes to main"
+    ]
 
 
 def _qmd_deploy_problems(wf: dict[str, Any]) -> list[str]:

@@ -13,12 +13,20 @@
     no control-target picker. app.js then mounts neither the chip nor its
     popover in the sidebar's control-system block, and nothing reads the
     posture route. -#}
-{#- data-panel-labels is the registry's roster of built-in panel labels, which
+{#- data-panel-labels is the roster of built-in panel labels (the registry's,
+    or the deployment's own web.panels.<id>.label where it writes one), which
     panel-catalog.js reads at module load. It is stamped rather than fetched
     because /api/panels answers for the ENABLED panels only and resolves after
     that module's array is built, so it can never name the full roster the
     "+" menu's catalog list needs. JSON in an attribute, SINGLE-quoted because
     Jinja's tojson escapes ' (and < > &) but leaves " alone. -#}
+{#- data-panel-icons is the glyph each web.panels.<id>.icon names, by panel id,
+    for built-in and declared panels alike; {} when the deployment names none.
+    panel-catalog.js reads it at module load. Same single-quoted JSON. -#}
+{#- data-panel-authored-labels lists the panel labels the deployment wrote
+    (web.panels.<id>.label, a discovered panel's manifest); [] when it writes
+    none. panel-catalog.js shows each as written, where a label the framework
+    derives reads in title case. Same single-quoted JSON. -#}
 {#- data-sidecar-panels is the registry's list of sidecar panels (id, label,
     icon, description, endpoints). panel-catalog.js builds one row and tab per
     entry at module load, so the bundle names no sidecar itself. Same
@@ -30,7 +38,7 @@
 {#- data-vendor is present ONLY as "cdn", when the page loads its vendor
     assets from the CDN rather than from the image. terminal.js reads it to
     pick its boot-failure sentence. Never emit it empty. -#}
-<html lang="en" data-page-ready="pending" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}{% if docs_url %} data-docs-url="{{ docs_url }}"{% endif %}{% if not vendor_offline %} data-vendor="cdn"{% endif %}>
+<html lang="en" data-page-ready="pending" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-panel-icons='{{ panel_icons|tojson }}' data-panel-authored-labels='{{ authored_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}{% if docs_url %} data-docs-url="{{ docs_url }}"{% endif %}{% if not vendor_offline %} data-vendor="cdn"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

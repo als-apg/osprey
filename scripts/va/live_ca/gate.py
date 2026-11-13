@@ -80,12 +80,13 @@ _STOP_GRACE_S = 2.0
 LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 
 #: Added in --pva mode: the model runner's seam, which serves a composite on
-#: both transports, its timed passes over an evolving composite, and the
-#: entrypoint serving the injection chain.
+#: both transports, its timed passes over an evolving composite, the
+#: entrypoint serving the injection chain, and one armed turn-by-turn shot.
 PVA_SUITES = (
     "tests/va/test_lume_pva_seam.py",
     "tests/va/test_timed_passes_live.py",
     "tests/va/test_injection_live.py",
+    "tests/va/test_turn_by_turn_live.py",
 )
 
 #: Modules that must import in --pva mode. This is a precondition, not a

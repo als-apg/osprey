@@ -403,6 +403,16 @@ Hide an app from one login in that login's file:
    apps:
      corrector-trim: {shown: false}
 
+A login can also show an app and keep its panel off the sidebar: the agent
+has the tools and the skill, and the panel is one "+ Add panel" away rather
+than a tab at login.
+
+.. code-block:: yaml
+
+   # tiers/readonly.yml
+   apps:
+     corrector-trim: {shown: true, panel_hidden: true}
+
 .. _how-to-apps-skills:
 
 Skills and agent parity
@@ -669,8 +679,9 @@ app's root and a ``.claude/`` directory anywhere in it, each with rule
    * - ``panel.label``
      - The sidebar row's text.
    * - ``panel.icon``
-     - The sidebar row's glyph, a name from the design system's icon set;
-       otherwise a generic one.
+     - The sidebar row's icon, one of the names the terminal draws (see
+       :doc:`../web-terminal/panels`). Without it the row wears the generic
+       one.
    * - ``panel.description``
      - The sentence the sidebar row's tooltip shows under its text.
    * - ``panel.help``

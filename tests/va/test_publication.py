@@ -152,7 +152,7 @@ def test_a_pass_that_is_not_timed_forces_only_what_it_drained() -> None:
     assert forced_names(NONE, NONE, NONE) == frozenset()
 
 
-def test_a_global_tick_posts_no_unchanged_fast_or_event_name() -> None:
+def test_a_pass_with_no_inputs_posts_no_unchanged_fast_or_event_name() -> None:
     out = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
     served = dict(out)
 
@@ -161,19 +161,41 @@ def test_a_global_tick_posts_no_unchanged_fast_or_event_name() -> None:
     assert posted == {"I:CURRENT": 5.0}
 
 
+def test_a_global_tick_posts_no_unchanged_name() -> None:
+    # A tick reads every served channel; a client already holds all but what
+    # moved since the last post.
+    out = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0, "M:TUNE:X": 0.25}
+    served = {**out, "M:TUNE:X": 0.2}
+
+    posted = untimed_outputs(out, served, TIMED, NONE, NONE, NONE, tick=True)
+
+    assert posted == {"M:TUNE:X": 0.25}
+
+
+def test_a_global_tick_posts_a_name_never_served_and_one_whose_undefined_condition_flipped() -> (
+    None
+):
+    out = {"M:BPM:X": 1.0, "M:BPM:Y": 2.0, "M:TUNE:X": 0.25}
+    served = {"M:BPM:X": 1.0, "M:TUNE:X": 0.25}
+
+    posted = untimed_outputs(out, served, NONE, NONE, {"M:TUNE:X"}, NONE, tick=True)
+
+    assert posted == {"M:BPM:Y": 2.0, "M:TUNE:X": 0.25}
+
+
 def test_a_global_tick_posts_a_changed_fast_or_event_name() -> None:
     out = {"I:CURRENT:FAST": 6.0, "I:COUNT": 4, "I:CURRENT": 5.0}
     served = {"I:CURRENT:FAST": 5.0, "I:COUNT": 3, "I:CURRENT": 5.0}
 
-    posted = untimed_outputs(out, served, TIMED, NONE, NONE, NONE)
+    posted = untimed_outputs(out, served, TIMED, NONE, NONE, NONE, tick=True)
 
-    assert list(posted) == ["I:CURRENT:FAST", "I:COUNT", "I:CURRENT"]
+    assert list(posted) == ["I:CURRENT:FAST", "I:COUNT"]
 
 
 def test_a_fault_transition_of_an_event_name_is_posted_on_a_global_tick() -> None:
     out = {"I:CHARGE": 1.0}
 
-    posted = untimed_outputs(out, {"I:CHARGE": 1.0}, TIMED, NONE, {"I:CHARGE"}, NONE)
+    posted = untimed_outputs(out, {"I:CHARGE": 1.0}, TIMED, NONE, {"I:CHARGE"}, NONE, tick=True)
 
     assert posted == {"I:CHARGE": 1.0}
 
@@ -184,7 +206,7 @@ def test_the_start_up_pass_posts_every_name_never_served() -> None:
     assert untimed_outputs(out, {}, TIMED, NONE, NONE, NONE) == out
 
 
-def test_a_view_with_neither_class_posts_everything_on_a_global_tick() -> None:
+def test_a_view_with_neither_class_posts_everything_on_a_pass_with_no_inputs() -> None:
     out = {"M:BPM:X": 1.0, "M:TUNE:X": 0.25}
 
     assert untimed_outputs(out, dict(out), NONE, NONE, NONE, NONE) == out
@@ -222,10 +244,10 @@ def test_an_emitted_name_on_a_pass_that_is_not_timed_is_posted_and_forced_once()
     served = dict(out)
     emitted = {"I:COUNT"}
 
-    posted = untimed_outputs(out, served, TIMED, emitted, NONE, NONE)
+    posted = untimed_outputs(out, served, TIMED, emitted, NONE, NONE, tick=True)
     forced = forced_names(NONE, emitted, NONE)
 
-    assert posted == {"I:COUNT": 3, "I:CURRENT": 5.0}
+    assert posted == {"I:COUNT": 3}
     assert forced == {"I:COUNT"}
 
     next_read = timed_pass_names(FAST, NONE)

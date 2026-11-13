@@ -40,6 +40,7 @@ WHITELIST: dict[str, set[str]] = {
     "tests/va/test_injection_live.py": {"os.environ", "socket"},
     "tests/va/test_lume_pva_seam.py": {"os.environ", "socket"},
     "tests/va/test_timed_passes_live.py": {"os.environ", "socket"},
+    "tests/va/test_turn_by_turn_live.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.

@@ -260,11 +260,10 @@ export function renderApproval(root, view, handlers) {
           class: 'muted',
           text: gate.reason || 'Start runs exactly what is shown above.',
         }),
-        gate.warning
-          ? h('span', { class: 'start-owner start-owner-warn', role: 'status', text: gate.warning })
-          : draft && view.owner
-            ? h('span', { class: 'muted start-owner', text: `Starts as ${view.owner}.` })
-            : null
+        ...gate.warnings.map((text) => h('span', { class: 'start-warn', role: 'status', text })),
+        draft && view.owner
+          ? h('span', { class: 'muted start-owner', text: `Starts as ${view.owner}.` })
+          : null
       ),
       // The slot is held while unneeded, so Start keeps its place either way.
       draft

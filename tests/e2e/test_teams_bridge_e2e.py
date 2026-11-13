@@ -254,11 +254,18 @@ interpreter — it shows up as a dedup store being written by a bridge the test 
 down. Shutdown therefore waits for the threads themselves, not merely for ``run`` to
 return."""
 
-WORKER_RUN_CAP_SEC = 90
+WORKER_RUN_CAP_SEC = 15
 """``DISPATCH_TIMEOUT_SEC`` for the worker AND the bridge's ``poll_budget``.
 
 Bounds how long a wedged run can hold a handler thread. The two must agree: the bridge's
-``CoreConfig`` refuses to build when ``POLL_BUDGET < DISPATCH_TIMEOUT_SEC``."""
+``CoreConfig`` refuses to build when ``POLL_BUDGET < DISPATCH_TIMEOUT_SEC``.
+
+Every proof that waits for settlement waits this long, whatever the run did: the worker
+here has no agent record to answer a finished run's status from, so the run reads as
+pending until the bridge's poll budget runs out, and the bridge then parks the question
+as queued. Nothing reads how the run ended, so the budget is kept short. What it must
+still cover is the dispatcher handshake that yields the ``run_id``, which ``poll_budget``
+also bounds and which takes a second or two."""
 
 BUILD_TIMEOUT_SEC = 600
 """Wall-clock cap on the one ``osprey build`` this module runs."""

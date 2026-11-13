@@ -165,6 +165,7 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #          +---- edit -> osprey build -> osprey up --------------+
 #
 #   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
@@ -292,9 +293,10 @@ default_panel: canopy
 # These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
 # EPICS, and the web panels for both. To drop it, delete this section, the
-# bluesky panel above, AND the `claude_code.servers.bluesky.enabled: true`
-# line under `config:` below — the block deploys the bridge, the line switches
-# on the server that dials it, and the build refuses the line left on alone.
+# `bluesky` entry under `web_panels:` in tiers/readwrite.yml and
+# tiers/admin.yml, AND the `claude_code.servers.bluesky.enabled: true` line
+# under `config:` below — the block deploys the bridge, the line switches on
+# the server that dials it, and the build refuses the line left on alone.
 bluesky:
   # The bridge and its Tiled catalog publish inside this deployment's port
   # block, so neither needs a number here. Add `port:` or `tiled_port:` only to
@@ -411,8 +413,8 @@ watchdogs:
 # `provider:` / `model:` above), the channel-finder pipeline block (from
 # `channel_finder_mode:`), the panel selection (from `web_panels:`), every
 # host port, and everything the `bluesky:`, `virtual_accelerator:`,
-# `va_archiver:`, `agent_record:`, `dispatch:` and `mcp_servers:` sections
-# above stand for.
+# `va_archiver:` and `agent_record:` sections above and the `dispatch:`
+# section below stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Your facility's own registry module — the file that registers its
@@ -957,16 +959,17 @@ config:
   # claude_code.aliases.haiku: claude-haiku-4-5
   # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
-  # own (the `mcp_servers:` field above is the usual home for one).
+  # own (a top-level `mcp_servers:` field is the usual home for one; the
+  # hello-world preset shows its shape).
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
-  # The `bluesky:`, `virtual_accelerator:`, `va_archiver:` and `dispatch:`
-  # sections above add their own services at build time. No host ports are
-  # written here: each service publishes on its fixed slot above
+  # The `bluesky:`, `virtual_accelerator:` and `va_archiver:` sections above
+  # and the `dispatch:` section below add their own services at build time. No
+  # host ports are written here: each service publishes on its fixed slot above
   # `deployment.port_base` (set that key to move the whole block). Add
   # `services.<name>.port` (`port_host` for the stores) only to pin one
   # outside it.
@@ -1167,8 +1170,9 @@ config:
   # memory (256 MB).
   web.panels.canopy.vole_bytes_max: 268435456
   # A colour theme for CANOPY, as a path relative to the project root
-  # (absolute accepted). Unset keeps CANOPY's own theme.
-  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
+  # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
+  # screens OSPREY's light and dark colours.
+  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1214,7 +1218,8 @@ config:
     # at base + 800. User number i gets its family's first port + i, so
     # removing a user never shifts anyone else's ports. Give a second
     # deployment its own `port_base` and its whole block moves with it; the
-    # virtual accelerator's Channel Access port (5064) is the one exception.
+    # virtual accelerator's Channel Access port (5064) and pvAccess port
+    # (5075) are the exceptions.
     # The reference guide's ports page prints the table.
     # Browsers reach the landing page's nginx directly here, so the address
     # they open is deploy.fqdn plus that port — and that is the address every
@@ -1444,12 +1449,10 @@ data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
-# build compares it against the installed preset and mentions it when the
-# preset has moved on; `osprey validate` refuses every difference from the
-# preset that no `# DEVIATION: <why>` comment above the line claims (tag set
-# by `deviation_marker:`). This profile is the source of truth either way.
+# build mentions it when the preset has changed since the repo last took
+# it. This profile is the source of truth: edit it freely.
 # `providers_hash` is the same record for providers.yml beside this file;
-# `osprey init --revalidate` adds the packaged entries and keys it lacks.
+# `osprey init --revalidate` applies what the presets changed since.
 provenance:
   preset: demo
   preset_hash: @PRESET_HASH:demo@
@@ -1662,8 +1665,8 @@ config:
   control_system.writes: never
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: readonly
   preset_hash: @PRESET_HASH:tiers/readonly@
@@ -1703,8 +1706,8 @@ config:
   control_system.writes: asked
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: readwrite
   preset_hash: @PRESET_HASH:tiers/readwrite@
@@ -1769,8 +1772,8 @@ config:
   web.scaffold_gallery.write_enabled: true
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: admin
   preset_hash: @PRESET_HASH:tiers/admin@
@@ -1889,8 +1892,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: logbook
   preset_hash: @PRESET_HASH:tiers/logbook@
@@ -1998,8 +2001,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: knowledge
   preset_hash: @PRESET_HASH:tiers/knowledge@
@@ -2105,8 +2108,8 @@ config:
   web.control_target_picker: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed tier and reports every
-# difference as drift. This file is the source of truth either way.
+# validate` mentions it when the tier has changed since the repo last
+# took it. This file is the source of truth: edit it freely.
 provenance:
   preset: channel-finder
   preset_hash: @PRESET_HASH:tiers/channel-finder@
@@ -2269,9 +2272,6 @@ OSPREY_AUTH_PW_ALICE=alice
 OSPREY_AUTH_PW_BOB=bob
 OSPREY_AUTH_PW_CAROL=carol
 
-# Runtime overrides (optional - for advanced use cases)
-#LOCAL_PYTHON_VENV=/path/to/your/venv/bin/python
-
 # Proxy settings (NO_PROXY, HTTP_PROXY, HTTPS_PROXY) live in `.env.shared`:
 # a site behind a corporate firewall is behind it on every host, so they are a
 # shared default rather than something each operator sets again.
@@ -2361,7 +2361,7 @@ in `profile.yml`, not the folder name.
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `.osprey/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -3236,8 +3236,8 @@ def packaged_application_files() -> dict[str, str]:
     these files, and what the comparison downstream is for is that init copies
     them through unchanged.
     """
-    from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
     from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.cli.build_profile_updates import APP_PROVENANCE_FILENAME, app_provenance_text
     from osprey.profiles import presets
 
     app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
@@ -3267,10 +3267,24 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
             shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
     """
-    return {
+    files = {
         path: expand_sentinels(text)
         for path, text in _exemplar_source_texts(with_ci=with_ci).items()
     }
+    files.update(saved_preset_copy(files))
+    return files
+
+
+def saved_preset_copy(files: dict[str, str]) -> dict[str, str]:
+    """The saved copy ``osprey init`` writes under ``.osprey/preset-base/`` for *files*.
+
+    Computed from the package, for the reason ``providers.yml`` is read rather
+    than frozen: it is what the installed presets produce for this repo.
+    """
+    from osprey.cli.build_profile_updates import covered_files, saved_copy_texts
+
+    nowhere = Path("/nonexistent-exemplar-root")
+    return saved_copy_texts(nowhere, covered_files(nowhere, texts=files))
 
 
 def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:

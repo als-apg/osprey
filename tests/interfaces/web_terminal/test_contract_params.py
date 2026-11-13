@@ -9,7 +9,7 @@ requires a real browser evaluating real page script:
   (design-system ``frame-params.js``) adds the ``embedded`` class to
   ``document.body``; ``?theme=<id>`` -> ``theme-boot.js`` applies
   ``data-theme`` before first paint and ``theme-manager.js`` follows it.
-  See :func:`test_embedded_hides_branding_and_switcher`.
+  See :func:`test_embedded_activity_page_hides_its_name_and_has_no_theme_control`.
 - **hash = panel-owned deep-link.** okf_panel reads its own
   ``location.hash`` and routes to that concept on load
   (``readPanelParams``/``bootFromParams`` in okf_panel's ``app.js``); the hub
@@ -29,9 +29,9 @@ review-based fallback was needed):
 
 - ``theme-manager.js`` ``_handleMessage`` -- :func:`test_postmessage_theme_change_same_origin_only`
 - ``artifacts`` gallery.js session-change receiver -- :func:`test_postmessage_session_change_gallery_rejects_foreign_origin`
-- ``web_terminal`` ``session.html`` session-change receiver --
+- ``web_terminal`` ``session.html`` (the Activity page) session-change receiver --
   :func:`test_postmessage_session_change_session_html_rejects_foreign_origin`.
-  ``/static/session.html`` turned out to be independently drivable: web_terminal's
+  ``/static/session.html`` is independently drivable: web_terminal's
   ``configure_interface_app(app, static_dir=STATIC_DIR)`` mounts the interface's
   whole ``static/`` directory at ``/static``, and ``session.html`` lives directly
   under it, so ``GET /static/session.html`` serves it like any other static asset.
@@ -233,20 +233,26 @@ def test_postmessage_session_change_session_html_rejects_foreign_origin(
 ):
     """web_terminal's /static/session.html session-change receiver rejects foreign origin.
 
-    ``session.html`` is served directly by web_terminal's own ``/static``
-    mount (``configure_interface_app(app, static_dir=STATIC_DIR)`` in
-    ``osprey/interfaces/web_terminal/app.py`` mounts the whole static
-    directory, and ``session.html`` lives at its top level), so it is
-    independently drivable rather than needing a review-based fallback.
-    ``apiFetch()`` appends ``&session_id=<currentSessionId>`` to every
-    request once ``currentSessionId`` is set, so the request URL for a view
-    fetch is the observable signal for whether the receiver updated it.
+    The Activity page reads ``/api/session-activity`` for the session it
+    shows, and names a session key as ``?session_id=<key>`` on that request,
+    so the request URL is the observable signal for whether the receiver moved
+    the page. Both messages carry a well-formed session key: the receiver
+    drops anything that is not one, so a malformed key would be rejected by
+    that check and prove nothing about the origin guard.
     """
+    foreign = "99999999-8888-4777-8666-555555555555"
+    accepted = "11111111-2222-4333-8444-555555555555"
+
+    def _is_read(request) -> bool:
+        return "/api/session-activity" in request.url and "/result" not in request.url
+
     # Arrange
     with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
+        reads: list[str] = []
+        page.on("request", lambda r: reads.append(r.url) if _is_read(r) else None)
 
-        with page.expect_request(lambda r: "/api/session-agents" in r.url) as initial_info:
+        with page.expect_request(_is_read) as initial_info:
             page.goto(f"{base_url}/static/session.html", wait_until="load")
             wait_for_page_ready(page)
         assert "session_id" not in initial_info.value.url
@@ -254,30 +260,32 @@ def test_postmessage_session_change_session_html_rejects_foreign_origin(
         # Act -- synthetic foreign-origin session-change.
         page.evaluate(
             """
-            () => window.dispatchEvent(new MessageEvent('message', {
+            key => window.dispatchEvent(new MessageEvent('message', {
                 origin: 'https://evil.example',
-                data: {type: 'osprey-session-change', session_id: 'evil-session-999'},
+                data: {type: 'osprey-session-change', session_id: key},
             }))
-            """
+            """,
+            foreign,
         )
-        # Assert -- rejected: currentSessionId did not change; switching to
-        # the Tool Log view still fetches with no (foreign) session_id.
-        with page.expect_request(lambda r: "/api/session-log" in r.url) as rejected_info:
-            page.locator('.pill[data-view="toollog"]').click()
-        assert "evil-session-999" not in rejected_info.value.url
+        # Assert -- rejected: the page did not move, so the read its Refresh
+        # button sends still names no session, and no read ever named the
+        # foreign one.
+        with page.expect_request(_is_read) as rejected_info:
+            page.locator("#refresh").click()
         assert "session_id" not in rejected_info.value.url
+        assert not any(foreign in url for url in reads), reads
 
         # Act -- genuine same-origin session-change (positive control). The
-        # handler calls refreshActive() itself, re-fetching the currently
-        # active view (Tool Log, from the click above) with the new session id.
-        with page.expect_request(lambda r: "/api/session-log" in r.url) as accepted_info:
+        # receiver moves the page, which reads the named session at once.
+        with page.expect_request(_is_read) as accepted_info:
             page.evaluate(
-                "window.postMessage({type: 'osprey-session-change',"
-                " session_id: 'contract-test-session'}, window.location.origin)"
+                "key => window.postMessage({type: 'osprey-session-change',"
+                " session_id: key}, window.location.origin)",
+                accepted,
             )
         # Assert -- accepted, proving the rejection assertion above would
         # have caught a real leak.
-        assert "session_id=contract-test-session" in accepted_info.value.url
+        assert f"session_id={accepted}" in accepted_info.value.url
 
         page.close()
 
@@ -363,88 +371,36 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 
 
 # ---------------------------------------------------------------------------
-# (3) chrome contract: query config, theme control, embedded-hide, D15 reload-strip
+# (3) chrome contract: query config, embedded-hide, D15 reload-strip
 # ---------------------------------------------------------------------------
-# Every panel exposes a theme control, and `applyEmbedded()` is wired into
-# each of the 6 panels below -- this is the automated proof that the chrome
-# contract holds on every panel, not just the one or two it was developed
-# against.
-# web_terminal's own session.html joins as fleet page 7, via a
-# path-override on `launch_web_terminal` (same hub server
-# test_load_smokes.py's own '/' case boots) rather than a distinct
-# launcher -- session.html is a static page under the hub's /static
-# mount, not a second app.
-# `branding_selector` is the per-page standalone-only element the D15
-# narrowing keeps hidden in embedded mode; okf_panel has no branding
-# chrome of its own to hide, so its entry is `None` and the branding
-# assertion is skipped for it.
-# `theme_control_selector` + `toggle_action` are the pair the two chrome tests
-# below drive: the element the D15 embedded-hide rule targets, and the callable
-# that flips its appearance away from dark. The activity log (session.html) is
-# the one web-terminal page with its own page chrome and theme control; panel
-# pages have neither.
+# The Activity page (session.html) is the one web-terminal page that opens in
+# a tab of its own as well as framed in the hub. It is a static page under the
+# hub's /static mount, not a second app, so `launch_web_terminal` serves it.
+# It carries no theme control: it shows the theme the terminal is in, and the
+# theme is picked in the hub's More menu. So the embedded-hide rule is asserted
+# on the page's own name, and the D15 reload-strip on the hub, whose appearance
+# rows are the web terminal's theme control.
+
+_ACTIVITY_PAGE = "/static/session.html"
 
 
-def _toggle_via_switcher(page):
-    """Flip `<osprey-theme-switcher>` off dark: one click on its mode button."""
-    page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
-
-
-_CHROME_CONTRACT_PANELS = [
-    (
-        "web_terminal_session",
-        launch_web_terminal,
-        "/static/session.html",
-        "header h1",
-        "osprey-theme-switcher",
-        _toggle_via_switcher,
-    ),
-]
-
-_CHROME_CONTRACT_ARGNAMES = (
-    "_panel_name",
-    "launch",
-    "path",
-    "branding_selector",
-    "theme_control_selector",
-    "toggle_action",
-)
-_CHROME_CONTRACT_IDS = [entry[0] for entry in _CHROME_CONTRACT_PANELS]
-
-
-@pytest.mark.parametrize(
-    _CHROME_CONTRACT_ARGNAMES,
-    _CHROME_CONTRACT_PANELS,
-    ids=_CHROME_CONTRACT_IDS,
-)
-def test_embedded_hides_branding_and_switcher(
-    _panel_name,
-    launch,
-    path,
-    branding_selector,
-    theme_control_selector,
-    toggle_action,
-    tmp_path,
-    monkeypatch,
-    chromium_browser,
+def test_embedded_activity_page_hides_its_name_and_has_no_theme_control(
+    tmp_path, monkeypatch, chromium_browser
 ):
-    """``?embedded=true`` hides the page's own branding AND its theme control.
+    """``?embedded=true&theme=dark`` on the Activity page: framed, dark, unnamed.
 
-    It also carries the query=config arm: ``body.embedded`` and a
-    ``?theme=dark`` load are asserted.
-
-    The theme control's own D15 rule (``body.embedded <tag> { display: none
-    }``, injected once by osprey-theme-switcher.js) is what hides it. The
-    branding selector, by contrast, is the page's own ``body.embedded
-    <selector> { display: none }`` rule.
+    The query=config arm: ``applyEmbedded()`` adds ``body.embedded`` and the
+    creation-time ``?theme=`` applies. Framed, the hub's own tab names the
+    page, so the page's ``body.embedded .act-page-name { display: none }``
+    rule hides its name; in a tab of its own the name shows. Neither way does
+    the page carry a theme control.
     """
-    del toggle_action  # unused here; shared parametrization with the toggle test below
     # Arrange
-    with launch(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         # Act
-        page.goto(f"{base_url}{path}?embedded=true&theme=dark", wait_until="load")
+        page.goto(f"{base_url}{_ACTIVITY_PAGE}?embedded=true&theme=dark", wait_until="load")
         wait_for_page_ready(page)
 
         # Assert -- applyEmbedded() ran.
@@ -454,68 +410,52 @@ def test_embedded_hides_branding_and_switcher(
         # than the auto default, which is 'light' under headless Chromium, so
         # the query param is what drove it.
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
-        # Assert -- the theme control is hidden by its component's own injected rule.
-        assert (
-            page.evaluate(
-                "sel => getComputedStyle(document.querySelector(sel)).display",
-                theme_control_selector,
-            )
-            == "none"
-        )
-        # Assert -- the page's own branding is hidden (skipped where none exists).
-        if branding_selector:
-            assert (
-                page.evaluate(
-                    f"getComputedStyle(document.querySelector('{branding_selector}')).display"
-                )
-                == "none"
-            )
+        # Assert -- the page's own name is hidden, and it has no theme control.
+        expect(page.locator(".act-page-name")).to_have_count(1)
+        expect(page.locator(".act-page-name")).to_be_hidden()
+        expect(page.locator("osprey-theme-switcher")).to_have_count(0)
+
+        # Act -- the same page in a tab of its own.
+        page.goto(f"{base_url}{_ACTIVITY_PAGE}", wait_until="load")
+        wait_for_page_ready(page)
+
+        # Assert -- not embedded: the name shows; still no theme control.
+        expect(page.locator("body.embedded")).to_have_count(0)
+        expect(page.locator(".act-page-name")).to_be_visible()
+        expect(page.locator("osprey-theme-switcher")).to_have_count(0)
 
         page.close()
 
 
-@pytest.mark.parametrize(
-    _CHROME_CONTRACT_ARGNAMES,
-    _CHROME_CONTRACT_PANELS,
-    ids=_CHROME_CONTRACT_IDS,
-)
 def test_theme_toggle_strips_stale_query_param_and_survives_reload(
-    _panel_name,
-    launch,
-    path,
-    branding_selector,
-    theme_control_selector,
-    toggle_action,
-    tmp_path,
-    monkeypatch,
-    chromium_browser,
+    tmp_path, monkeypatch, chromium_browser
 ):
-    """Standalone, the theme control toggles dark to light and the pick survives reload.
+    """In the hub, picking Light over a ``?theme=dark`` URL sticks across a reload.
 
-    D15: the toggle strips ``?theme=`` from the URL, so the reload resolves the
-    stored pick instead of resurrecting the param. Starts from a real ``?theme=dark`` query param (not merely its absence)
-    so the post-toggle assertion proves setTheme()'s ``history.replaceState``
-    strip actually removed something, rather than passing vacuously on a URL
-    that never had the param to begin with.
+    D15: the pick strips ``?theme=`` from the URL, so the reload resolves the
+    stored pick instead of resurrecting the param. Starts from a real
+    ``?theme=dark`` query param (not merely its absence) so the post-pick
+    assertion proves setTheme()'s ``history.replaceState`` strip actually
+    removed something, rather than passing vacuously on a URL that never had
+    the param to begin with.
     """
-    del branding_selector  # unused here; shared parametrization with the embedded test above
     # Arrange
-    with launch(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         # A dark OS preference, so the auto-resolved theme a reload would fall
         # back to without a stored pick is dark — the opposite of the pick.
         page = chromium_browser.new_page(color_scheme="dark")
-        page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
+        page.goto(f"{base_url}/?theme=dark", wait_until="load")
         wait_for_page_ready(page)
-        # Assert -- standalone, the control is visible (the inverse of the
-        # embedded case) and the query param applied.
-        expect(page.locator(theme_control_selector)).to_be_visible()
+        # Assert -- the query param applied.
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
-        # Act -- toggle via the panel's theme chrome.
-        toggle_action(page)
+        # Act -- pick Light in the More menu's appearance rows.
+        page.click("#more-btn")
+        expect(page.locator("#more-menu")).to_be_visible()
+        page.click('#more-menu [role="menuitemradio"][data-appearance="light"]')
 
-        # Assert -- toggleTheme() cycled dark -> light, and the leftover
-        # ?theme=dark is gone from the URL immediately.
+        # Assert -- the theme is light, and the leftover ?theme=dark is gone
+        # from the URL immediately.
         expect(page.locator("html[data-theme='light']")).to_have_count(1)
         assert "theme=" not in page.url
 
@@ -525,8 +465,7 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
         # Assert -- the stale param can't be resurrected because it was
         # actually stripped (not just visually ignored): reload falls back to
-        # localStorage, then the OS preference. Every standalone page runs
-        # theme-manager.js in the hub role and persisted the toggled pick, so
+        # localStorage, then the OS preference. The hub persisted the pick, so
         # it comes back light rather than the OS's dark.
         expect(page.locator("html[data-theme='light']")).to_have_count(1)
         assert "theme=" not in page.url

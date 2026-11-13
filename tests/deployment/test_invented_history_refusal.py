@@ -63,7 +63,11 @@ def test_the_refusal_names_the_file_to_fix_and_the_ways_out():
         _refuse_invented_history(VA_MOCK_NESTED)
     message = str(excinfo.value)
 
-    assert "config.yml" in message
+    # build/config.yml is re-rendered by every build; the fix has to be made
+    # where it survives one.
+    assert "config.yml" not in message
+    assert "profile.yml" in message
+    assert "osprey set config.archiver.type=" in message
     assert "va_archiver" in message
     assert "control_system.connector.virtual_accelerator.serving: in_process" in message
 

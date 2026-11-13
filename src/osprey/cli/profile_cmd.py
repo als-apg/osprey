@@ -34,7 +34,12 @@ import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
+from osprey.utils.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIR_KINDS,
+    PRESET_TRACKING_DIRNAME,
+    TIERS_DIRNAME,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
@@ -253,6 +258,10 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     *LAYER_DIR_KINDS,
     # The applications: not a layer directory, but source the repo owns.
     APPS_DIRNAME,
+    # The saved copy of what the presets produced (`.osprey/preset-base/`).
+    # Top-level, because the hold-aside swap renames entries without making
+    # their parent directories.
+    PRESET_TRACKING_DIRNAME,
     PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
@@ -311,10 +320,6 @@ class _ProviderCatalogPlan(NamedTuple):
     """Provider name → entry, parsed. What the ``.env`` seeding reads to learn
     which environment variable each provider's key lives in."""
 
-    content_hash: str
-    """:func:`~osprey.profiles.providers.compute_providers_hash` of that content,
-    stamped into the emitted profile's ``provenance.providers_hash``."""
-
     carried: tuple[str, ...]
     """Entry names taken from the repo's existing catalog because the packaged
     one does not declare them — the operator's own gateways. Empty on a first
@@ -343,7 +348,7 @@ def _previous_provider_catalog(target: Path) -> Path | None:
 
 
 def _plan_provider_catalog(
-    target: Path, *, keep_values: bool = False, claimed_absent: Collection[str] = ()
+    target: Path, *, keep_values: bool = False, deleted: Collection[str] = ()
 ) -> _ProviderCatalogPlan:
     """Resolve the catalog to write into ``target`` from the one OSPREY ships.
 
@@ -359,8 +364,7 @@ def _plan_provider_catalog(
       treats ``profile.yml``: every value it states is kept, an edited packaged
       entry included, and only what it lacks is added — a packaged entry it
       does not have, and a packaged key an existing entry does not state,
-      unless a deviation marker claims it absent (*claimed_absent*).
-      ``osprey validate`` reports each difference that remains as drift.
+      except one the operator deleted on purpose (*deleted*).
 
     Build-time resolution is the opposite rule on purpose
     (:func:`~osprey.profiles.providers.load_provider_catalog` replaces rather
@@ -374,14 +378,15 @@ def _plan_provider_catalog(
             returned, and the caller writes it once the directory exists.
         keep_values: Keep every value the existing file states and add only
             what it lacks, rather than refreshing the packaged entries.
-        claimed_absent: With *keep_values*, the entries and keys a deviation
-            marker in the existing file claims absent, dotted as ``osprey
-            validate`` names them (``providers.openrouter``,
-            ``providers.cborg.health_model``); none of them is added.
+        deleted: With *keep_values*, the entries and keys the operator
+            deleted on purpose: the saved copy under ``.osprey/preset-base/``
+            holds them and the existing file does not. Dotted
+            (``providers.openrouter``, ``providers.cborg.health_model``); none
+            of them is added back.
 
     Returns:
-        The file content, its parsed entries, its hash, and the names carried
-        over (:class:`_ProviderCatalogPlan`).
+        The file content, its parsed entries, and the names carried over
+        (:class:`_ProviderCatalogPlan`).
 
     Raises:
         click.UsageError: The repo's existing catalog does not parse. Refusing
@@ -390,22 +395,13 @@ def _plan_provider_catalog(
             replacing it would drop gateways.
     """
 
-    from osprey.profiles.providers import (
-        compute_providers_hash,
-        load_provider_catalog,
-        packaged_catalog_path,
-    )
+    from osprey.profiles.providers import load_provider_catalog, packaged_catalog_path
 
     packaged_path = packaged_catalog_path()
     packaged_text = packaged_path.read_text(encoding="utf-8")
 
     def _packaged_only() -> _ProviderCatalogPlan:
-        return _ProviderCatalogPlan(
-            packaged_text,
-            dict(load_provider_catalog(None).entries),
-            compute_providers_hash(packaged_path),
-            (),
-        )
+        return _ProviderCatalogPlan(packaged_text, dict(load_provider_catalog(None).entries), ())
 
     previous = _previous_provider_catalog(target)
     if previous is None:
@@ -447,23 +443,21 @@ def _plan_provider_catalog(
         if not isinstance(present, dict) or not isinstance(entry, dict):
             continue
         lacking = [
-            key
-            for key in entry
-            if key not in present and f"providers.{name}.{key}" not in claimed_absent
+            key for key in entry if key not in present and f"providers.{name}.{key}" not in deleted
         ]
         if lacking:
             text = _add_entry_keys(text, name, _entry_key_lines(packaged_blocks[name], lacking))
     missing = [
         name
         for name in packaged_raw
-        if name not in existing_raw and f"providers.{name}" not in claimed_absent
+        if name not in existing_raw and f"providers.{name}" not in deleted
     ]
     if missing:
         text = _add_entries(text, "".join(packaged_blocks[name] for name in missing))
     kept = {
         name: entry
         for name, entry in packaged_entries.items()
-        if f"providers.{name}" not in claimed_absent
+        if f"providers.{name}" not in deleted
     }
     return _staged_provider_plan(text, previous, kept, existing_entries, carried)
 
@@ -475,20 +469,19 @@ def _staged_provider_plan(
     existing_entries: Mapping[str, Any],
     carried: tuple[str, ...],
 ) -> _ProviderCatalogPlan:
-    """The plan for writing *text*, validated and hashed as every reader of the file sees it."""
+    """The plan for writing *text*, validated as every reader of the file sees it."""
     import tempfile
 
-    from osprey.profiles.providers import compute_providers_hash, load_provider_catalog
+    from osprey.profiles.providers import load_provider_catalog
 
-    # Staged rather than hashed in memory: the validation and the hash are the
-    # ones every other reader of a catalog file gets, over the exact bytes this
-    # repo is about to hold, so a merge that produced something unreadable
-    # fails here rather than at the next build.
+    # Staged rather than parsed in memory: the validation is the one every
+    # other reader of a catalog file gets, over the exact bytes this repo is
+    # about to hold, so a merge that produced something unreadable fails here
+    # rather than at the next build.
     with tempfile.TemporaryDirectory() as staging:
         staged = Path(staging) / PROVIDERS_FILENAME
         staged.write_text(text, encoding="utf-8")
         entries = dict(load_provider_catalog(Path(staging)).entries)
-        digest = compute_providers_hash(staged)
     if set(entries) != set(packaged_entries) | set(existing_entries):
         raise click.UsageError(
             f"Could not merge the provider catalog at {previous} with the one OSPREY "
@@ -496,7 +489,7 @@ def _staged_provider_plan(
             f"that file somewhere you can read it, re-run this command to get a fresh "
             f"`{PROVIDERS_FILENAME}`, then paste your own entries back into it."
         )
-    return _ProviderCatalogPlan(text, entries, digest, carried)
+    return _ProviderCatalogPlan(text, entries, carried)
 
 
 def _catalog_mapping(text: str) -> dict[str, Any]:
@@ -1874,7 +1867,6 @@ def _materialize_profile_directory(
         project_name=project_name,
         extra_layers=extra_layers,
         include_flow_diagram=True,
-        providers_hash=catalog.content_hash,
     )
 
     # The repo root is allowed to exist — it usually does (an empty clone, the
@@ -2043,8 +2035,8 @@ def _materialize_profile_directory(
         # failed run's `_cleanup` removes it. Byte-code is dropped as for a seed.
         applications = init_applications(normalized_preset, set_pairs)
         if applications:
-            from .build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
             from .build_profile_merge import compute_preset_hash
+            from .build_profile_updates import APP_PROVENANCE_FILENAME, app_provenance_text
 
             preset_hash = compute_preset_hash(normalized_preset)
             for app_name in applications:
@@ -2065,6 +2057,14 @@ def _materialize_profile_directory(
         from .init_revalidate import name_shipped_shadows
 
         name_shipped_shadows(target)
+
+        # What the presets produced, saved beside what was written from them,
+        # so a later `osprey init --revalidate` can tell what a preset changed
+        # from what the operator edited. Taken from the presets, not from the
+        # files: a `--set` edit is the operator's, not the preset's.
+        from .build_profile_updates import save_preset_base
+
+        save_preset_base(target)
 
         # The round-trip runs last because it validates `data:` against the tree
         # that must already be on disk. Only the host profile is resolved: a

@@ -439,7 +439,14 @@ export function createPanel({ api, doc = document, setTimer, clearTimer, now = D
    */
   function renderPolled() {
     const { job, approval } = state;
-    const key = [job?.job_id, job?.status, approval.jobId, approval.revision, approval.needsReview];
+    const key = [
+      job?.job_id,
+      job?.status,
+      job?.start_notice,
+      approval.jobId,
+      approval.revision,
+      approval.needsReview,
+    ];
     if (key.join('|') !== state.renderedKey) {
       state.renderedKey = key.join('|');
       renderApprovalCard();

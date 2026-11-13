@@ -148,14 +148,24 @@ no container runtime answers. To keep the old data instead, pass
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
 ``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
-this OSPREY in place: the current profile vocabulary, every config key the
-profile leaves to its preset (from ``--preset NAME``, or the preset the profile
-records), the provider entries and keys OSPREY ships that ``providers.yml``
-lacks and no deviation marker claims absent (every value already in it is
-kept, an edited entry OSPREY ships included), and, while the profile's lists name nothing by path, the repo's own
+this OSPREY in place: the current profile vocabulary, what the presets changed
+since the repository last took them, the provider entries and keys OSPREY
+added since (every value already in ``providers.yml`` is kept), and, while the
+profile's lists name nothing by path, the repo's own
 skills, agents, rules, output styles and hooks named by path in ``profile.yml``
 and each ``lists: own`` login (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
+A preset change is applied only where your file still holds the preset's old
+value: an added key, panel or step you lack is added, and a removed or changed
+one you kept is removed or updated. Anything you changed yourself is left
+alone, and a key, entry or provider you deleted is not added back. What it does
+not apply but you may want is printed once, under "left for you". Drop any
+change you do not want from the diff before you commit: it is not offered
+again. ``--preset NAME`` switches the profile to that preset and fills in what
+it has and the profile lacks. A repository made before this tracking existed
+starts it on its first ``--revalidate``: nothing records what its presets said,
+so that run fills in the ``config:`` keys the profile lacks and lists whatever
+else differs from the presets under "left for you", applying none of it.
 A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
 is re-emitted from the bundled login, an edited one keeps its lines and gains
 ``lists: own``. A ``landing.groups`` entry ``type: apps`` becomes
@@ -237,7 +247,7 @@ Check the deployment profile without building.
 
 .. code-block:: bash
 
-   osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
+   osprey validate [TARGET] [--repo DIRECTORY]
 
 With no argument, validates the deployment repository enclosing the working
 directory. ``TARGET`` names a different profile to check instead — a login
@@ -249,28 +259,10 @@ then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
-A profile ``osprey init`` wrote is also compared with the preset it came from,
-login files included, and the two kinds of difference are treated
-differently.
-
-**Structural** differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or an
-``exclude:`` of something the preset keeps. Each is reported with both
-``file:line`` references unless a ``# DEVIATION: <why>`` comment within three
-lines above the profile line claims it (for a missing line, a comment anywhere
-naming the key or member). The tag is set by ``provenance.deviation_marker``; a
-marker that no longer marks a difference is reported as stale.
-``--drift=warn`` prints them and passes.
-
-**Value** differences — a key both documents carry, set to different values —
-are always only reported, on every setting. The profile is the source of truth,
-so a preset that changes a value in a later OSPREY release turns up as a note
-rather than failing a build that was fine yesterday.
-
-``osprey build`` prints the same list under ``-v`` and, whenever the bundled
-preset's hash differs from the recorded one, a one-line note that the preset
-has moved on. A ``providers.yml`` that no longer matches the packaged catalog
-is reported the same way — as a note, never a refusal.
+The profile is yours to edit, so no difference from the preset ``osprey init``
+wrote it from is refused or listed, in ``profile.yml``, a login file, or
+``providers.yml``. When the bundled preset has changed since, ``validate`` and
+``osprey build`` print one line saying so.
 
 .. code-block:: bash
 

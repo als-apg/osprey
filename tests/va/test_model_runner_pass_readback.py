@@ -1,8 +1,8 @@
 """A write pass reads back only what its write can change.
 
-An apply writes one setting per corrector, and every write is a pass of its
-own, so a pass that read the whole roster back would put one full publishing
-pass per corrector behind the apply. A physics setting reaches its own model
+An apply writes one setting per corrector, and a write that arrives alone is a
+pass of its own, so a pass that read the whole roster back would put a full
+publishing pass behind every such write. A physics setting reaches its own model
 alone, and there moves itself, its readback and what the model computes from
 its settings; a texture setpoint moves itself, its echo and the texture
 channels derived from either. The first tests check that on the built example's
@@ -15,6 +15,7 @@ needs the serving package but no transport.
 
 from __future__ import annotations
 
+import queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -155,6 +156,7 @@ def test_each_write_pass_reads_back_what_its_write_can_change(
         Runner, "_run_cycle", lambda self, _item: read.append(self._cycle_output_names())
     )
     runner = object.__new__(ModelRunner)
+    runner.queue = queue.Queue()
     runner._periodic = periodic_addresses(view)
     runner._setting_records = write_records(view, composite.texture_reach())
 

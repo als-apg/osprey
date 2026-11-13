@@ -1027,12 +1027,17 @@ class PanelRosterGrant:
         grant — the container each per-user terminal proxies that panel's tab
         into with the operator secret ITS container holds.
     :ivar single_user_alias: Whether, on a deployment with no web-terminal
-        roster, the deployment-wide secret is accepted under the build
-        account's name.
+        roster, the deployment-wide secret is accepted under the single-user
+        operator's name (``deployment.host_identity``).
+    :ivar loopback_only: Whether the service publishes on loopback whatever
+        ``deployment.bind_address`` says, as an application container does.
+        ``False`` for a service that publishes on the deployment's interface:
+        its alias then holds only while that interface is loopback.
     """
 
     service: str
     single_user_alias: bool = False
+    loopback_only: bool = False
 
 
 class PanelCredential(TypedDict):
@@ -1062,7 +1067,7 @@ class PanelGrant(TypedDict):
 #: The rows no application projects: panel id → the service holding its grant.
 BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
     BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
 }
 
 
@@ -1092,8 +1097,12 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
                 f"services.{key}.roster_grant: panel {panel_id!r} already has its grant "
                 f"on service {table[panel_id].service!r}"
             )
+        # An application container never publishes off loopback
+        # (compose_generator._refuse_fragment_document refuses it).
         table[panel_id] = PanelRosterGrant(
-            service=str(key), single_user_alias=row.get("single_user_alias") is True
+            service=str(key),
+            single_user_alias=row.get("single_user_alias") is True,
+            loopback_only=True,
         )
     return table
 
@@ -1180,6 +1189,20 @@ def _panel_roster_grants(
     return grants
 
 
+def has_web_terminal_roster(config: Any) -> bool:
+    """Whether the deployment runs per-user web terminals: the multi-user shape.
+
+    The other shape is single-user: one ``osprey web`` on the host, whose
+    operator is ``deployment.host_identity``. Switched-off per-user terminals
+    hold no secret, so only the one terminal is left; a roster of shared cards
+    alone is a roster, each card holding its own secret.
+
+    :param config: The parsed deploy config.
+    """
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
+
+
 def service_panel_grant(
     config: Any,
     project_root: Any,
@@ -1194,9 +1217,18 @@ def service_panel_grant(
     holder: one credential per entitled roster user, roster order, each read
     from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
     deployment with no roster, a row with ``single_user_alias`` instead accepts
-    the deployment-wide secret under the build account's name: one required
-    credential, the account's variable read from ``OSPREY_TERMINAL_SECRET``.
-    No credentials for every other service.
+    the deployment-wide secret under the single-user operator's name: one
+    required credential, the account's variable read from
+    ``OSPREY_TERMINAL_SECRET``. No credentials for every other service.
+
+    The alias rests on one equivalence: on a single-user host the deployment
+    secret is already the console's credential — ``osprey web`` admits it as the
+    console account and approves that account's writes — so naming the operator
+    at the panel's service gives its holder nothing the terminal does not. That
+    holds only where the terminal is the one door: ``osprey web`` listens on
+    loopback, so a service that publishes on a network interface would hand the
+    operator's name to a holder off this machine who cannot reach the terminal
+    at all. Such a service is granted no alias and names nobody, as before.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
@@ -1204,22 +1236,19 @@ def service_panel_grant(
     :param service_key: The service being rendered (``services.<k>``).
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :param build_account: Names the account running the build, or ``None``
-        when it cannot be one; asked only for an alias row with no roster.
+    :param build_account: Names the single-user operator, or ``None`` when it
+        cannot be one; asked only for an alias row with no roster, on loopback.
         Without it no alias is granted.
     :return: ``{"credentials": [{var, source, owner, required}, ...]}``.
     """
+    from osprey.deployment.qmd_service import is_loopback_bind, resolve_bind_address
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
     for panel_id, row in panel_roster_grant_table(config).items():
         if row.service != service_key:
             continue
-        web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
-        # Switched-off per-user terminals hold no secret: only the one terminal is left.
-        # A roster of shared cards alone is a roster: each card holds its own secret.
-        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
-        if not row.single_user_alias or has_roster:
+        if not row.single_user_alias or has_web_terminal_roster(config):
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
                 "credentials": [
@@ -1227,6 +1256,8 @@ def service_panel_grant(
                     for name, var in grants
                 ]
             }
+        if not row.loopback_only and not is_loopback_bind(resolve_bind_address(config)):
+            break
         account = build_account() if build_account is not None else None
         if not account:
             break

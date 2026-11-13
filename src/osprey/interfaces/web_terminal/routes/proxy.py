@@ -319,7 +319,7 @@ def _panel_unavailable(panel_id: str) -> Response:
     return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
 
 
-def _panel_withheld(scope: Request | WebSocket, panel_id: str) -> bool:
+def panel_withheld(scope: Request | WebSocket, panel_id: str) -> bool:
     """Whether ``panel_id`` is a custom panel this caller may not open."""
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
@@ -2213,7 +2213,7 @@ async def _forward_to_panel(
     # unpublished one, on every method and before any refusal, so the caller
     # learns neither the application nor that a session is held.
     backend_url = _resolve_panel_url(request, panel_id)
-    if not backend_url or _panel_withheld(request, panel_id):
+    if not backend_url or panel_withheld(request, panel_id):
         return _panel_unavailable(panel_id)
 
     # An application panel on a login that does not arm it is read-only here:
@@ -2662,7 +2662,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     treats the handshake as failed.
     """
     backend_url = _resolve_panel_url(websocket, panel_id)
-    if not backend_url or _panel_withheld(websocket, panel_id):
+    if not backend_url or panel_withheld(websocket, panel_id):
         await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
         return
 

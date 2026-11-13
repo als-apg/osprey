@@ -160,6 +160,8 @@ class RefusalReason(StrEnum):
     ``osprey.runtime.write_channel``; nothing was sent.
     ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was
     sent: the control system was asked and denied it.
+    ``BATCH_REFUSED`` is a write of a batch that passed every check of its own
+    and was not sent because another write of the batch was refused.
     """
 
     refuser: str | None
@@ -187,6 +189,14 @@ class RefusalReason(StrEnum):
         ),
     )
     RAW_CLIENT_WRITE = ("RAW_CLIENT_WRITE", _REFERENCE_MONITOR, _NEVER_SENT)
+    BATCH_REFUSED = (
+        "BATCH_REFUSED",
+        _REFERENCE_MONITOR,
+        (
+            "No write of this batch was sent: another write in it was refused.",
+            "Resolve that write's refusal and submit the batch again.",
+        ),
+    )
     CHANNEL_NOT_FOUND = ("CHANNEL_NOT_FOUND", None, ())
 
 

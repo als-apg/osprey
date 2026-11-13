@@ -837,6 +837,7 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
     reader.get_error_message.return_value = None
     awaiting = {"state": "awaiting", "id": "req-1", "owner": "alice"}
     reader.get_write_authorization.return_value = awaiting
+    reader.get_start_notice.return_value = "Nelder-Mead may not move"
     with patch(f"{_JS}.get_optimization_reader", return_value=reader) as create_state:
         resp = js.read_job_status(tracker, "job-1")
 
@@ -852,6 +853,24 @@ def test_read_job_status_builds_response_from_meta_and_state() -> None:
     assert resp.logs == "log line"
     # A run waiting on an approval says so on the plain read, not only with detail=.
     assert resp.write_authorization == awaiting
+    # The start notice describes a draft: a running job no longer carries it.
+    assert resp.start_notice is None
+
+
+def test_read_job_status_carries_a_drafts_start_notice() -> None:
+    tracker = MagicMock()
+    tracker.get_job.return_value = JobMeta(
+        job_id="job-1", pid=0, status=JobStatus.CREATED, created_at=1700000000.0
+    )
+    reader = MagicMock()
+    reader.get_status.return_value = JobStatus.CREATED
+    reader.get_logs.return_value = ""
+    reader.get_error_message.return_value = None
+    reader.get_write_authorization.return_value = None
+    reader.get_start_notice.return_value = "Nelder-Mead may not move"
+    with patch(f"{_JS}.get_optimization_reader", return_value=reader):
+        resp = js.read_job_status(tracker, "job-1")
+    assert resp.start_notice == "Nelder-Mead may not move"
 
 
 def test_read_job_status_404_when_meta_missing() -> None:

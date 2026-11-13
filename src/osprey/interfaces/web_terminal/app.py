@@ -26,7 +26,6 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 
 from osprey.apps.manifest import help_page_refusal, launch_token_env
-from osprey.apps.projection import PANEL_PRESENTATION_KEYS
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
@@ -66,7 +65,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
-from osprey.interfaces.web_terminal.routes.proxy import application_panels
+from osprey.interfaces.web_terminal.routes.proxy import application_panels, panel_withheld
 from osprey.interfaces.web_terminal.routes.safety_switches import router as safety_switch_router
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
@@ -87,13 +86,15 @@ from osprey.interfaces.web_terminal.sidecar_status import (
 from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
-    BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
     PanelRegistry,
+    authored_panel_labels,
     in_catalog_order,
+    panel_icons,
     panel_id_refusal,
+    panel_labels,
     panel_spec_enabled,
     sidecar_panel_descriptors,
 )
@@ -737,9 +738,10 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             # drops it from each row. Absent: every user of the login.
             if "access" in spec:
                 panel["access"] = _panel_access(panel_id, spec["access"])
-            # The sidebar row's glyph, tooltip and help page, under the names a
-            # sidecar's registry entry uses; carried only when the block writes them.
-            for key in PANEL_PRESENTATION_KEYS:
+            # The sidebar row's tooltip and help page, carried only when the
+            # block writes them. Its glyph (``icon``) is not a field of this
+            # dict: the page stamps every panel's (``panel_icons``).
+            for key in ("description", "help"):
                 if key in spec:
                     panel[key] = _panel_presentation(panel_id, key, spec[key])
             custom.append(panel)
@@ -748,7 +750,7 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
 
 
 def _panel_presentation(panel_id: str, key: str, value: object) -> str:
-    """Validate one of a panel's ``icon``, ``description`` or ``help`` values.
+    """Validate a panel's ``description`` or ``help`` value.
 
     Raises:
         ValueError: The value is not a non-empty string, or a ``help`` page
@@ -875,12 +877,54 @@ def _panel_access(panel_id: str, value: object) -> tuple[str, ...]:
     return tuple(members)
 
 
+def _state_panel_labels(request: Request) -> dict[str, str]:
+    """The built-in panel labels the lifespan resolved, or the registry's own.
+
+    An app whose lifespan has not run (a route exercised on a bare app) has
+    resolved nothing, and answers with what an unconfigured deployment shows.
+    """
+    labels = getattr(request.app.state, "panel_labels", None)
+    return labels if labels is not None else panel_labels()
+
+
+def _listed_panel_blocks(request: Request) -> dict[str, Any]:
+    """The ``web.panels`` blocks of the panels this caller is listed.
+
+    A panel whose ``access`` does not admit the caller is left out, as it is
+    from ``/api/panels``: a stamp on the page would otherwise name it.
+    """
+    blocks = getattr(request.app.state, "panels_config", None) or {}
+    return {pid: spec for pid, spec in blocks.items() if not panel_withheld(request, str(pid))}
+
+
+def _state_authored_labels(request: Request) -> list[str]:
+    """The panel labels this deployment wrote, which the sidebar shows as written.
+
+    The config's ``web.panels.<id>.label`` lines, and the label each discovered
+    panel's manifest states.
+    """
+    labels = set(authored_panel_labels(_listed_panel_blocks(request)))
+    discovered = getattr(request.app.state, "discovered_panel_dirs", {}) or {}
+    labels.update(panel.label for panel in discovered.values() if panel.label)
+    return sorted(labels)
+
+
+def _state_sidecar_descriptors(request: Request) -> list[dict[str, Any]]:
+    """The sidecar descriptors the lifespan resolved, or the registry's own."""
+    descriptors = getattr(request.app.state, "sidecar_panel_descriptors", None)
+    return descriptors if descriptors is not None else sidecar_panel_descriptors()
+
+
 class _PanelRuntimeConfig(NamedTuple):
     """Runtime-panel settings derived from config, plus the computed visible list."""
 
     allow_runtime_panels: bool
     runtime_panel_allowlist: list[str] | None
     visible_panels: list[str]
+    #: The ``web.panels`` mapping as the config holds it, kept for the two
+    #: presentation facts a block may state about any panel, built-in or
+    #: declared: its ``label`` and its ``icon``.
+    panels_config: dict
 
 
 def _load_panel_runtime_config(
@@ -900,8 +944,10 @@ def _load_panel_runtime_config(
     ``hidden`` flags it equals all enabled panels — backward compatible.
 
     Fails open: any config-read error yields the permissive defaults (nothing
-    hidden, runtime registration off).
+    hidden, runtime registration off, every panel under its registry label and
+    glyph).
     """
+    panels_config: dict = {}
     hidden_builtins: set[str] = set()
     hidden_custom_ids: set[str] = set()
     allow_runtime_panels = False
@@ -915,7 +961,9 @@ def _load_panel_runtime_config(
         if isinstance(allowlist_raw, list):
             # Lowercase at parse time so matching in _validate_panel_url is case-insensitive.
             runtime_panel_allowlist = [str(e).lower() for e in allowlist_raw]
-        for pid, spec in web_cfg.get("panels", {}).items():
+        raw_panels = web_cfg.get("panels", {})
+        panels_config = raw_panels if isinstance(raw_panels, dict) else {}
+        for pid, spec in panels_config.items():
             if isinstance(spec, dict) and spec.get("hidden", False):
                 if pid in BUILTIN_PANELS:
                     hidden_builtins.add(pid)
@@ -931,6 +979,7 @@ def _load_panel_runtime_config(
         allow_runtime_panels=allow_runtime_panels,
         runtime_panel_allowlist=runtime_panel_allowlist,
         visible_panels=visible_panels,
+        panels_config=panels_config,
     )
 
 
@@ -1924,6 +1973,14 @@ def _create_lifespan(
         app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
         app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
         app.state.visible_panels = panel_runtime.visible_panels
+        # What this deployment calls its built-in panels (web.panels.<id>.label),
+        # resolved once: the page stamps the labels, and /api/panels answers
+        # from the same. The blocks themselves are kept for the two stamps read
+        # per request, because a panel's `access` decides whose page names it:
+        # each panel's glyph (.icon) and the labels shown as written.
+        app.state.panel_labels = panel_labels(panel_runtime.panels_config)
+        app.state.panels_config = panel_runtime.panels_config
+        app.state.sidecar_panel_descriptors = sidecar_panel_descriptors(panel_runtime.panels_config)
 
         # Config-defined panel presets ("Layouts"): named sets of panel ids a
         # human applies in one click. Immutable config-derived state. Empty
@@ -2258,14 +2315,19 @@ def create_app(
                 "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The page reads it to name where the terminal's assets come from.
                 "vendor_offline": is_offline(),
-                # The registry's own labels for the built-in panels, stamped so
+                # The built-in panels' labels (the registry's, or the
+                # deployment's own web.panels.<id>.label), stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that
                 # module's array is built, so it cannot seed the roster.
-                "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                "builtin_panel_labels": _state_panel_labels(request),
+                # The glyph each web.panels.<id>.icon names, for the same reason.
+                "panel_icons": panel_icons(_listed_panel_blocks(request)),
+                # The labels the deployment wrote, shown as written (no title case).
+                "authored_panel_labels": _state_authored_labels(request),
                 # The sidecar panels' descriptors, from the same registry: the
                 # catalog builds one row and tab per entry, so it lists none itself.
-                "sidecar_panels": sidecar_panel_descriptors(),
+                "sidecar_panels": _state_sidecar_descriptors(request),
             },
         )
 
@@ -2300,8 +2362,11 @@ def create_app(
                 # activity-strip.js reaches panel-manager.js for the labels it
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
-                "builtin_panel_labels": BUILTIN_PANEL_LABELS,
-                "sidecar_panels": sidecar_panel_descriptors(),
+                "builtin_panel_labels": _state_panel_labels(request),
+                "panel_icons": panel_icons(_listed_panel_blocks(request)),
+                # The labels the deployment wrote, shown as written (no title case).
+                "authored_panel_labels": _state_authored_labels(request),
+                "sidecar_panels": _state_sidecar_descriptors(request),
             },
         )
 

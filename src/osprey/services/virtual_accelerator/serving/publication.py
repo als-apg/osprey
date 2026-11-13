@@ -18,6 +18,8 @@ event for even at a repeated value: what was emitted, and on a timed pass the
 pass -- start-up, a write pass, a global tick: there ``fast`` and ``event``
 channels are posted only when changed, unless the pass drained them as
 emitted, so a step is published once, by whichever pass advanced over it.
+A global tick reads every channel and posts, like a write pass, only those a
+client does not hold yet.
 :func:`next_wake` is the instant the next timed pass is due.
 
 Nothing here imports the serving runtime, so the rules are decided and tested
@@ -140,14 +142,16 @@ def untimed_outputs(
     udf_now: Collection[str],
     udf_served: Collection[str],
     written: Collection[str] | None = None,
+    *,
+    tick: bool = False,
 ) -> dict[str, Any]:
     """The entries of ``out_values`` a pass that is not timed posts, in their order.
 
     A ``fast`` or ``event`` name is posted only as :func:`changed_outputs`
     would post it, unless the pass drained it as emitted: an emitted name is
     always posted, since this pass is the one that publishes its step. A
-    write pass narrows every name with :func:`changed_outputs`; any other pass
-    posts every other name.
+    write pass and a global tick narrow every name with
+    :func:`changed_outputs`; any other pass posts every other name.
 
     Args:
         out_values: The pass's values by name.
@@ -158,6 +162,7 @@ def untimed_outputs(
         udf_served: The names undefined when they were last posted.
         written: The names a write pass's put wrote, or ``None`` on a pass
             that writes nothing.
+        tick: Whether the pass is a global tick and nothing else.
 
     Returns:
         The posting.
@@ -169,10 +174,11 @@ def untimed_outputs(
         udf_now,
         udf_served,
     )
+    narrowed = tick or written is not None
     return {
         name: value
         for name, value in out_values.items()
-        if name in emitted or name in changed or (written is None and name not in timed)
+        if name in emitted or name in changed or not (narrowed or name in timed)
     }
 
 

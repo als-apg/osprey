@@ -314,7 +314,7 @@ containers:                   # optional; a panel and armed write tools need one
     state: var/<name>         # kept across restarts
 panel:
   label: <sidebar text>
-  icon: <glyph>               # optional; so are description: (tooltip) and help: (page)
+  icon: <glyph>               # optional, from the icon set; so are description: (tooltip) and help: (page)
   container: <name>
   launch_token: true          # write routes demand the terminal's token
   agent_routes:               # what the tools may call; non-GET = write route

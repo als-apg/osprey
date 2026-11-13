@@ -37,6 +37,7 @@ from osprey.agent_runner.claude_state import (
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
+from osprey.deployment.build_cache import compose_cache_override_file
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
 from osprey.deployment.compose_merge import _FILE_MODE as _COMPOSE_FILE_MODE
 from osprey.deployment.compose_merge import ComposeMergeError, _load_compose_document
@@ -590,6 +591,16 @@ def compose_base_cmd(
     stack's own) gets none. A render zone without an override leaves the argv
     exactly as the rest of this docstring describes.
 
+    THE BUILD CACHE OVERRIDE
+    ========================
+
+    When ``OSPREY_BUILD_CACHE_FROM`` or ``OSPREY_BUILD_CACHE_TO`` is set and the
+    runtime is Docker, one more ``-f`` follows the labels override: the
+    ``cache_from`` / ``cache_to`` of every service this invocation's files
+    build (:mod:`osprey.deployment.build_cache`). Every invocation carries it,
+    because ``up`` builds too when it finds an image missing. The podman shape
+    gets none: podman-compose reads neither key.
+
     Neither shape uses compose ``profiles:``/``--profile``: podman-compose's
     support for them differs by version, and a service silently left out of a
     deploy is exactly the failure this seam exists to prevent.
@@ -630,6 +641,9 @@ def compose_base_cmd(
             cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
         if labels is not None:
             cmd.extend(("-f", str(_labels_override_file(root, labels))))
+        cache = compose_cache_override_file(cmd[0], root, compose_files)
+        if cache is not None:
+            cmd.extend(("-f", str(cache)))
     if env_file_args is None:
         # Deferred: the provider-shaped resolver lives with the merged file it
         # (re)writes, in the module that owns the lifecycle verbs, and that
@@ -5254,19 +5268,36 @@ def _ensure_control_target_identity_dir(target, *, relative_to, label, noun, con
 def _control_tree_build_account(config, repo_root):
     """The build account's identity, or ``None`` when it cannot name a directory.
 
-    The build account is the one rung of the control tree that no roster and no
-    lint governs: the shared ladder that produces it rejects only values that
-    break path semantics, on the grounds that a stricter allowlist would turn a
-    legitimate account name into ``UNKNOWN_IDENTITY``. The tree's own seam is
-    stricter — an identity is a directory name here — so an account name the
-    ladder accepts and the seam refuses is reachable, and it reaches the seam
-    with no roster message behind it that could explain itself.
+    On a single-user deployment (no per-user web terminals,
+    :func:`~osprey.deployment.web_terminals.roster.has_web_terminal_roster`) the
+    account is the one operator: who the host launches sign in as, the render's
+    ``deployment.host_identity``, which the build stamps and ``osprey web``
+    exports (:func:`osprey.agent_record.credentials.export_built_host_identity`).
+    Every reader of this answer — the directory provisioned here, the login-tiers
+    entry, a panel's single-user alias — must name that same account, or a write
+    the terminal's login started is filed under a name its chip does not list.
+    A multi-user deployment, and a render that states no host identity (a config
+    no build has stamped), keep the account running the build, by the shared
+    identity ladder: there the roster names the people, and this entry is only
+    the build account's own.
+
+    That account is the one rung of the control tree that no roster and no lint
+    governs: the shared ladder rejects only values that break path semantics, on
+    the grounds that a stricter allowlist would turn a legitimate account name
+    into ``UNKNOWN_IDENTITY``. The tree's own seam is stricter — an identity is a
+    directory name here — so a name the ladder accepts and the seam refuses is
+    reachable, and it reaches the seam with no roster message behind it that
+    could explain itself.
 
     Refusing it here rather than at the seam is what lets the warning name a
     remedy the operator can act on: the record that account's own process writes
     then lands in a directory the writer creates under whatever umask it has,
     which a reader in another container may be unable to read — and an owned
     write whose control-context record cannot be read refuses.
+
+    ``UNKNOWN_IDENTITY`` is never answered: it is the ladder's word for "no
+    account could be named", and a directory, a tier or a panel login under it
+    would file a stranger's work under a name every unnamed process shares.
 
     :param config: The deployment configuration
     :type config: dict
@@ -5275,21 +5306,35 @@ def _control_tree_build_account(config, repo_root):
     :return: The identity to provision a directory for, or ``None``
     :rtype: str | None
     """
-    from osprey_connectors.identity import acting_identity
+    from osprey.agent_record.identities import host_identity
+    from osprey.deployment.web_terminals.roster import has_web_terminal_roster
+    from osprey_connectors.identity import UNKNOWN_IDENTITY, acting_identity
 
-    identity = acting_identity()
+    single_user = not has_web_terminal_roster(config)
+    identity = (host_identity(config) if single_user else None) or acting_identity()
+    remedy = (
+        "Set deployment.host_identity in profile.yml"
+        if single_user
+        else "Set OSPREY_AUDIT_IDENTITY before running `osprey build`"
+    )
+    shape = "a roster-shaped name (lowercase letters and digits, then any of them plus '_' and '-')"
+    if identity == UNKNOWN_IDENTITY:
+        logger.warning(
+            f"No control-context directory is provisioned for the build account: no "
+            f"account name could be found for the account running this build. {remedy} "
+            f"to {shape} and rebuild."
+        )
+        return None
     try:
         control_target_identity_dir(config, repo_root, identity)
     except ValueError:
         logger.warning(
-            f"No control-context directory is provisioned for the account running "
-            f"this build ({identity!r}): the name cannot be a directory under the "
-            f"control-context tree. Its own record will be written into a directory "
-            f"created under this account's umask, which the lanes and the dispatch "
-            f"worker may be unable to read — in which case every write that account "
-            f"owns refuses. Set OSPREY_AUDIT_IDENTITY to a roster-shaped name "
-            f"(lowercase letters and digits, then any of them plus '_' and '-') "
-            f"before running `osprey build` to have it provisioned."
+            f"No control-context directory is provisioned for the build account "
+            f"({identity!r}): the name cannot be a directory under the control-context "
+            f"tree. Its own record will be written into a directory created under this "
+            f"account's umask, which the lanes and the dispatch worker may be unable to "
+            f"read — in which case every write that account owns refuses. {remedy} to "
+            f"{shape} and rebuild."
         )
         return None
     return identity

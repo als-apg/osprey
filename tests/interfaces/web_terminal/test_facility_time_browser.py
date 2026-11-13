@@ -1,8 +1,8 @@
 """Web terminal times read on the facility clock in a real browser.
 
 The server stamps the facility zone on ``<html data-facility-timezone>``, and
-the hook log and the session activity log render every stamp through the
-design system's facility-time formatter. A viewer whose browser runs in
+the hook log and the Activity page render every stamp through the design
+system's facility-time formatter. A viewer whose browser runs in
 another zone must still read the facility's wall clock, and the hook log's
 time column names the zone; a viewer already on the facility clock sees a
 plain ``Time`` header.
@@ -25,6 +25,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from osprey.agent_record.client import ClientAnswer
+from osprey.interfaces.web_terminal.routes import session as session_routes
+from tests.agent_record.fakes import FakeRecordClient
 from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._launchers import launch_web_terminal
 
@@ -43,17 +46,17 @@ INSTANT = "2026-01-15T20:04:05.123Z"
 _HOOK_LOG = {
     "entries": [{"ts": INSTANT, "hook": "PreToolUse", "tool": "Bash", "status": "allowed"}]
 }
-_SESSION_LOG = {
-    "events": [
-        {
-            "timestamp": INSTANT,
-            "tool_name": "read_channel",
-            "server_name": "controls",
-            "agent_id": "main",
-            "is_error": False,
-        }
-    ]
-}
+TRANSCRIPT = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+# One record entry of the session: a tool call at the instant.
+_TIMELINE = [
+    {
+        "kind": "tool_call",
+        "key": "k:call:t1",
+        "ts": INSTANT,
+        "tool_use_id": "t1",
+        "body": {"id": "t1", "name": "mcp__controls__channel_read", "input": {}},
+    }
+]
 
 
 @contextmanager
@@ -94,11 +97,13 @@ def test_hook_log_and_session_activity_read_the_facility_clock(
             "Time (GMT+9)"
         )
 
-        page.route("**/api/session-log**", _fulfill_json(_SESSION_LOG))
-        page.goto(f"{base_url}/static/session.html", wait_until="load")
+        record = FakeRecordClient({"timeline": ClientAnswer(data=_TIMELINE, complete=True)})
+        monkeypatch.setattr(session_routes, "record_client", lambda: record)
+        page.goto(f"{base_url}/static/session.html#{TRANSCRIPT}", wait_until="load")
         wait_for_page_ready(page)
-        page.locator('.pill[data-view="toollog"]').click()
-        expect(page.locator(".log-row .col-time").first).to_have_text("05:04:05")
+        expect(page.locator("button.act-row .act-t").first).to_have_text("05:04:05")
+        page.locator('#views button[data-view="tools"]').click()
+        expect(page.locator("table.act-table tr.row .act-t").first).to_have_text("05:04:05")
 
 
 def test_viewer_on_the_facility_clock_sees_no_zone_name(tmp_path, monkeypatch, chromium_browser):

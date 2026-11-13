@@ -29,7 +29,8 @@ What each case proves, read back through the read API:
 * no loss across a record outage, and on ClickHouse the backlog it leaves and
   the stopped source it makes, on ``/health/sources``;
 * a refused spool line, and (embedded) a stalled writer, on health within the
-  five minutes the record allows a source;
+  time the record allows a source (``STOPPED_AFTER_S`` here, through the
+  record's test hook; five minutes in a deployment);
 * an oversized tool result and a large spool body read back byte-identical;
 * every read route, and a scoped reader login, on hello-world; the history
   page behind its own origin on demo;
@@ -110,7 +111,7 @@ from osprey.agent_record.identities import (
     transcript_roots,
 )
 from osprey.agent_record.ingest.transcripts import parse_line
-from osprey.agent_record.service import JOBS_CLOCK_ENV, READ_METHODS, STOPPED_AFTER
+from osprey.agent_record.service import JOBS_CLOCK_ENV, READ_METHODS, STOPPED_AFTER_ENV
 from osprey.agent_runner.project_paths import (
     CLAUDE_CONFIG_DIR_ENV,
     claude_project_dir,
@@ -161,12 +162,20 @@ VERB_TIMEOUT_S = 1800
 #: being readable.
 READ_TIMEOUT_S = 60.0
 #: After the expected keys are all read, how long a case keeps watching for a
-#: duplicate before it calls each count exact.
+#: duplicate before it calls each count exact. Sessions read together share
+#: one window, each watched for all of it.
 SETTLE_S = 10.0
 HEALTH_TIMEOUT_S = 180.0
+#: How long this module's record lets a source go without a commit before
+#: health calls it stopped, in place of the deployed five minutes
+#: (``STOPPED_AFTER_ENV``). Six of the slowest round that feeds a healthy
+#: source (the host session forwards every 5 s; the record's spool pass runs
+#: every 2 s), so a source is not called stopped over one slow round; and no
+#: step here waits for a source to stay un-stopped for a fixed time.
+STOPPED_AFTER_S = 30
 #: How long health may take to name a refusal or a stopped source: the
-#: record's own five minutes, plus one ingest pass and one poll.
-HEALTH_SIGNAL_TIMEOUT_S = STOPPED_AFTER.total_seconds() + 60.0
+#: record's threshold, plus one ingest pass and one poll.
+HEALTH_SIGNAL_TIMEOUT_S = STOPPED_AFTER_S + 60.0
 #: A body at least this large is an oversized result.
 LARGE_BYTES = 64 * 1024
 #: The size of the large spool body the cases write.
@@ -178,6 +187,7 @@ _SCRUBBED_ENV = (
     "CLAUDECODE",
     SPOOL_DIR_ENV,
     JOBS_CLOCK_ENV,
+    STOPPED_AFTER_ENV,
     "OSPREY_AGENT_RECORD_URL",
     "OSPREY_TERMINAL_SESSION",
     "OSPREY_TERMINAL_USER",
@@ -514,9 +524,10 @@ def _example_env(repo: Path) -> None:
 def _common_config() -> dict[str, Any]:
     return {
         "deployment": {"host_identity": HOST_IDENTITY},
-        # The jobs clock reaches agent-record only when `osprey up` passes it
-        # through; it is set only when a case closes a day.
-        "services.agent_record.env": [JOBS_CLOCK_ENV],
+        # The jobs clock and the stopped threshold reach agent-record only
+        # when `osprey up` passes them through. The clock is set only when a
+        # case closes a day; the threshold is in every verb's environment.
+        "services.agent_record.env": [JOBS_CLOCK_ENV, STOPPED_AFTER_ENV],
     }
 
 
@@ -581,6 +592,7 @@ def _verb_env(config_dir: Path, home: Path) -> dict[str, str]:
     env.setdefault("DOCKER_CONFIG", str(_real_home() / ".docker"))
     env[CLAUDE_CONFIG_DIR_ENV] = str(config_dir)
     env["HOME"] = str(home)
+    env[STOPPED_AFTER_ENV] = str(STOPPED_AFTER_S)
     return env
 
 
@@ -860,6 +872,66 @@ def _entries(nodes: list[Mapping[str, Any]]) -> Iterator[Mapping[str, Any]]:
             yield from _entries(sub.get("timeline") or [])
 
 
+def _read_all_once(
+    stack: Stack, sessions: Mapping[str, set[str]], timeout: float = READ_TIMEOUT_S
+) -> dict[str, dict[str, Mapping[str, Any]]]:
+    """Read every session until its expected keys are there, then watch them
+    all for duplicates through one shared window.
+
+    Each session is waited for in turn, with *timeout* of its own. Once the
+    last one is read, every session is watched together for ``SETTLE_S``: no
+    session is watched for less, and the windows overlap instead of following
+    one another.
+
+    Returns each session's entries by key, as read when its expected keys
+    were first all there. Fails when a key is missing after *timeout*, when
+    any key of a session is read more than once, or when a session's key set
+    differs at the end of the window from the one first read.
+    """
+    counts: dict[str, Counter[str]] = {}
+    found: dict[str, dict[str, Mapping[str, Any]]] = {}
+    for session, expected in sessions.items():
+        deadline = time.monotonic() + timeout
+        while True:
+            answer = _timeline(stack, session)
+            seen: Counter[str] = Counter()
+            if answer.get("status") == "ok":
+                entries = list(_entries(answer.get("data") or []))
+                seen = Counter(e["key"] for e in entries)
+                if expected <= set(seen):
+                    counts[session] = seen
+                    found[session] = {e["key"]: e for e in entries}
+                    break
+            if time.monotonic() > deadline:
+                pytest.fail(
+                    f"session {session}: keys missing after {timeout:.0f} s: "
+                    f"{sorted(expected - set(seen))}\nlast answer: {json.dumps(answer)[:4000]}"
+                )
+            time.sleep(1)
+
+    settle = time.monotonic() + SETTLE_S
+    read_at = 0.0
+    while True:
+        for session, seen in counts.items():
+            duplicates = {k: n for k, n in seen.items() if n != 1}
+            assert duplicates == {}, f"session {session}: facts read more than once: {duplicates}"
+        # The window ends on a round begun after it: every session's last
+        # read is then past the full window.
+        if read_at > settle:
+            break
+        time.sleep(2)
+        read_at = time.monotonic()
+        for session in sessions:
+            answer = _timeline(stack, session)
+            assert answer.get("status") == "ok", answer
+            counts[session] = Counter(e["key"] for e in _entries(answer.get("data") or []))
+    for session in sessions:
+        assert set(counts[session]) == set(found[session]), (
+            f"session {session}: the key set moved while settling"
+        )
+    return found
+
+
 def _read_each_once(
     stack: Stack, session: str, expected: set[str], timeout: float = READ_TIMEOUT_S
 ) -> dict[str, Mapping[str, Any]]:
@@ -868,45 +940,24 @@ def _read_each_once(
     Returns each key's entry. Fails when a key is missing after *timeout*, or
     when any key of the session is read more than once.
     """
-    deadline = time.monotonic() + timeout
-    last: Any = None
-    counts: Counter[str] = Counter()
-    found: dict[str, Mapping[str, Any]] = {}
-    while True:
-        answer = _timeline(stack, session)
-        last = answer
-        if answer.get("status") == "ok":
-            entries = list(_entries(answer.get("data") or []))
-            counts = Counter(e["key"] for e in entries)
-            found = {e["key"]: e for e in entries}
-            if expected <= set(counts):
-                break
-        if time.monotonic() > deadline:
-            pytest.fail(
-                f"session {session}: keys missing after {timeout:.0f} s: "
-                f"{sorted(expected - set(counts))}\nlast answer: {json.dumps(last)[:4000]}"
-            )
-        time.sleep(1)
+    return _read_all_once(stack, {session: expected}, timeout)[session]
 
-    settle = time.monotonic() + SETTLE_S
-    while True:
-        duplicates = {k: n for k, n in counts.items() if n != 1}
-        assert duplicates == {}, f"session {session}: facts read more than once: {duplicates}"
-        if time.monotonic() > settle:
-            break
-        time.sleep(2)
-        answer = _timeline(stack, session)
-        assert answer.get("status") == "ok", answer
-        counts = Counter(e["key"] for e in _entries(answer.get("data") or []))
-    assert set(counts) == set(found), f"session {session}: the key set moved while settling"
+
+def _read_replay_once(
+    stack: Stack, beside: Mapping[str, set[str]] | None = None
+) -> dict[str, dict[str, Mapping[str, Any]]]:
+    """Every captured fixture's facts, once each, under the host identity and
+    person; the *beside* sessions are read once each through the same window.
+
+    Returns what was read of each session, the *beside* ones included.
+    """
+    replay = stack.replay.sessions
+    overlap = set(replay) & set(beside or {})
+    assert not overlap, f"sessions named beside the replay are the replay's own: {overlap}"
+    found = _read_all_once(stack, {**(beside or {}), **replay})
+    for session, keys in replay.items():
+        _assert_attributed(found[session], keys, identity=HOST_IDENTITY, person=HOST_IDENTITY)
     return found
-
-
-def _read_replay_once(stack: Stack) -> None:
-    """Every captured fixture's facts, once each, under the host identity and person."""
-    for session, keys in stack.replay.sessions.items():
-        found = _read_each_once(stack, session, keys)
-        _assert_attributed(found, keys, identity=HOST_IDENTITY, person=HOST_IDENTITY)
 
 
 def _assert_attributed(
@@ -1137,11 +1188,11 @@ def _attributed_runs(stack: Stack, monkeypatch: pytest.MonkeyPatch) -> None:
         session_id=behalf_session,
         on_behalf_of=PERSON,
     )
-    found = _read_each_once(stack, behalf_session, {spool_key(SIDECAR_IDENTITY, behalf)})
-    _assert_attributed(found, set(found), identity=SIDECAR_IDENTITY, person=PERSON)
+    sessions = {behalf_session: {spool_key(SIDECAR_IDENTITY, behalf)}}
 
     # A dispatch run: its session belongs to the requester of its accept; a
     # scheduled run names no requester and so no person.
+    runs: list[tuple[str, str, str | None]] = []
     for requester in (PERSON, None):
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         session = str(uuid.uuid4())
@@ -1166,9 +1217,17 @@ def _attributed_runs(stack: Stack, monkeypatch: pytest.MonkeyPatch) -> None:
             session_id=session,
             run_id=run_id,
         )
-        keys = {run_key(run_id, RUN_ACCEPT), spool_key(SHARED_DISPATCH_IDENTITY, step)}
-        found = _read_each_once(stack, session, keys)
-        _assert_attributed(found, keys, identity=SHARED_DISPATCH_IDENTITY, person=requester)
+        sessions[session] = {run_key(run_id, RUN_ACCEPT), spool_key(SHARED_DISPATCH_IDENTITY, step)}
+        runs.append((run_id, session, requester))
+
+    # The three sessions are written first and watched through one window.
+    found = _read_all_once(stack, sessions)
+    on_behalf = found[behalf_session]
+    _assert_attributed(on_behalf, set(on_behalf), identity=SIDECAR_IDENTITY, person=PERSON)
+    for run_id, session, requester in runs:
+        _assert_attributed(
+            found[session], sessions[session], identity=SHARED_DISPATCH_IDENTITY, person=requester
+        )
         run = _read(stack, "run", run_id=run_id)
         assert run.get("status") == "ok", run
         assert (run["data"] or {}).get("requester") == requester, run
@@ -1178,9 +1237,7 @@ def _restart_and_rewrite_keep_counts(stack: Stack, checks: list[tuple[str, set[s
     """Every *checks* session and every fixture, once each, across a restart
     of agent-record and a rewrite of every captured transcript."""
     _restart_record(stack)
-    for session, keys in checks:
-        _read_each_once(stack, session, keys)
-    _read_replay_once(stack)
+    _read_replay_once(stack, dict(checks))
 
     for session in stack.replay.sessions:
         _rewrite_transcript(stack.host_project_dir, session)
@@ -1356,8 +1413,8 @@ def _record_outage_loses_nothing(
 
 
 def _store_outage_on_health(stack: Stack, monkeypatch: pytest.MonkeyPatch, session: str) -> None:
-    """With the ClickHouse store down, health shows the backlog and, after five
-    minutes without a commit, the stopped source; nothing is lost."""
+    """With the ClickHouse store down, health shows the backlog and, after
+    ``STOPPED_AFTER_S`` without a commit, the stopped source; nothing is lost."""
     _docker("stop", RECORD_STORE_CONTAINER, timeout=180)
     try:
         written = [
@@ -1442,7 +1499,8 @@ def test_embedded_record_on_hello_world(tmp_path: Path, monkeypatch: pytest.Monk
         transcript=host,
         retired_keys_first=True,
     ) as stack:
-        # Started first: health may take the full five minutes to call it stopped.
+        # Started first: health calls it stopped ``STOPPED_AFTER_S`` after the
+        # record started, having committed nothing from it.
         stalled_identity = "e2e-stalled-writer"
         stalled = _stall_a_writer(stack, stalled_identity)
 
@@ -1451,13 +1509,13 @@ def test_embedded_record_on_hello_world(tmp_path: Path, monkeypatch: pytest.Monk
 
         host_expected = host.keys(HOST_IDENTITY) | {spooled}
         dispatch_expected = dispatched.keys(dispatch_identity)
-        found = _read_each_once(stack, host.session, host_expected)
+        found = _read_replay_once(
+            stack, {host.session: host_expected, dispatched.session: dispatch_expected}
+        )[host.session]
         _assert_attributed(found, host_expected, identity=HOST_IDENTITY, person=HOST_IDENTITY)
         assert {KIND_THINKING, KIND_TOOL_CALL, KIND_SUBAGENT, KIND_DEBUG} <= {
             e["kind"] for e in found.values()
         }, found
-        _read_each_once(stack, dispatched.session, dispatch_expected)
-        _read_replay_once(stack)
         _attributed_runs(stack, monkeypatch)
 
         host_expected.add(_step_readable_within_a_minute(stack, host))
@@ -1495,12 +1553,11 @@ def test_clickhouse_record_on_demo(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         assert _containers_named(RECORD_STORE_CONTAINER), "no record store container"
         spooled = _write_spool_line(stack, monkeypatch, host.session)
         expected = host.keys(HOST_IDENTITY) | {spooled}
-        found = _read_each_once(stack, host.session, expected)
+        found = _read_replay_once(stack, {host.session: expected})[host.session]
         _assert_attributed(found, expected, identity=HOST_IDENTITY, person=HOST_IDENTITY)
         assert {KIND_THINKING, KIND_TOOL_CALL, KIND_SUBAGENT, KIND_DEBUG} <= {
             e["kind"] for e in found.values()
         }, found
-        _read_replay_once(stack)
         _attributed_runs(stack, monkeypatch)
 
         expected.add(_step_readable_within_a_minute(stack, host))

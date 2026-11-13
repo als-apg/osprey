@@ -1042,8 +1042,8 @@ def test_every_required_ci_job_is_a_caller_or_a_lane() -> None:
     required = jobs["all-checks-passed"]["needs"]
     exempt = set(check.CALLER_JOBS) | set(GATED_NON_LANES)
     assert sorted(set(required) - set(lanes) - exempt) == []
-    # The warm-up runs on main pushes only, so a revalidation dispatch would read it as a skipped lane.
-    assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup"}
+    # The warm-ups run on main pushes only, so a revalidation dispatch would read them as skipped lanes.
+    assert set(lanes) - set(required) == {"benchmarks", "qmd-cache-warmup", "deploy-cache-warmup"}
 
 
 # ---------------------------------------------------------------------------
@@ -1083,6 +1083,7 @@ SWEEP_IGNORES = [
     "--ignore=tests/va/test_lume_pva_seam.py",
     "--ignore=tests/va/test_timed_passes_live.py",
     "--ignore=tests/va/test_injection_live.py",
+    "--ignore=tests/va/test_turn_by_turn_live.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",

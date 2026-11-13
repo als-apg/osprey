@@ -1053,7 +1053,8 @@ def watch_command(
     ingests them into the ARIEL database. Uses the last successful
     ingestion timestamp to fetch only new entries.
 
-    Requires at least one prior 'osprey ariel ingest' run by default.
+    Requires at least one prior ingest by default: 'osprey ariel sync', or
+    'osprey ariel ingest --source <file|URL>'.
     Use --once for a single poll cycle.
 
     Example:

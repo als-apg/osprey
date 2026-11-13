@@ -489,7 +489,6 @@ def test_rail_order_refuses_a_move_it_cannot_place(body):
 
 #: The presentation facts an application panel's block carries for its sidebar row.
 PRESENTATION = {
-    "icon": "sliders",
     "description": "Turn the demo dial and watch it settle",
     "help": "how-to/apps/build-your-own-app.html",
 }
@@ -518,9 +517,18 @@ def test_the_config_load_leaves_an_undeclared_presentation_key_absent():
     assert not set(PRESENTATION) & set(_loaded_panel({}))
 
 
+def test_the_config_load_leaves_the_glyph_to_the_page_stamp():
+    """``icon`` is every panel's key: the page stamps it, the custom def does not carry it."""
+    from osprey.profiles.web_panels import panel_icons
+
+    block = {**PRESENTATION, "icon": "sliders"}
+    assert "icon" not in _loaded_panel(block)
+    assert panel_icons({"dial": block}) == {"dial": "sliders"}
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
-    [("icon", 3), ("description", ["a"]), ("help", "../outside.html"), ("help", "http://x/")],
+    [("description", ["a"]), ("help", "../outside.html"), ("help", "http://x/")],
 )
 def test_the_config_load_refuses_a_presentation_value_it_cannot_serve(key, value):
     with pytest.raises(ValueError, match=rf"web\.panels\.dial\.{key}"):

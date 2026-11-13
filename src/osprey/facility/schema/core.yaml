@@ -595,12 +595,32 @@ classes:
         multivalued: true
         inlined_as_list: true
         list_elements_ordered: true
+      inputs:
+        range: ModelInput
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: >-
+          Records of other models this model reads as inputs, in declared
+          order; never wiring.
       measurement:
         range: Measurement
         inlined: true
       provenance:
         range: Provenance
         inlined: true
+
+  ModelInput:
+    description: >-
+      One record another model of the facility wires, read by this model as
+      an input.
+    attributes:
+      address:
+        required: true
+        description: The address another model wires.
+      engine:
+        range: Any
+        description: The consuming engine's own words for the input.
 
   Wiring:
     description: >-

@@ -119,7 +119,7 @@ def test_an_unknown_entry_key_is_refused_naming_the_valid_keys() -> None:
     message = _parse_refusal({"knob": {"confg": {}}})
 
     assert "apps.knob.confg" in message
-    assert "config, services, shown" in message
+    assert "config, panel_hidden, services, shown" in message
 
 
 @pytest.mark.parametrize("key", ["image", "ports", "volumes", "http"])
@@ -258,6 +258,12 @@ def test_a_login_never_subtracts_or_inherits(key: str) -> None:
 
 def test_a_login_lists_value_is_checked() -> None:
     assert "lists must be one of own, add" in _login_refusal({"lists": "none"})
+
+
+def test_a_login_panel_hidden_is_a_boolean() -> None:
+    assert "apps.knob.panel_hidden must be true or false" in _login_refusal(
+        {"apps": {"knob": {"shown": True, "panel_hidden": "yes"}}}
+    )
 
 
 def test_a_login_shown_is_a_boolean() -> None:
@@ -458,6 +464,17 @@ def test_a_login_may_open_on_the_panel_of_an_application_it_shows(tmp_path: Path
     profile = load_profile_document(layer).profile
 
     assert profile.default_panel == "knob-board"
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_login_may_keep_a_shown_applications_panel_off_the_sidebar(tmp_path: Path) -> None:
+    layer = _panel_login(tmp_path, {"knob": {"shown": True, "panel_hidden": True}})
+
+    profile = load_profile_document(layer).profile
+
+    assert profile.app_shown("knob") is True
+    assert profile.app_panel_hidden("knob") is True
+    assert profile.app_panel_hidden("unlisted") is False
 
 
 @pytest.mark.usefixtures("facility_data_tree")

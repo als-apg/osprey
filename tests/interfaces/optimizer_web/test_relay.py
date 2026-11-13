@@ -351,6 +351,71 @@ def test_the_session_names_nobody_when_nothing_stamped_the_connection() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Single-user alias: the environment the build hands a roster-less sidecar
+# ---------------------------------------------------------------------------
+
+
+def _alias_shaped_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, list]:
+    """``recording_app`` behind the gate, credentials populated as the sidecar's are.
+
+    The environment ``services/_panel_grant.j2`` renders for a roster-less
+    deployment: the deployment-wide secret as the sidecar's own, the same value
+    again under the operator's roster variable, the accept flag, and the owners
+    map naming that variable's account.
+    """
+    from osprey.interfaces.web_auth import (
+        OPERATOR_SECRET_ENV,
+        ROSTER_ACCEPT_ENV,
+        ROSTER_OWNERS_ENV,
+        ROSTER_SECRET_ENV_PREFIX,
+        get_web_credentials,
+    )
+
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, _OWN_SECRET)
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}OPERATOR", _OWN_SECRET)
+    monkeypatch.setenv(ROSTER_ACCEPT_ENV, "1")
+    monkeypatch.setenv(ROSTER_OWNERS_ENV, "OPERATOR=operator")
+    app, seen, _ = recording_app(relay.router)
+    app.add_middleware(WebAuthMiddleware)
+    app.state.web_credentials = get_web_credentials()
+    return app, seen
+
+
+@pytest.mark.no_auth_seam
+def test_the_alias_names_the_operator_behind_the_deployment_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The single-user Start carries the operator the host terminal signs in as."""
+    app, seen = _alias_shaped_app(monkeypatch)
+
+    with TestClient(app) as client:
+        session = client.get(
+            "/relay/session", headers={OPERATOR_SECRET_HEADER: _OWN_SECRET, OWNER_HEADER: "bob"}
+        )
+        start = client.post(
+            f"/relay/jobs/job-1/start?config_revision={REVISION}",
+            headers={OPERATOR_SECRET_HEADER: _OWN_SECRET, OWNER_HEADER: "bob"},
+        )
+
+    assert session.json() == {"owner": "operator"}
+    assert start.status_code == 200
+    assert seen[0].headers.get_list(OWNER_HEADER) == ["operator"]
+
+
+@pytest.mark.no_auth_seam
+def test_the_alias_admits_no_other_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    app, seen = _alias_shaped_app(monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.get("/relay/session", headers={OPERATOR_SECRET_HEADER: "guess"})
+
+    assert response.status_code == 401
+    assert seen == []
+
+
+# ---------------------------------------------------------------------------
 # The agent never gets the token
 # ---------------------------------------------------------------------------
 

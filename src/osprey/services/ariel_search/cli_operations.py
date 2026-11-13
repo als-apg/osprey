@@ -3211,7 +3211,8 @@ async def run_search(
             return {
                 "error": "Logbook database tables not found. "
                 "Run 'osprey ariel migrate' to create tables, then "
-                "'osprey ariel ingest' to populate data."
+                "'osprey ariel sync' to ingest the configured source "
+                "(or 'osprey ariel ingest --source <file|URL>')."
             }
         return {"error": msg}
 

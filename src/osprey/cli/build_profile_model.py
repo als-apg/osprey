@@ -629,6 +629,18 @@ class BuildProfile:
             return entry.shown
         return self.lists == "add"
 
+    def app_panel_hidden(self, name: str) -> bool:
+        """Whether this render keeps application *name*'s panel off the sidebar.
+
+        Args:
+            name: The application's name.
+
+        Returns:
+            True only when its entry says ``panel_hidden: true``.
+        """
+        entry = self.apps.get(name)
+        return entry is not None and entry.panel_hidden is True
+
     def _validate_apps(self, profile_dir: Path) -> list[str]:
         """Return validation errors for the ``apps:`` block, closed against the manifests.
 
@@ -2129,6 +2141,7 @@ class BuildProfile:
         from .build_profile_panels import (
             panel_id_errors,
             panel_leaf_spellings,
+            panel_presentation_errors,
             panel_selection_errors,
             panel_spelling_errors,
         )
@@ -2182,6 +2195,10 @@ class BuildProfile:
         # A `panels.<…>` key inside a `web:` mapping renders as one literal key
         # under `web`, never as a panel, so it is refused while it is a line.
         errors.extend(panel_spelling_errors(self.config))
+
+        # A `web.panels.<id>.label` that is not text, or an `.icon` the design
+        # system does not draw: either would read as a setting that did nothing.
+        errors.extend(panel_presentation_errors(self.config))
 
         # Validate default_panel: must be a tab this render shows — selected in
         # web_panels, universal, or a shown application's panel. Catches typos

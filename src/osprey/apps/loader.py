@@ -267,6 +267,7 @@ def _login_selection(
                 access=None
                 if entry is None or entry.access is None
                 else access(entry.access, login, name),
+                panel_hidden=profile.app_panel_hidden(name),
             )
             for name, entry in entries.items()
         },

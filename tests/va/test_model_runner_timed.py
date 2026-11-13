@@ -140,12 +140,13 @@ def test_a_step_due_during_a_tick_pass_is_posted_once(posts: list[Any]) -> None:
     _, module = _serving()
     model = _Model(emitted=(EVENT,))
     runner = _runner(module, model)
+    runner._pass_is_tick = True
 
     module.ModelRunner._post_outputs(runner, dict(VALUES), 0.0)
     runner._timed_pass()
 
     tick, timed = posts
-    assert tick == ({EVENT: 2.0, PASSED: 3.0}, frozenset({EVENT}))
+    assert tick == ({EVENT: 2.0}, frozenset({EVENT}))
     assert timed == ({FAST: 1.0}, frozenset({FAST}))
     assert sum(EVENT in values for values, _ in posts) == 1
 
@@ -153,11 +154,33 @@ def test_a_step_due_during_a_tick_pass_is_posted_once(posts: list[Any]) -> None:
 def test_a_tick_pass_posts_a_changed_fast_channel_without_forcing_it(posts: list[Any]) -> None:
     _, module = _serving()
     runner = _runner(module, _Model())
+    runner._pass_is_tick = True
 
     module.ModelRunner._post_outputs(runner, {**VALUES, FAST: 5.0}, 0.0)
 
-    assert posts == [({FAST: 5.0, PASSED: 3.0}, frozenset())]
+    assert posts == [({FAST: 5.0}, frozenset())]
     assert runner._served[FAST] == 5.0
+
+
+def test_a_tick_pass_posts_only_what_changed_since_it_was_last_posted(posts: list[Any]) -> None:
+    _, module = _serving()
+    runner = _runner(module, _Model(), fast=(), event=())
+    runner._pass_is_tick = True
+
+    module.ModelRunner._post_outputs(runner, {**VALUES, PASSED: 4.0}, 0.0)
+    module.ModelRunner._post_outputs(runner, {**VALUES, PASSED: 4.0}, 0.0)
+
+    assert posts == [({PASSED: 4.0}, frozenset()), ({}, frozenset())]
+
+
+def test_a_pass_with_no_inputs_that_is_no_tick_posts_every_value(posts: list[Any]) -> None:
+    # Start-up, a reset and a model RPC write publish the whole roster.
+    _, module = _serving()
+    runner = _runner(module, _Model(), fast=(), event=())
+
+    module.ModelRunner._post_outputs(runner, dict(VALUES), 0.0)
+
+    assert posts == [(dict(VALUES), frozenset())]
 
 
 def test_an_emitted_name_a_write_pass_did_not_read_is_read_and_posted(posts: list[Any]) -> None:

@@ -39,7 +39,7 @@ Header line, then one box per group in this order, then the question.
 
  ┌ FRAMEWORK ───────────────────────────────────────────────────────────┐
  │ requires <floor> · built with <version|?> · preset <name|none>       │
- │ drift <n> unmarked differences (measured with OSPREY <version>)      │
+ │ update <none|available> (preset checked with OSPREY <version>)       │
  │ artifacts framework-managed ×<n> · claimed ×<n|? (never built here)> │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ CONTROL ── <type> · writes <never|asked|allowed> · archiver <type> ──┐
@@ -77,7 +77,7 @@ Header line, then one box per group in this order, then the question.
 ```
 
 An era repo draws FRAMEWORK as `requires n/a · built with ? · extends <preset|none>`,
-`drift n/a (era repo)`, `artifacts ? (never built here)`. An early-era repo adds an
+`update n/a (era repo)`, `artifacts ? (never built here)`. An early-era repo adds an
 OBSOLETE box, one line per path with why it is gone. The `reference facility` line in
 DATA is what MAP turns into `placeholder` rows; omit it when there are none.
 
@@ -313,7 +313,7 @@ The question:
   refuses a name that is no agent and a bare alias word, and notes an unlisted id.
 - Offer ids from SERVED. An id outside it is the user's to name.
 - A deployment's own agent file takes no pin: its `model:` line is edited instead.
-- Then `osprey validate --drift=warn`, and the card is drawn again.
+- Then `osprey validate`, and the card is drawn again.
 
 Worked example:
 

@@ -238,4 +238,4 @@ def test_a_materialized_profile_stating_machine_passes(repo: Path) -> None:
     _machine(repo / "va" / "facility")
     profile = _state_machine(repo, "va/facility")
 
-    check_profile_file(profile, drift="error")
+    check_profile_file(profile)

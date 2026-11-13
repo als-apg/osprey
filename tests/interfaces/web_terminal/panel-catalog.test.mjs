@@ -42,6 +42,8 @@ async function freshCatalog() {
 function clearStamps() {
   document.documentElement.removeAttribute('data-panel-labels');
   document.documentElement.removeAttribute('data-sidecar-panels');
+  document.documentElement.removeAttribute('data-panel-icons');
+  document.documentElement.removeAttribute('data-panel-authored-labels');
 }
 
 /** Stamp the sidecar descriptors alone, leaving the labels as they are. @param {unknown} value */
@@ -302,6 +304,26 @@ describe('how the sidebar names and draws a panel', () => {
     expect(titleCase(label)).toBe(shown);
   });
 
+  test('titleCase leaves an all-capitals label the deployment wrote as written', async () => {
+    document.documentElement.setAttribute(
+      'data-panel-authored-labels',
+      JSON.stringify(['ASCC', 'LLRF', 7])
+    );
+    const { titleCase } = await freshCatalog();
+
+    expect(titleCase('ASCC')).toBe('ASCC');
+    expect(titleCase('LLRF')).toBe('LLRF');
+    // A derived label beside them still reads in title case.
+    expect(titleCase('CHANNELS')).toBe('Channels');
+  });
+
+  test('an unreadable authored-labels stamp names no label', async () => {
+    document.documentElement.setAttribute('data-panel-authored-labels', '{not json');
+    const { titleCase } = await freshCatalog();
+
+    expect(titleCase('ASCC')).toBe('Ascc');
+  });
+
   test.each(['EPICS Archiver', 'pyAT', 'Artifacts', 'Agent'])(
     'titleCase leaves %s, which has a lower-case letter, as it is',
     async (label) => {
@@ -321,12 +343,16 @@ describe('an application panel names its own row', () => {
     healthEndpoint: '/health',
     path: '/ui/',
     app: 'dial',
-    icon: 'sliders',
     description: 'Turn the demo dial and watch it settle',
     help: 'how-to/apps/build-your-own-app.html',
   };
 
-  test('the catalog entry built from the def carries its icon, description and help', async () => {
+  /** The page's icon stamp, where a manifest's `panel.icon` arrives. @param {unknown} value */
+  function stampIcons(value) {
+    document.documentElement.setAttribute('data-panel-icons', JSON.stringify(value));
+  }
+
+  test('the catalog entry built from the def carries its description and help', async () => {
     const { customPanelEntry } = await freshCatalog();
 
     expect(customPanelEntry(DIAL)).toEqual({
@@ -335,10 +361,20 @@ describe('an application panel names its own row', () => {
       configEndpoint: null,
       healthEndpoint: '/health',
       path: '/ui/',
-      icon: 'sliders',
       description: 'Turn the demo dial and watch it settle',
       help: 'how-to/apps/build-your-own-app.html',
     });
+  });
+
+  test('the glyph is the icon stamp’s to carry: a def that names one is not read', async () => {
+    const { PANELS, customPanelEntry, panelIconName, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    const def = { ...DIAL, icon: 'sliders' };
+    const entry = customPanelEntry(def);
+    PANELS.push(entry);
+
+    expect(entry).not.toHaveProperty('icon');
+    expect(panelIconName('dial')).toBe(FALLBACK_PANEL_ICON);
   });
 
   test('a def that declares none of them builds the entry it always did', async () => {
@@ -351,19 +387,19 @@ describe('an application panel names its own row', () => {
       healthEndpoint: null,
       path: '/',
     });
-    const blank = customPanelEntry({ ...DIAL, icon: '', description: 7, help: null });
-    expect(blank).not.toHaveProperty('icon');
+    const blank = customPanelEntry({ ...DIAL, description: 7, help: null });
     expect(blank).not.toHaveProperty('description');
     expect(blank).not.toHaveProperty('help');
   });
 
   test('the row wears the declared glyph and tooltip; one it does not declare falls back', async () => {
+    stampIcons({ dial: 'sliders' });
     const { PANELS, customPanelEntry, panelIconName, describePanel, FALLBACK_PANEL_ICON } =
       await freshCatalog();
 
     PANELS.push(customPanelEntry(DIAL), customPanelEntry({ id: 'plain', label: 'PLAIN' }));
 
-    expect(ICON_NAMES).toContain(DIAL.icon);
+    expect(ICON_NAMES).toContain('sliders');
     expect(panelIconName('dial')).toBe('sliders');
     expect(describePanel('dial')).toBe(DIAL.description);
     expect(panelIconName('plain')).toBe(FALLBACK_PANEL_ICON);
@@ -371,9 +407,10 @@ describe('an application panel names its own row', () => {
   });
 
   test('a declared glyph icons.js does not define falls back instead of breaking the row', async () => {
+    stampIcons({ dial: 'no-such-glyph' });
     const { PANELS, customPanelEntry, panelIconName, FALLBACK_PANEL_ICON } = await freshCatalog();
 
-    PANELS.push(customPanelEntry({ ...DIAL, icon: 'no-such-glyph' }));
+    PANELS.push(customPanelEntry(DIAL));
 
     expect(ICON_NAMES).not.toContain('no-such-glyph');
     expect(panelIconName('dial')).toBe(FALLBACK_PANEL_ICON);
@@ -382,6 +419,7 @@ describe('an application panel names its own row', () => {
 
   test('built-in and sidecar rows are unchanged by a declared application panel', async () => {
     stampPanelLabels(document);
+    stampIcons({ dial: 'sliders' });
     const { PANELS, PANEL_ICONS, customPanelEntry, panelIconName, describePanel } =
       await freshCatalog();
     const ids = PANELS.map((p) => p.id);
@@ -393,5 +431,61 @@ describe('an application panel names its own row', () => {
 
     expect(ids.map(row)).toEqual(before);
     expect(panelIconName('terminal')).toBe(PANEL_ICONS.terminal);
+  });
+});
+
+describe('a deployment picks a panel’s glyph', () => {
+  /** @param {unknown} value */
+  function stampIcons(value) {
+    document.documentElement.setAttribute(
+      'data-panel-icons',
+      typeof value === 'string' ? value : JSON.stringify(value)
+    );
+  }
+
+  test('with no stamp every panel keeps its own glyph, silently', async () => {
+    stampPanelLabels(document);
+    const { panelIconName, PANEL_ICONS, FALLBACK_PANEL_ICON } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(panelIconName('jupyter')).toBe('notebook');
+    expect(panelIconName('grafana')).toBe(FALLBACK_PANEL_ICON);
+    expect(warnings).toEqual([]);
+  });
+
+  test('a stamped glyph wins for a companion, a sidecar and a declared panel alike', async () => {
+    stampPanelLabels(document);
+    stampIcons({ ariel: 'file-text', jupyter: 'monitor', grafana: 'chart-column' });
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe('file-text');
+    expect(panelIconName('jupyter')).toBe('monitor');
+    expect(panelIconName('grafana')).toBe('chart-column');
+    // A panel the stamp does not name is untouched.
+    expect(panelIconName('okf')).toBe(PANEL_ICONS.okf);
+    expect(warnings).toEqual([]);
+  });
+
+  test('a name icons.js does not draw is dropped with a warning, and the panel keeps its glyph', async () => {
+    stampPanelLabels(document);
+    stampIcons({ ariel: 'no-such-glyph', okf: 7, grafana: 'cpu' });
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(panelIconName('okf')).toBe(PANEL_ICONS.okf);
+    expect(panelIconName('grafana')).toBe('cpu');
+    expect(ICON_NAMES).not.toContain('no-such-glyph');
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('web.panels.ariel.icon');
+  });
+
+  test('an unreadable stamp is treated as an absent one', async () => {
+    stampPanelLabels(document);
+    stampIcons('{not json');
+    const { panelIconName, PANEL_ICONS } = await freshCatalog();
+
+    expect(panelIconName('ariel')).toBe(PANEL_ICONS.ariel);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('data-panel-icons');
   });
 });

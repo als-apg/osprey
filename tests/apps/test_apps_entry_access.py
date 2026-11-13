@@ -14,6 +14,7 @@ tier alone decides writes.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -509,6 +510,31 @@ def test_a_panel_without_access_is_listed_to_everyone(open_panel) -> None:
     _app, client = open_panel
 
     assert PANEL_ID in [cp["id"] for cp in _listed(client, None)["custom"]]
+
+
+def _page_stamp(client: TestClient, subject: str | None, attribute: str) -> Any:
+    headers = {SUBJECT_HEADER: subject} if subject else {}
+    body = client.get("/", headers=headers).text
+    start = body.index("<html ")
+    match = re.search(rf"{attribute}='([^']*)'", body[start : body.index(">", start)])
+    assert match, f"{attribute} is not stamped on <html>"
+    return json.loads(match.group(1))
+
+
+@pytest.mark.parametrize("subject", ["bob@example.org", None])
+def test_the_page_names_no_glyph_or_label_of_a_panel_it_withholds(
+    restricted, subject: str | None
+) -> None:
+    """The page's own stamps say no more about a withheld panel than /api/panels does."""
+    app, client = restricted
+    app.state.panels_config = {
+        PANEL_ID: {"label": "DIAL", "icon": "sliders", "url": "http://127.0.0.1:9300"}
+    }
+
+    assert _page_stamp(client, "alice@example.org", "data-panel-icons") == {PANEL_ID: "sliders"}
+    assert _page_stamp(client, "alice@example.org", "data-panel-authored-labels") == ["DIAL"]
+    assert _page_stamp(client, subject, "data-panel-icons") == {}
+    assert _page_stamp(client, subject, "data-panel-authored-labels") == []
 
 
 def _stub_upstream(app) -> list[str]:

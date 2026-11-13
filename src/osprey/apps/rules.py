@@ -92,10 +92,13 @@ class AppSelection:
             the set the build resolved (``user:`` and ``domain:`` members only);
             ``None`` when the entry spells no ``access:``, which is every user of
             the login. It never decides a write: the tier does.
+        panel_hidden: Whether its panel stays off the sidebar until someone
+            adds it.
     """
 
     shown: bool
     access: str | None = None
+    panel_hidden: bool = False
 
 
 @dataclass(frozen=True)

@@ -452,8 +452,9 @@ def test_a_deploying_profile_claims_the_record_port() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(("login", "identity"), [("builder", "builder"), ("GMartino", "gmartino")])
 def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded_entries
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded_entries, login, identity
 ) -> None:
     from osprey.agent_record import writer as record_writer
     from osprey.agent_record.contract import SPOOL_DIR_ENV
@@ -462,7 +463,7 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     from osprey.cli import build_cmd
     from osprey_connectors.identity import IDENTITY_ENV_LADDER
 
-    monkeypatch.setattr("getpass.getuser", lambda: "builder")
+    monkeypatch.setattr("getpass.getuser", lambda: login)
     render = tmp_path / "build"
     render.mkdir()
     (render / "config.yml").write_text(yaml.safe_dump({"deployed_services": []}), encoding="utf-8")
@@ -470,7 +471,7 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     assert build_cmd._record_host_identity(render, rendered) is True
 
     stamped = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    assert stamped["deployment"]["host_identity"] == "builder"
+    assert stamped["deployment"]["host_identity"] == identity
 
     # A host launch exports that name: an audit entry names it as the actor and
     # the default spool directory is its own, even though the account running
@@ -495,10 +496,10 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     )
     assert entry_id is not None
     (entry,) = recorded_entries("audit")
-    assert entry.body["actor"] == "builder"
+    assert entry.body["actor"] == identity
 
     monkeypatch.delenv(SPOOL_DIR_ENV)
-    assert record_writer.spool_dir().name == "builder"
+    assert record_writer.spool_dir().name == identity
 
 
 # ── Names the record shares with the history page and the render ─────────────

@@ -127,24 +127,19 @@ def env_names_errors(value: Any, key: str) -> list[str]:
     return errors
 
 
-#: Tag of the comment that marks a deliberate difference from the preset —
-#: ``# DEVIATION: <why>`` — when the profile's ``provenance:`` block names none.
-DEFAULT_DEVIATION_MARKER = "DEVIATION"
-
-
 @dataclass
 class ProfileProvenance:
     """What a materialized profile was emitted from (``provenance:``).
 
-    Written by ``osprey init`` and never by hand, except for the marker tag. It
-    is the MACHINE-READABLE record of the profile's source — the emitted header
-    says the same thing in prose, for people — and it is what
-    :func:`~osprey.cli.build_profile_drift.preset_drift_report` compares against
-    the installed preset to notice that the preset has moved on since the
-    profile was materialized (FR-6). A profile is the source of truth once it
-    exists, so a difference is never overwritten: ``osprey validate`` refuses
-    the ones nobody has marked as deliberate, and ``osprey build`` only names
-    them.
+    Written by ``osprey init`` and never by hand. It is the MACHINE-READABLE record of the profile's source — the emitted header
+    says the same thing in prose, for people. What the preset produced is
+    saved beside it, under ``.osprey/preset-base/``
+    (:mod:`~osprey.cli.build_profile_updates`), and that saved copy, not this
+    hash, is what tells a preset's later changes from the operator's edits. A
+    profile is the source of truth once it exists, so a difference from the
+    preset is never refused: ``osprey validate`` and ``osprey build`` only say
+    when the preset has changed since, and ``osprey init --revalidate`` applies
+    what it changed.
     """
 
     preset: str
@@ -152,13 +147,12 @@ class ProfileProvenance:
     preset_hash: str
     """Content hash of that preset as resolved at materialization time."""
     providers_hash: str = ""
-    """Content hash of the ``providers.yml`` catalog written beside the profile
-    at materialization time
+    """Content hash of the packaged provider catalog the repo's
+    ``providers.yml`` last took: the one ``osprey init`` wrote it from, or
+    ``osprey init --revalidate`` last brought it up to
     (:func:`~osprey.profiles.providers.compute_providers_hash`). Empty for a
     profile emitted before the catalog became a sibling file — the catalog note
     is then simply not drawn, which is right: there is nothing to compare."""
-    deviation_marker: str = DEFAULT_DEVIATION_MARKER
-    """Tag of the ``# <TAG>:`` comment that marks a difference as deliberate."""
 
 
 @dataclass
@@ -229,7 +223,7 @@ class AppEntry:
 
     Listing an application turns it on; there is no ``enabled`` key. Its tool
     server is projected by the build from its manifest, so no tool-server key
-    is written here. A login file spells only ``shown`` and ``access``;
+    is written here. A login file spells only ``shown``, ``access`` and ``panel_hidden``;
     ``config`` and ``services`` are the deployment's.
     """
 
@@ -244,10 +238,14 @@ class AppEntry:
     """Who on the login sees and opens the application's panel, authored in the
     words a shared roster card's ``access`` uses; ``None`` is every user of the
     login. The tier alone decides writes."""
+    panel_hidden: bool | None = None
+    """Whether a card that shows the application keeps its panel off the
+    sidebar until someone adds it (the ``web.panels.<id>.hidden`` of a panel the
+    build projects); ``None`` gives the panel its sidebar row."""
 
 
 #: The keys a login may spell inside ``apps.<name>``.
-LOGIN_APP_ENTRY_KEYS = frozenset({"shown", "access"})
+LOGIN_APP_ENTRY_KEYS = frozenset({"shown", "access", "panel_hidden"})
 
 
 @dataclass
