@@ -35,6 +35,7 @@ import { openContextMenu as openShared } from '/design-system/js/context-menu.js
  *   y: number,
  *   anchorEl?: HTMLElement | null,
  *   triggerEl?: HTMLElement | null,
+ *   side?: 'below' | 'right',
  *   ariaLabel: string,
  *   items: MenuItem[],
  * }} opts  - `anchorEl` is the rail entry or tile bar the menu belongs to;

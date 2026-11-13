@@ -142,6 +142,10 @@
  *   button carries `aria-expanded` while the menu is open; a press on it
  *   does not count as an outside press, and opening again from the same
  *   button while its menu is open closes the menu instead (a toggle).
+ * @property {'below' | 'right'} [side] - where a trigger's menu opens: under it,
+ *   right edges aligned (the default, for a ⋯ at a bar's end), or beside it
+ *   as a submenu beside its row (a button at a sidebar's edge); either flips
+ *   at the viewport's edge
  * @property {string} ariaLabel - the menu's accessible name
  * @property {MenuItem[]} items - the rows, in order
  * @property {string} [classPrefix] - class-name stem, `osprey-context` by default
@@ -738,6 +742,8 @@ export function openContextMenu(opts) {
  * menu opened near the right or bottom edge flips to the cursor's other side
  * rather than overflowing. Under a trigger button: right edges aligned, a
  * small gap below it, flipped above it when the bottom edge is short of
+ * room. Beside one (`side: 'right'`): placed as a submenu is beside its row
+ * ({@link placeSubmenu}), to the right unless the right edge is short of
  * room. Measured after insertion, at x/y, so the menu's own size is known.
  * @param {HTMLElement} menu
  * @param {OpenOptions} opts
@@ -748,16 +754,18 @@ function place(menu, opts, view) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   const rect = menu.getBoundingClientRect();
-  if (opts.triggerEl) {
+  if (opts.triggerEl && opts.side === 'right') {
+    placeSubmenu(menu, opts.triggerEl, 1, view);
+  } else if (opts.triggerEl) {
     const r = opts.triggerEl.getBoundingClientRect();
     const below = r.bottom + TRIGGER_GAP;
     const fits = below + rect.height <= view.innerHeight;
     menu.style.left = `${Math.max(0, r.right - rect.width)}px`;
     menu.style.top = `${Math.max(0, fits ? below : r.top - rect.height - TRIGGER_GAP)}px`;
-    return;
+  } else {
+    if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
+    if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
   }
-  if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
-  if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
 }
 
 /**

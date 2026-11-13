@@ -227,6 +227,7 @@ export function watchViewButton(signal, onChange) {
         y: box.bottom,
         anchorEl: button,
         triggerEl: button,
+        side: 'right',
         ariaLabel: 'Session list view',
         items: viewMenuItems(),
       });

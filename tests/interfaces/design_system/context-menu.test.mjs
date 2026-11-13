@@ -323,6 +323,18 @@ describe('trigger button (a ⋯)', () => {
     expect(menu()?.style.top).toBe('42px'); // 42 + 5 fits in 100
   });
 
+  test("side: 'right' opens beside the button, and at the right edge on its left", () => {
+    const { btn } = setup();
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1000);
+    openContextMenu({ x: 0, y: 0, triggerEl: btn, side: 'right', ariaLabel: 'View', items: [] });
+    expect(menu()?.style.left).toBe('526px'); // 528 - the 2 px submenu overlap
+    expect(menu()?.style.top).toBe('6px'); // 10 - the 4 px submenu rise
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(600);
+    openContextMenu({ x: 0, y: 0, triggerEl: btn, side: 'right', ariaLabel: 'View', items: [] });
+    expect(menu()?.style.left).toBe('302px'); // 500 - 200 + 2
+  });
+
   test('a press on the button is not an outside press; the next open from it toggles the menu closed', () => {
     const { btn } = setup();
     open(btn);
