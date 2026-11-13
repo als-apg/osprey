@@ -58,6 +58,7 @@ from osprey_connectors import posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests._builds import init_project
 from tests._control_system import IN_PROCESS
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces.conftest import use_process_web_credentials
 
@@ -407,6 +408,7 @@ def test_deep_links_open_the_pv_and_ioc_pages(chromium_browser: Browser, panel_u
     )
 
     host.goto(f"{panel_url}/#/pv/{quote('ca:SIM:SR:HEARTBEAT', safe='')}")
+    wait_for_page_ready(host.frame)
     host.wait_for_selector(".pv-page .pvp-name")
     assert host.locator(".pvp-name").inner_text() == "ca:SIM:SR:HEARTBEAT"
     assert host.locator(".pvp-mark").inner_text() == "◇"
