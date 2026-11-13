@@ -6,7 +6,9 @@ Two comparisons, both over every file of the rendered repo (see ``_off_render``)
   configurations, the branch side with the section stripped from the config block of
   every profile it renders and with the connectors modules newer than the floor blocked
   from import. Only the allow-list below may differ. Once the baseline holds the
-  feature this skips, and the permanent guard holds it.
+  feature this skips, and the permanent guard holds it. The saved copy of what the
+  presets produced (``.osprey/preset-base/``) is the preset as shipped, written before
+  the strip, so it is compared without the section and the opt-out and otherwise whole.
 - From this checkout: demo with ``pv_directory: null`` against demo without the section.
 
 Nothing rendered is stored, so a template change on ``main`` never turns this red.
@@ -112,6 +114,30 @@ def _without_opt_out(text: str) -> str:
     return _PROVENANCE_DIGEST.sub(r"\g<1><digest>", _OPT_OUT_LINES.sub("", text))
 
 
+#: The logins' opt-out as the saved copy of a tier spells it: one dotted ``config`` key.
+OPT_OUT_KEY = "claude_code.servers.pv-directory.enabled"
+
+
+def _saved_copy(text: str, change: Callable[[dict[str, Any]], dict[str, Any]]) -> str:
+    """A file of the saved copy with *change* applied to its ``config``, key order kept."""
+    document = yaml.safe_load(text)
+    document["config"] = change(dict(document.get("config") or {}))
+    return yaml.safe_dump(document, sort_keys=False)
+
+
+def _without_saved_section(text: str) -> str:
+    return _saved_copy(text, stripped)
+
+
+def _without_saved_opt_out(text: str) -> str:
+    def change(config: dict[str, Any]) -> dict[str, Any]:
+        if config.get(OPT_OUT_KEY) is False:
+            del config[OPT_OUT_KEY]
+        return config
+
+    return _saved_copy(text, change)
+
+
 @dataclass(frozen=True)
 class Allowed:
     """Files compared after one stated change is taken out of them, on both sides."""
@@ -121,8 +147,22 @@ class Allowed:
     compare: Callable[[str], str]
 
 
-#: What the feature necessarily moves in an off render, over every render tree.
+#: What the feature necessarily moves in an off render, over every render tree. The first
+#: rule a path matches is its rule, so the saved copy's rules stand before the tiers' own.
 ALLOW_LIST = (
+    Allowed(
+        ("**/.osprey/preset-base/presets/demo.yml",),
+        "the saved copy records the preset as shipped, section included, before the strip",
+        _without_saved_section,
+    ),
+    Allowed(
+        (
+            "**/.osprey/preset-base/tiers/logbook.yml",
+            "**/.osprey/preset-base/tiers/knowledge.yml",
+        ),
+        "the saved copy records the opt-out the logbook and knowledge tiers ship",
+        _without_saved_opt_out,
+    ),
     Allowed(
         ("**/data/simulator/addresses.json",),
         "the simulator view lists the IOC health PVs the VA serves",
@@ -345,10 +385,37 @@ def blocked(blocker: Path) -> Iterator[None]:
         ("build/demo-logbook/config.yml.bak", "**/config.yml", False),
         ("build/tiers/logbook.yml", "**/tiers/logbook.yml", True),
         ("build/xtiers/logbook.yml", "**/tiers/logbook.yml", False),
+        (
+            ".osprey/preset-base/presets/demo.yml",
+            "**/.osprey/preset-base/presets/demo.yml",
+            True,
+        ),
+        (
+            "build/.image/demo-admin/.osprey/preset-base/presets/demo.yml",
+            "**/.osprey/preset-base/presets/demo.yml",
+            True,
+        ),
+        ("presets/demo.yml", "**/.osprey/preset-base/presets/demo.yml", False),
     ],
 )
 def test_a_glob_matches_the_whole_relative_path(relative: str, glob: str, expected: bool) -> None:
     assert _matches(relative, (glob,)) is expected
+
+
+def test_a_saved_tier_is_compared_by_the_saved_copys_rule() -> None:
+    rule = _rule("build/.image/demo/.osprey/preset-base/tiers/logbook.yml", ALLOW_LIST)
+    assert rule is not None and rule.compare is _without_saved_opt_out
+    rule = _rule("build/.image/demo/tiers/logbook.yml", ALLOW_LIST)
+    assert rule is not None and rule.compare is _without_opt_out
+
+
+def test_the_saved_copys_rules_take_out_only_the_stated_keys() -> None:
+    preset = "provider: a\nconfig:\n  x: 1\n  pv_directory:\n    type: t\n  pv_directory.y: 2\n"
+    assert yaml.safe_load(_without_saved_section(preset)) == {"provider": "a", "config": {"x": 1}}
+    on = f"config:\n  {OPT_OUT_KEY}: true\n"
+    assert yaml.safe_load(_without_saved_opt_out(on)) == {"config": {OPT_OUT_KEY: True}}
+    off = f"config:\n  x: 1\n  {OPT_OUT_KEY}: false\n"
+    assert yaml.safe_load(_without_saved_opt_out(off)) == {"config": {"x": 1}}
 
 
 def test_the_blocker_refuses_exactly_the_new_modules(blocker: Path) -> None:
