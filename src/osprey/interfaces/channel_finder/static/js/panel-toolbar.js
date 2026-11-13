@@ -7,15 +7,20 @@
  *
  *   [sidebar toggle] [Explore | Feedback] …… [result count] [search]
  *
+ * Beside a PV directory the switch reads [Curated | <directory> | Feedback]
+ * (app.js writes it); a PV or IOC page presses the directory's button.
+ *
  * The view switch belongs to the shell: a press sets the hash and app.js
  * routes on it; the pressed button follows `state.activeView`. The rest
- * belongs to the graph finder, the one view with a search and filters. While
- * it is mounted it claims the search field ({@link claimToolbar}) and writes
- * the result count ({@link setResultCount});
- * while its filters are drawn they drive the sidebar toggle
- * ({@link attachSidebar}). In every other view those controls keep their
- * slots, disabled, with a tooltip that says why, so a change of view moves
- * nothing.
+ * belongs to a view with a search and filters. While it is mounted it claims
+ * the search field ({@link claimToolbar}) and writes the result count
+ * ({@link setResultCount}); while its filters are drawn they drive the sidebar
+ * toggle ({@link attachSidebar}), and while they are not, a view may hand the
+ * toolbar its own reason for the disabled toggle ({@link setFilterReason}).
+ * On a page that is part of All PVs and claims
+ * nothing, the search is the toolbar's own: Enter opens All PVs with the words.
+ * In every other view those controls keep their slots, disabled, with a
+ * tooltip that says why, so a change of view moves nothing.
  *
  * The panel's options are not here: they are the tile ⋯'s "This panel" section
  * (graph-finder-verbs.js publishMenu), and a tile has one ⋯.
@@ -24,6 +29,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
+import { allPvsHash, familyOf, formatRoute } from './route.js';
 import { state } from './state.js';
 
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
@@ -40,16 +46,27 @@ export const TOOLBAR_IDS = Object.freeze({
 
 const SHOW_SIDEBAR = 'Show sidebar';
 
-/** Why a control is disabled: under Feedback (when Explore has it), or anywhere else. */
+/** Why a control is disabled: under Feedback (when the curated tab has it), or anywhere else. */
 const REASONS = Object.freeze({
-  filters: ['Filters apply to Explore', 'No filters for this view'],
-  search: ['Search applies to Explore', 'No search for this view'],
+  filters: ['Filters apply to', 'No filters for this view'],
+  search: ['Search applies to', 'No search for this view'],
 });
 
 /** Whether a view holds the search field. */
 let searchClaimed = false;
+
+/** Whether the search field is the toolbar's own: unclaimed, on a page of All PVs. */
+function searchRedirects() {
+  return !searchClaimed && familyOf(state.activeView) === 'allpvs';
+}
 /** Whether a drawn sidebar drives the toggle. */
 let sidebarAttached = false;
+/**
+ * The mounted view's own reason for the disabled filter toggle, or null for
+ * the toolbar's; dropped on every view change.
+ * @type {string|null}
+ */
+let filterReason = null;
 
 /** @param {string} id @returns {HTMLElement|null} */
 const byId = (id) => document.getElementById(id);
@@ -64,26 +81,30 @@ export function searchInput() {
 
 /**
  * Why a control does not apply in the current view. Under Feedback the
- * controls point back to Explore, but only where Explore has them: the graph
- * paradigm is the one with filters and a search.
+ * controls point back to the curated tab (Explore, or Curated beside a
+ * directory), but only where it has them: the graph paradigm is the one with
+ * filters and a search.
  * @param {keyof typeof REASONS} kind
  * @returns {string}
  */
 function reason(kind) {
   const [feedback, other] = REASONS[kind];
-  return state.activeView === 'feedback' && state.pipelineType === 'graph' ? feedback : other;
+  if (state.activeView !== 'feedback' || state.pipelineType !== 'graph') return other;
+  return `${feedback} ${state.directory ? 'Curated' : 'Explore'}`;
 }
 
 /** Bring every control in line with the view and with what is claimed. @returns {void} */
 function refresh() {
+  const pressed = familyOf(state.activeView);
   for (const btn of byId(TOOLBAR_IDS.views)?.querySelectorAll('button[data-view]') ?? []) {
-    btn.setAttribute('aria-pressed', String(btn.getAttribute('data-view') === state.activeView));
+    btn.setAttribute('aria-pressed', String(btn.getAttribute('data-view') === pressed));
   }
 
+  const enabled = searchClaimed || searchRedirects();
   const input = searchInput();
-  if (input) input.disabled = !searchClaimed;
+  if (input) input.disabled = !enabled;
   const field = byId(TOOLBAR_IDS.field);
-  if (field) writeTitle(field, searchClaimed ? '' : reason('search'));
+  if (field) writeTitle(field, enabled ? '' : reason('search'));
 
   // A drawn sidebar keeps the toggle in step itself (panel-sidebar.js).
   const toggle = /** @type {HTMLButtonElement|null} */ (byId(TOOLBAR_IDS.toggle));
@@ -92,13 +113,13 @@ function refresh() {
     toggle.setAttribute('aria-label', SHOW_SIDEBAR);
     toggle.removeAttribute('aria-expanded');
     toggle.removeAttribute('aria-controls');
-    writeTitle(toggle, reason('filters'));
+    writeTitle(toggle, filterReason ?? reason('filters'));
   }
 }
 
 /**
- * Wire the toolbar: the icons, the view switch, and the view and pipeline
- * changes every control follows. Call once, at boot.
+ * Wire the toolbar: the icons, the view switch, the search's own Enter, and
+ * the view and pipeline changes every control follows. Call once, at boot.
  * @returns {void}
  */
 export function initToolbar() {
@@ -110,10 +131,30 @@ export function initToolbar() {
   byId(TOOLBAR_IDS.views)?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const view = target?.closest('button[data-view]')?.getAttribute('data-view');
-    if (view) location.hash = view;
+    // The active view's own button keeps the route that view wrote.
+    if (view && view !== state.activeView) location.hash = formatRoute({ view, params: {} });
   });
-  state.on('viewChanged', refresh);
+  searchInput()?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !searchRedirects()) return;
+    location.hash = allPvsHash(/** @type {HTMLInputElement} */ (event.target).value);
+  });
+  state.on('viewChanged', () => {
+    filterReason = null;
+    refresh();
+  });
   state.on('pipelineChanged', refresh);
+  refresh();
+}
+
+/**
+ * Give the disabled filter toggle the mounted view's own reason, kept until
+ * the view changes; null gives it back the toolbar's. The toolbar is the one
+ * writer of that tooltip.
+ * @param {string|null} text
+ * @returns {void}
+ */
+export function setFilterReason(text) {
+  filterReason = text || null;
   refresh();
 }
 

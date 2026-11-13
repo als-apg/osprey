@@ -2,7 +2,7 @@
 /**
  * Unit tests for the Channel Finder's panel toolbar (panel-toolbar.js): the
  * view switch, the controls a view claims or leaves disabled with a reason,
- * and the sidebar toggle a drawn sidebar drives. The
+ * the search a PV or IOC page hands to All PVs, and the sidebar toggle a drawn sidebar drives. The
  * toolbar markup is the real one, read from index.html:
  *   npx vitest run tests/interfaces/channel_finder/panel-toolbar.test.mjs
  */
@@ -15,6 +15,7 @@ import {
   attachSidebar,
   claimToolbar,
   initToolbar,
+  setFilterReason,
   setResultCount,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/panel-toolbar.js';
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
@@ -65,10 +66,18 @@ describe('the view switch', () => {
     expect(views()).toEqual(['explore:true', 'feedback:false']);
 
     /** @type {HTMLElement} */ (document.querySelector('[data-view="feedback"]')).click();
-    expect(location.hash).toBe('#feedback');
+    expect(location.hash).toBe('#/feedback');
 
     state.setActiveView('feedback');
     expect(views()).toEqual(['explore:false', 'feedback:true']);
+  });
+
+  test('a press on the active view leaves the hash as the view wrote it', () => {
+    initToolbar();
+    state.setActiveView('feedback');
+    location.hash = '#/feedback?kept';
+    /** @type {HTMLElement} */ (document.querySelector('[data-view="feedback"]')).click();
+    expect(location.hash).toBe('#/feedback?kept');
   });
 });
 
@@ -98,6 +107,51 @@ describe('controls a view does not use', () => {
   });
 });
 
+describe("a view's own reason for the filter toggle", () => {
+  test('is the tooltip the toolbar writes, through refreshes, until the view changes', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    expect(toggle().disabled).toBe(true);
+    expect(toggle().title).toBe('No alarm tree on this target');
+
+    state.setPipelineInfo('hierarchical', null);
+    expect(toggle().title).toBe('No alarm tree on this target');
+
+    state.setActiveView('feedback');
+    expect(toggle().title).toBe('No filters for this view');
+  });
+
+  test('comes back when a drawn sidebar is destroyed', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    const row = document.createElement('div');
+    row.innerHTML =
+      '<aside class="osprey-panel-sidebar" id="tree" data-open="false"></aside>' +
+      '<div class="osprey-splitter" role="separator" tabindex="0" aria-label="Resize"></div>';
+    byId('app-main').append(row);
+    const sidebar = byId('tree');
+    const api = attachSidebar(
+      sidebar,
+      /** @type {HTMLElement} */ (sidebar.nextElementSibling),
+      'cf-test-reason'
+    );
+    expect(toggle().disabled).toBe(false);
+    api.destroy();
+    expect(toggle().disabled).toBe(true);
+    expect(toggle().title).toBe('No alarm tree on this target');
+  });
+
+  test('a null reason gives the toggle back the default', () => {
+    initToolbar();
+    state.setActiveView('alarms');
+    setFilterReason('No alarm tree on this target');
+    setFilterReason(null);
+    expect(toggle().title).toBe('No filters for this view');
+  });
+});
+
 describe('a claimed toolbar', () => {
   test('hands the view the search field, and the release takes it back empty', () => {
     initToolbar();
@@ -113,6 +167,46 @@ describe('a claimed toolbar', () => {
     expect(search().disabled).toBe(true);
     expect(search().value).toBe('');
     expect(byId('cf-result-count').hidden).toBe(true);
+  });
+});
+
+describe('the search on a PV or IOC page', () => {
+  /** @param {string} words */
+  function enter(words) {
+    search().value = words;
+    search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+  }
+
+  test.each(['pv', 'ioc'])('is enabled on %s and Enter searches All PVs', (view) => {
+    initToolbar();
+    state.setActiveView(view);
+    expect(search().disabled).toBe(false);
+    expect(byId('cf-search-field').title).toBe('');
+
+    enter(' BPM01 ');
+    expect(location.hash).toBe('#/allpvs?q=BPM01');
+    enter('beam current');
+    expect(location.hash).toBe('#/allpvs?q=beam%20current');
+    enter('  ');
+    expect(location.hash).toBe('#/allpvs');
+  });
+
+  test('is disabled on a view outside All PVs, and Enter does nothing', () => {
+    initToolbar();
+    state.setActiveView('explore');
+    expect(search().disabled).toBe(true);
+    enter('BPM01');
+    expect(location.hash).toBe('');
+  });
+
+  test('while a view holds the field, the toolbar Enter does nothing', () => {
+    initToolbar();
+    state.setActiveView('pv');
+    const release = claimToolbar();
+    enter('BPM01');
+    expect(location.hash).toBe('');
+    release();
+    expect(search().disabled).toBe(false);
   });
 });
 

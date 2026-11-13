@@ -30,6 +30,11 @@ USER_ROOTS = ("src", "packages/*/src")
 
 #: Names that are public with no user in the tree, each with the reason.
 EXTENSION_POINTS: Mapping[str, str] = {
+    "osprey_connectors.alarm_log.AlarmLog": "an out-of-tree alarm-log backend subclasses it",
+    "osprey_connectors.alarm_state.AlarmState": (
+        "an out-of-tree alarm-state backend subclasses it"
+    ),
+    "osprey_connectors.archiver.ArchiveExtent": ("an archiver's store_extent answers in this type"),
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),
@@ -39,6 +44,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
+    ),
+    "osprey_connectors.directory.ChannelDirectory": (
+        "an out-of-tree directory backend subclasses it"
     ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
@@ -67,6 +75,7 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "the pool hands every caller its connector in this type"
     ),
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
+    "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
     "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.simulation.archive.FingerprintComparison": (

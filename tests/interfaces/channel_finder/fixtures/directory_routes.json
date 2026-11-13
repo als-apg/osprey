@@ -1,0 +1,291 @@
+{
+  "search": {
+    "outcome": "found",
+    "searched": "name or description matches BPM01",
+    "request": "GET /ChannelFinder/resources/channels?~name=*BPM01*&~size=50&~from=0",
+    "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false},
+    "total": 2,
+    "rows": [
+      {
+        "name": "DEMO:BPM01:X",
+        "origin": "curated",
+        "alarm": {
+          "severity": "MAJOR",
+          "status": "HIGH_ALARM",
+          "latched": true,
+          "acknowledged": false,
+          "time": "2026-11-05T08:10:02.000Z"
+        },
+        "archived": true,
+        "status": "Active",
+        "description": "BPM 01 horizontal position",
+        "record_type": "ai",
+        "ioc": "demo-ioc-bpm",
+        "host": "ioc-host-01",
+        "last_announced": "2026-11-05T08:12:40.000Z"
+      },
+      {
+        "name": "DEMO:BPM01:HEARTBEAT",
+        "origin": "directory",
+        "alarm": null,
+        "archived": false,
+        "status": "Inactive",
+        "description": null,
+        "record_type": "calc",
+        "ioc": "demo-ioc-bpm",
+        "host": "ioc-host-01",
+        "last_announced": "2026-11-01T17:02:11.000Z"
+      }
+    ],
+    "truncated": false,
+    "partial": [],
+    "facets": {
+      "origin": [{"value": "curated", "count": 1}, {"value": "directory", "count": 1}],
+      "ioc": [{"value": "demo-ioc-bpm", "count": 2}],
+      "record_type": [{"value": "ai", "count": 1}, {"value": "calc", "count": 1}],
+      "alarm": [{"value": "MAJOR", "count": 1}, {"value": "none", "count": 1}],
+      "archived": [{"value": "yes", "count": 1}, {"value": "no", "count": 1}]
+    },
+    "facets_reason": null,
+    "reason": null
+  },
+  "search no source": {
+    "outcome": "unavailable",
+    "searched": "",
+    "request": "",
+    "source": {"target": "live", "service": "none", "label": "All PVs", "rehearsal": false},
+    "total": null,
+    "rows": [],
+    "truncated": false,
+    "partial": [],
+    "facets": null,
+    "facets_reason": null,
+    "reason": "not available for this target"
+  },
+  "count": {
+    "outcome": "found",
+    "total": 2,
+    "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false}
+  },
+  "pv/{name}": {
+    "name": "DEMO:BPM01:X",
+    "outcome": "found",
+    "sections": [
+      {
+        "section": "directory",
+        "outcome": "found",
+        "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false},
+        "caveats": [],
+        "origin": "curated",
+        "detail_properties": ["iocName", "recordType"],
+        "record": {
+          "row": {
+            "name": "DEMO:BPM01:X",
+            "origin": "curated",
+            "status": "Active",
+            "description": "BPM 01 horizontal position",
+            "record_type": "ai",
+            "ioc": "demo-ioc-bpm",
+            "host": "ioc-host-01",
+            "last_announced": "2026-11-05T08:12:40.000Z"
+          },
+          "properties": {
+            "iocName": "demo-ioc-bpm",
+            "recordType": "ai",
+            "hostName": "ioc-host-01",
+            "pvStatus": "Active",
+            "recordDesc": "BPM 01 horizontal position",
+            "time": "2026-11-05T08:12:40.000Z"
+          },
+          "tags": ["bpm"]
+        }
+      },
+      {
+        "section": "archive",
+        "outcome": "found",
+        "source": {"target": "live", "service": "epics_archiver", "label": "epics_archiver", "rehearsal": false},
+        "caveats": [],
+        "record": {
+          "archived": null,
+          "first_sample": null,
+          "last_sample": null,
+          "sampling_period_s": null,
+          "description": "the EPICS Archiver Appliance connector does not ask the appliance whether this channel is archived"
+        }
+      },
+      {
+        "section": "alarm_state",
+        "outcome": "found",
+        "source": {"target": "live", "service": "phoebus_alarm_server", "label": "phoebus_alarm_server", "rehearsal": false},
+        "caveats": [],
+        "record": {
+          "severity": "MINOR",
+          "status": "HIGH",
+          "latched": true,
+          "acknowledged": false,
+          "message": "HIGH",
+          "time": "2026-11-05T08:10:02.000Z",
+          "stale": false
+        }
+      },
+      {
+        "section": "alarm_config",
+        "outcome": "found",
+        "source": {"target": "live", "service": "phoebus_alarm_server", "label": "phoebus_alarm_server", "rehearsal": false},
+        "caveats": [],
+        "label": "live configuration",
+        "record": {
+          "in_tree": "yes",
+          "path": "/Demo/BPM/DEMO:BPM01:X",
+          "guidance": [{"title": "Response", "details": "Check cavity 1 cooling water flow and the tuner position before re-enabling RF."}],
+          "displays": [{"title": "RF cavity 1", "details": "rf/cavity_01.bob"}],
+          "enabled": true,
+          "latching": true,
+          "label": "live configuration"
+        }
+      },
+      {
+        "section": "alarm_history",
+        "outcome": "unavailable",
+        "source": {"target": "live", "service": "alarm_logger", "label": "alarm_logger", "rehearsal": false},
+        "caveats": [],
+        "rows": [],
+        "reason": "no answer within 6 s"
+      },
+      {
+        "section": "put_history",
+        "outcome": "found",
+        "source": {"target": "live", "service": "put_log", "label": "put_log", "rehearsal": false},
+        "caveats": [],
+        "rows": [
+          {
+            "at": "2026-11-04T14:20:00.000Z",
+            "pv": "DEMO:BPM01:X",
+            "field": ".HIHI",
+            "old": "1.5",
+            "new": "2.0",
+            "user": "operator",
+            "client": "ioc-host-02"
+          }
+        ],
+        "truncated": false,
+        "retention_known": true
+      }
+    ]
+  },
+  "ioc/{name}": {
+    "ioc": "demo-ioc-bpm",
+    "outcome": "found",
+    "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false},
+    "host": "ioc-host-01",
+    "ports": [5064, 5075],
+    "pv_count": 2,
+    "inactive_count": 1,
+    "curated_count": 1,
+    "engineer": "operator",
+    "engineer_source": "directory property",
+    "health_pvs": [{"name": "DEMO:BPM01:HEARTBEAT", "role": "heartbeat"}],
+    "alarms": {
+      "outcome": "found",
+      "total": 1,
+      "counts": {"MAJOR": 1},
+      "rows": [
+        {
+          "pv": "DEMO:BPM01:X",
+          "severity": "MAJOR",
+          "status": "HIGH_ALARM",
+          "latched": true,
+          "acknowledged": false,
+          "time": "2026-11-05T08:10:02.000Z"
+        }
+      ]
+    },
+    "links": {"panel": "/panel/channel-finder/#/ioc/demo-ioc-bpm"}
+  },
+  "logbook/availability": {
+    "available": true,
+    "source": {"target": "live", "service": "ariel", "label": "ariel", "rehearsal": false}
+  },
+  "archive": {
+    "outcome": "found",
+    "source": {"target": "va", "service": "mongodb_archiver", "label": "mongodb_archiver", "rehearsal": false},
+    "archived": {"count": 4731, "of": 4750},
+    "by_ioc": [
+      {"ioc": "sim-SR", "pvs": 2400, "archived": 2390},
+      {"ioc": "sim-BR", "pvs": 2350, "archived": 2341}
+    ],
+    "newest_sample": "2026-11-12T08:00:04+00:00",
+    "oldest_sample": "2026-10-13T08:00:00+00:00",
+    "freshness_bound_s": 60,
+    "configuration": {
+      "archiver": {"type": "mongodb_archiver"},
+      "va_archiver": {
+        "retention_days": 30,
+        "hot_span_hours": 48,
+        "hot_cadence_sec": 10,
+        "tail_cadence_sec": 60,
+        "recorder_cadence_sec": 10
+      }
+    },
+    "targets": [{"target": "va", "archive": true}, {"target": "live", "archive": false}]
+  },
+  "alarms": {
+    "outcome": "found",
+    "source": {"target": "va", "service": "alarm_replay", "label": "alarm_replay", "rehearsal": false},
+    "caveats": [],
+    "counts": {"MAJOR": 1, "MINOR": 1, "OK": 1},
+    "total": 3,
+    "rows": [
+      {
+        "pv": "SR:RF:CAVITY:01:TEMPERATURE:RB",
+        "path": "/Demo/SR/RF/SR:RF:CAVITY:01:TEMPERATURE:RB",
+        "severity": "MAJOR",
+        "status": "NO_ALARM",
+        "latched": true,
+        "acknowledged": false,
+        "message": "HIHI_ALARM",
+        "time": "2026-11-06T11:58:40.000Z",
+        "stale": false
+      },
+      {
+        "pv": "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+        "path": "/Demo/SR/Vacuum/SR:VAC:GAUGE:SR03:PRESSURE:RB",
+        "severity": "MINOR",
+        "status": "HIGH_ALARM",
+        "latched": false,
+        "acknowledged": true,
+        "message": "HIGH_ALARM",
+        "time": "2026-11-06T12:00:00.000Z",
+        "stale": false
+      }
+    ],
+    "truncated": false,
+    "stale": false,
+    "last_contact": "2026-11-06T12:00:00.000Z"
+  },
+  "values": [
+    {
+      "name": "DEMO:BPM01:X",
+      "outcome": "found",
+      "value": 0.125,
+      "timestamp": "2026-11-05T08:12:41.250000+00:00",
+      "severity": 1,
+      "status": "HIGH",
+      "units": "mm",
+      "precision": 3,
+      "enum_label": null
+    },
+    {
+      "name": "DEMO:BPM01:HEARTBEAT",
+      "outcome": "no_answer",
+      "value": null,
+      "timestamp": null,
+      "severity": null,
+      "status": null,
+      "units": null,
+      "precision": null,
+      "enum_label": null,
+      "reason": "no answer within 2 s"
+    }
+  ]
+}

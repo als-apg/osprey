@@ -1,0 +1,176 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 400" role="img" aria-labelledby="cf-paradigms-title cf-paradigms-desc">
+  <title id="cf-paradigms-title">The four channel finder paradigms</title>
+  <desc id="cf-paradigms-desc">Four cards, one per pipeline. In-context: a dictionary of channel names with plain-text descriptions, all of it in the model's context. Hierarchical: a sequence of constrained choices, system then family then field, that narrows the catalog down to the target channels. Middle layer: a ReAct agent that calls query tools in an order it chooses. Graph: devices, signals and their typed relationships. Two arrows run beneath the cards from left to right: catalog scale, from hundreds of PVs to hundreds of thousands, and abstraction, from literal (channels as named) to semantic (channels as meant).</desc>
+  <defs>
+    <marker id="cf-paradigms-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- in-context pipeline -->
+  <g transform="translate(12,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">IN-CONTEXT PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Direct in-context lookup</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Dictionary lookup.</text>
+    <text class="ts" x="14" y="281">Every PV is paired with a plain-text</text>
+    <text class="ts" x="14" y="293">description, and the whole list is</text>
+    <text class="ts" x="14" y="305">dropped into the LLM's context.</text>
+    <path class="nb" d="M9 84 Q111 76 111 84 V232 Q111 224 9 232 Z" style="stroke: var(--od-muted)"/>
+    <path class="nb" d="M213 84 Q111 76 111 84 V232 Q111 224 213 232 Z" style="stroke: var(--od-muted)"/>
+    <line class="e-thin e-dash" x1="111" y1="82" x2="111" y2="228"/>
+    <rect class="nb-foc" x="13" y="97" width="92" height="26" rx="3"/>
+    <text class="ts" x="17" y="108" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">MAG:DIPOLE01:RB</text>
+    <text x="17" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Dipole 1 field readback</text>
+    <text class="ts" x="17" y="140" style="font-size: 8px; fill: var(--od-ink)">MAG:CORR04:RB</text>
+    <text x="17" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Corrector 4 readback</text>
+    <text class="ts" x="17" y="172" style="font-size: 8px; fill: var(--od-ink)">MAG:QUAD03:SP</text>
+    <text x="17" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Quadrupole 3 setpoint</text>
+    <text class="ts" x="17" y="204" style="font-size: 8px; fill: var(--od-ink)">RF:CAVITY:PHA</text>
+    <text x="17" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Cavity 1 RF phase</text>
+    <text class="ts" x="119" y="108" style="font-size: 8px; fill: var(--od-ink)">MAG:DIPOLE03:RB</text>
+    <text x="119" y="118" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Dipole 3 field readback</text>
+    <text class="ts" x="119" y="140" style="font-size: 8px; fill: var(--od-ink)">VAC:GAUGE07:PR</text>
+    <text x="119" y="150" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">Vacuum gauge 7 pressure</text>
+    <text class="ts" x="119" y="172" style="font-size: 8px; fill: var(--od-ink)">DIAG:BPM12:X</text>
+    <text x="119" y="182" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-muted)">BPM 12 x position</text>
+    <rect class="nb-foc" x="115" y="193" width="92" height="26" rx="3"/>
+    <text class="ts" x="119" y="204" style="font-size: 8px; fill: var(--od-ink); font-weight: 600">DIAG:SCREEN:IMG</text>
+    <text x="119" y="214" style="font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif; font-size: 7.5px; fill: var(--od-ink)">Screen 1 camera image</text>
+  </g>
+
+  <!-- hierarchical pipeline -->
+  <g transform="translate(250,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">HIERARCHICAL PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Hierarchical descent</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">Multiple-choice, top-down.</text>
+    <text class="ts" x="14" y="281">A sequence of constrained LLM calls</text>
+    <text class="ts" x="14" y="293">narrows the catalog down to the</text>
+    <text class="ts" x="14" y="305">target PVs.</text>
+    <g transform="translate(5.4,72) scale(0.66)">
+      <line class="e-thin" x1="146" y1="38" x2="80" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="174" y1="38" x2="240" y2="78" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-thin" x1="172" y1="108" x2="210" y2="146" style="stroke: var(--od-soft); stroke-width: 1.4"/>
+      <line class="e-warn" x1="160" y1="44" x2="160" y2="78" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="148" y1="108" x2="110" y2="146" style="stroke-width: 2.6"/>
+      <line class="e-warn" x1="110" y1="182" x2="110" y2="206" style="stroke-width: 2.6"/>
+      <polygon class="nb-warn" points="160,8 202,26 160,44 118,26"/>
+      <text class="tn" x="160" y="30" text-anchor="middle" style="font-size: 13px">System?</text>
+      <polygon class="nb" points="80,78 122,96 80,114 38,96" style="stroke: var(--od-soft)"/>
+      <polygon class="nb-warn" points="160,78 202,96 160,114 118,96"/>
+      <text class="tn" x="160" y="100" text-anchor="middle" style="font-size: 13px">Family?</text>
+      <polygon class="nb" points="240,78 282,96 240,114 198,96" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="108" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">vac</text>
+      <text class="ts" x="172" y="68" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">mag</text>
+      <text class="ts" x="212" y="64" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">rf</text>
+      <text class="ts" x="118" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">dipole</text>
+      <text class="ts" x="204" y="132" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-muted); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">quad</text>
+      <polygon class="nb-warn" points="110,146 152,164 110,182 68,164"/>
+      <text class="tn" x="110" y="168" text-anchor="middle" style="font-size: 13px">Field?</text>
+      <polygon class="nb" points="210,146 252,164 210,182 168,164" style="stroke: var(--od-soft)"/>
+      <text class="ts" x="132" y="198" text-anchor="middle" style="font-size: 12px; font-weight: 600; fill: var(--od-warn); stroke: var(--od-box); stroke-width: 4; paint-order: stroke">RB</text>
+      <rect class="nb-foc" x="20" y="206" width="280" height="28" rx="4"/>
+      <text class="ts t-acc" x="160" y="225" text-anchor="middle" style="font-size: 13px; font-weight: 600">MAG:DIPOLE01:RB</text>
+    </g>
+  </g>
+
+  <!-- middle layer pipeline -->
+  <g transform="translate(488,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">MIDDLE LAYER PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Interactive agent (ReAct)</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">The agent decides each step.</text>
+    <text class="ts" x="14" y="281">Tools expose slices of the same</text>
+    <text class="ts" x="14" y="293">catalog, but the agent reasons about</text>
+    <text class="ts" x="14" y="305">each result and chooses the next</text>
+    <text class="ts" x="14" y="317">call itself.</text>
+    <rect class="zone" x="12" y="68" width="198" height="62" rx="5" style="stroke: var(--od-soft); stroke-dasharray: 4 3"/>
+    <rect class="nb" x="19" y="75" width="76" height="16" rx="3"/>
+    <text class="ts" x="57" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_systems</text>
+    <rect class="nb" x="101" y="75" width="82" height="16" rx="3"/>
+    <text class="ts" x="142" y="86" text-anchor="middle" style="fill: var(--od-ink)">list_families</text>
+    <rect class="nb" x="19" y="96" width="88" height="16" rx="3"/>
+    <text class="ts" x="63" y="107" text-anchor="middle" style="fill: var(--od-ink)">inspect_fields</text>
+    <rect class="nb" x="113" y="96" width="82" height="16" rx="3"/>
+    <text class="ts" x="154" y="107" text-anchor="middle" style="fill: var(--od-ink)">list_channels</text>
+    <text class="ts" x="20" y="124">+4 more</text>
+    <text class="te" x="111" y="145" text-anchor="middle">ORDERED PROBES</text>
+    <circle cx="22" cy="161" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="164" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">1</text>
+    <rect class="nb-warn" x="37" y="153" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="164" style="fill: var(--od-ink)">list_families(&quot;SR&quot;)</text>
+    <text class="ts" x="40" y="179" style="font-size: 8px">→ BPM, DIPOLE, QUAD, …</text>
+    <circle cx="22" cy="191" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="194" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">2</text>
+    <rect class="nb-warn" x="37" y="183" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="194" style="fill: var(--od-ink)">inspect_fields(&quot;DIPOLE&quot;)</text>
+    <text class="ts" x="40" y="209" style="font-size: 8px">→ SP, RB, CMD</text>
+    <circle cx="22" cy="221" r="8.5" style="fill: var(--od-accent)"/>
+    <text class="ts" x="22" y="224" text-anchor="middle" style="fill: var(--od-box); font-weight: 600">3</text>
+    <rect class="nb-warn" x="37" y="213" width="173" height="16" rx="3"/>
+    <text class="ts" x="43" y="224" style="fill: var(--od-ink)">list_channels(&quot;DIPOLE&quot;,&quot;RB&quot;)</text>
+    <text class="ts" x="40" y="239" style="font-size: 8px">→ 2 PVs ✓</text>
+  </g>
+
+  <!-- graph pipeline -->
+  <g transform="translate(726,0)">
+    <rect class="nb nb-acc-stroke" x="0" y="8" width="222" height="322" rx="8"/>
+    <path d="M0.7 248 H221.3 V322 a7.3 7.3 0 0 1 -7.3 7.3 H8 a7.3 7.3 0 0 1 -7.3 -7.3 Z" style="fill: var(--od-wash); stroke: none"/>
+    <line class="divider" x1="0.7" y1="58" x2="221.3" y2="58"/>
+    <line class="divider" x1="0.7" y1="248" x2="221.3" y2="248"/>
+    <text class="te" x="14" y="28">GRAPH PIPELINE</text>
+    <text class="tn" x="14" y="47" style="font-size: 14px">Ontology-based search</text>
+    <text class="tn" x="14" y="266" style="font-size: 10.5px">A graph of typed relationships.</text>
+    <text class="ts" x="14" y="281">Devices, signals, and their</text>
+    <text class="ts" x="14" y="293">relationships are explicit.</text>
+    <g transform="translate(5.4,76) scale(0.66)">
+      <line class="e" x1="56" y1="50" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="220" y1="50" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e" x1="156" y1="186" x2="220" y2="50" style="stroke-width: 1.6"/>
+      <line class="e" x1="156" y1="186" x2="270" y2="138" style="stroke-width: 2.4"/>
+      <line class="e e-dash" x1="156" y1="186" x2="50" y2="186" style="stroke-width: 1.6"/>
+      <circle class="mask" cx="56" cy="50" r="44" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="56" cy="50" r="44" style="stroke-width: 1.8"/>
+      <text class="tn" x="56" y="54" text-anchor="middle" style="font-size: 13px">PowerSupply</text>
+      <circle class="mask" cx="220" cy="50" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="220" cy="50" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="220" y="54" text-anchor="middle" style="font-size: 13px">Magnet</text>
+      <circle class="mask" cx="270" cy="138" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="270" cy="138" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="270" y="142" text-anchor="middle" style="font-size: 13px">Signal</text>
+      <circle class="mask" cx="156" cy="186" r="38" style="fill: var(--od-box)"/>
+      <circle class="nb-warn" cx="156" cy="186" r="38" style="stroke-width: 1.8"/>
+      <text class="tn" x="156" y="190" text-anchor="middle" style="font-size: 13px">Dipole</text>
+      <circle class="mask" cx="50" cy="186" r="42" style="fill: var(--od-box)"/>
+      <circle class="nb-in" cx="50" cy="186" r="42" style="stroke-width: 1.8"/>
+      <text class="tn" x="50" y="190" text-anchor="middle" style="font-size: 13px">Beamline</text>
+      <text class="ts" x="138" y="36" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">controls</text>
+      <text class="ts" x="248" y="96" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">readback</text>
+      <text class="ts" x="178" y="124" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">is-a</text>
+      <text class="ts" x="224" y="168" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">setpoint</text>
+      <text class="ts" x="103" y="178" text-anchor="middle" style="font-size: 12.5px; font-weight: 600; fill: var(--od-ink); stroke: var(--od-box); stroke-width: 5; paint-order: stroke">part of</text>
+    </g>
+  </g>
+
+  <!-- axes -->
+  <text class="te" x="150" y="359" text-anchor="end" style="font-size: 9px">CATALOG SCALE</text>
+  <text class="tn" x="164" y="360" style="font-size: 13px">hundreds of PVs</text>
+  <line class="e" x1="282" y1="356" x2="784" y2="356" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn" x="944" y="360" text-anchor="end" style="font-size: 13px">hundreds of thousands</text>
+  <text class="te" x="150" y="385" text-anchor="end" style="font-size: 9px">ABSTRACTION</text>
+  <text class="tn t-acc" x="164" y="386" style="font-size: 13px">literal — channels as named</text>
+  <line class="e-acc" x1="356" y1="382" x2="734" y2="382" style="stroke-width: 1.6" marker-start="url(#cf-paradigms-arr)" marker-end="url(#cf-paradigms-arr)"/>
+  <text class="tn t-acc" x="944" y="386" text-anchor="end" style="font-size: 13px">semantic — channels as meant</text>
+</svg>
+</div>

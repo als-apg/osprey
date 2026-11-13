@@ -5,19 +5,18 @@
  * `/api/feedback/status` answering `available: false` has two unrelated
  * causes, and the view must not answer both the same way. Under the graph
  * paradigm there is no hint store by design, yet the capture hook still fills
- * the pending queue — so the view shows that queue instead of a lock screen,
+ * the pending queue — so the view shows that queue instead of a switched-off state,
  * and offers Dismiss without Approve (the server refuses promotion where there
  * is no feedback store). Under any other paradigm the store is simply switched
  * off, and the pane says so in operator language, naming no dotted config key.
  *   npx vitest run tests/interfaces/channel_finder/feedback-graph-mode.test.mjs
  *
- * Runs under happy-dom (vitest.config.js). app.js is mocked so importing the
- * view does not boot the whole panel; feedback.js wants only `showToast`.
+ * Runs under happy-dom (vitest.config.js). The design system's toast is mocked.
  */
 
 import { test, expect, vi, afterEach } from 'vitest';
 
-vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => ({
+vi.mock('/design-system/js/toast.js', () => ({
   showToast: vi.fn(),
 }));
 
@@ -75,7 +74,7 @@ const PENDING_ITEM = {
   captured_at: '2026-08-27T10:00:00Z',
 };
 
-test('graph mode shows the capture queue, not the lock screen', async () => {
+test('graph mode shows the capture queue, not the switched-off state', async () => {
   const container = freshContainer();
   stubApi({
     '/api/feedback/status': {
@@ -97,8 +96,8 @@ test('graph mode shows the capture queue, not the lock screen', async () => {
   // ...with Dismiss offered and Approve withheld: promotion would 404.
   expect(container.querySelector('.fb-pending-dismiss')).not.toBeNull();
   expect(container.querySelector('.fb-pending-approve')).toBeNull();
-  // The lock screen and its hierarchical-only config key are both gone.
-  expect(container.querySelector('.fb-disabled')).toBeNull();
+  // The switched-off state and its hierarchical-only config key are both gone.
+  expect(container.querySelector('.osprey-state')).toBeNull();
   expect(container.innerHTML).not.toMatch(/channel_finder\./);
 });
 
@@ -119,11 +118,11 @@ test('graph mode with an empty queue still explains itself', async () => {
   await vi.waitFor(() => expect(container.querySelector('.fb-paradigm-note')).not.toBeNull());
 
   expect(container.innerHTML).toContain('No pending reviews');
-  expect(container.querySelector('.fb-disabled')).toBeNull();
+  expect(container.querySelector('.osprey-state')).toBeNull();
   expect(container.innerHTML).not.toMatch(/channel_finder\./);
 });
 
-test('a store-backed paradigm with feedback off gets the operator pane, no config key', async () => {
+test('a store-backed paradigm with feedback off gets the switched-off state, no config key', async () => {
   const container = freshContainer();
   stubApi({
     '/api/feedback/status': {
@@ -135,7 +134,11 @@ test('a store-backed paradigm with feedback off gets the operator pane, no confi
   });
 
   mountFeedback(container);
-  await vi.waitFor(() => expect(container.querySelector('.fb-disabled')).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(container.querySelector('.osprey-state-message')?.textContent).toBe(
+      'Feedback is switched off for this deployment'
+    )
+  );
 
   expect(container.innerHTML).not.toMatch(/channel_finder\./);
   expect(container.innerHTML).not.toContain('<code>');

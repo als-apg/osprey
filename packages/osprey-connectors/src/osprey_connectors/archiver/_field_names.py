@@ -27,6 +27,8 @@ one name. The module imports only the standard library.
 
 from __future__ import annotations
 
+import re
+
 __all__ = ["field_name"]
 
 # The fields the archive's own documents carry beside channels: every
@@ -75,3 +77,12 @@ def field_name(address: str) -> str:
         else:
             parts.append(character)
     return "".join(parts)
+
+
+def _address_of(field: str) -> str:
+    """The channel address stored under ``field``: the inverse of :func:`field_name`.
+
+    :func:`field_name` escapes every ``%``, so every ``%XX`` in a field name is
+    an escape and decoding them restores the address.
+    """
+    return re.sub(r"%([0-9A-F]{2})", lambda match: chr(int(match.group(1), 16)), field)

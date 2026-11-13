@@ -2387,6 +2387,7 @@ OFF_CI = "off-ci"
 E2E_OFF_CI: dict[str, str] = {
     "tests/e2e/test_watchdog_live.py": "spends a direct-route key per call; run by hand",
     "tests/e2e/tier2/test_chart_value_reading.py": "deploys a full stack; benchmark board only",
+    "tests/e2e/tier2/test_pv_directory_agentic.py": "deploys a full stack; benchmark board only",
 }
 
 

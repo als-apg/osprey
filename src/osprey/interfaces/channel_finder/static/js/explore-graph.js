@@ -38,12 +38,13 @@
  * While mounted the finder holds the panel toolbar's search field, its result
  * count and, while the filters are drawn, its sidebar toggle (panel-toolbar.js).
  * The hub gets only the ⋯ entries, as one v3 `menu` (graph-finder-verbs.js
- * publishMenu).
+ * publishMenu). Beside All PVs the search starts from the shared words and
+ * reports every answer (curated-bridge.js).
  */
 
 import { esc } from './utils.js';
 import { refreshStatsBadges } from './stats-badges.js';
-import { showToast } from './app.js';
+import { showToast } from '/design-system/js/toast.js';
 import { copyText as writeClipboard } from '/design-system/js/clipboard.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { initSplitter } from '/design-system/js/splitter.js';
@@ -59,6 +60,7 @@ import {
   clampPage,
   copyText,
   createFinderState,
+  setQuery,
   toSearchParams,
 } from './graph-finder-state.js';
 import {
@@ -77,6 +79,8 @@ import { buildForest, classNameIn, createFlights, stringList } from './graph-fin
 import { createActions, publishMenu, withdrawMenu } from './graph-finder-verbs.js';
 import { bindFinderEvents } from './graph-finder-events.js';
 import { attachSidebar, claimToolbar, searchInput, setResultCount } from './panel-toolbar.js';
+import { bridgeHtml, directorySize, reportCurated } from './curated-bridge.js';
+import { state } from './state.js';
 import {
   COLUMN_SPECS,
   INSPECTOR_KEY,
@@ -127,6 +131,11 @@ let card = null;
 
 /** Whether an assistant session is hosting the panel and can be sent to. */
 let embedded = false;
+
+/** PVs in the whole directory, asked for on the first miss; null until known. */
+/** @type {number|null} */
+let directoryPvs = null;
+let directoryAsked = false;
 
 /** The column layout and view preferences the operator arranged. */
 let layout = loadColumns();
@@ -192,11 +201,18 @@ export async function mountGraph(content) {
   layout = loadColumns();
   prefs = loadPrefs();
   embedded = isEmbedded() && window.parent !== window;
+  directoryPvs = null;
+  directoryAsked = false;
   content.innerHTML = `
     <div class="graph-explorer${prefs.density === 'compact' ? ' compact' : ''}" data-pipeline="graph">
       <div class="graph-explorer-body">${LOADING_HTML}</div>
     </div>`;
   releaseToolbar = claimToolbar();
+  if (state.directory) {
+    setQuery(finder, state.scopeQuery);
+    const input = searchInput();
+    if (input) input.value = state.scopeQuery;
+  }
   unbindEvents = bindFinderEvents(content, host);
   publishMenu(host);
   await load();
@@ -296,6 +312,7 @@ async function applySearch(data) {
     await runSearch();
     return;
   }
+  reportCurated(finder.q, Number(data && data.total) || 0);
   renderFinder();
 }
 
@@ -422,7 +439,29 @@ function renderFinder() {
 
   renderCard();
   renderTable();
+  renderBridge();
   publishMenu(host);
+}
+
+/**
+ * Redraw the line to All PVs under the results. The first miss asks for the
+ * directory's size and redraws the line once it answers.
+ * @returns {void}
+ */
+function renderBridge() {
+  const slot = part(FINDER_IDS.bridge);
+  if (!slot || !results) return;
+  const total = Number(results.total) || 0;
+  slot.innerHTML = bridgeHtml(finder.q, total, directoryPvs);
+  if (total === 0 && state.directory && !directoryAsked) {
+    directoryAsked = true;
+    const pane = paneEl;
+    void directorySize().then((size) => {
+      if (paneEl !== pane) return;
+      directoryPvs = size;
+      renderBridge();
+    });
+  }
 }
 
 /** Redraw the facet sidebar. @returns {void} */
@@ -590,8 +629,8 @@ function turnPage(direction) {
 async function copyAndSay(text, what) {
   if (!text) return;
   const ok = await writeClipboard(text);
-  if (ok) showToast(`Copied ${what}`, 'success');
-  else showToast('Copy failed — select the text and copy manually', 'error');
+  if (ok) showToast(`Copied ${what}`, { kind: 'success' });
+  else showToast('Copy failed — select the text and copy manually', { kind: 'error' });
 }
 
 /**
@@ -608,7 +647,7 @@ function sendAddresses(pvs) {
     { type: 'osprey-paste-to-terminal', text: pvs.join(' ') },
     window.location.origin
   );
-  showToast(`Posted ${addresses(pvs.length)} to the prompt`, 'success');
+  showToast(`Posted ${addresses(pvs.length)} to the prompt`, { kind: 'success' });
 }
 
 /**

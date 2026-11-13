@@ -11,6 +11,7 @@ from urllib.parse import unquote
 
 import pytest
 
+from osprey_connectors.archiver import _field_names
 from osprey_connectors.archiver._field_names import (
     _RESERVED_FIELDS,
     field_name,
@@ -72,6 +73,15 @@ def test_the_table_is_the_reserved_list() -> None:
 def test_a_reserved_name_is_stored_with_its_first_character_escaped(name: str, field: str) -> None:
     assert field_name(name) == field
     assert unquote(field, errors="strict") == name
+
+
+@pytest.mark.skipif(
+    not hasattr(_field_names, "_address_of"),
+    reason="installed osprey-connectors predates the field-name inverse",
+)
+@pytest.mark.parametrize("address", EVERY_ADDRESS)
+def test_address_of_inverts_field_name(address: str) -> None:
+    assert _field_names._address_of(field_name(address)) == address
 
 
 @pytest.mark.parametrize("address", EVERY_ADDRESS)

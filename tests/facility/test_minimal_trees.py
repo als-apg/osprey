@@ -354,6 +354,7 @@ def test_two_authored_addresses_simulate_texture_alone(build_project: Build) -> 
         "schema": "osprey.facility.addresses/1",
         "channels": ["LAB:TEMP:01", "LAB:TEMP:02"],
         "status": [],
+        "ioc_health": [f"demo:SIM:{TEXTURE}:{s}" for s in ("HEARTBEAT", "UPTIME", "ENGINEER")],
     }
     assert {c["owner"] for c in view["variables.json"]["channels"]} == {TEXTURE}
 

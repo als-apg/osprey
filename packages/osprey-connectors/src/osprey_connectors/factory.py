@@ -1,10 +1,12 @@
 """
-Connector factory for creating control system and archiver connectors.
+Connector factory for control system and archiver connectors and the service backends.
 
 Provides centralized factory for instantiating and configuring connectors
 based on configuration. Connectors are registered through the Osprey registry
-system for unified component management and lazy loading.
-
+system for unified component management and lazy loading. The four read-only
+service kinds (``directory``, ``alarm_state``, ``alarm_log``, ``put_log``) are
+registered and built through one kind-keyed pair, :meth:`ConnectorFactory.register_service`
+and :meth:`ConnectorFactory.create_service`.
 """
 
 from __future__ import annotations
@@ -18,9 +20,20 @@ from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from osprey_connectors.alarm_log import AlarmLog
+    from osprey_connectors.alarm_state import AlarmState
+
     # Import only for annotations: pulling in the archiver base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
     from osprey_connectors.archiver._base import ArchiverConnector
+    from osprey_connectors.directory import ChannelDirectory
+    from osprey_connectors.put_log import PutLog
+    from osprey_connectors.service_answers import BackendSpec
+
+    #: What ``create_service`` returns: the base of the kind the spec names.
+    _ServiceBackend = ChannelDirectory | AlarmState | AlarmLog | PutLog
 
 __all__ = [
     "BUILTIN_CONNECTORS",
@@ -31,14 +44,41 @@ __all__ = [
 
 logger = get_logger("connector_factory")
 
+#: A service kind's name, as ``BackendSpec.kind`` spells it.
+_ServiceKind = Literal["directory", "alarm_state", "alarm_log", "put_log"]
+_SERVICE_KINDS: tuple[_ServiceKind, ...] = ("directory", "alarm_state", "alarm_log", "put_log")
+
+
+def _unknown_service_kind(kind: str) -> ValueError:
+    return ValueError(f"Unknown service kind: {kind!r}. Service kinds: {list(_SERVICE_KINDS)}")
+
+
+def _dotted_class(connector_type: str) -> Any:
+    """Import the class a dotted out-of-tree type names.
+
+    Raises:
+        ValueError: The module does not import, or has no such class.
+    """
+    module_path, class_name = connector_type.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+    except ImportError as e:
+        raise ValueError(f"Could not import connector module '{module_path}': {e}") from e
+    except AttributeError as e:
+        raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+
 
 class ConnectorFactory:
     """
-    Factory for creating control system and archiver connectors.
+    Factory for control system and archiver connectors and the service backends.
 
     Provides centralized management of available connectors. Connectors are
     registered automatically through the Osprey registry system during
-    framework initialization.
+    framework initialization. A control system or archiver is built from a
+    config dict and connected; a service backend (kind ``directory``,
+    ``alarm_state``, ``alarm_log`` or ``put_log``) is built from a ``BackendSpec``
+    by :meth:`create_service` and connects nothing.
 
     Example:
         >>> # Using default config
@@ -51,6 +91,8 @@ class ConnectorFactory:
 
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
     _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
+    #: Service backend classes by kind, then by the type name a spec selects them by.
+    _service_backends: dict[str, dict[str, type[Any]]] = {kind: {} for kind in _SERVICE_KINDS}
 
     @classmethod
     def register_control_system(
@@ -77,6 +119,24 @@ class ConnectorFactory:
         """
         cls._archiver_connectors[name] = connector_class
         logger.debug(f"Registered archiver connector: {name}")
+
+    @classmethod
+    def register_service(cls, kind: str, name: str, backend_class: type[Any]) -> None:
+        """Register a service backend under the type name a ``BackendSpec`` selects it by.
+
+        Args:
+            kind: ``directory``, ``alarm_state``, ``alarm_log`` or ``put_log``.
+            name: The type name.
+            backend_class: A subclass of that kind's base.
+
+        Raises:
+            ValueError: *kind* is not one of the four.
+        """
+        registry = cls._service_backends.get(kind)
+        if registry is None:
+            raise _unknown_service_kind(kind)
+        registry[name] = backend_class
+        logger.debug(f"Registered {kind} backend: {name}")
 
     @classmethod
     def build_control_system_connector(
@@ -153,16 +213,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                module_path, class_name = connector_type.rsplit(".", 1)
-                try:
-                    module = importlib.import_module(module_path)
-                    connector_class = getattr(module, class_name)
-                except ImportError as e:
-                    raise ValueError(
-                        f"Could not import connector module '{module_path}': {e}"
-                    ) from e
-                except AttributeError as e:
-                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                connector_class = _dotted_class(connector_type)
                 cls._control_system_connectors[connector_type] = connector_class
             else:
                 if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
@@ -305,16 +356,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                module_path, class_name = connector_type.rsplit(".", 1)
-                try:
-                    module = importlib.import_module(module_path)
-                    connector_class = getattr(module, class_name)
-                except ImportError as e:
-                    raise ValueError(
-                        f"Could not import connector module '{module_path}': {e}"
-                    ) from e
-                except AttributeError as e:
-                    raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+                connector_class = _dotted_class(connector_type)
                 cls._archiver_connectors[connector_type] = connector_class
             else:
                 available = list(cls._archiver_connectors.keys())
@@ -336,6 +378,43 @@ class ConnectorFactory:
 
         logger.info(f"Created archiver connector: {connector_type}")
         return connector
+
+    @classmethod
+    async def create_service(
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+    ) -> _ServiceBackend:
+        """Build the service backend a spec names. Backends connect nothing here: no I/O.
+
+        The kind is ``spec.kind``. The builtins are registered first: the panel and
+        the directory MCP server never register them themselves, and registration
+        converges, so every create call can afford to.
+
+        Args:
+            spec: The backend to build, from ``service_targets`` or written by hand.
+            project_dir: The rendered config's directory.
+            **seams: Test seams, passed on only when not ``None``.
+
+        Raises:
+            ValueError: The kind is not one of the four, the type is unknown, or a
+                dotted type does not resolve.
+        """
+        registry = cls._service_backends.get(spec.kind)
+        if registry is None:
+            raise _unknown_service_kind(spec.kind)
+        register_builtin_connectors()
+        backend_class = registry.get(spec.type)
+        if backend_class is None:
+            if "." not in spec.type:
+                raise ValueError(
+                    f"Unknown {spec.kind} type: '{spec.type}'. "
+                    f"Available types: {list(registry)}. "
+                    f"Use a dotted module path for custom connectors."
+                )
+            backend_class = _dotted_class(spec.type)
+            registry[spec.type] = backend_class
+        given = {name: seam for name, seam in seams.items() if seam is not None}
+        backend: _ServiceBackend = backend_class(spec, project_dir=project_dir, **given)
+        return backend
 
     @classmethod
     def list_control_systems(cls) -> list:
@@ -457,8 +536,77 @@ _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind ==
 _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
+@dataclass(frozen=True)
+class _ServiceBuiltin:
+    """One service backend this package ships.
+
+    Apart from :class:`BuiltinConnector` because the framework registry reads
+    that table, and these kinds must never reach a framework that predates them.
+    """
+
+    #: The type name a ``BackendSpec`` selects it by, and the key it registers under.
+    name: str
+    kind: _ServiceKind
+    module_path: str
+    class_name: str
+    description: str
+
+    def load(self) -> Any:
+        """Import the module and return the backend class."""
+        return getattr(importlib.import_module(self.module_path), self.class_name)
+
+
+#: Every built-in service backend, in registration order. ``simulator_view``
+#: and ``alarm_replay`` are internal: ``service_targets`` selects them, and the
+#: framework's section resolver refuses them as a configured ``type``.
+_SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
+    _ServiceBuiltin(
+        "channelfinder",
+        "directory",
+        "osprey_connectors.directory._channelfinder",
+        "ChannelFinderDirectory",
+        "ChannelFinder directory service",
+    ),
+    _ServiceBuiltin(
+        "simulator_view",
+        "directory",
+        "osprey_connectors.directory._simulator",
+        "SimulatorDirectory",
+        "Every PV the virtual accelerator serves, from the build's simulator view",
+    ),
+    _ServiceBuiltin(
+        "phoebus_alarm_logger",
+        "alarm_log",
+        "osprey_connectors.alarm_log._phoebus",
+        "PhoebusAlarmLogger",
+        "Phoebus alarm logger service",
+    ),
+    _ServiceBuiltin(
+        "phoebus_alarm_server",
+        "alarm_state",
+        "osprey_connectors.alarm_state._phoebus_kafka",
+        "PhoebusAlarmState",
+        "Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
+    ),
+    _ServiceBuiltin(
+        "alarm_replay",
+        "alarm_state",
+        "osprey_connectors.alarm_state._replay",
+        "ReplayAlarmState",
+        "Alarm state replayed from a file, for the simulator",
+    ),
+    _ServiceBuiltin(
+        "caputlog",
+        "put_log",
+        "osprey_connectors.put_log._caputlog",
+        "CaPutLog",
+        "caPutLog put history service",
+    ),
+)
+
+
 def register_builtin_connectors() -> None:
-    """Register all built-in control system and archiver connectors.
+    """Register all built-in control system and archiver connectors and service backends.
 
     Safe to call multiple times and convergent: every call ensures each
     built-in name is registered, and an existing registration under one of
@@ -474,7 +622,12 @@ def register_builtin_connectors() -> None:
     missing_archivers = [
         name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
     ]
-    if not missing_control_systems and not missing_archivers:
+    missing_service_rows = [
+        row
+        for row in _SERVICE_BUILTINS
+        if row.name not in ConnectorFactory._service_backends[row.kind]
+    ]
+    if not missing_control_systems and not missing_archivers and not missing_service_rows:
         return
 
     # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
@@ -496,3 +649,7 @@ def register_builtin_connectors() -> None:
             raise ValueError(
                 f"built-in connector {builtin.name!r} has unknown kind {builtin.kind!r}"
             )
+
+    # Their optional client (aiokafka) is imported on start, not at module scope.
+    for row in missing_service_rows:
+        ConnectorFactory._service_backends[row.kind][row.name] = row.load()

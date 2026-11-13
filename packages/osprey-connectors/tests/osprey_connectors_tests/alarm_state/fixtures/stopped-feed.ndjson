@@ -1,0 +1,2 @@
+{"key": "state:/Demo/RF/DEMO:RF1:CAV:Temp-I", "value": {"severity": "MAJOR", "current_severity": "MAJOR", "message": "HIHI_ALARM", "current_message": "HIHI_ALARM"}, "time": "2020-03-01T08:00:30.000Z"}
+{"feed": "stopped"}

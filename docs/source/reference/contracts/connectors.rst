@@ -682,6 +682,11 @@ control-system connector answers about the present.
 
 Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
+``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
+are ``None`` when the archiver cannot say; ``check_availability`` raises
+``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
+answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
+newest sample); the default answers every part unknown, with a reason.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
 with exactly three columns, sorted by ``channel`` then ``timestamp``:

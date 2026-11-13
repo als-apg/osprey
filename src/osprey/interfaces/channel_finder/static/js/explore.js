@@ -21,6 +21,7 @@ import {
   setShowDescriptions as setMLDescriptions,
 } from './explore-middle-layer.js';
 import { mountGraph, unmountGraph } from './explore-graph.js';
+import { bridgeHtml } from './curated-bridge.js';
 
 /** @type {string|null} */
 let currentRenderer = null;
@@ -135,6 +136,12 @@ export function mountExplore(container) {
   } else {
     currentRenderer = 'unknown';
     mountUnknown(content, pt);
+  }
+
+  // The browse styles have no search of their own, so their way to All PVs
+  // carries the words last searched there.
+  if (pt === 'hierarchical' || pt === 'middle_layer') {
+    content.insertAdjacentHTML('afterend', bridgeHtml(state.scopeQuery, null, null));
   }
 }
 

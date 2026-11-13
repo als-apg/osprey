@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-connectors"
 dynamic = ["version"]
-description = "Control-system and archiver connectors for OSPREY"
+description = "Lean connectors to a control system and the read-only services beside it"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
@@ -40,6 +40,11 @@ dependencies = [
     # one lume-base, and the model modules are written against this release.
     "lume-base==0.5.0",
 ]
+
+[project.optional-dependencies]
+# The Phoebus alarm-server backend's Kafka client, imported on start: without it
+# that backend answers unavailable naming this extra.
+alarm-state = ["aiokafka>=0.12"]
 
 [project.urls]
 Documentation = "https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html"

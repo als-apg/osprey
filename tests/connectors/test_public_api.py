@@ -1,6 +1,7 @@
 """The connectors package's public API is exactly what its ``__all__`` lists say.
 
-``control_system``, ``archiver`` and ``ipc`` gather underscore-private
+``control_system``, ``archiver``, ``ipc`` and the service kinds (``directory``,
+``alarm_state``, ``alarm_log``, ``put_log``) gather underscore-private
 implementation modules behind one ``__init__``. The other public modules of the
 package, the ``simulation`` package's among them, are their own API and list it
 in their own ``__all__``. A name is public when a list names it and private when it starts
@@ -37,6 +38,10 @@ NAMESPACES = (
     "osprey_connectors.control_system",
     "osprey_connectors.archiver",
     "osprey_connectors.ipc",
+    "osprey_connectors.directory",
+    "osprey_connectors.alarm_state",
+    "osprey_connectors.alarm_log",
+    "osprey_connectors.put_log",
 )
 
 #: The namespaces that resolve some names on first access (PEP 562).
@@ -154,14 +159,17 @@ def _framework_imports() -> tuple[tuple[str, str, str], ...]:
         tree = ast.parse(source)
         aliases: dict[str, str] = {}
         where = path.relative_to(REPO)
+        guarded = _import_error_guarded(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 if not node.module.startswith("osprey_connectors"):
                     continue
                 for alias in node.names:
                     full = f"{node.module}.{alias.name}"
-                    if importlib.util.find_spec(node.module) and _is_module(full):
+                    if _is_module(node.module) and _is_module(full):
                         aliases[alias.asname or alias.name] = full
+                    elif node in guarded:
+                        continue
                     else:
                         found.append((f"{where}:{node.lineno}", node.module, alias.name))
             elif isinstance(node, ast.Import):
@@ -176,6 +184,37 @@ def _framework_imports() -> tuple[tuple[str, str, str], ...]:
     return tuple(found)
 
 
+def _import_error_guarded(tree: ast.AST) -> set[ast.ImportFrom]:
+    """The ``from`` imports that sit in a ``try`` whose handler catches ImportError.
+
+    That shape is how the framework takes a name the connectors release it is
+    running against may not have yet: the handler imports a stand-in the release
+    does carry and spells the fallback. The fallback branch answers for the name,
+    the same way an older release's module spelling is answered for below, so
+    the listed-names check leaves these to the import contracts.
+    """
+    guarded: set[ast.ImportFrom] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        if not any(_catches_import_error(handler.type) for handler in node.handlers):
+            continue
+        for stmt in node.body:
+            for inner in ast.walk(stmt):
+                if isinstance(inner, ast.ImportFrom):
+                    guarded.add(inner)
+    return guarded
+
+
+def _catches_import_error(expr: ast.expr | None) -> bool:
+    if expr is None:
+        return True
+    names = expr.elts if isinstance(expr, ast.Tuple) else [expr]
+    return any(
+        isinstance(n, ast.Name) and n.id in ("ImportError", "ModuleNotFoundError") for n in names
+    )
+
+
 def _is_module(name: str) -> bool:
     try:
         return importlib.util.find_spec(name) is not None
@@ -187,7 +226,9 @@ def _is_module(name: str) -> bool:
 def test_the_framework_takes_only_listed_names():
     # A module this tree does not have is a spelling an older release used,
     # imported as a fallback (the rendered limits hook's, for one); the import
-    # contracts and the hook's own tests answer for it.
+    # contracts and the hook's own tests answer for it. A name imported under
+    # ``try`` / ``except ImportError`` is the same case the other way round: a
+    # spelling the next release adds, with the fallback the handler spells.
     unlisted = [
         f"{where}: {module}.{name}"
         for where, module, name in _framework_imports()

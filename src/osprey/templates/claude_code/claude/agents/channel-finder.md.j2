@@ -11,7 +11,7 @@ summary: Finds control system channel addresses by exploring the channel databas
    the knowledge graph through `mcp__channel-finder__read_cypher` and friends,
    not through the standalone `graph` server, which belongs to the
    facility-knowledge-graph subagent. -#}
-tools: {% for t in channel_finder_tools | default([]) %}mcp__channel-finder__{{ t }}, {% endfor %}mcp__osprey_workspace__submit_response
+tools: {% for t in channel_finder_tools | default([]) %}mcp__channel-finder__{{ t }}, {% endfor %}{% if "pv-directory" in enabled_servers | default([]) %}{% for t in pv_directory_tools | default([]) %}mcp__pv-directory__{{ t }}, {% endfor %}{% endif %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
@@ -309,6 +309,25 @@ at least as often as it means "the facility has no such device".
 {{ fail("unknown channel_finder_mode: " ~ channel_finder_mode) }}
 {% endif %}
 
+{% if "pv-directory" in enabled_servers | default([]) -%}
+## Control-System Directory
+
+Beside the curated channels, the directory is the control system's own list of
+every channel and IOC, read with the `mcp__pv-directory__*` tools.
+
+- Check the curated channels first; search the directory only when they do not
+  answer.
+- Directory names are the control system's own, not curated: label each one so
+  in your answer.
+- `no_match` is not evidence that a channel does not exist; `unavailable` means
+  the directory did not answer. Say which one you got.
+- Build queries only from the user's words or property values the directory
+  listed (`directory_properties`); never guess a name pattern.
+- Each directory result carries `links.panel`, the address of its channel or IOC
+  page. Keep it beside its address in the artifact and in your reply, so the
+  parent can show the page.
+
+{% endif -%}
 {# PROMPT-PROVIDER: section=facility_context
    Future: source from FrameworkPromptProvider.get_*_prompt_builder().get_facility_description()
    Facility-customizable: facility name is already templated; future: full facility description #}

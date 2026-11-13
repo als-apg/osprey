@@ -16,12 +16,21 @@
 import { fetchJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
+import { bridgeHtml, directorySize, reportCurated } from './curated-bridge.js';
+import { state } from './state.js';
 
 /** @type {any[]} */
 let allChannels = []; // the ENTIRE in-context database (loaded once)
-let filterText = '';
+let filterWords = ''; // as typed; the shared query beside All PVs
+let filterText = ''; // lower-cased, what the filter matches with
 let chunkIdx = 0;
 const CHUNK_SIZE = 50;
+/** Bumped on every mount and unmount, so a late count lands on no old page. */
+let generation = 0;
+/** PVs in the whole directory, asked for on the first miss; null until known. */
+/** @type {number|null} */
+let directoryPvs = null;
+let directoryAsked = false;
 
 // Single source of truth: every render derives the filtered set from here, so
 // the table page-slice and the pager can never operate on different scopes.
@@ -33,6 +42,11 @@ function getFiltered() {
  * @param {HTMLElement} container
  */
 export async function mountInContext(container) {
+  generation += 1;
+  directoryPvs = null;
+  directoryAsked = false;
+  filterWords = state.directory ? state.scopeQuery : '';
+  filterText = filterWords.toLowerCase();
   container.innerHTML = `
     <div class="cf-corrections-info">
       Corrections go in <code>data/facility/fixes.yaml</code> and take effect with <code>osprey build</code>.
@@ -47,22 +61,29 @@ export async function mountInContext(container) {
       <div class="loading-center"><div class="loading-spinner"></div> Loading channels...</div>
     </div>
     <div class="pagination" id="ic-pagination"></div>
+    <div id="ic-bridge"></div>
   `;
 
-  document.getElementById('ic-filter')?.addEventListener('input', (e) => {
-    filterText = /** @type {HTMLInputElement} */ (e.target).value.toLowerCase();
+  const input = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-filter'));
+  if (input) input.value = filterWords;
+  input?.addEventListener('input', () => {
+    filterWords = input.value;
+    filterText = filterWords.toLowerCase();
     // Reset to the first page of the NEW filtered set, and re-render the pager:
     // the filtered set (and thus the chunk count) changes on every keystroke.
     chunkIdx = 0;
     renderTable();
     renderPagination();
+    renderBridge();
   });
 
   await loadAll();
 }
 
 export function unmountInContext() {
+  generation += 1;
   allChannels = [];
+  filterWords = '';
   filterText = '';
   chunkIdx = 0;
 }
@@ -77,6 +98,7 @@ async function loadAll() {
 
     renderTable();
     renderPagination();
+    renderBridge();
   } catch (e) {
     const area = document.getElementById('ic-table-area');
     if (area)
@@ -137,6 +159,30 @@ function renderTable() {
       </table>
     </div>
   `;
+}
+
+/**
+ * Report the filter as a curated search and redraw the line to All PVs under
+ * the results. The first miss asks for the directory's size and redraws the
+ * line once it answers.
+ * @returns {void}
+ */
+function renderBridge() {
+  const slot = document.getElementById('ic-bridge');
+  if (!slot) return;
+  const total = getFiltered().length;
+  reportCurated(filterWords, total);
+  slot.innerHTML = bridgeHtml(filterWords, total, directoryPvs);
+  if (total === 0 && state.directory && !directoryAsked) {
+    directoryAsked = true;
+    const mounted = generation;
+    void directorySize().then((size) => {
+      if (mounted !== generation) return;
+      directoryPvs = size;
+      const line = document.getElementById('ic-bridge');
+      if (line) line.innerHTML = bridgeHtml(filterWords, getFiltered().length, size);
+    });
+  }
 }
 
 function renderPagination() {

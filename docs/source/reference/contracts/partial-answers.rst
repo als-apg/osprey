@@ -79,6 +79,9 @@ The tools
    * - Tool
      - A key in ``missing`` names
      - Its text
+   * - ``alarm_state``
+     - A channel address, as asked
+     - The alarm service's reason for having no state for it
    * - ``channel_read``
      - A channel address
      - The connector's error, as ``"<ExceptionType>: <message>"``
@@ -88,6 +91,9 @@ The tools
    * - ``model_response_matrix``
      - A corrector setpoint address
      - The engine's text
+   * - ``pv_record``
+     - A channel address, as asked, that no section answered
+     - The directory section's reason
    * - ``pyaml_measure``
      - A stepped setpoint address, or the measurement kind when none is left
      - The first line of what stopped the run; ``null`` when nothing raised

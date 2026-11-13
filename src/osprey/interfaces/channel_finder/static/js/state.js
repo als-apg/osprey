@@ -5,6 +5,8 @@
  * Event-emitter pattern: views subscribe to state changes.
  */
 
+import { familyOf } from './route.js';
+
 /** @typedef {(data: any) => void} StateListener */
 
 /**
@@ -12,6 +14,22 @@
  * served on and the TTL file it was seeded from. Reported by GET /api/info on
  * the graph paradigm only.
  * @typedef {{ uri: string|null, ttl_filename: string|null }} GraphStoreInfo
+ */
+
+/**
+ * The scope descriptor of GET /api/info: present only when the `pv_directory`
+ * section is configured.
+ * @typedef {{
+ *   label: string,
+ *   configured_services: ('alarm_log'|'alarm_state'|'put_log'|'archive'|'logbook')[],
+ *   canopy: boolean,
+ *   ariel: boolean,
+ * }} DirectoryDescriptor
+ */
+
+/**
+ * Payload of `curatedResults`, emitted by a curated renderer after every search.
+ * @typedef {{ query: string, total: number }} CuratedResults
  */
 
 class ChannelFinderState {
@@ -39,6 +57,31 @@ class ChannelFinderState {
     // Current view
     /** @type {string} */
     this.activeView = 'explore';
+
+    // The search words, carried across the Curated and All PVs tabs in both
+    // directions.
+    /** @type {string} */
+    this.scopeQuery = '';
+
+    // The All PVs basket, in selection order, kept across the family's pages
+    // (All PVs and its PV and IOC pages).
+    /** @type {Set<string>} */
+    this.selection = new Set();
+
+    // Set by app.js on each /api/info fetch; null when the section is not
+    // configured, and the allpvs, pv and ioc routes then do not exist.
+    /** @type {DirectoryDescriptor|null} */
+    this.directory = null;
+
+    // Events: `curatedResults` (CuratedResults) after every curated search,
+    // `directoryLabel` (string) after each All PVs page, `alarmCounts`
+    // (ActiveAlarms) after each read of the alarm route, `replaceRoute` (Route)
+    // when a mounted view states the route it now shows; the router writes it
+    // with history.replaceState and adds no history entry. Registered first, so
+    // every other listener of `directoryLabel` reads the new label here.
+    this.on('directoryLabel', (label) => {
+      if (this.directory) this.directory = { ...this.directory, label };
+    });
   }
 
   // ---- Event Emitter ----
@@ -105,6 +148,7 @@ class ChannelFinderState {
    */
   setActiveView(view) {
     this.activeView = view;
+    if (familyOf(view) !== 'allpvs') this.selection.clear();
     this.emit('viewChanged', view);
   }
 }

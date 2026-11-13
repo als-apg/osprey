@@ -23,7 +23,12 @@ length times :data:`ARRAY_ELEMENT_BYTES` -- exceeds the configuration's
 fails at start instead.
 
 :func:`periodic_addresses` names the channels the view says refresh
-``periodic``, which a write pass leaves for the next periodic pass.
+``periodic`` and the IOC health addresses that move with time alone, which a
+write pass leaves for the next periodic pass.
+
+:func:`ioc_health_addresses` names every IOC health address of the view, so
+the runner can serve a text one on Channel Access as the string record it
+stands in for.
 
 :func:`fast_addresses` and :func:`event_addresses` name the channels the view
 says refresh ``fast`` and ``event``, which timed passes publish beside the
@@ -53,6 +58,13 @@ from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
 
+try:
+    from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH
+except ImportError:  # a connectors release whose view names no IOC health signals
+    from osprey_connectors.simulation.view import PERIODIC as _FLOOR_STAND_IN  # noqa: F401
+
+    PERIODIC_IOC_HEALTH = ()  # type: ignore[assignment]
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -64,6 +76,7 @@ __all__ = [
     "apply_safety",
     "event_addresses",
     "fast_addresses",
+    "ioc_health_addresses",
     "pass_readback",
     "periodic_addresses",
     "setting_records",
@@ -154,15 +167,22 @@ def _check_array_size(address: str, shape: Iterable[int], limit: int | str) -> N
 
 
 def periodic_addresses(view: SimulatorView) -> frozenset[str]:
-    """The addresses whose binding refreshes ``periodic``, across every model of the view.
+    """The addresses only a periodic pass publishes, across every model of the view.
 
     Args:
-        view: The simulator view.
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
 
     Returns:
-        The bound addresses the periodic solve alone publishes.
+        The addresses bound to refresh ``periodic``, and the ``HEARTBEAT`` and
+        ``UPTIME`` IOC health addresses.
     """
-    return _refreshing(view, PERIODIC)
+    return _refreshing(view, PERIODIC) | {
+        address
+        for signals in _ioc_health_by_model(view).values()
+        for signal, address in signals.items()
+        if signal in PERIODIC_IOC_HEALTH
+    }
 
 
 def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
@@ -172,6 +192,27 @@ def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
         for binding in view.bindings(served_only=False)
         if binding.refresh == refresh
     )
+
+
+def ioc_health_addresses(view: SimulatorView) -> frozenset[str]:
+    """Every IOC health address of the view, across every model.
+
+    Args:
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
+
+    Returns:
+        The ``ioc_health`` addresses the view lists.
+    """
+    return frozenset(
+        address for signals in _ioc_health_by_model(view).values() for address in signals.values()
+    )
+
+
+def _ioc_health_by_model(view: SimulatorView) -> Mapping[str, Mapping[str, str]]:
+    """The view's IOC health addresses, ``{model: {signal: address}}``; none from an older view."""
+    ioc_health = getattr(view, "ioc_health_by_model", None)
+    return ioc_health() if ioc_health is not None else {}
 
 
 def fast_addresses(view: SimulatorView) -> frozenset[str]:

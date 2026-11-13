@@ -15,6 +15,12 @@ child's own variables that no channel names (faults, optics) are reached as
 ``<model>/<name>`` through :meth:`Composite.model_get` and
 :meth:`Composite.model_set` only.
 
+**IOC health.** ``supported_variables`` also holds the view's ``ioc_health``
+addresses, ``<code>:SIM:<model>:<signal>``, read-only and served for every model
+the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds
+since the composite started, ``UPTIME`` is those seconds, both on its clock, and
+``ENGINEER`` is a fixed demo string. No read of one reaches a child.
+
 **Reads.** A physics readback of type float reads ``truth + motion(address,
 t)``, passed through the child's ``readout`` when the engine exports one, then
 clamped; the readout always sees both readings of a monitor, so a read of one
@@ -116,7 +122,7 @@ from typing import Any
 import numpy as np
 from lume.exceptions import ReadOnlyError
 from lume.model import LUMEModel
-from lume.variables import NDVariable, StrVariable, Variable
+from lume.variables import IntVariable, NDVariable, ScalarVariable, StrVariable, Variable
 
 from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
@@ -139,12 +145,16 @@ from osprey_connectors.simulation.texture import (
     is_float_channel,
 )
 from osprey_connectors.simulation.view import (
+    ENGINEER,
+    HEARTBEAT,
     MONITOR,
     SEEDS_FILE,
     SETPOINT,
+    UPTIME,
     VARIABLES_FILE,
     Model,
     SimulatorView,
+    ViewSchemaError,
 )
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
@@ -170,6 +180,9 @@ _LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 _UDF = "udf"
+
+#: The value ``ENGINEER`` serves.
+_DEMO_ENGINEER = "demo engineer"
 
 _ELLIPSIS = "…"
 _FAULT_SEPARATOR = "/"
@@ -232,6 +245,21 @@ def _for_variable(variable: Variable, value: Any) -> Any:
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
     return value
+
+
+def _ioc_health_variable(address: str, signal: str) -> Variable:
+    """The read-only variable of one IOC health address.
+
+    Raises:
+        ViewSchemaError: ``signal`` is not an IOC health signal.
+    """
+    if signal == HEARTBEAT:
+        return IntVariable(name=address, default_value=0, read_only=True)
+    if signal == UPTIME:
+        return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
+    if signal == ENGINEER:
+        return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
+    raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
 
 
 def _producers_first(children: Mapping[str, _Child]) -> list[str]:
@@ -338,6 +366,7 @@ class Composite(LUMEModel):
             view = SimulatorView.open(view)
         self._instance = instance
         self._clock = clock
+        self._started_s = float(clock())
         self._evolve = evolve
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
@@ -382,6 +411,11 @@ class Composite(LUMEModel):
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
+        self._ioc_health: dict[str, str] = {
+            address: signal
+            for signals in view.ioc_health_by_model().values()
+            for signal, address in signals.items()
+        }
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
@@ -396,6 +430,8 @@ class Composite(LUMEModel):
             self._variables[address] = StrVariable(
                 name=address, default_value=STATUS_OK, read_only=True
             )
+        for address, signal in self._ioc_health.items():
+            self._variables[address] = _ioc_health_variable(address, signal)
 
         self._signature: tuple[str, int] | None | bool = False
         self._refresh()
@@ -809,7 +845,7 @@ class Composite(LUMEModel):
 
     @property
     def supported_variables(self) -> dict[str, Variable]:
-        """Every channel address and status address of the view, by address."""
+        """Every channel, status and IOC health address of the view, by address."""
         return self._variables
 
     @property
@@ -872,18 +908,27 @@ class Composite(LUMEModel):
     def _partition(
         self, names: Sequence[str]
     ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
-        """Split names into the status values, the texture's names and each child's names."""
+        """Split names into the status and IOC health values, the texture's and each child's."""
         statuses: dict[str, Any] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
                 statuses[name] = self._children[self._status[name]].status
+            elif name in self._ioc_health:
+                statuses[name] = self._ioc_health_value(self._ioc_health[name])
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
+
+    def _ioc_health_value(self, signal: str) -> Any:
+        """The value an IOC health signal serves at this instant."""
+        if signal == ENGINEER:
+            return _DEMO_ENGINEER
+        uptime = max(float(self._clock()) - self._started_s, 0.0)
+        return int(uptime) if signal == HEARTBEAT else uptime
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         self._refresh()
@@ -1094,10 +1139,10 @@ class Composite(LUMEModel):
         A texture channel returns the value the texture holds; a physics
         channel its child's plain read; a setpoint the active scenarios hold
         the value last written to it; a faulted reading its unfaulted value;
-        a status address its status.
+        a status address its status; an IOC health address its value now.
 
         Args:
-            names: Channel or status addresses.
+            names: Channel, status or IOC health addresses.
 
         Returns:
             The value by address, in its stored representation.

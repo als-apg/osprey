@@ -509,13 +509,14 @@ class TestCheckAvailability:
 
         assert avail["FAC/DEV/LOC/MISSING"] is False
 
-    async def test_unavailable_when_names_raises(self, archiver):
+    async def test_a_failed_lookup_is_unknown(self, archiver):
+        """A lookup that raises answers ``None``: the archiver could not say."""
         conn, mock_d4py = archiver
         mock_d4py.names.side_effect = RuntimeError("lookup failed")
 
         avail = await conn.check_availability(["FAC/DEV/LOC/PROP"])
 
-        assert avail["FAC/DEV/LOC/PROP"] is False
+        assert avail["FAC/DEV/LOC/PROP"] is None
 
     @pytest.mark.parametrize(
         "address", ["FAC/DEV/LOC/PROP", "FAC/DEV/LOC/PROP.HIST"], ids=["bare", "already_hist"]
@@ -536,7 +537,8 @@ class TestCheckAvailability:
 
 
 class TestGetMetadata:
-    async def test_get_metadata_returns_archiver_metadata(self, archiver):
+    async def test_get_metadata_does_not_claim_the_channel_archived(self, archiver):
+        """``get_metadata`` asks nothing, so membership is unknown (``None``)."""
         from osprey_connectors.archiver._base import ArchiverMetadata
 
         conn, _ = archiver
@@ -544,7 +546,7 @@ class TestGetMetadata:
 
         assert isinstance(meta, ArchiverMetadata)
         assert meta.channel == "FAC/DEV/LOC/PROP"
-        assert meta.is_archived is True
+        assert meta.is_archived is None
 
 
 # --------------------------------------------------------------------------------------
@@ -555,7 +557,7 @@ class TestGetMetadata:
 class TestDisconnectedGuard:
     """A disconnected connector must not reach the ENS."""
 
-    async def test_never_connected_returns_all_false_without_lookups(self):
+    async def test_never_connected_refuses_without_lookups(self):
         """A client object alone does not make the connector usable.
 
         The client is planted by hand so the ``_connected`` guard, not a missing
@@ -569,12 +571,12 @@ class TestDisconnectedGuard:
         conn = DOOCSArchiverConnector()
         conn._doocs4py = mock_d4py
 
-        avail = await conn.check_availability(["FAC/DEV/LOC/P"])
+        with pytest.raises(RuntimeError, match="not connected"):
+            await conn.check_availability(["FAC/DEV/LOC/P"])
 
-        assert avail == {"FAC/DEV/LOC/P": False}
         assert mock_d4py.names.call_count == 0
 
-    async def test_after_disconnect_returns_all_false_without_lookups(self):
+    async def test_after_disconnect_refuses_without_lookups(self):
         """``disconnect()`` alone keeps a live-looking client away from the ENS.
 
         ``disconnect()`` also drops ``_doocs4py``, which would hide a missing
@@ -593,9 +595,9 @@ class TestDisconnectedGuard:
             conn._doocs4py = mock_d4py
 
             mock_d4py.names.reset_mock()
-            avail = await conn.check_availability(["FAC/DEV/LOC/P"])
+            with pytest.raises(RuntimeError, match="not connected"):
+                await conn.check_availability(["FAC/DEV/LOC/P"])
 
-        assert avail == {"FAC/DEV/LOC/P": False}
         assert mock_d4py.names.call_count == 0
 
     async def test_double_disconnect_is_safe(self):

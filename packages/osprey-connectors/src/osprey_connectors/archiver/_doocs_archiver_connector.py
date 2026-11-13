@@ -190,19 +190,28 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
-        """Get archiver metadata."""
+        """Get archiver metadata; membership is unknown (``None``), nothing is asked."""
         return ArchiverMetadata(
             channel=channel,
-            is_archived=True,
-            description=f"DOOCS archived channel: {channel}",
+            is_archived=None,
+            description=(
+                "the DOOCS archiver connector does not look up whether this channel "
+                "is archived here; check_availability does"
+            ),
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
-        """Check availability based on .HIST property name extension."""
-        if not self._connected or self._doocs4py is None:
-            return dict.fromkeys(channels, False)
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+        """Check availability based on .HIST property name extension.
 
-        avail = {}
+        A lookup that raises answers ``None``: the archiver could not say.
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
+        """
+        if not self._connected or self._doocs4py is None:
+            raise RuntimeError("DOOCS archiver not connected")
+
+        avail: dict[str, bool | None] = {}
         for add in channels:
             hist_address = add
             if not hist_address.endswith(".HIST"):
@@ -213,7 +222,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 else:
                     avail[add] = False
             except Exception:
-                avail[add] = False
+                avail[add] = None
 
         return avail
 

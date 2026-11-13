@@ -167,6 +167,11 @@ BENCHMARKS_JOB = "benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
 TIER2_JOB = BENCHMARKS_JOB
 TIER2_DIR = "tests/e2e/tier2"
+#: Tier 2 files that deploy a stack and run on the benchmark board only.
+TIER2_BOARD_ONLY_FILES = (
+    "tests/e2e/tier2/test_chart_value_reading.py",
+    "tests/e2e/tier2/test_pv_directory_agentic.py",
+)
 FLOOR_JOB = "dependency-floor"
 NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
 NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
@@ -3123,6 +3128,29 @@ def test_tier2_job_is_dispatch_gated__mutation_runs_on_every_pr() -> None:
     _jobs(mutated)[TIER2_JOB]["if"] = "always()"
     with pytest.raises(AssertionError):
         test_tier2_job_is_dispatch_gated_and_lane_ignores_it(mutated)
+
+
+def _tier2_run_text(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, TIER2_JOB, "Run Tier 2 model benchmarks")["run"]
+
+
+def test_tier2_job_leaves_the_stack_benchmarks_to_the_board(workflow: dict[str, Any]) -> None:
+    """A tier-2 file that deploys a stack needs Docker, the VA extra and a host
+    lock the on-demand job does not have; the job ignores each one."""
+    run_text = _tier2_run_text(workflow)
+    missing = [f for f in TIER2_BOARD_ONLY_FILES if f"--ignore={f}" not in run_text]
+    assert missing == [], f"'{TIER2_JOB}' runs board-only stack benchmarks: {missing}"
+
+
+def test_tier2_job_leaves_the_stack_benchmarks_to_the_board__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TIER2_JOB, "Run Tier 2 model benchmarks")
+    board_only = TIER2_BOARD_ONLY_FILES[-1]
+    step["run"] = _drop_lines(
+        step["run"], lambda line: f"--ignore={board_only}" in line, f"no --ignore={board_only}"
+    )
+    with pytest.raises(AssertionError):
+        test_tier2_job_leaves_the_stack_benchmarks_to_the_board(mutated)
 
 
 def _gate_run_text(wf: dict[str, Any]) -> str:

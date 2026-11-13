@@ -83,7 +83,7 @@ class ProviderRegistration:
 
 @dataclass
 class ConnectorRegistration:
-    """Registration metadata for control system and archiver connectors.
+    """Registration metadata for connectors.
 
     Defines the metadata required for lazy loading of connector classes.
     Connectors are registered with the ConnectorFactory during registry
@@ -91,7 +91,10 @@ class ConnectorRegistration:
 
     :param name: Unique connector name (e.g., 'epics', 'tango')
     :type name: str
-    :param connector_type: Type of connector ('control_system' or 'archiver')
+    :param connector_type: Type of connector: 'control_system', 'archiver', or, for an
+        explicit out-of-tree backend, 'directory', 'alarm_log', 'alarm_state' or 'put_log'
+        (those four need an installed ``osprey-connectors`` whose factory has
+        ``register_service``)
     :type connector_type: str
     :param module_path: Python module path for lazy import
     :type module_path: str

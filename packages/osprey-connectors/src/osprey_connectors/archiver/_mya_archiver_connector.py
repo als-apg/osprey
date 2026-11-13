@@ -537,7 +537,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
         return await asyncio.wait_for(asyncio.to_thread(fetch_metadata), timeout=self._timeout)
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """Report which channels MYA archives.
 
         Args:
@@ -557,7 +557,7 @@ class MYAArchiverConnector(ArchiverConnector):
             matches = self._lookup(name)
             return len(matches) == 1 and matches[0]["name"] == name
 
-        available = dict.fromkeys(channels, False)
+        available: dict[str, bool | None] = dict.fromkeys(channels, False)
         for name in channels:
             # Sequential on purpose: myquery answers one pattern per request,
             # and a burst of them from a wide channel list is what the server

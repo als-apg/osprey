@@ -141,13 +141,21 @@ def initialize_providers(
     )
 
 
+#: The ``connector_type`` values ``ConnectorFactory.register_service`` serves.
+_DIRECTORY_CONNECTOR_KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
+
+
 def initialize_connectors(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],  # noqa: ARG001 - dispatch contract; see below
     excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
-    """Initialize control system and archiver connectors from registry config.
+    """Initialize connectors from registry config.
+
+    The directory kinds arrive here only as explicit out-of-tree registrations: their
+    builtins live in the factory's own table, which no provider reads. An installed
+    ``osprey-connectors`` older than those kinds refuses them by name.
 
     Loads connector classes and registers them with ``ConnectorFactory``, which is
     the sole lookup path for connectors at runtime.
@@ -178,10 +186,19 @@ def initialize_connectors(
                 ConnectorFactory.register_control_system(registration.name, connector_class)
             elif registration.connector_type == "archiver":
                 ConnectorFactory.register_archiver(registration.name, connector_class)
+            elif registration.connector_type in _DIRECTORY_CONNECTOR_KINDS:
+                register = getattr(ConnectorFactory, "register_service", None)
+                if register is None:
+                    raise RegistryError(
+                        f"installed osprey-connectors has no {registration.connector_type} "
+                        "support (upgrade it)"
+                    )
+                register(registration.connector_type, registration.name, connector_class)
             else:
                 raise RegistryError(
                     f"Unknown connector type: {registration.connector_type}. "
-                    f"Must be 'control_system' or 'archiver'"
+                    f"Must be 'control_system', 'archiver' or one of "
+                    f"{list(_DIRECTORY_CONNECTOR_KINDS)}"
                 )
 
             registered += 1
@@ -197,7 +214,9 @@ def initialize_connectors(
             logger.debug(f"    Connector {registration.name} may require optional dependencies")
         except Exception as e:
             logger.error(f"  ✗ Failed to register connector '{registration.name}': {e}")
-            raise RegistryError(f"Connector registration failed for {registration.name}") from e
+            raise RegistryError(
+                f"Connector registration failed for {registration.name}: {e}"
+            ) from e
 
     logger.info(f"Connector initialization complete: {registered} connectors loaded")
 

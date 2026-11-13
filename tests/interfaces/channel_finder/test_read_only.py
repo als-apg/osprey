@@ -64,3 +64,16 @@ def test_pipeline_switch_still_answers(client):
     resp = client.put("/api/pipeline", json={"pipeline_type": "hierarchical"})
     assert resp.status_code == 200
     assert resp.json() == {"pipeline_type": "hierarchical"}
+
+
+def test_every_directory_route_is_a_get():
+    from fastapi import FastAPI
+
+    from osprey.interfaces.channel_finder.directory_api import router
+
+    app = FastAPI()
+    app.include_router(router)
+    paths = {path: set(methods) for path, methods in app.openapi()["paths"].items()}
+    assert "/alarms" in paths
+    assert "/archive" in paths
+    assert all(methods == {"get"} for methods in paths.values()), paths

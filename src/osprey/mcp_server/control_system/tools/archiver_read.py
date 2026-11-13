@@ -148,7 +148,8 @@ def _classify_coverage(
 ) -> dict[str, Any]:
     """One empty channel's entry: a verdict, plus bounds when they are known."""
     md = probe.metadata
-    if probe.available is False or (md is not None and not md.is_archived):
+    # ``None`` from either probe is "this archiver cannot say", never "not archived".
+    if probe.available is False or (md is not None and md.is_archived is False):
         return {"verdict": "never_recorded"}
     a_start = _pin_utc(md.archival_start) if md is not None else None
     a_end = _pin_utc(md.archival_end) if md is not None else None
@@ -219,23 +220,31 @@ def _coverage_message(
 async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _CoverageProbe]:
     """Ask the connector about each empty channel; a failed probe is a note.
 
-    Failures degrade to ``coverage_unknown`` downstream rather than raising:
+    A note names the failure's class only; its text, which can carry the
+    archiver's URL, goes to the server log.
+
+    A refused availability probe (an archiver that is not connected refuses
+    it) is the note of a channel whose metadata answered. Failures degrade to
+    ``coverage_unknown`` downstream rather than raising:
     the data that DID come back must never be lost to its own explanation.
     """
+    refused: str | None = None
     try:
         availability = await connector.check_availability(channels)
-    except Exception:  # any probe failure degrades, none propagate
+    except Exception as exc:  # any probe failure degrades, none propagate
+        logger.warning("archiver availability probe failed", exc_info=True)
         availability = {}
+        refused = f"availability probe failed: {type(exc).__name__}"
     probes: dict[str, _CoverageProbe] = {}
     for ch in channels:
         try:
             md = await connector.get_metadata(ch)
         except Exception as exc:
-            probes[ch] = _CoverageProbe(
-                available=availability.get(ch), metadata=None, note=f"metadata probe failed: {exc}"
-            )
+            logger.warning("archiver metadata probe failed for %s", ch, exc_info=True)
+            note = f"metadata probe failed: {type(exc).__name__}"
+            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=None, note=note)
         else:
-            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=None)
+            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=refused)
     return probes
 
 

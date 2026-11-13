@@ -60,6 +60,7 @@ from pathlib import Path
 from queue import Empty
 from typing import TYPE_CHECKING, Any
 
+from lume.variables import StrVariable
 from lume_pva_apg.runner import Runner
 from p4p.server.thread import SharedPV
 
@@ -83,6 +84,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
     event_addresses,
     fast_addresses,
+    ioc_health_addresses,
     pass_readback,
     periodic_addresses,
     write_records,
@@ -132,6 +134,8 @@ class ModelRunner(Runner):
     surface's health record, which ``status`` reports and which is rewritten
     to the health file after every pass when one is named. A timed pass
     records its outcome only when it differs from the last one recorded.
+    An IOC health address whose variable is text is served on Channel Access
+    as a string record, the ``stringin`` it stands in for.
     """
 
     _cycle_requested_names: tuple[str, ...]
@@ -195,6 +199,7 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
+        self._ioc_health = ioc_health_addresses(view)
         texture_reach = getattr(composite, "texture_reach", None)
         self._setting_records = write_records(
             view, texture_reach() if callable(texture_reach) else {}
@@ -675,6 +680,18 @@ class ModelRunner(Runner):
             restore(self._cached_state)
         else:
             super()._reset_to_cached_state()
+
+    def _add_pv(self, pv: str, var: Any, ro: bool, prefix: str, handler: Any) -> None:
+        """Add ``var``'s PVs; a text IOC health address is a CA ``DBF_STRING``.
+
+        The base class serves every text variable on Channel Access as a char
+        array. An IOC health text address stands in for a ``stringin`` record,
+        so it is served as one and every reader gets its text; any other text
+        channel keeps the char array.
+        """
+        super()._add_pv(pv, var, ro, prefix, handler)
+        if var.name in self._ioc_health and isinstance(var, StrVariable) and pv in self.pvdb:
+            self.pvdb[pv] = {"type": "string", "asyn": True}
 
     def _create_model_info(self) -> None:
         """Serve the model RPC channel beside the base class's model info."""

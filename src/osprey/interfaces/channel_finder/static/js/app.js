@@ -9,13 +9,22 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { showToast } from '/design-system/js/toast.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
-import { initToolbar } from './panel-toolbar.js';
+import { initToolbar, TOOLBAR_IDS } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
+import { mountAllPvs, unmountAllPvs } from './allpvs.js';
+import { mountAlarms, unmountAlarms } from './alarms.js';
+import { mountArchive, unmountArchive } from './archive.js';
+import { activeSummary } from './alarms-render.js';
+import { fetchActiveAlarms } from './directory-api.js';
+import { mountPvPage, unmountPvPage } from './pv-page.js';
+import { mountIocPage, unmountIocPage } from './ioc-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
+import { formatRoute, parseRoute } from './route.js';
 
 // A follower of the Web Terminal hub: theme-boot.js already applied data-theme
 // pre-paint, and this attaches the postMessage listener for the hub's live
@@ -24,16 +33,41 @@ initTheme({ role: 'follower' });
 
 applyEmbedded();
 
-/** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
+/** @typedef {import('./route.js').RouteParams} RouteParams */
+/** @typedef {import('./route.js').Route} Route */
+
+/** @typedef {{ mount: (container: HTMLElement, params: RouteParams) => void, unmount: () => void }} ViewModule */
 
 /** @type {Record<string, ViewModule>} */
 const VIEWS = {
   explore: { mount: mountExplore, unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
+  allpvs: { mount: mountAllPvs, unmount: unmountAllPvs },
+  alarms: { mount: mountAlarms, unmount: unmountAlarms },
+  archive: { mount: mountArchive, unmount: unmountArchive },
+  pv: { mount: mountPvPage, unmount: unmountPvPage },
+  ioc: { mount: mountIocPage, unmount: unmountIocPage },
 };
+
+// Views that exist only while /api/info carries the directory descriptor.
+const DIRECTORY_VIEWS = new Set(['allpvs', 'alarms', 'archive', 'pv', 'ioc']);
+
+/** How often the Alarms tab's pill is read while the panel is visible. */
+const BADGE_POLL_MS = 15000;
+
+/** @typedef {import('./directory-api.js').ActiveAlarms} ActiveAlarms */
 
 /** @type {string|null} */
 let currentView = null;
+// The last alarm counts read, by the badge poll or the Alarms view.
+/** @type {ActiveAlarms|null} */
+let alarmCounts = null;
+// Bumped by every counts read and every counts event: an answer to an older
+// read is dropped, so the latest one writes the pill.
+let alarmCountsSeq = 0;
+// The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
+/** @type {string|null} */
+let currentRouteKey = null;
 let _initialized = false;
 
 // ---- Initialization ----
@@ -50,20 +84,38 @@ async function init() {
       state.availablePipelines = info.available_pipelines || [info.pipeline_type];
       state.dbPath = info.db_path || null;
       state.setGraphInfo(info.tools, info.graph_store);
+      state.directory = info.directory ?? null;
       renderProvenance();
       updatePipelineBadge(info.pipeline_type);
       buildPipelineDropdown();
     } catch (e) {
       console.error('Failed to load pipeline info:', e);
-      showToast('Failed to connect to API', 'error');
+      showToast('Failed to connect to API', { kind: 'error' });
     }
 
     // Load stats badges
     refreshStatsBadges();
 
-    // Route to initial view
+    // The scope switch: rewritten when an All PVs page names its directory.
+    renderViewSwitch();
+    state.on('directoryLabel', renderViewSwitch);
+
+    // The Alarms tab's pill: read every 15 s and when the panel is shown, while
+    // it is visible on another view; the Alarms view emits the counts itself.
+    state.on('alarmCounts', (answer) => {
+      alarmCountsSeq += 1;
+      alarmCounts = answer;
+      renderAlarmPill();
+    });
+    window.setInterval(() => void readAlarmCounts(), BADGE_POLL_MS);
+    document.addEventListener('visibilitychange', () => void readAlarmCounts());
+
+    // Route to initial view; a view states its route from its first mount on.
+    state.on('replaceRoute', replaceRoute);
     routeFromHash();
     window.addEventListener('hashchange', routeFromHash);
+    // After routing: a panel opened on #/alarms reads the counts through the view.
+    void readAlarmCounts();
   } finally {
     // Ready once start-up settled, whatever it drew (index.html declares the
     // mark pending until then).
@@ -73,17 +125,54 @@ async function init() {
 
 // ---- Routing ----
 
+/**
+ * @param {string} view
+ * @returns {boolean}
+ */
+function viewAvailable(view) {
+  if (!Object.hasOwn(VIEWS, view)) return false;
+  if (view === 'alarms' && !alarmsConfigured()) return false;
+  if (view === 'archive' && !archiveConfigured()) return false;
+  return !DIRECTORY_VIEWS.has(view) || state.directory !== null;
+}
+
+/** @returns {boolean} whether the deployment configures an alarm-state service */
+function alarmsConfigured() {
+  return state.directory?.configured_services?.includes('alarm_state') ?? false;
+}
+
+/** @returns {boolean} whether the deployment's archive serves some target */
+function archiveConfigured() {
+  return state.directory?.configured_services?.includes('archive') ?? false;
+}
+
 function routeFromHash() {
-  const hash = location.hash.replace('#', '') || 'explore';
-  const view = VIEWS[hash] ? hash : 'explore';
-  activateView(view);
+  const route = parseRoute(location.hash);
+  if (route && viewAvailable(route.view)) activateView(route.view, route.params);
+  else activateView('explore', {});
+}
+
+/**
+ * A mounted view states the route it now shows: written over the current
+ * history entry, and remembered as mounted, so the hash the view was opened
+ * with mounts it again. A route for a view that is not mounted is ignored.
+ * @param {Route} route
+ */
+function replaceRoute(route) {
+  if (route.view !== currentView) return;
+  const hash = formatRoute(route);
+  if (hash === location.hash) return;
+  history.replaceState(history.state, '', hash);
+  currentRouteKey = hash;
 }
 
 /**
  * @param {string} viewName
+ * @param {RouteParams} params
  */
-function activateView(viewName) {
-  if (currentView === viewName) return;
+function activateView(viewName, params) {
+  const routeKey = formatRoute({ view: viewName, params });
+  if (currentRouteKey === routeKey) return;
 
   const container = document.getElementById('view-container');
   if (!container) return;
@@ -99,8 +188,114 @@ function activateView(viewName) {
 
   // Mount new view; the toolbar follows the active view (panel-toolbar.js).
   currentView = viewName;
+  currentRouteKey = routeKey;
   state.setActiveView(viewName);
-  VIEWS[viewName].mount(container);
+  VIEWS[viewName].mount(container, params);
+}
+
+// ---- Scope switch ----
+
+/**
+ * The view switch's buttons, in the one order the panel has: Curated · All PVs
+ * · Alarms · Archive · Feedback, each kept while viewAvailable says so (Curated
+ * is whichever paradigm runs). Without the directory descriptor Curated reads
+ * Explore, and only it and Feedback remain.
+ * @returns {{ id: string, label: string }[]}
+ */
+function viewTabs() {
+  const directory = state.directory;
+  /** @type {{ id: string, label: string }[]} */
+  const order = [
+    { id: 'explore', label: directory ? 'Curated' : 'Explore' },
+    { id: 'allpvs', label: directory?.label ?? '' },
+    { id: 'alarms', label: 'Alarms' },
+    { id: 'archive', label: 'Archive' },
+    { id: 'feedback', label: 'Feedback' },
+  ];
+  return order.filter(({ id }) => viewAvailable(id));
+}
+
+/**
+ * A button's label is its text node; a count pill beside it is left alone.
+ * @param {Element} button
+ * @param {string} label
+ */
+function writeLabel(button, label) {
+  const text = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+  if (!text) button.prepend(label);
+  else if (text.textContent !== label) text.textContent = label;
+}
+
+/**
+ * Write the view switch into the toolbar seg. A button already right is left
+ * in place, so an All PVs page repeating its label keeps the focus on it. A
+ * new button starts unpressed: every caller routes next, and panel-toolbar.js
+ * presses the active view's button on the view change.
+ * @returns {void}
+ */
+function renderViewSwitch() {
+  const seg = document.getElementById(TOOLBAR_IDS.views);
+  if (!seg) return;
+  const tabs = viewTabs();
+  const buttons = [...seg.querySelectorAll('button[data-view]')];
+  tabs.forEach(({ id, label }, index) => {
+    let button = buttons[index];
+    if (!button || button.getAttribute('data-view') !== id) {
+      const created = document.createElement('button');
+      created.type = 'button';
+      created.setAttribute('data-view', id);
+      created.setAttribute('aria-pressed', 'false');
+      seg.insertBefore(created, buttons[index] ?? null);
+      buttons.splice(index, 0, created);
+      button = created;
+    }
+    writeLabel(button, label);
+  });
+  for (const extra of buttons.slice(tabs.length)) extra.remove();
+  renderAlarmPill();
+}
+
+// ---- Alarms pill ----
+
+/**
+ * Read the alarm counts alone, while the panel is visible, Alarms exists and
+ * the Alarms view is not the one shown (it emits `alarmCounts` every 5 s).
+ */
+async function readAlarmCounts() {
+  const seq = ++alarmCountsSeq;
+  if (document.hidden || currentView === 'alarms' || !alarmsConfigured()) return;
+  try {
+    const answer = await fetchActiveAlarms({ limit: 0 });
+    if (seq === alarmCountsSeq) state.emit('alarmCounts', answer);
+  } catch {
+    // The pill keeps its last count; the Alarms view says why the feed is down.
+  }
+}
+
+/**
+ * The Alarms button's pill: the number of channels in alarm, in the tone of
+ * the worst severity; absent at zero or without an answer.
+ */
+function renderAlarmPill() {
+  const button = document.querySelector(`#${TOOLBAR_IDS.views} button[data-view="alarms"]`);
+  if (!button) return;
+  let pill = /** @type {HTMLElement|null} */ (button.querySelector('.osprey-count'));
+  const { active, worst } =
+    alarmCounts?.outcome === 'found' ? activeSummary(alarmCounts) : { active: 0, worst: 'NONE' };
+  if (!active) {
+    pill?.remove();
+    button.removeAttribute('aria-label');
+    return;
+  }
+  if (!pill) {
+    pill = document.createElement('span');
+    pill.className = 'osprey-count cf-alarm-pill';
+    button.append(pill);
+  }
+  pill.textContent = String(active);
+  pill.dataset.severity = worst.toLowerCase();
+  // The pill's digits would run into the label: "Alarms2".
+  button.setAttribute('aria-label', `Alarms, ${active} active`);
 }
 
 // ---- Pipeline Switcher ----
@@ -183,6 +378,9 @@ async function switchPipeline(newType) {
     state.setPipelineInfo(info.pipeline_type, info.metadata);
     state.dbPath = info.db_path || null;
     state.setGraphInfo(info.tools, info.graph_store);
+    state.directory = info.directory ?? null;
+    renderViewSwitch();
+    void readAlarmCounts();
     renderProvenance();
     updatePipelineBadge(info.pipeline_type);
 
@@ -196,35 +394,13 @@ async function switchPipeline(newType) {
 
     // Refresh stats and re-mount current view
     refreshStatsBadges();
-    currentView = null; // Force re-mount
+    currentRouteKey = null; // Force re-mount
     routeFromHash();
 
-    showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, 'success');
+    showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, { kind: 'success' });
   } catch (e) {
-    showToast(`Failed to switch pipeline: ${messageOf(e)}`, 'error');
+    showToast(`Failed to switch pipeline: ${messageOf(e)}`, { kind: 'error' });
   }
-}
-
-// ---- Toast ----
-
-/**
- * @param {string} message
- * @param {string} [type='info']
- */
-export function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
 }
 
 // Re-export for use by explore renderers after CRUD mutations

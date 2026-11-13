@@ -21,14 +21,36 @@ class ArchiverMetadata:
     ``channel`` is the same protocol-agnostic channel address the control-system
     connectors take, and the same value that appears in the ``channel`` column of
     :meth:`ArchiverConnector.get_data`.
+
+    ``is_archived`` is ``None`` when this archiver cannot say whether it archives
+    the channel; ``description`` then says why.
     """
 
     channel: str
-    is_archived: bool
+    is_archived: bool | None
     archival_start: datetime | None = None
     archival_end: datetime | None = None
     sampling_period: float | None = None
     description: str | None = None
+
+
+@dataclass(frozen=True)
+class ArchiveExtent:
+    """What an archive store holds, as far as the archiver can say.
+
+    Every field is ``None`` when unknown. ``channels`` is the set of channel
+    addresses the store records now; ``oldest`` and ``newest`` are the instants
+    of its oldest and newest samples; ``reason`` says why a part is unknown.
+    """
+
+    channels: frozenset[str] | None = None
+    oldest: datetime | None = None
+    newest: datetime | None = None
+    reason: str | None = None
+
+
+#: The reason the default :meth:`ArchiverConnector.store_extent` answers.
+NO_EXTENT_REASON = "this archiver does not report what it holds"
 
 
 class ArchiverConnector(ABC):
@@ -144,7 +166,7 @@ class ArchiverConnector(ABC):
         """
 
     @abstractmethod
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived.
 
@@ -152,5 +174,18 @@ class ArchiverConnector(ABC):
             channels: List of channel addresses to check
 
         Returns:
-            Dictionary mapping channel address to availability status
+            Dictionary mapping channel address to availability status; ``None``
+            where this archiver cannot say.
+
+        Raises:
+            RuntimeError: If the archiver is not connected; a disconnected
+                archiver has no store to ask, so it answers nothing.
         """
+
+    async def store_extent(self) -> ArchiveExtent:
+        """What the store holds: its channels, oldest and newest sample.
+
+        Optional. The default answers every part unknown, with a reason, so an
+        archiver that cannot list its store keeps working unchanged.
+        """
+        return ArchiveExtent(reason=NO_EXTENT_REASON)

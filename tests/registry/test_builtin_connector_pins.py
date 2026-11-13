@@ -39,7 +39,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.registry.builtins import FrameworkRegistryProvider
-from osprey_connectors import types
+from osprey_connectors import factory, types
 from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
@@ -217,3 +217,27 @@ class TestRegistryInitializationRegistersTheStandIn:
         assert connector._control_target == types.TARGET_STANDIN
 
         await connector.disconnect()
+
+
+class TestProviderSeesOnlyTheTwoConnectorKinds:
+    """The directory builtins stay out of the table a framework registry reads."""
+
+    def test_every_provider_row_is_a_control_system_or_an_archiver(self) -> None:
+        kinds = {
+            registration.connector_type
+            for registration in FrameworkRegistryProvider().get_registry_config().connectors
+        }
+
+        assert kinds == {"control_system", "archiver"}
+
+    @pytest.mark.skipif(
+        not hasattr(factory, "_SERVICE_BUILTINS"),
+        reason="connectors floor has no service kinds",
+    )
+    def test_no_provider_row_names_a_directory_builtin(self) -> None:
+        directory_names = {row.name for row in factory._SERVICE_BUILTINS}
+
+        assert directory_names
+        assert not directory_names & (
+            _provider_names("control_system") | _provider_names("archiver")
+        )

@@ -3,7 +3,8 @@
 Written into ``<render>/data/simulator/``::
 
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
-    addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
+    addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
+                          ioc_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
@@ -79,10 +80,18 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SETPOINT,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     SimulatorView,
 )
+
+try:
+    from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
+except ImportError:  # a connectors release whose view names no IOC health signals
+    from osprey_connectors.simulation.view import ADDRESSES_FILE as _FLOOR_STAND_IN  # noqa: F401
+
+    IOC_HEALTH_SIGNALS = ()  # type: ignore[assignment]
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -98,6 +107,7 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "ioc_health_addresses",
     "served_deck_path",
     "simulator_wiring",
     "status_address",
@@ -238,6 +248,20 @@ def status_address(code: str, model: str) -> str:
     return f"{code}:SIM:{model}:STATUS"
 
 
+def ioc_health_addresses(code: str, model: str) -> list[str]:
+    """The IOC health addresses the simulator serves for one model, texture included.
+
+    Args:
+        code: The facility's identity ``code``.
+        model: The model's name.
+
+    Returns:
+        ``<code>:SIM:<model>:<signal>`` for each signal of the view's
+        ``IOC_HEALTH_SIGNALS``; none with a connectors release that names none.
+    """
+    return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
+
+
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     """Whether a setpoint without a limits record is writable on the simulated target."""
     from osprey_connectors.types import (
@@ -273,12 +297,12 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             bounds = (entry.get("min_value"), entry.get("max_value"))
             value_range = list(bounds) if None not in bounds else None
         else:
-            writable = role == "setpoint" and unlisted_writable
+            writable = role == SETPOINT and unlisted_writable
             value_range = None
         channel: dict[str, Any] = {
             "address": address,
             "role": role,
-            "pair": (record.get("pair") or address) if role == "setpoint" else None,
+            "pair": (record.get("pair") or address) if role == SETPOINT else None,
             "value_type": record.get("value_type", DEFAULT_VALUE_TYPE),
             "unit": record.get("unit"),
             "description": record.get("description"),
@@ -460,6 +484,9 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "schema": ADDRESSES_SCHEMA,
             "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
             "status": [status_address(code, name) for name in physics],
+            "ioc_health": [
+                address for name in inputs.served for address in ioc_health_addresses(code, name)
+            ],
         },
         VARIABLES_FILE: _variables_document(inputs),
         SEEDS_FILE: _seeds_document(doc),

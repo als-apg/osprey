@@ -6,7 +6,7 @@
  * borders/spacing resolve to canonical tokens; the block below holds only
  * genuine local extensions with no canonical equivalent (surface/shadow/
  * warning composites built from canonical tokens so they still theme
- * correctly, the info-toast accent, and the corpus-strip height).
+ * correctly, the info accent, and the corpus-strip height).
  */
 
 /* ================================================================
@@ -923,35 +923,11 @@ textarea.form-input {
 .skeleton-line:nth-child(3) { width: 60%; }
 
 /* ================================================================
-   Toast Notifications
+   Toasts (design system, toast.js)
    ================================================================ */
 
-.toast-container {
-  position: fixed;
-  /* Above the corpus strip: a pipeline switch toasts right where the
-     switcher sits, so stacking them would hide the control. */
-  bottom: calc(var(--cf-strip-h) + var(--space-4));
-  right: var(--space-4);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.toast {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 5px; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  padding: var(--space-3) var(--space-4);
-  box-shadow: var(--shadow-md);
-  animation: slideIn 0.25s ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  font-size: var(--text-base);
-  max-width: 360px;
-}
-
-.toast.toast-error { border-left: 3px solid var(--color-error); }
-.toast.toast-success { border-left: 3px solid var(--color-success); }
-.toast.toast-info { border-left: 3px solid var(--color-info); }
+/* Above the corpus strip, which holds the pipeline switcher. */
+.osprey-toast-host { bottom: calc(var(--cf-strip-h) + var(--space-4)); }
 
 /* ================================================================
    Section Headers
@@ -1045,11 +1021,6 @@ textarea.form-input {
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: none; }
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: none; }
 }
 
@@ -1227,34 +1198,6 @@ textarea.form-input {
    Feedback View
    ================================================================ */
 
-.fb-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-  gap: var(--space-3);
-}
-
-.fb-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.fb-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.fb-stat {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-}
-
 .fb-stat-value {
   font-family: var(--font-mono);
   font-weight: var(--weight-semibold);
@@ -1263,26 +1206,40 @@ textarea.form-input {
 .fb-stat-success { color: var(--color-success); }
 .fb-stat-failure { color: var(--color-error); }
 
-.fb-breadcrumb {
+/* The entries section header: its caption, then its actions (DESIGN.md §12.1). */
+.fb-section-head {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-  font-size: var(--text-base);
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
-.fb-breadcrumb a {
+.fb-section-head .osprey-section-label {
+  flex: 1;
+  padding-left: 0;
+}
+
+.fb-facility {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.fb-activity {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.fb-crumb {
+  margin-bottom: var(--space-4);
+}
+
+.fb-crumb-back {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   color: var(--text-accent);
   cursor: pointer;
-}
-
-.fb-breadcrumb-sep {
-  color: var(--text-muted);
-}
-
-.fb-breadcrumb-current {
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
 }
 
 .fb-detail-grid {
@@ -1296,6 +1253,13 @@ textarea.form-input {
   border: 1px solid var(--neutral-tint-10);
   border-radius: 5px; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
   overflow: hidden;
+}
+
+.fb-detail-empty {
+  padding: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  text-align: center;
 }
 
 .fb-detail-section-header {
@@ -1393,41 +1357,20 @@ textarea.form-input {
   background: var(--bg-panel);
 }
 
+.fb-sel-empty {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 .fb-sel-value {
   font-family: var(--cf-font-pv);
   color: var(--color-accent-secondary-light);
   padding: 2px 6px;
 }
 
-.fb-disabled {
-  text-align: center;
-  padding: var(--space-6) var(--space-4);
-}
-
-.fb-disabled-icon {
-  font-size: 2.5rem; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  opacity: 0.4;
-  margin-bottom: var(--space-3);
-}
-
-.fb-disabled-title {
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-xl);
-  color: var(--text-primary);
-  margin-bottom: var(--space-2);
-}
-
-.fb-disabled-hint {
-  color: var(--text-muted);
-  font-size: var(--text-base);
-  max-width: 400px;
-  margin: 0 auto;
-}
-
 /* Informational posture, matching .explore-unknown--info: the graph paradigm
    keeps no feedback store by design, so the pane that says so must not be
-   tinted like a failure. Sized to sit above the capture queue rather than
-   alone on the view, which is what separates it from .fb-disabled. */
+   tinted like a failure. Sized to sit above the capture queue. */
 .fb-paradigm-note {
   background: var(--accent-tint-08);
   border: 1px solid var(--accent-tint-30);
@@ -1620,6 +1563,10 @@ textarea.form-input {
   display: contents;
 }
 
+.fb-pending-channels-overflow[hidden] {
+  display: none;
+}
+
 .fb-pending-channels-toggle {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -1675,14 +1622,6 @@ textarea.form-input {
   }
   .stat-grid {
     grid-template-columns: 1fr;
-  }
-  .fb-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .fb-toolbar-left,
-  .fb-toolbar-right {
-    justify-content: center;
   }
   .fb-pending-footer {
     flex-direction: column;
@@ -2252,6 +2191,13 @@ textarea.form-input {
   padding: var(--space-6);
   color: var(--text-muted);
   text-align: center;
+}
+
+/* The curated views' line to All PVs (curated-bridge.js), under their results. */
+.curated-bridge {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 /* Read/write direction. Same tint-plus-colour family as .filter-chip,
