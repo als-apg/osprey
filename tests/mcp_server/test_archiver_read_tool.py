@@ -1288,7 +1288,7 @@ class TestCoverageInToolResponse:
         assert data["status"] == "success"  # the read itself did not fail
         cov = data["summary"]["coverage"]
         assert cov["verdict"] == "coverage_unknown"
-        assert "store went away" in cov["channels"]["SR:OLD:RB"]["note"]
+        assert cov["channels"]["SR:OLD:RB"]["note"] == "metadata probe failed: RuntimeError"
 
     async def test_an_archiver_not_connected_reports_unknown_with_the_reason(
         self, archiver_read_tool
@@ -1309,7 +1309,47 @@ class TestCoverageInToolResponse:
         assert data["status"] == "success"
         entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
         assert entry["verdict"] == "coverage_unknown"
-        assert entry["note"] == "availability probe failed: Archiver not connected"
+        assert entry["note"] == "availability probe failed: RuntimeError"
+
+    async def test_a_failed_metadata_probe_never_serves_the_exception_text(
+        self, archiver_read_tool
+    ):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.return_value = {}
+        connector.get_metadata.side_effect = RuntimeError(
+            "cannot reach https://reader:secret@archiver.example/mgmt"
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["note"] == "metadata probe failed: RuntimeError"
+        served = json.dumps(data)
+        assert "archiver.example" not in served and "secret" not in served
+
+    async def test_a_failed_availability_probe_never_serves_the_exception_text(
+        self, archiver_read_tool
+    ):
+        from osprey_connectors.archiver._base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.side_effect = RuntimeError(
+            "cannot reach https://reader:secret@archiver.example/mgmt"
+        )
+        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
+            channel=ch, is_archived=None
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["note"] == "availability probe failed: RuntimeError"
+        served = json.dumps(data)
+        assert "archiver.example" not in served and "secret" not in served
 
 
 # --- Waveform channels -------------------------------------------------------

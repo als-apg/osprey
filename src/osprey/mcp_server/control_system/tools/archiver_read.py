@@ -220,6 +220,9 @@ def _coverage_message(
 async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _CoverageProbe]:
     """Ask the connector about each empty channel; a failed probe is a note.
 
+    A note names the failure's class only; its text, which can carry the
+    archiver's URL, goes to the server log.
+
     A refused availability probe (an archiver that is not connected refuses
     it) is the note of a channel whose metadata answered. Failures degrade to
     ``coverage_unknown`` downstream rather than raising:
@@ -229,16 +232,17 @@ async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _Cov
     try:
         availability = await connector.check_availability(channels)
     except Exception as exc:  # any probe failure degrades, none propagate
+        logger.warning("archiver availability probe failed", exc_info=True)
         availability = {}
-        refused = f"availability probe failed: {exc}"
+        refused = f"availability probe failed: {type(exc).__name__}"
     probes: dict[str, _CoverageProbe] = {}
     for ch in channels:
         try:
             md = await connector.get_metadata(ch)
         except Exception as exc:
-            probes[ch] = _CoverageProbe(
-                available=availability.get(ch), metadata=None, note=f"metadata probe failed: {exc}"
-            )
+            logger.warning("archiver metadata probe failed for %s", ch, exc_info=True)
+            note = f"metadata probe failed: {type(exc).__name__}"
+            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=None, note=note)
         else:
             probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=refused)
     return probes
