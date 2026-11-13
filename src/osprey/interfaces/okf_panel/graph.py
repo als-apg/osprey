@@ -10,8 +10,12 @@ A node is a place, a device, a channel, a signal or a class. An edge is any
 triple whose subject and object are both nodes, named by its predicate's local
 name (``rdf:type`` is ``type``): a device is joined to its place by
 ``locatedIn`` and a place to its parent by ``partOf``, as the graph holds them.
+A relation claim between places and devices is drawn as the edge the graph
+writes for it (``poweredBy``, ``cabledTo``, ``locatedInContested``, ...).
 A record's kind is read from its IRI's namespace when its types do not settle
-it, so a device without a class is still a device.
+it, so a device without a class is still a device. Claim nodes
+(``narad_sem:Claim``) and group nodes (``narad_sem:Group``) are not drawn, so
+neither is an edge to or from one (a group's ``hasMember`` or ``boundedBy``).
 """
 
 from __future__ import annotations
