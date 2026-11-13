@@ -433,8 +433,10 @@ def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dic
 
     listed = []
     for claim in claims:
-        ends = [claim.get(side) for side in ("subject", "object")]
-        ends = [end if isinstance(end, Mapping) else {} for end in ends]
+        ends: list[Mapping[str, Any]] = [
+            end if isinstance(end := claim.get(side), Mapping) else {}
+            for side in ("subject", "object")
+        ]
         identities = [end_identity(end) for end in ends]
         named = [identity == (kind, id_) for identity in identities]
         if not any(named):
