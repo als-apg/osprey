@@ -10,6 +10,13 @@ or "RF cavity voltage", into control system addresses, such as
 demo preset. It uses LLM-based pipelines, so a query can use
 everyday terms rather than exact channel names.
 
+Four pipelines do this, each by a different paradigm. They differ in the size
+of the channel catalog they suit and in how far the search moves from the
+channels as named to the channels as meant:
+
+.. raw:: html
+   :file: ../_diagrams/channel-finder-paradigms.html
+
 The pipelines search the *curated* channels: the ones the facility description
 declares and describes. A PV name met in an alarm, a script or a logbook entry
 is often not one of them. For those the Channel Finder also reads the control
