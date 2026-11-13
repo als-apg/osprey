@@ -8,7 +8,8 @@ The curated :doc:`channel finder <use-channel-finder>` knows the channels the
 facility tree declares. A PV name met elsewhere, in an alarm, a script or a
 logbook entry, is often not one of them. **All PVs**, a view of the Channels
 panel, lists every PV the control system announces, and gives each PV and IOC
-a page with its alarms, recorded writes and logbook mentions.
+a page with its alarms, recorded writes and logbook mentions. Beside it,
+**Alarms** and **Archive** show what is in alarm and what the archive records.
 
 Names, descriptions and properties in All PVs are the control system
 directory's own, as it records them; nothing in All PVs is curated. The view,
@@ -35,15 +36,11 @@ agent no ``pv-directory`` tools. The keys are in :ref:`config-pv-directory`.
 - **Off.** ``osprey set config.pv_directory=null``, or ``pv_directory: null``
   under ``config:`` in a profile that extends ``demo``, removes the section.
 
-On a multi-user host, the ``channel-finder`` shared login carries the
-``pv-directory`` server; the ``logbook`` and ``knowledge`` logins switch it off
-(:doc:`web-terminal/multi-user/tiers`).
-
 
 Search All PVs
 ==============
 
-1. Open **Channels** from the **Apps** section of the sidebar.
+1. Open the Channels panel from the **Apps** section of the sidebar.
 2. Click **All PVs** in the view switch at the toolbar's left. The switch reads
    **Curated**, **All PVs**, **Alarms**, **Archive** and **Feedback**; Alarms and
    Archive appear only when their service is configured.
@@ -51,9 +48,9 @@ Search All PVs
 
 In the ``demo`` preset, search ``cavity temperature``. The rows are the
 cavities' temperature readbacks, each marked ◆ because the facility tree
-declares it. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its page: its
-**Alarm state** shows a latched alarm from the demo's replayed alarm feed, and
-**Alarm configuration** the guidance that goes with it.
+declares it. Click ``SR:RF:CAVITY:01:TEMPERATURE:RB`` to open its page: a
+banner shows a latched alarm from the demo's replayed alarm feed, with the
+guidance that goes with it.
 
 The words carry across views in both directions. Under curated results, a
 ``Not here? Search All PVs`` line leads here. A curated search with no hits
@@ -81,15 +78,15 @@ Each row carries one of two marks:
 
 A row also shows the description, the current value with its unit, the alarm
 server's severity (when an alarm feed is configured), record type, IOC and,
-with an archive, whether the archive records the PV. An
-inactive PV is dimmed and marked Inactive. A value reads ``no answer`` when the
-PV did not answer. Export CSV is the download icon above the rows.
+with an archive, whether the archive records the PV. An inactive PV is dimmed
+and marked Inactive. A value reads ``no answer`` when the PV did not answer.
+Export CSV is the download icon above the rows.
 
 Ticking rows raises a bar with the actions on them; the selection survives new
 words, filters, paging and a visit to a PV or IOC page.
 
-- **Plot** opens the selection in CANOPY's trace view, at most 12 PVs. It is
-  shown only when CANOPY is enabled and serves its trace view.
+- **Plot** opens the selection in CANOPY's Trace, at most 12 PVs. It is shown
+  only when CANOPY is enabled and serves Trace.
 - **Send to assistant** puts the names into the prompt. It is offered only
   inside the web terminal.
 - **Copy names** copies the names, one per line.
@@ -102,9 +99,9 @@ Alarms
 tiles count each severity and the unacknowledged and latched alarms; a tile
 filters the list. When the alarm feed gives tree paths, the sidebar holds the
 alarm tree and a node filters to its branch. The inspector beside the list
-shows the selected PV's guidance, facts and, with an alarm log, transitions,
-from the PV page's sections. The tab exists only with an ``alarm_state``
-sub-block. Nothing here writes: acknowledge in the alarm server's own client.
+shows the selected PV's guidance, facts and, with an alarm log, transitions.
+The view exists only with an ``alarm_state`` sub-block. Nothing here writes:
+acknowledge in the alarm server's own client.
 
 
 Archive
@@ -115,7 +112,7 @@ the directory's PVs, per IOC, its newest sample and its configuration as
 deployed. For the deployment's own store it adds retention, cadence and the
 retention window. A value the archiver cannot give reads ``unknown`` with the
 reason: the MongoDB store lists its channels; the EPICS Archiver Appliance, MYA
-and DOOCS archivers do not. The tab exists only when the deployment's archive
+and DOOCS archivers do not. The view exists only when the deployment's archive
 serves a target. Nothing here writes: change the configuration in the profile
 and redeploy.
 
@@ -167,14 +164,14 @@ PV twice, 2 s apart; a value that advanced means alive.
 The control target decides the source
 ======================================
 
-Every section answers only from the machine the control-target chip shows. No
-section shows another machine's data under this machine's PV.
+Every card answers only from the machine the control-target chip shows, never
+another machine's data under this machine's PV.
 
 .. list-table::
    :header-rows: 1
    :widths: 22 39 39
 
-   * - Section
+   * - Answer
      - *Simulator*
      - *Live* and *Rehearsal*
    * - Directory
@@ -186,9 +183,12 @@ section shows another machine's data under this machine's PV.
    * - Alarm history, put history, logbook
      - none
      - the configured service
+   * - Archive
+     - the deployment's own MongoDB store
+     - the facility's archiver
 
 *Rehearsal* reads the facility's services, because the stand-in rehearses
-that machine. A section with no source for the current target reads ``Not
+that machine. An answer with no source for the current target reads ``Not
 available for this target``.
 
 Current values are read through the control target's read gateway, by a
