@@ -542,7 +542,11 @@ class TestWholeWrite:
     async def test_concurrent_stalled_writes_do_not_queue_behind_each_other(self, ca_loop):
         """Many writes to distinct stalled channels at once each end within S + 2T."""
         count = 16
-        records = {f"SR_CH{i}": _Record(get_s=0.25, put_s=NEVER) for i in range(count)}
+        # Each step read must answer inside S, so get_s leaves S a margin a busy
+        # runner's CA-loop stall cannot eat (at 0.25 s a 50 ms stall refused the
+        # writes); 16 reads queued one behind another would still take 2.4 s,
+        # far past BOUND.
+        records = {f"SR_CH{i}": _Record(get_s=0.15, put_s=NEVER) for i in range(count)}
         connector = _connector(
             TimingAioca(**records), validator=_step_checking_validator(), loop=ca_loop
         )
