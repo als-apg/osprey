@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 
 import osprey
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser
@@ -61,7 +62,7 @@ def test_content_below_the_tile_is_reached_by_scrolling(chromium_browser: Browse
     with run_app_server(_panel_page(panel)) as base:
         page = chromium_browser.new_page(viewport=_TILE)
         page.goto(f"{base}/")
-        page.locator("main").wait_for()
+        wait_for_page_ready(page)
         page.evaluate(
             """(tall) => {
               const root = document.querySelector('main');
