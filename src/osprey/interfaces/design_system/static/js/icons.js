@@ -315,6 +315,22 @@ const SHAPES = Object.freeze({
     'M12 17v5',
     'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
   ],
+  // The Activity page: a call the configuration allowed, the operator, a tool
+  // call without a server mark, a failed call, a deep link, a nested step.
+  'shield-check': [
+    'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z',
+    'm9 12 2 2 4-4',
+  ],
+  user: ['M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2', ['circle', { cx: '12', cy: '7', r: '4' }]],
+  wrench: [
+    'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
+  ],
+  'circle-x': [['circle', { cx: '12', cy: '12', r: '10' }], 'm15 9-6 6', 'm9 9 6 6'],
+  link: [
+    'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71',
+    'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+  ],
+  'corner-down-right': ['m15 10 5 5-5 5', 'M4 4v7a4 4 0 0 0 4 4h12'],
 });
 
 /** Icons drawn heavier than the 1.75 default, set on each child. */

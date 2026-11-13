@@ -17,7 +17,7 @@
  */
 
 import { fetchJSON, apiRequest } from './api.js';
-import { fmtBytes } from './session-helpers.js';
+import { formatBytes } from './activity-log-format.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Shared Fetch Cache ---- //
@@ -253,7 +253,7 @@ class MemoryGallery {
     body.appendChild(nameRow);
 
     const metaRow = _el('div', 'memory-file-meta');
-    metaRow.textContent = `${file.line_count} lines \u00B7 ${fmtBytes(file.size)}`;
+    metaRow.textContent = `${file.line_count} lines \u00B7 ${formatBytes(file.size)}`;
     body.appendChild(metaRow);
 
     card.appendChild(body);
