@@ -10,6 +10,9 @@ remember them.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 import warnings
 
 import pytest
@@ -315,6 +318,28 @@ class TestFailureReason:
     def test_message_text_is_never_read(self):
         assert failure_reason(ValueError("connection refused")) is None
         assert failure_reason(RuntimeError("401 Unauthorized")) is None
+
+    def test_classifying_imports_no_library(self):
+        """A cold LiteLLM import takes seconds on the thread that classifies the failure.
+
+        Run in a fresh interpreter: in this one, another test has usually
+        imported every library already.
+        """
+        script = textwrap.dedent(
+            """
+            import sys
+            from osprey.models.providers.health import failure_reason
+
+            libraries = ("litellm", "httpx", "requests")
+            assert "litellm" not in sys.modules, "importing health loaded litellm"
+            before = {name for name in libraries if name in sys.modules}
+            for exc in (TimeoutError("x"), ConnectionError("x"), ValueError("x")):
+                failure_reason(exc)
+            loaded = {name for name in libraries if name in sys.modules}
+            assert loaded == before, f"classifying imported {sorted(loaded - before)}"
+            """
+        )
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=60)
 
 
 class TestRequiredFlagsAreDeclared:

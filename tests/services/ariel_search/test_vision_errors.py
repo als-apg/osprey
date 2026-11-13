@@ -7,6 +7,10 @@ actually raises, not to hand-built ones.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+
 import pytest
 import requests
 
@@ -112,3 +116,31 @@ class TestClassification:
     def test_unrecognised_exception_is_transient(self):
         assert classify_vision_error(KeyError("data")) == "transient"
         assert classify_vision_error(ValueError("no embedding")) == "transient"
+
+    def test_classifying_imports_no_library(self):
+        """The picture lane classifies its failure on the event loop.
+
+        A cold LiteLLM import there stalls every request the loop serves for
+        seconds. Run in a fresh interpreter: in this one, another test has
+        usually imported every library already.
+        """
+        script = textwrap.dedent(
+            """
+            import sys
+            from osprey.services.ariel_search.enhancement import availability
+            from osprey.services.ariel_search.enhancement.vision_errors import (
+                classify_vision_error,
+            )
+            from osprey.services.ariel_search.search import image_lane  # noqa: F401
+
+            libraries = ("litellm", "httpx", "requests", "psycopg", "psycopg_pool")
+            assert "litellm" not in sys.modules, "importing the lane loaded litellm"
+            before = {name for name in libraries if name in sys.modules}
+            for exc in (TimeoutError("x"), ConnectionError("x"), ValueError("x")):
+                availability.unavailable_reason(exc)
+                classify_vision_error(exc)
+            loaded = {name for name in libraries if name in sys.modules}
+            assert loaded == before, f"classifying imported {sorted(loaded - before)}"
+            """
+        )
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=60)
