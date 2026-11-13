@@ -29,7 +29,7 @@
  *     is hidden while that group is folded and while the sidebar is collapsed
  *     to icons.
  *   - ROWS KEEP THEIR HEIGHT. When the group runs short of room only an open
- *     session's artifact box gives way, down to min(its content, 3 rows);
+ *     session's artifact box gives way, down to min(its content, 5½ rows);
  *     past that the group scrolls. The box floor is in terminal.css; this
  *     module adds up the tree's and the Agent row's floors from it
  *     (`--sidebar-tree-floor`, `--sidebar-row-floor`) whenever the tree

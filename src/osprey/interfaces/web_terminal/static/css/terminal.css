@@ -149,15 +149,16 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-sessi
   min-height: var(--sidebar-tree-floor, 52px);
 }
 
-/* Rows keep their height; a box keeps min(its content, 3 rows of 26 px and
-   its 2 px padding): up to three rows it never shrinks, past that 80 px. */
+/* Rows keep their height; a box keeps min(its content, 5½ rows of 26 px and
+   its 2 px padding): up to six rows it never shrinks, past that 145 px, five
+   whole rows and half of the sixth under the fade, so it reads as scrollable. */
 .sidebar-group > .sidebar-row > [data-session-tree] > :not(.osprey-tree-box),
-.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(4))) {
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(7))) {
   flex: none;
 }
 
-.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(4)) {
-  min-height: 80px;
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(7)) {
+  min-height: 145px;
 }
 
 /* A scrolled group fades at whichever edge has more (sidebar.js sets .fade /
