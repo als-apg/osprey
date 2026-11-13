@@ -8,9 +8,10 @@ works whether or not the store runs.
 
 A node is a place, a device, a channel, a signal or a class. An edge is any
 triple whose subject and object are both nodes, named by its predicate's local
-name (``rdf:type`` is ``type``). One relation is derived rather than read:
-``inPlace``, from a device to the place its ``placePath`` literal names, since
-the graph holds that link as a literal only.
+name (``rdf:type`` is ``type``): a device is joined to its place by
+``locatedIn`` and a place to its parent by ``partOf``, as the graph holds them.
+A record's kind is read from its IRI's namespace when its types do not settle
+it, so a device without a class is still a device.
 """
 
 from __future__ import annotations
@@ -20,10 +21,9 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.views.graph import CHANNEL_BINDING, SEMANTIC_SIGNAL
-from osprey.facility.views.graph_iri import decode
+from osprey.facility.views.graph_iri import decode, namespace
 
 __all__ = [
-    "DERIVED_RELATIONS",
     "NODE_KINDS",
     "attach_pages",
     "graph_payload",
@@ -36,9 +36,6 @@ NODE_KINDS: tuple[str, ...] = ("place", "device", "channel", "signal", "class")
 
 #: The node kinds that are records of the facility file.
 RECORD_KINDS: frozenset[str] = frozenset({"place", "device", "channel"})
-
-#: Relations the payload adds that the graph does not hold as an edge.
-DERIVED_RELATIONS: tuple[str, ...] = ("inPlace",)
 
 _OWL = "http://www.w3.org/2002/07/owl#"
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
@@ -77,14 +74,13 @@ def graph_payload(graph: Any) -> dict[str, Any]:
         graph: An :class:`rdflib.Graph` holding the facility graph.
 
     Returns:
-        ``{"nodes": [...], "edges": [...], "derived": [...]}``. A node is
+        ``{"nodes": [...], "edges": [...]}``. A node is
         ``{id, kind, label, type, props}``: ``id`` is the IRI's local name,
         ``kind`` one of :data:`NODE_KINDS`, ``type`` a device's class name
         (else ``None``), ``props`` its literals by predicate local name. A
         place, device or channel also carries ``record``, its id in the
         facility file. An edge is ``[source, target, relation]`` with the two
-        nodes by index. ``derived`` names the relations of
-        :data:`DERIVED_RELATIONS` that are present. Nodes are ordered by IRI
+        nodes by index. Nodes are ordered by IRI
         and edges sorted, so one file always gives one payload.
     """
     import rdflib
@@ -92,6 +88,8 @@ def graph_payload(graph: Any) -> dict[str, Any]:
 
     channel_type = rdflib.URIRef(CHANNEL_BINDING)
     signal_type = rdflib.URIRef(SEMANTIC_SIGNAL)
+    device_namespace = namespace("device")
+    place_namespace = namespace("place")
     classes = set(graph.subjects(RDF.type, OWL.Class))
     schema = {
         subject
@@ -122,8 +120,10 @@ def graph_payload(graph: Any) -> dict[str, Any]:
         elif device_classes:
             kind, label = "device", props.get("deviceId", name)
             node_type = _local(str(device_classes[0]))
-        elif "placePath" in props:
-            kind, label = "place", props["placePath"]
+        elif str(subject).startswith(device_namespace):
+            kind, label = "device", props.get("deviceId", name)
+        elif str(subject).startswith(place_namespace):
+            kind, label = "place", props.get("placePath", name)
         else:
             continue
         index[subject] = len(nodes)
@@ -137,19 +137,7 @@ def graph_payload(graph: Any) -> dict[str, Any]:
             relation = "type" if str(predicate) == _RDF_TYPE else _local(str(predicate))
             edges.add((index[subject], index[value], relation))
 
-    place_by_path = {node["label"]: i for i, node in enumerate(nodes) if node["kind"] == "place"}
-    derived = False
-    for i, node in enumerate(nodes):
-        place = place_by_path.get(node["props"].get("placePath", ""))
-        if node["kind"] == "device" and place is not None:
-            edges.add((i, place, "inPlace"))
-            derived = True
-
-    return {
-        "nodes": nodes,
-        "edges": [list(edge) for edge in sorted(edges)],
-        "derived": list(DERIVED_RELATIONS) if derived else [],
-    }
+    return {"nodes": nodes, "edges": [list(edge) for edge in sorted(edges)]}
 
 
 def _attach_record_ids(nodes: list[dict[str, Any]]) -> None:

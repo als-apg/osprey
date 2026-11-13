@@ -145,13 +145,16 @@ export function renderInspector(host, view, { onFocus, onExpand, onPage }) {
   const cls = node.type ? graph.classIndex.get(node.type) : undefined;
   const pages = node.pages || [];
   const props = Object.entries(node.props).filter(
-    ([key]) => key !== 'description' && key !== 'familyDescription'
+    ([key]) => key !== 'description' && key !== 'familyDescription' && key !== 'altLabel'
   );
   show([
     head(
       KIND_NAMES[node.kind] + (cls === undefined ? '' : ' · ' + graph.nodes[cls].label),
       node.label,
-      [node.props.description || node.props.familyDescription]
+      [
+        node.props.description || node.props.familyDescription,
+        node.props.altLabel ? 'Also called ' + node.props.altLabel : null,
+      ]
     ),
     el('div', { class: 'okf-graph-actions' }, [
       !grouped && focus === i ? null : action('Focus here', () => onFocus(i)),

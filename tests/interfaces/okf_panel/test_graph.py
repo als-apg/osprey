@@ -115,11 +115,36 @@ def test_edges_follow_the_graph_and_name_their_relation(ttl):
     assert ("M/Q1", "type", "Quadrupole") in relations
 
 
-def test_a_device_is_joined_to_its_place_as_a_derived_relation(ttl):
+def test_a_device_is_located_in_its_place_and_a_place_is_part_of_its_parent(ttl):
     payload = read_graph(ttl)
+    relations = _relations(payload)
 
-    assert ("M/BPM1", "inPlace", "M/S1") in _relations(payload)
-    assert payload["derived"] == ["inPlace"]
+    assert ("M/BPM1", "locatedIn", "M/S1") in relations
+    assert ("M/Q1", "locatedIn", "M/S1") in relations
+    assert ("M/S1", "partOf", "M") in relations
+    assert not any(relation == "inPlace" for _, relation, _ in relations)
+    assert "derived" not in payload
+
+
+def test_a_classless_device_is_a_device_node_and_its_place_keeps_its_own(tmp_path):
+    doc = _doc()
+    doc["devices"].append({"id": "M/BOX", "place": "M/S1"})
+    path = tmp_path / "facility.ttl"
+    path.write_text(graph_text(FacilityRecords(doc)), encoding="utf-8")
+
+    payload = read_graph(path)
+    nodes = payload["nodes"]
+    box = [i for i, node in enumerate(nodes) if node["label"] == "M/BOX"]
+    places = [i for i, node in enumerate(nodes) if node["label"] == "M/S1"]
+
+    assert len(box) == 1
+    assert nodes[box[0]]["kind"] == "device"
+    assert nodes[box[0]]["type"] is None
+    assert nodes[box[0]]["record"] == "M/BOX"
+    assert len(places) == 1
+    assert nodes[places[0]]["kind"] == "place"
+    located = [edge for edge in payload["edges"] if edge[0] == box[0] and edge[2] == "locatedIn"]
+    assert located == [[box[0], places[0], "locatedIn"]]
 
 
 def test_the_payload_is_the_same_on_every_read(ttl):

@@ -74,7 +74,6 @@ const GRAVITY = { overview: 0.25, hood: 0.04 };
 const DEFAULT_HOPS = 2;
 /** How long the status line says what was copied, in ms. */
 const COPIED_FOR = 2000;
-const DERIVED_NOTE = "Not stored as an edge: read from each device's placePath";
 
 /**
  * @param {string} id
@@ -446,9 +445,6 @@ export function createGraphView({ onPage, onLocation }) {
           box,
           swatch({ viewBox: '0 0 22 8' }, line),
           el('span', { class: 'okf-graph-legend-name', text: relation }),
-          index.derived.has(relation)
-            ? el('span', { class: 'okf-graph-tag', title: DERIVED_NOTE, text: 'derived' })
-            : null,
           el('span', { class: 'okf-graph-legend-count', text: count(n) }),
         ]);
       })
