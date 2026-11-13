@@ -241,9 +241,12 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 
 # The notebook page follows the theme like the other artifact pages:
 # notebook-theme.css re-points nbconvert's --jp-* properties at the tokens, and
-# the follower script keeps data-theme current while it is embedded.
+# the follower script keeps data-theme current while it is embedded. The font
+# sheet brings the faces those tokens name; a page without it falls back to the
+# viewer's own sans-serif and monospace.
 _NOTEBOOK_SNIPPET = (
     _DESIGN_SYSTEM_HEAD
+    + '\n<link rel="stylesheet" href="/static/fonts/fonts.css">'
     + '\n<link rel="stylesheet" href="/static/css/notebook-theme.css">\n'
     + _NOTEBOOK_RESPONSIVE_CSS
     + "\n"
