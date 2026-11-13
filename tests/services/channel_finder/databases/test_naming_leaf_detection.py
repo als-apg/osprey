@@ -142,21 +142,18 @@ class TestChannelPartLookup:
 class TestSelectionsWithListValues:
     """One ``build_channels_from_selections`` behaviour the inventories cannot show."""
 
-    def test_a_separator_override_from_the_first_value_is_applied_to_all_of_them(
+    def test_a_separator_override_applies_to_its_own_value_only(
         self, separator_override_db
     ) -> None:
-        """Characterized as-is, not endorsed: overrides leak across a list selection.
+        """Each value of a list selection is walked on its own.
 
-        ``_collect_separator_overrides`` navigates with a single value per level, so
-        a list-valued ``device`` is resolved to its first entry -- ``BPM``, which
-        carries ``"_separator": "_"``. The whole Cartesian product is then rendered
-        with that separator, including ``QUAD``, which carries none. The same
-        selection made on its own gets the pattern's ``:``, and the tree expansion
-        agrees with the single-value answer.
+        ``BPM`` carries ``"_separator": "_"`` and ``QUAD`` carries none, so the
+        ``QUAD`` combination gets the pattern's ``:`` -- the same answer as the
+        selection made on its own, and the one the tree expansion gives.
         """
         assert separator_override_db.build_channels_from_selections(
             {"system": "SR", "device": ["BPM", "QUAD"], "signal": "X", "suffix": "RB"}
-        ) == ["SR-BPM_X:RB", "SR-QUAD_X:RB"]
+        ) == ["SR-BPM_X:RB", "SR-QUAD:X:RB"]
 
         # QUAD alone keeps the pattern separator between ``device`` and ``signal``.
         assert separator_override_db.build_channels_from_selections(
