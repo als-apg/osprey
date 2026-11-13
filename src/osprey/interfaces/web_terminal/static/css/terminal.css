@@ -498,14 +498,16 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   position: relative;
 }
 
-/* The Sessions row's "+" (a new session) sits over the row's right end; the
-   row keeps that room clear for its Open hint and badge. Collapsed, the
-   sidebar shows the row's icon alone and no "+". */
+/* The Sessions row's view button (sidebar-session-view.js) and "+" (a new
+   session) sit over the row's right end; the row keeps that room clear for
+   its Open hint and badge. Collapsed, the sidebar shows the row's icon alone
+   and neither button. */
 html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
-  padding-right: 32px;
+  padding-right: 56px;
 }
 
-.sidebar-new-session {
+.sidebar-new-session,
+.sidebar-session-view {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -514,9 +516,25 @@ html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
   color: var(--text-muted);
 }
 
-.sidebar-new-session .osprey-ic {
+.sidebar-session-view {
+  right: 26px;
+}
+
+:is(.sidebar-new-session, .sidebar-session-view) .osprey-ic {
   width: 14px;
   height: 14px;
+}
+
+/* A view that differs from the defaults: a small accent dot on the button. */
+.sidebar-session-view[data-changed]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
 }
 
 .sidebar-kids {
@@ -783,7 +801,8 @@ html[data-sidebar="collapsed"] :is(
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
   .sidebar-open-hint,
-  .sidebar-new-session
+  .sidebar-new-session,
+  .sidebar-session-view
 ) {
   display: none;
 }

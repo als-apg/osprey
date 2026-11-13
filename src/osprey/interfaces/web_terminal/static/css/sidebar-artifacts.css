@@ -359,6 +359,12 @@
   display: none;
 }
 
+/* "Artifact counts" off in the session list's view (sidebar-session-view.js):
+   the session rows drop their count. */
+html[data-session-counts-off] .osprey-tree-session > .osprey-tree-n {
+  display: none;
+}
+
 /* The pinned group: above the Sessions row, its heading a fold button with
    the count and a chevron; its list scrolls once it is tall. */
 .sidebar-pinned {

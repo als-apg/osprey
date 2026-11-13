@@ -4,7 +4,7 @@
  * notifications), section Tile (Open in new window, Reveal in sidebar, Close
  * Agent pane, Restart terminal on the terminal) — and the
  * Agent row in the sidebar — the head of the session tree — gets the tree's
- * menu (New session, Group by, Show pinned, Collapse/Expand all), New session
+ * menu (New session, Artifacts by, Show pinned, Collapse/Expand all), New session
  * through switchTo.
  *
  *   npx vitest run tests/interfaces/web_terminal/panel-menu-policy.test.mjs
@@ -345,7 +345,7 @@ describe('the Sessions row', () => {
 
   test('offers the session tree’s menu, not the pane verbs', () => {
     expect(policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1)).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Group by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual(['New session', 'Artifacts by', 'Show pinned sessions', 'Expand all']);
     expect(document.querySelector('.rail-context-menu')?.getAttribute('aria-label')).toBe(
       'Sessions actions'
     );
@@ -364,7 +364,7 @@ describe('the Sessions row', () => {
     policy.openRailContextMenu(TERMINAL_RAIL_ID, 1, 1);
     expect(menuLabels()).toEqual([
       'New session',
-      'Group by',
+      'Artifacts by',
       'Show pinned sessions',
       'Collapse all',
     ]);

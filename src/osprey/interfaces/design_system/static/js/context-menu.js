@@ -89,7 +89,9 @@
  * still matches only rows that draw one.
  *
  * Submenus — a row with `submenu` items (any depth) ends in a fourth column,
- * `<span class="osprey-context-submenu" aria-hidden="true">▸</span>`, carries
+ * `<span class="osprey-context-submenu" aria-hidden="true">▸</span>`, after
+ * an optional `<span class="osprey-context-value">` naming the row's current
+ * choice (`value`; the hint column stays for shortcuts). The row carries
  * `aria-haspopup="menu"` and `aria-expanded`, and runs nothing itself: it
  * opens a child `<div class="osprey-context-menu" role="menu" data-depth="1">`
  * named after the row. The child opens on hover (after {@link HOVER_DELAY}),
@@ -119,6 +121,8 @@
  * @property {string} [code]      - a value the verb acts on, drawn monospace after the label
  * @property {string} [glyph]     - leading glyph tying the row to the surface's iconography
  * @property {string} [hint]      - right-aligned secondary text (a shortcut, a count), muted
+ * @property {string} [value]     - a submenu row's current choice, right-aligned and muted
+ *   before its ▸ (a view menu's "Group by  Date ▸"); never a shortcut, which is `hint`
  * @property {boolean} [checked]  - a toggle row: true draws ✓, false draws nothing; undefined is a plain verb
  * @property {boolean} [disabled] - render the row inert (aria-disabled, no run)
  * @property {string} [tip]       - a hover tip, e.g. why a disabled row is disabled
@@ -563,6 +567,19 @@ export function closeContextMenu() {
 }
 
 /**
+ * One cell of a row: a `<span>` of the menu's prefix and `part`, as text.
+ * @param {string} part  @param {string} text  @param {boolean} [decorative]  aria-hidden
+ * @returns {HTMLSpanElement}
+ */
+function cell(part, text, decorative = false) {
+  const span = document.createElement('span');
+  span.className = `${prefix}-${part}`;
+  if (decorative) span.setAttribute('aria-hidden', 'true');
+  span.textContent = text;
+  return span;
+}
+
+/**
  * Build one row element.
  * @param {MenuItem} item
  * @param {number} depth - depth of the level the row belongs to (0 = root)
@@ -594,11 +611,7 @@ function buildRow(item, depth) {
   // Leading column: the glyph, or an empty slot of the same width so the
   // labels of glyph-less rows line up with the rest.
   const glyphText = toggle ? (item.checked ? '✓' : '') : (item.glyph ?? '');
-  const glyph = document.createElement('span');
-  glyph.className = glyphText ? `${prefix}-glyph` : `${prefix}-glyph-blank`;
-  glyph.setAttribute('aria-hidden', 'true');
-  glyph.textContent = glyphText;
-  btn.appendChild(glyph);
+  btn.appendChild(cell(glyphText ? 'glyph' : 'glyph-blank', glyphText, true));
 
   // Text nodes only: labels and values routinely carry server-supplied names.
   const label = document.createElement('span');
@@ -612,22 +625,14 @@ function buildRow(item, depth) {
   }
   btn.appendChild(label);
 
-  if (item.hint) {
-    const hint = document.createElement('span');
-    hint.className = `${prefix}-hint`;
-    hint.textContent = item.hint;
-    btn.appendChild(hint);
-  }
-
+  // The right-hand cells: a shortcut or count, the current choice, the ▸.
+  if (item.hint) btn.appendChild(cell('hint', item.hint));
+  if (item.value) btn.appendChild(cell('value', item.value));
   const submenu = item.submenu;
   if (submenu) {
     btn.setAttribute('aria-haspopup', 'menu');
     btn.setAttribute('aria-expanded', 'false');
-    const arrow = document.createElement('span');
-    arrow.className = `${prefix}-submenu`;
-    arrow.setAttribute('aria-hidden', 'true');
-    arrow.textContent = '▸';
-    btn.appendChild(arrow);
+    btn.appendChild(cell('submenu', '▸', true));
   }
 
   if (item.tip) btn.title = item.tip;

@@ -105,6 +105,7 @@ import { needsOriginNotice, onOriginChange } from './artifact-origin.js';
 import { railDragStart } from './rail-drag.js';
 import * as model from './session-model.js';
 import * as pins from './sidebar-session-pins.js';
+import { sessionListNodes, watchViewButton } from './sidebar-session-view.js';
 
 /**
  * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry
@@ -226,6 +227,7 @@ function initSessionTree() {
   // panel-manager.js's DOCK_VIEW_EVENT (not imported: tests mock that module).
   document.addEventListener('osprey-dock-view-changed', onDockView, { signal });
   cues.watch(signal);
+  watchViewButton(signal, render);
   signal.addEventListener('abort', pins.onPinsChange(render));
   pins.initPinnedMenus();
   pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
@@ -446,6 +448,12 @@ function sessionNodes(row, where) {
   return open ? [node, rows.sessionBox(treeId, boxRows(treeId))] : [node];
 }
 
+/** @param {string} treeId @returns {number | undefined} its artifact count, once summarized */
+const countOf = (treeId) => data.totals.counts[treeId]?.total;
+
+/** @param {SessionRow} row */
+const listNodesOf = (row) => sessionNodes(row, 'sessions');
+
 /**
  * The whole tree: the session list, the pinned group's list (`pinned`), or
  * the flyout's, which leads with the pinned sessions under the group's name.
@@ -462,13 +470,10 @@ function treeNodes(where) {
     for (const row of pinned) nodes.push(...sessionNodes(row, 'pinned'));
     nodes.push(rows.labelRow('Sessions'));
   }
-  let loadedTotal = 0;
-  for (const row of model.rows()) {
-    if (row.transcript_id) loadedTotal += data.totals.counts[treeIdOf(row)]?.total ?? 0;
-    nodes.push(...sessionNodes(row, 'sessions'));
-  }
-  if (model.hasMore())
-    nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - loadedTotal)));
+  const list = sessionListNodes(model.rows(), treeIdOf, activeTreeId(), countOf, listNodesOf);
+  nodes.push(...list.nodes);
+  if (model.hasMore() && list.more)
+    nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - list.loadedTotal)));
   const record = model.recordState();
   if (record === 'incomplete' || record === 'unavailable') nodes.push(rows.noticeRow(record));
   return nodes;

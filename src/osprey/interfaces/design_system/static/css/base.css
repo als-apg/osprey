@@ -372,9 +372,12 @@ button {
   flex: 1 1 auto;
 }
 
-/* Secondary text right-aligned after the verb (a shortcut, a count). */
+/* Secondary text right-aligned after the verb: a shortcut or a count (hint),
+   or a submenu row's current choice (value). */
 .osprey-context-hint,
-.rail-context-hint {
+.rail-context-hint,
+.osprey-context-value,
+.rail-context-value {
   flex-shrink: 0;
   margin-left: auto;
   font-size: var(--text-md);
@@ -394,7 +397,9 @@ button {
 }
 
 .osprey-context-hint + .osprey-context-submenu,
-.rail-context-hint + .rail-context-submenu {
+.rail-context-hint + .rail-context-submenu,
+.osprey-context-value + .osprey-context-submenu,
+.rail-context-value + .rail-context-submenu {
   margin-left: 8px;
 }
 
