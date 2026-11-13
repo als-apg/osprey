@@ -266,7 +266,9 @@ describe('alarm', () => {
     const { container } = await mountAt();
     const alarm = /** @type {HTMLElement} */ (section(container, 'alarm'));
     expect(alarm.querySelector('.cf-sev')?.textContent).toBe('MINOR · HIGH');
-    expect(alarm.querySelector('[data-slot="record-alarm"]')?.textContent).toBe('MINOR HIGH');
+    const own = /** @type {HTMLElement} */ (alarm.querySelector('[data-slot="record-alarm"]'));
+    expect(own.textContent).toBe('MINOR · HIGH');
+    expect(own.querySelector('.cf-sev--minor')).not.toBeNull();
     expect(alarm.querySelector('h3')?.textContent).toContain('live configuration');
     expect(alarm.textContent).toContain('/Demo/BPM/DEMO:BPM01:X');
     expect(alarm.textContent).toContain('Unavailable: no answer within 6 s');
@@ -277,7 +279,7 @@ describe('alarm', () => {
     const { container } = await mountAt();
     const banner = /** @type {HTMLElement} */ (container.querySelector('.pvp-banner'));
     expect(banner.querySelector('.pvp-banner-alarm')?.textContent).toBe('MINOR · HIGH');
-    expect(banner.textContent).toContain('latched (record now MINOR HIGH)');
+    expect(banner.textContent).toContain('latched (record now MINOR · HIGH)');
     expect(banner.textContent).toContain('not acknowledged');
     expect(banner.querySelector('.pvp-banner-guidance')?.textContent).toContain('Response.');
 
@@ -544,7 +546,7 @@ describe('current value and states', () => {
     const value = /** @type {HTMLElement} */ (section(container, 'value'));
     expect(value.querySelector('.pvp-bigval')?.textContent).toBe('0.125mm');
     expect(value.querySelector('.pvp-unit')?.textContent).toBe('mm');
-    expect(value.textContent).toContain('record MINOR HIGH');
+    expect(value.textContent).toContain('record MINOR · HIGH');
     const reads = () =>
       fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/values'))
         .length;

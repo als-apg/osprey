@@ -7,7 +7,9 @@
 
 import { test, expect, describe } from 'vitest';
 import {
+  BAND_SEVERITIES,
   SEVERITIES,
+  inBand,
   severityMark,
   severityOf,
   worstSeverity,
@@ -45,6 +47,14 @@ describe('severityOf', () => {
     for (const value of ['MAJOR', 'MINOR_ACK', 2, null, 'junk']) {
       expect(SEVERITIES).toContain(severityOf(value));
     }
+  });
+});
+
+describe('the band of counts', () => {
+  test('shows the server severities in the mockup order, UNDEFINED only when counted', () => {
+    expect(BAND_SEVERITIES).toEqual(['MAJOR', 'INVALID', 'MINOR', 'UNDEFINED']);
+    expect(BAND_SEVERITIES.filter((s) => inBand(s, 0))).toEqual(['MAJOR', 'INVALID', 'MINOR']);
+    expect(inBand('UNDEFINED', 1)).toBe(true);
   });
 });
 

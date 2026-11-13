@@ -35,6 +35,7 @@ import {
 } from './directory-api.js';
 import { sinceText } from './duration.js';
 import { formatRoute } from './route.js';
+import { severityMark, severityOf } from './severity.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
 import { formatValue } from './value-format.js';
@@ -260,7 +261,10 @@ async function refreshValue(page, name) {
     .filter(Boolean)
     .join(' · ');
   slot?.replaceChildren(big, node('p', 'pvp-note', read));
-  for (const own of owns()) own.textContent = alarm;
+  for (const own of owns()) {
+    if (alarm) own.innerHTML = severityMark(severityOf(row.severity), alarm);
+    else own.textContent = '';
+  }
 }
 
 // ---- Header ----
