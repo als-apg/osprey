@@ -141,6 +141,7 @@ _BASE_CSS_HARD_DEPENDENCIES: tuple[str, ...] = (
     "space-1",
     "space-2",
     "text-base",
+    "text-lg",
     "text-md",
     "text-muted",
     "text-primary",
