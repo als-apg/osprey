@@ -228,12 +228,10 @@ html_css_files = ["custom.css"]
 autodoc_mock_imports = [
     # Heavy API client libraries - interfaces documented, implementations mocked
     "openai",
-    "anthropic",
     "google",
     "google.generativeai",
     "google.genai",
     "google.genai.types",
-    "ollama",
     "litellm",
     # Data science stack - too heavy for docs CI, interfaces documented. numpy,
     # pandas and scipy are not mocked: osprey-connectors depends on numpy and
