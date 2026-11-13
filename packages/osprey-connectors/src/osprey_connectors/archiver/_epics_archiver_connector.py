@@ -335,5 +335,10 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         Returns:
             Dictionary mapping every channel address to ``None``
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
         """
+        if not self._connected:
+            raise RuntimeError("Archiver not connected")
         return dict.fromkeys(channels, None)
