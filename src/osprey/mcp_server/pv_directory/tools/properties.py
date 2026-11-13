@@ -14,6 +14,7 @@ from mcp.types import ToolAnnotations
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.pv_directory.server import get_tool_context, mcp, refuse_unavailable
 from osprey.services.pv_directory._connectors import as_payload
+from osprey.services.pv_directory.vocabulary import service_failed
 
 logger = logging.getLogger("osprey.mcp_server.pv_directory.tools.properties")
 
@@ -56,7 +57,7 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
             answer = {"reason": f"no answer within {deadline:g} s"}
         except Exception as failure:
             logger.warning("directory backend failed", exc_info=True)
-            answer = {"reason": f"the service failed: {failure}"}
+            answer = {"reason": service_failed(failure)}
         payload = as_payload(answer)
         if isinstance(payload, Mapping):
             refuse_unavailable(
