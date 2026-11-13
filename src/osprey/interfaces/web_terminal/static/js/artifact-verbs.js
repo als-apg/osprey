@@ -95,15 +95,18 @@ async function showArtifact(id) {
 /**
  * The rows for one artifact.
  * @param {ArtifactEntry} entry
- * @param {{open?: () => void, viewer?: (verb: ViewerVerb) => void}} [where] -
- *   `open`: the place's own pick (a listed row); `viewer`: the place shows the
- *   artifact, and these send it the viewer's verbs
+ * @param {{open?: () => void, newSession?: () => void, viewer?: (verb: ViewerVerb) => void}} [where] -
+ *   `open`: the place's own pick (a listed row); `newSession`: opens the
+ *   artifact in a new session, offered where the artifact can be shown as a
+ *   tile; `viewer`: the place shows the artifact, and these send it the
+ *   viewer's verbs
  * @returns {MenuItem[]}
  */
-export function artifactMenuItems(entry, { open, viewer } = {}) {
+export function artifactMenuItems(entry, { open, newSession, viewer } = {}) {
   /** @type {MenuItem[]} */
   const items = [];
   if (open) items.push({ label: 'Open', run: open });
+  if (newSession) items.push({ label: 'Open in new session', glyph: '⊕', run: newSession });
   if (viewer) {
     items.push(
       { label: 'Compose logbook entry', run: () => viewer('logbook') },
