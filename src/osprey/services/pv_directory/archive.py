@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
+from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors.archive_targets import archive_targets
 from osprey_connectors.simulation.archive import SeedKnobs
 from osprey_connectors.types import (
@@ -83,7 +84,7 @@ async def read_extent(connector: Any, deadline: float) -> Extent:
         return Extent(reason=f"no answer within {deadline:g} s")
     except Exception as failure:
         logger.warning("the archive's extent could not be read", exc_info=True)
-        return Extent(reason=f"the archive failed: {type(failure).__name__}")
+        return Extent(reason=service_failed(failure))
     channels = getattr(answer, "channels", None)
     return Extent(
         channels=frozenset(channels) if channels is not None else None,

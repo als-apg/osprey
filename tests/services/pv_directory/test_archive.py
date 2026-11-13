@@ -138,7 +138,7 @@ async def test_a_failing_or_slow_extent_read_answers_its_reason() -> None:
     failed = await archive.read_extent(_Answers(failure=RuntimeError("down")), 1.0)
     late = await archive.read_extent(Slow(), 0.05)
 
-    assert (failed.channels, failed.reason) == (None, "the archive failed: RuntimeError")
+    assert (failed.channels, failed.reason) == (None, "the service failed: RuntimeError")
     assert (late.channels, late.reason) == (None, "no answer within 0.05 s")
 
 
@@ -147,7 +147,7 @@ async def test_a_failed_extent_read_never_serves_the_exception_text() -> None:
 
     extent = await archive.read_extent(_Answers(failure=failure), 1.0)
 
-    assert extent.reason == "the archive failed: ConnectionError"
+    assert extent.reason == "the service failed: ConnectionError"
     assert "mongodb://" not in extent.reason and "secret" not in extent.reason
 
 
