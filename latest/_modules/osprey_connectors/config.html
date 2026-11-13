@@ -468,7 +468,9 @@
     <span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span><span class="p">,</span>
     <span class="n">anchored_path</span><span class="p">,</span>
     <span class="n">dotted_config_str</span><span class="p">,</span>
+    <span class="n">rendered_config_path</span><span class="p">,</span>
     <span class="n">repo_root_for_config</span><span class="p">,</span>
+    <span class="n">resolve_config_path</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
@@ -1087,7 +1089,10 @@
 <span class="sd">        Initialize configuration builder.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            config_path: Path to the config.yml file. If None, looks in current directory.</span>
+<span class="sd">            config_path: Path to the config.yml file. If None, the file</span>
+<span class="sd">                :func:`osprey_connectors.workspace.resolve_config_path` names:</span>
+<span class="sd">                ``OSPREY_CONFIG``, else ``build/config.yml`` under the current</span>
+<span class="sd">                directory, else ``config.yml`` in it.</span>
 <span class="sd">            load_env: When True (the default), load the env chain from the</span>
 <span class="sd">                current working directory into ``os.environ``. This env →</span>
 <span class="sd">                environ passthrough is load-bearing: it feeds the ``${VAR}``</span>
@@ -1106,19 +1111,13 @@
             <span class="n">load_project_dotenv</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">cwd_config</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span> <span class="o">/</span> <span class="s2">&quot;config.yml&quot;</span>
-            <span class="k">if</span> <span class="n">cwd_config</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-                <span class="n">config_path</span> <span class="o">=</span> <span class="n">cwd_config</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;No config.yml found in current directory: </span><span class="si">{</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;Please run this command from a project directory containing config.yml,</span><span class="se">\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;or set CONFIG_FILE environment variable to point to your config file.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;Example: export CONFIG_FILE=/path/to/your/config.yml</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;For profile-built projects, config.yml is rendered to build/config.yml —</span><span class="se">\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;run from the built deployment directory, or run `osprey build` first if</span><span class="se">\n</span><span class="s2">&quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;build/config.yml does not exist yet.&quot;</span>
-                <span class="p">)</span>
+            <span class="c1"># The same answer every other layer gets to &quot;where is my config&quot;:</span>
+            <span class="c1"># a second rule here would let one process load the render through</span>
+            <span class="c1"># one door and nothing through the other.</span>
+            <span class="n">resolved</span> <span class="o">=</span> <span class="n">resolve_config_path</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">resolved</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="n">_no_default_config_message</span><span class="p">(</span><span class="n">resolved</span><span class="p">))</span>
+            <span class="n">config_path</span> <span class="o">=</span> <span class="n">resolved</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
 
@@ -1422,6 +1421,25 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_no_default_config_message</span><span class="p">(</span><span class="n">resolved</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Why a lookup that names no config found none, naming where it looked.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;OSPREY_CONFIG&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;No config.yml found: OSPREY_CONFIG names </span><span class="si">{</span><span class="n">resolved</span><span class="si">}</span><span class="s2">, which does not exist.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;Point OSPREY_CONFIG at a rendered config.yml, or unset it to read the one &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;under the current directory.&quot;</span>
+        <span class="p">)</span>
+    <span class="n">cwd</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;No config.yml found in current directory: </span><span class="si">{</span><span class="n">cwd</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;Looked for </span><span class="si">{</span><span class="n">rendered_config_path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">cwd</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="s1">&#39;config.yml&#39;</span><span class="si">}</span><span class="s2">.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;Run from a project directory (`osprey build` renders its config to &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;build/config.yml),</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;or set the CONFIG_FILE environment variable to point to your config file.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;Example: export CONFIG_FILE=/path/to/your/config.yml&quot;</span>
+    <span class="p">)</span>
+
+
 <span class="n">_default_config</span><span class="p">:</span> <span class="n">ConfigBuilder</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="n">_default_configurable</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="n">_config_cache</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ConfigBuilder</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1431,7 +1449,8 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration instance (singleton pattern with optional explicit path).</span>
 
 <span class="sd">    This function supports two modes:</span>
-<span class="sd">    1. Default singleton: When no config_path provided, uses CONFIG_FILE env var or cwd/config.yml</span>
+<span class="sd">    1. Default singleton: When no config_path provided, uses the CONFIG_FILE env var, else</span>
+<span class="sd">       the file :func:`osprey_connectors.workspace.resolve_config_path` names</span>
 <span class="sd">    2. Explicit path: When config_path provided, caches and returns config for that specific path</span>
 
 <span class="sd">    Args:</span>
@@ -1529,7 +1548,7 @@
 <span class="sd">    Args:</span>
 <span class="sd">        config_path: Optional explicit path to configuration file. If provided,</span>
 <span class="sd">                    loads configuration from this path. If None, uses the default</span>
-<span class="sd">                    singleton (CONFIG_FILE env var or cwd/config.yml).</span>
+<span class="sd">                    singleton (CONFIG_FILE env var, else the resolved rendered config).</span>
 <span class="sd">        set_as_default: If True and config_path is provided, also set this config</span>
 <span class="sd">                       as the default singleton for future calls without config_path.</span>
 
@@ -1561,7 +1580,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Path of the config file the default singleton actually loaded, if any.</span>
 
 <span class="sd">    This answers &quot;which config is this process&#39;s unqualified lookups reading</span>
-<span class="sd">    from&quot; — the CONFIG_FILE target, the cwd fallback, or a</span>
+<span class="sd">    from&quot; — the CONFIG_FILE target, the resolved rendered config, or a</span>
 <span class="sd">    :func:`config_anchored_at` anchor, whichever produced the singleton.</span>
 <span class="sd">    Callers that resolve paths *relative to the config in use* (e.g.</span>
 <span class="sd">    ``LimitsValidator.resolve_database_path``) anchor on this rather than</span>
@@ -1582,16 +1601,17 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Answer this process&#39;s unqualified config lookups from *config_path*.</span>
 
 <span class="sd">    Every :func:`get_config_value` and :func:`get_facility_timezone` call that</span>
-<span class="sd">    names no config resolves the default singleton, which knows exactly two</span>
-<span class="sd">    places to look: ``CONFIG_FILE``, and ``config.yml`` in the working</span>
-<span class="sd">    directory. Compose satisfies that contract for every container by injecting</span>
-<span class="sd">    ``CONFIG_FILE``. On the host there is nobody to inject it, and a deployment</span>
-<span class="sd">    repo keeps its render one zone down in ``build/`` while its verbs stand at</span>
-<span class="sd">    the repo root — so a host verb doing in-process work satisfies neither</span>
-<span class="sd">    branch, and every lookup it makes degrades to a default. Silently: a</span>
-<span class="sd">    degraded answer (UTC, an empty dict) is indistinguishable from a configured</span>
-<span class="sd">    one at the call site, which is how a whole archive can be synthesized</span>
-<span class="sd">    against the wrong clock without anything failing.</span>
+<span class="sd">    names no config resolves the default singleton, which looks at</span>
+<span class="sd">    ``CONFIG_FILE`` and then where</span>
+<span class="sd">    :func:`osprey_connectors.workspace.resolve_config_path` does: ``OSPREY_CONFIG``,</span>
+<span class="sd">    and the render under the working directory. A container is handed the</span>
+<span class="sd">    variables or starts in its project directory, and a host verb standing at</span>
+<span class="sd">    the repo root finds ``build/config.yml`` there. A verb pointed at another</span>
+<span class="sd">    deployment with ``--repo`` stands in neither, and every lookup it makes</span>
+<span class="sd">    would degrade to a default. Silently: a degraded answer (UTC, an empty</span>
+<span class="sd">    dict) is indistinguishable from a configured one at the call site, which is</span>
+<span class="sd">    how a whole archive can be synthesized against the wrong clock without</span>
+<span class="sd">    anything failing.</span>
 
 <span class="sd">    This is the host&#39;s half of that contract, and it is deliberately in-process</span>
 <span class="sd">    rather than an exported ``CONFIG_FILE``. The attached start path</span>
@@ -1640,7 +1660,8 @@
 
 <span class="sd">    Args:</span>
 <span class="sd">        config_path: Optional path to configuration file. If None, uses the</span>
-<span class="sd">                    default configuration (CONFIG_FILE env var or cwd/config.yml).</span>
+<span class="sd">                    default configuration (CONFIG_FILE env var, else the resolved</span>
+<span class="sd">                    rendered config).</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        Raw configuration dictionary with all values from the YAML file.</span>

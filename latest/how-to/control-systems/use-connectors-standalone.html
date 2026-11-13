@@ -681,6 +681,14 @@ name a <code class="docutils literal notranslate"><span class="pre">config.yml</
 </pre></div>
 </div>
 </div>
+<p>With <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> unset, the file is the one <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code> names,
+else <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> under the working directory, else <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+in it. A process started in a built project directory therefore reads that
+project’s config with nothing set. The same file answers
+<code class="docutils literal notranslate"><span class="pre">create_control_system_connector()</span></code> and <code class="docutils literal notranslate"><span class="pre">create_archiver_connector()</span></code>
+called with no dict, which build the connector its <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> or
+<code class="docutils literal notranslate"><span class="pre">archiver:</span></code> section selects. Without a config they raise
+<code class="docutils literal notranslate"><span class="pre">FileNotFoundError</span></code>, naming where they looked.</p>
 </dd>
 <dt>Writes</dt><dd><p>Every write passes the verdict in <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>: the write tier,
 the machine the connector writes to, the login it writes for, and that

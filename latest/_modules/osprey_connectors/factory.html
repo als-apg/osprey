@@ -526,8 +526,10 @@
 <span class="sd">        Build a control system connector and its type config, without connecting.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            config: Control system configuration dict, or None to load it</span>
-<span class="sd">                from the global config. Its keys:</span>
+<span class="sd">            config: Control system configuration dict, or None to read the</span>
+<span class="sd">                ``control_system`` section of the config this process loads</span>
+<span class="sd">                (see :func:`osprey_connectors.config.get_config_value`). Its</span>
+<span class="sd">                keys:</span>
 
 <span class="sd">                - type: Connector type (e.g., &#39;epics&#39;, &#39;virtual_accelerator&#39;).</span>
 <span class="sd">                  Defaults to the simulator served in process, with a warning,</span>
@@ -551,20 +553,20 @@
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: If connector type is unknown or config is invalid</span>
+<span class="sd">            FileNotFoundError: If ``config`` is None and no config is found.</span>
+<span class="sd">                The error names where it looked; nothing is built in its place.</span>
 
 <span class="sd">        Example:</span>
 <span class="sd">            &gt;&gt;&gt; connector, type_config = ConnectorFactory.build_control_system_connector(config)</span>
 <span class="sd">            &gt;&gt;&gt; await connector.connect(type_config)</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># Load config if not provided</span>
+        <span class="c1"># Load config if not provided. A config that cannot be loaded is the</span>
+        <span class="c1"># caller&#39;s answer, not an empty section: the unset-type fallback below is</span>
+        <span class="c1"># for a config that was read and names no type.</span>
         <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-                <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
-            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not load config: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">, using defaults&quot;</span><span class="p">)</span>
-                <span class="n">config</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
 
         <span class="c1"># Fail closed: an under-specified config must never bring up a live</span>
         <span class="c1"># control system. A blank value is treated as absent for the same</span>
@@ -695,8 +697,9 @@
 <span class="sd">        Create and configure an archiver connector.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            config: Archiver configuration dict, or None to load it from the</span>
-<span class="sd">                global config. Its keys:</span>
+<span class="sd">            config: Archiver configuration dict, or None to read the</span>
+<span class="sd">                ``archiver`` section of the config this process loads (see</span>
+<span class="sd">                :func:`osprey_connectors.config.get_config_value`). Its keys:</span>
 
 <span class="sd">                - type: Connector type (e.g., &#39;epics_archiver&#39;, &#39;mock_archiver&#39;).</span>
 <span class="sd">                  Defaults to &#39;mock_archiver&#39; with a warning when unset, so a</span>
@@ -710,6 +713,8 @@
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: If connector type is unknown or config is invalid</span>
+<span class="sd">            FileNotFoundError: If ``config`` is None and no config is found.</span>
+<span class="sd">                The error names where it looked; nothing is built in its place.</span>
 <span class="sd">            ConnectionError: If connection fails</span>
 
 <span class="sd">        Example:</span>
@@ -722,15 +727,13 @@
 <span class="sd">            &gt;&gt;&gt; }</span>
 <span class="sd">            &gt;&gt;&gt; connector = await ConnectorFactory.create_archiver_connector(config)</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="c1"># Load config if not provided</span>
+        <span class="c1"># Load config if not provided. A config that cannot be loaded is the</span>
+        <span class="c1"># caller&#39;s answer, not an empty section: the mock would refuse to</span>
+        <span class="c1"># connect for want of a simulator view, and say nothing of the config.</span>
         <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-                <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">,</span> <span class="p">{})</span>
-            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not load config: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">, using defaults&quot;</span><span class="p">)</span>
-                <span class="n">config</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">,</span> <span class="p">{})</span>
 
         <span class="c1"># Fail closed: a config with no `archiver:` section is under-specified,</span>
         <span class="c1"># not a declaration that a facility archiver exists. A blank value is</span>

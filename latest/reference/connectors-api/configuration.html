@@ -512,7 +512,10 @@ pre-computes a <code class="docutils literal notranslate"><span class="pre">conf
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, looks in current directory.</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, the file
+<a class="reference internal" href="#osprey_connectors.workspace.resolve_config_path" title="osprey_connectors.workspace.resolve_config_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.workspace.resolve_config_path()</span></code></a> names:
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code>, else <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> under the current
+directory, else <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in it.</p></li>
 <li><p><strong>load_env</strong> (<em>bool</em>) – When True (the default), load the env chain from the
 current working directory into <code class="docutils literal notranslate"><span class="pre">os.environ</span></code>. This env →
 environ passthrough is load-bearing: it feeds the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
@@ -538,7 +541,10 @@ no side effects on <code class="docutils literal notranslate"><span class="pre">
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, looks in current directory.</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – Path to the config.yml file. If None, the file
+<a class="reference internal" href="#osprey_connectors.workspace.resolve_config_path" title="osprey_connectors.workspace.resolve_config_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.workspace.resolve_config_path()</span></code></a> names:
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code>, else <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> under the current
+directory, else <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in it.</p></li>
 <li><p><strong>load_env</strong> (<em>bool</em>) – When True (the default), load the env chain from the
 current working directory into <code class="docutils literal notranslate"><span class="pre">os.environ</span></code>. This env →
 environ passthrough is load-bearing: it feeds the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
@@ -620,16 +626,17 @@ both.</p>
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.config.</span></span><span class="sig-name descname"><span class="pre">config_anchored_at</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/config.html#config_anchored_at"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.config.config_anchored_at" title="Link to this definition">#</a></dt>
 <dd><p>Answer this process’s unqualified config lookups from <em>config_path</em>.</p>
 <p>Every <a class="reference internal" href="#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_config_value()</span></code></a> and <a class="reference internal" href="#osprey_connectors.config.get_facility_timezone" title="osprey_connectors.config.get_facility_timezone"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_facility_timezone()</span></code></a> call that
-names no config resolves the default singleton, which knows exactly two
-places to look: <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code>, and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in the working
-directory. Compose satisfies that contract for every container by injecting
-<code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code>. On the host there is nobody to inject it, and a deployment
-repo keeps its render one zone down in <code class="docutils literal notranslate"><span class="pre">build/</span></code> while its verbs stand at
-the repo root — so a host verb doing in-process work satisfies neither
-branch, and every lookup it makes degrades to a default. Silently: a
-degraded answer (UTC, an empty dict) is indistinguishable from a configured
-one at the call site, which is how a whole archive can be synthesized
-against the wrong clock without anything failing.</p>
+names no config resolves the default singleton, which looks at
+<code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> and then where
+<a class="reference internal" href="#osprey_connectors.workspace.resolve_config_path" title="osprey_connectors.workspace.resolve_config_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.workspace.resolve_config_path()</span></code></a> does: <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code>,
+and the render under the working directory. A container is handed the
+variables or starts in its project directory, and a host verb standing at
+the repo root finds <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> there. A verb pointed at another
+deployment with <code class="docutils literal notranslate"><span class="pre">--repo</span></code> stands in neither, and every lookup it makes
+would degrade to a default. Silently: a degraded answer (UTC, an empty
+dict) is indistinguishable from a configured one at the call site, which is
+how a whole archive can be synthesized against the wrong clock without
+anything failing.</p>
 <p>This is the host’s half of that contract, and it is deliberately in-process
 rather than an exported <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code>. The attached start path
 <code class="docutils literal notranslate"><span class="pre">os.execvpe</span></code>-replaces itself with the container runtime, and an exported
@@ -689,7 +696,7 @@ either guess would silently pick a behaviour nobody configured.</p>
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.config.</span></span><span class="sig-name descname"><span class="pre">default_config_path</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/config.html#default_config_path"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.config.default_config_path" title="Link to this definition">#</a></dt>
 <dd><p>Path of the config file the default singleton actually loaded, if any.</p>
 <p>This answers “which config is this process’s unqualified lookups reading
-from” — the CONFIG_FILE target, the cwd fallback, or a
+from” — the CONFIG_FILE target, the resolved rendered config, or a
 <a class="reference internal" href="#osprey_connectors.config.config_anchored_at" title="osprey_connectors.config.config_anchored_at"><code class="xref py py-func docutils literal notranslate"><span class="pre">config_anchored_at()</span></code></a> anchor, whichever produced the singleton.
 Callers that resolve paths <em>relative to the config in use</em> (e.g.
 <code class="docutils literal notranslate"><span class="pre">LimitsValidator.resolve_database_path</span></code>) anchor on this rather than
@@ -755,7 +762,7 @@ data and pre-computed configurable structures.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file. If provided,
 loads configuration from this path. If None, uses the default
-singleton (CONFIG_FILE env var or cwd/config.yml).</p></li>
+singleton (CONFIG_FILE env var, else the resolved rendered config).</p></li>
 <li><p><strong>set_as_default</strong> (<em>bool</em>) – If True and config_path is provided, also set this config
 as the default singleton for future calls without config_path.</p></li>
 </ul>
@@ -942,7 +949,8 @@ as loaded from the YAML file, with environment variables resolved.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional path to configuration file. If None, uses the
-default configuration (CONFIG_FILE env var or cwd/config.yml).</p>
+default configuration (CONFIG_FILE env var, else the resolved
+rendered config).</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Raw configuration dictionary with all values from the YAML file.</p>
@@ -1354,6 +1362,10 @@ when nothing exists at all.</p></li>
 </ol>
 </dd>
 </dl>
+<p>This is also where a lookup that names no config reads from
+(<a class="reference internal" href="#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a> and the connector
+factory’s no-argument forms), once <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> is ruled out, so a
+process has one answer however it asks.</p>
 <p><code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> is deliberately NOT read here, even though
 <code class="xref py py-func docutils literal notranslate"><span class="pre">osprey.agent_runner.artifact_resolve.deployed_config_path()</span></code> reads it
 ahead of <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code>. That helper answers for one deployed process

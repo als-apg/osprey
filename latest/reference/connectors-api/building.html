@@ -606,8 +606,10 @@ framework initialization.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Control system configuration dict, or None to load it
-from the global config. Its keys:</p>
+<li><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Control system configuration dict, or None to read the
+<code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the config this process loads
+(see <a class="reference internal" href="configuration.html#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a>). Its
+keys:</p>
 <ul>
 <li><p>type: Connector type (e.g., ‘epics’, ‘virtual_accelerator’).
 Defaults to the simulator served in process, with a warning,
@@ -633,7 +635,11 @@ Both halves are needed to finish the build, and the second is not
 derivable from the first, so they travel together.</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If connector type is unknown or config is invalid</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid</p></li>
+<li><p><strong>FileNotFoundError</strong> – If <code class="docutils literal notranslate"><span class="pre">config</span></code> is None and no config is found.
+    The error names where it looked; nothing is built in its place.</p></li>
+</ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple[<a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system._base.ControlSystemConnector"><em>ControlSystemConnector</em></a>, dict[str, <em>Any</em>]]</p>
@@ -698,8 +704,9 @@ for, stamped on the instance as
 <dd><p>Create and configure an archiver connector.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Archiver configuration dict, or None to load it from the
-global config. Its keys:</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Archiver configuration dict, or None to read the
+<code class="docutils literal notranslate"><span class="pre">archiver</span></code> section of the config this process loads (see
+<a class="reference internal" href="configuration.html#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a>). Its keys:</p>
 <ul class="simple">
 <li><p>type: Connector type (e.g., ‘epics_archiver’, ‘mock_archiver’).
 Defaults to ‘mock_archiver’ with a warning when unset, so a
@@ -716,6 +723,8 @@ read when settings is absent; both at once raise ValueError.</p></li>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid</p></li>
+<li><p><strong>FileNotFoundError</strong> – If <code class="docutils literal notranslate"><span class="pre">config</span></code> is None and no config is found.
+    The error names where it looked; nothing is built in its place.</p></li>
 <li><p><strong>ConnectionError</strong> – If connection fails</p></li>
 </ul>
 </dd>

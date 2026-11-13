@@ -642,6 +642,11 @@
 <span class="sd">         project directory, whose root *is* the render, and the path reported</span>
 <span class="sd">         when nothing exists at all.</span>
 
+<span class="sd">    This is also where a lookup that names no config reads from</span>
+<span class="sd">    (:func:`osprey_connectors.config.get_config_value` and the connector</span>
+<span class="sd">    factory&#39;s no-argument forms), once ``CONFIG_FILE`` is ruled out, so a</span>
+<span class="sd">    process has one answer however it asks.</span>
+
 <span class="sd">    ``CONFIG_FILE`` is deliberately NOT read here, even though</span>
 <span class="sd">    :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it</span>
 <span class="sd">    ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process</span>
