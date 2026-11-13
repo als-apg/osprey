@@ -43,6 +43,7 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey.deployment.web_terminals.roster import (
     as_dict,
+    config_code_panels,
     launch_token_writes_key,
     login_titles_in,
     referenced_render_project_dirs,
@@ -738,6 +739,58 @@ class OpenModeEgressError(DeploymentError):
         )
 
 
+class OpenModeCodePanelError(DeploymentError):
+    """An OPEN deployment ships a render that shows a panel running a person's code.
+
+    The second half of the open posture's one requirement, that nothing inside
+    the deployment can reach nginx back. :class:`OpenModeEgressError` covers the
+    agent's tools. A panel that runs what a person types
+    (:attr:`~osprey.profiles.sidecar_panels.SidecarPanel.runs_code`: the
+    notebook panel's kernels) is the same reach by another door: its code runs
+    in the terminal's container, on the host network, with none of the python
+    executor's guards, so it reaches the deployment's own web ports and is
+    served any login's terminal. The code need not be the person's own: the
+    agent writes notebooks, and a cell it wrote runs when the person runs it.
+
+    No deny entry closes this, because the panel is not an agent tool, and
+    nothing waives it. The remedies are the two the message names.
+
+    Deliberately not a ``ValueError``, for :class:`OpenModeEgressError`'s
+    reason.
+
+    Args:
+        panels_by_render: :func:`open_mode_code_panels_by_render`'s answer: the
+            code-running panels each offending render shows, keyed by render.
+            :attr:`renders` is its sorted key list.
+    """
+
+    def __init__(self, panels_by_render: Mapping[str, Iterable[str]]) -> None:
+        self.panels_by_render = {
+            render: tuple(panels) for render, panels in sorted(panels_by_render.items())
+        }
+        self.renders = list(self.panels_by_render)
+        breakdown = "".join(
+            f"\n  - {render!r} shows: {', '.join(repr(panel) for panel in panels)}"
+            for render, panels in self.panels_by_render.items()
+        )
+        keys = sorted(
+            {f"web.panels.{panel}" for panels in self.panels_by_render.values() for panel in panels}
+        )
+        super().__init__(
+            f"Refusing to deploy: auth.method 'none' (open) lets nginx vouch for every "
+            f"terminal, and render(s) {', '.join(repr(render) for render in self.renders)} "
+            f"show a panel that runs the code a person types.{breakdown}\n"
+            f"That code runs in the terminal's container, on the host network, with none "
+            f"of the python executor's guards: it reaches nginx over loopback and is "
+            f"served any login's terminal, exactly as a shell would be. It need not be "
+            f"the person's own code either, since the agent writes notebooks. Set "
+            f"modules.web_terminals.auth.method to 'token', 'password' or 'oidc' to put "
+            f"a wall in front of the terminals, or stop selecting the panel in those "
+            f"renders ({', '.join(keys)}), render them on this host (`osprey build`) and "
+            f"rebuild their images. No deny entry and no waiver clears this refusal."
+        )
+
+
 def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
     """Refuse an OPEN deploy whose renders can still reach the host network.
 
@@ -798,13 +851,23 @@ def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
         project_root: Deploy project root; relative ``project_path`` values
             resolve against it.
 
+    The same three call points carry the posture's second refusal: a render
+    that shows a panel running a person's code
+    (:func:`open_mode_code_panels_by_render`). It is checked after the egress
+    set, so an unrendered project is told to render before it is told anything
+    about a config that is not there to read.
+
     Raises:
         OpenModeEgressError: The deployment is open and at least one referenced
             render ships settings that do not deny every tool in
             :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`.
+        OpenModeCodePanelError: The deployment is open and at least one
+            referenced render shows a code-running panel.
     """
     if missing := open_mode_missing_by_render(config, project_root):
         raise OpenModeEgressError(missing)
+    if panels := open_mode_code_panels_by_render(config, project_root):
+        raise OpenModeCodePanelError(panels)
 
 
 def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
@@ -877,6 +940,40 @@ def open_mode_missing_by_render(
         if (gap := _open_mode_gap(project_dir)) is not None:
             missing[tier] = gap
     return missing
+
+
+def open_mode_code_panels_by_render(
+    config: Any, project_root: Path | str
+) -> dict[str, tuple[str, ...]]:
+    """Per offender, the code-running panels an OPEN deployment's render shows.
+
+    The one answer :func:`check_open_mode_requirements`, the preflight report
+    and the lint rule ``web_terminals.open_mode_code_panel`` all read. Pure, as
+    :func:`open_mode_missing_by_render` is: it reads each referenced render's
+    rendered ``config.yml`` and nothing else.
+
+    A render with no readable ``config.yml`` is absent here. It is not passed:
+    :func:`open_mode_missing_by_render` already refuses a render with no
+    rendered settings, with the remedy that applies to it.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        ``{render: panel ids}`` in registry order
+        (:func:`~osprey.deployment.web_terminals.roster.config_code_panels`).
+        ``{}`` when the deployment is not open, or when no referenced render
+        shows such a panel.
+    """
+    if not deployment_is_open(config):
+        return {}
+    return {
+        render: panels
+        for render, render_config in rendered_configs(config, project_root).items()
+        if (panels := config_code_panels(render_config))
+    }
 
 
 def _open_mode_gap(project_dir: Path | None) -> tuple[str, ...] | None:

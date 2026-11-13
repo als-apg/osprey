@@ -56,6 +56,7 @@ from osprey.deployment.web_terminals.artifacts import (
     DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
     LaunchTokenNameError,
+    OpenModeCodePanelError,
     OpenModeEgressError,
     application_shell_conflicts,
     bash_launch_token_offenders,
@@ -64,6 +65,7 @@ from osprey.deployment.web_terminals.artifacts import (
     dangerously_allowed_bash_renders,
     deployment_is_open,
     launch_token_name_problems,
+    open_mode_code_panels_by_render,
     open_mode_missing_by_render,
     web_compose_file,
     write_web_terminal_artifacts,
@@ -426,6 +428,8 @@ def web_terminal_preflight_report(
     # render here" where that is the actual problem.
     if open_missing := open_mode_missing_by_render(config, root):
         findings.append((str(OpenModeEgressError(open_missing)), ""))
+    if code_panels := open_mode_code_panels_by_render(config, root):
+        findings.append((str(OpenModeCodePanelError(code_panels)), ""))
     # The broader of the two .env.users questions, not the generate-path one:
     # it covers the render this deploy would refuse to generate AND the file
     # already on disk that the chain can no longer support. Asking both would

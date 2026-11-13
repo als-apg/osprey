@@ -319,6 +319,7 @@ def lint_web_terminals(
         # answered anyway would be guessing at the one file the deploy gate
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
+        findings.extend(_check_open_mode_code_panel(root, project_root=project_root))
         # Both read the deployment's `.env` or `.env.auth`, so they ride the
         # same gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
@@ -3673,6 +3674,53 @@ def _auth_context(
         return _auth_tls_context(web_terminals, base=base)
     except ValueError:
         return None
+
+
+def _check_open_mode_code_panel(
+    root: dict[str, Any], *, project_root: Path | None
+) -> list[Finding]:
+    """An OPEN deployment whose render shows a panel that runs a person's code.
+
+    The authoring-time voice of the second refusal in
+    :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`,
+    driven by the predicate that gate raises on
+    (:func:`~osprey.deployment.web_terminals.artifacts.open_mode_code_panels_by_render`),
+    for the reasons :func:`_check_open_mode_egress` gives. Imported at call
+    time, as there.
+
+    Args:
+        root: The whole parsed config.
+        project_root: The deployment repo whose ``build/`` holds the renders.
+            ``None`` falls back to the working directory.
+
+    Returns:
+        One finding naming every offender and the panels it shows, or none.
+    """
+    from osprey.deployment.web_terminals.artifacts import open_mode_code_panels_by_render
+
+    panels_by_render = open_mode_code_panels_by_render(root, project_root or Path("."))
+    if not panels_by_render:
+        return []
+    detail = "; ".join(
+        f"{render!r} shows {', '.join(repr(panel) for panel in panels)}"
+        for render, panels in sorted(panels_by_render.items())
+    )
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.open_mode_code_panel",
+            message=(
+                f"modules.web_terminals.auth.method is 'none' (open), so nginx vouches "
+                f"for every terminal it proxies — but {detail}, a panel that runs the "
+                f"code a person types. That code runs in the terminal's container on "
+                f"the host network, with none of the python executor's guards, so it "
+                f"reaches nginx over loopback and is served any login's terminal. Set "
+                f"auth.method to 'token', 'password' or 'oidc', or stop selecting the "
+                f"panel in those renders, render with `osprey build` and rebuild the "
+                f"images this deployment runs"
+            ),
+        )
+    ]
 
 
 def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) -> list[Finding]:

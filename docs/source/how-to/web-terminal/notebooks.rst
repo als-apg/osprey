@@ -229,6 +229,33 @@ no extra line, because nothing you do in the notebook would change it.
 A page reload keeps the kernel running, but the notebook comes back as it was
 last saved. Output from cells that ran since that save is gone.
 
+What a cell's environment holds
+-------------------------------
+
+The notebook server and its kernels start with the fixed set of environment
+variables executed code gets (:ref:`config-python-executor`): paths, locale,
+the interpreter, TLS trust, proxies, the control-system client settings and
+the osprey names a cell reads. The terminal's provider key, its database
+passwords and its telemetry login are not in that set, so ``os.environ`` in a
+cell does not hold them. A cell that needs another variable gets it the way an
+executor run does, by name:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH]
+
+This keeps credentials out of a kernel's own environment and is not a sandbox.
+A kernel runs as the same user as the terminal's server and the agent, in the
+same container and on its network: what that user can read on disk or from
+another of its processes, a cell can read, and what the container can reach, a
+cell can reach (:ref:`architecture-safety-chain-residual`).
+
+For that reason the panel needs a login wall. A deployment on
+``auth.method: none`` trusts every request its proxy forwards, and a cell could
+send one; ``osprey up`` refuses to start such a deployment while a render shows
+this panel (:ref:`multi-user-open-mode`).
+
 Notebooks the agent also edits
 ------------------------------
 
