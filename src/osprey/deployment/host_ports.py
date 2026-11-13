@@ -59,7 +59,11 @@ from osprey.deployment.compose_generator import (
     repo_identity,
     resolve_repo_root,
 )
-from osprey.deployment.container_ownership import claims_row
+from osprey.deployment.container_ownership import (
+    COMPOSE_PROJECT_LABEL,
+    COMPOSE_SERVICE_LABEL,
+    claims_row,
+)
 from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
@@ -206,11 +210,6 @@ _SLOT_CONTAINER_PORTS = {
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
-
-# Label compose stamps with the project a container belongs to. Two checkouts of
-# one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
-_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
-_COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 
 # Config values the host-mode templates fall back on that are NOT ports. The
 # two port fallbacks the templates also carry (the dispatcher's own port and the
@@ -990,9 +989,9 @@ def _record_from_ps_obj(obj):
         name = str(names or "").split(",")[0].strip()
 
     labels = _labels_mapping(obj.get("Labels"))
-    project = str(labels.get(_COMPOSE_PROJECT_LABEL, "") or "")
+    project = str(labels.get(COMPOSE_PROJECT_LABEL, "") or "")
     repo_id = str(labels.get(REPO_ID_LABEL, "") or "")
-    service = str(labels.get(_COMPOSE_SERVICE_LABEL, "") or "")
+    service = str(labels.get(COMPOSE_SERVICE_LABEL, "") or "")
 
     host_ports = set()
     ports = obj.get("Ports")
@@ -1129,16 +1128,22 @@ def _holder_is_ours(record, project_name, repo_id):
     )
 
 
-def _runs_service(records, project_name, repo_id, service, *, host_network_only=False):
-    """Whether THIS deployment already has a container running for ``service``.
+def _service_key(service):
+    """A service name with ``_`` and ``-`` made equal: config keys and compose keys differ there."""
+    return service.replace("_", "-")
+
+
+def _runs_service(records, project_name, repo_id, service):
+    """Whether THIS deployment has a host-network container running ``service``.
 
     A host-network container publishes no port mapping, so the runtime's ``ps``
     output cannot attribute its listener by port the way a published one is
-    attributed. Its compose service label can, and so can its container name:
-    the templates name it ``<project>-<service>``, with underscores turned to
-    hyphens where the service key has them. Without this, an idempotent
-    redeploy of a host-network service would report its own still-running
-    container as the conflict.
+    attributed. Its compose service label can, and for a container without one
+    its name can: the templates name it ``<project>-<service>``, with
+    underscores turned to hyphens. Without this, an idempotent redeploy of a
+    host-network service would report its own still-running container as the
+    conflict. Only a host-network container counts: one on a compose network
+    cannot hold a host port without a mapping that ``ps`` would show.
 
     The name is only half the answer, because two checkouts of one repo produce
     the same container name as well as the same project name, so ownership is
@@ -1149,23 +1154,19 @@ def _runs_service(records, project_name, repo_id, service, *, host_network_only=
         project_name: This deploy's resolved compose project name.
         repo_id: This checkout's identity, or ``""`` when unknown.
         service: Compose service name to look for.
-        host_network_only: Count only a container on the host network. Set when
-            the binding being checked is a published one: only a host-network
-            container of ours can hold that port with no mapping to show for it.
 
     Returns:
-        ``True`` when one of this deployment's own containers runs the service.
+        ``True`` when one of this deployment's own host-network containers runs
+        the service.
     """
-    hyphenated = service.replace("_", "-")
+    wanted = _service_key(service)
     for record in records:
-        if not _holder_is_ours(record, project_name, repo_id):
+        if not record.host_network or not _holder_is_ours(record, project_name, repo_id):
             continue
-        if host_network_only and not record.host_network:
-            continue
-        if record.service == service or any(
-            record.name == name or record.name.endswith(f"-{name}")
-            for name in (service, hyphenated)
-        ):
+        if record.service:
+            if _service_key(record.service) == wanted:
+                return True
+        elif record.name == wanted or record.name.endswith(f"-{wanted}"):
             return True
     return False
 
@@ -1358,16 +1359,14 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         holder = holders.get(binding.host_port)
         if holder is not None and _holder_is_ours(holder, project_name, identity):
             continue  # our own container from a prior deploy — not a conflict
-        if holder is None and _runs_service(
-            records,
-            project_name,
-            identity,
-            binding.service,
-            host_network_only=not binding.host_network,
-        ):
+        if holder is None and _runs_service(records, project_name, identity, binding.service):
             # Our own host-network container, which maps no port: either this
             # binding's service redeployed as it was, or one leaving the host
-            # network for a published port, which `up` recreates either way.
+            # network to publish the port it listened on there, which `up`
+            # recreates either way. Which port that container holds is not in
+            # `ps`, so a service that leaves the host network AND moves its port
+            # in one deploy is excused on the new port too: an unrelated
+            # listener there surfaces at `up` as "address already in use".
             continue
         if holder is None and _held_by_own_host_record(binding, config):
             continue  # this deployment's host-local record, which the stack takes over

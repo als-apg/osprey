@@ -1164,7 +1164,8 @@ class TestHostNetworkConflicts:
         self, monkeypatch, listening_port
     ):
         _, port = listening_port
-        ps_json = json.dumps(_ps_row("proj-event-dispatcher", "proj", repo_id="other-checkout"))
+        row = _ps_row("proj-event-dispatcher", "proj", repo_id="other-checkout")
+        ps_json = json.dumps({**row, "Networks": "host"})
         monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
         binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
 
@@ -1195,6 +1196,72 @@ class TestHostNetworkConflicts:
         config = _host_config(app_runtime={"network": "host", "port": port})
 
         assert find_port_conflicts([], project_name="proj", config=config) == []
+
+    @pytest.mark.parametrize(
+        ("networks", "conflicts"),
+        [(["host"], []), (["podman"], ["external"])],
+        ids=["host-network", "podman-network"],
+    )
+    def test_podman_rows_name_their_networks_in_a_list(
+        self, monkeypatch, listening_port, networks, conflicts
+    ):
+        _, port = listening_port
+        ps_json = json.dumps(
+            [
+                {
+                    "Names": ["proj-event-dispatcher"],
+                    "Ports": None,
+                    "Networks": networks,
+                    "Labels": {
+                        "com.docker.compose.project": "proj",
+                        "com.docker.compose.service": "event-dispatcher",
+                    },
+                }
+            ]
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        found = find_port_conflicts([binding], project_name="proj", config=_host_config())
+        assert [c.kind for c in found] == conflicts
+
+    def test_own_bridge_container_does_not_excuse_the_port_it_moves_to_on_the_host(
+        self, monkeypatch, listening_port
+    ):
+        # graphdb is moving onto the host network; its old compose-network
+        # container publishes other ports, so it cannot be what holds port_host.
+        _, port = listening_port
+        ps_json = json.dumps(
+            {
+                "Names": "proj-graphdb",
+                "Ports": f"127.0.0.1:{port + 1}->7687/tcp",
+                "Networks": "proj_osprey-network",
+                "Labels": "com.docker.compose.project=proj,com.docker.compose.service=graphdb",
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _host_config(graphdb={"network": "host", "port_host": port})
+
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+        assert [(c.service, c.kind) for c in conflicts] == [("graphdb", "external")]
+
+    def test_a_service_label_is_not_overruled_by_a_name_that_ends_like_another_service(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        ps_json = json.dumps(
+            {
+                "Names": "proj-ioc-gateway",
+                "Ports": "",
+                "Networks": "host",
+                "Labels": "com.docker.compose.project=proj,com.docker.compose.service=ioc-gateway",
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        binding = HostPortBinding("gateway", "127.0.0.1", port, port, "dc.yml")
+
+        conflicts = find_port_conflicts([binding], project_name="proj", config=_host_config())
+        assert [c.kind for c in conflicts] == ["external"]
 
     def test_no_config_leaves_published_checking_unchanged(self, _no_external_listeners):
         bindings = [
