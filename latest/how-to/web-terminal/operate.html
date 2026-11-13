@@ -625,8 +625,16 @@ and <strong>×</strong>.</p>
 <p><strong>⋯</strong>, or a right-click on the header, opens the tile’s menu. <strong>This panel</strong>
 lists the panel’s own actions and any icons a narrow tile has no room for.
 <strong>Tile</strong> lists the tile’s actions, among them <strong>Open panel</strong> (▸ <strong>Right</strong>,
-<strong>Down</strong>, <strong>Replace here</strong>), <strong>Zoom</strong>, <strong>Reload</strong> and, when the panel has a
-documentation page, <strong>Help</strong>. Shift+right-click shows the browser’s own menu.</p>
+<strong>Down</strong>, <strong>Replace here</strong>), <strong>Zoom</strong>, <strong>Open in new session</strong>, <strong>Reload</strong> and,
+when the panel has a documentation page, <strong>Help</strong>. Shift+right-click shows the
+browser’s own menu.</p>
+<p><strong>Open in new session</strong> starts a new session and opens that pane in it, on the
+left of the Agent pane. The new session has no other pane. The pane opens at
+its start page, not at the page it showed. The same row is in the menu of a
+panel’s row in the sidebar, whether or not the panel is open, and in the menu
+of an artifact under a session in the sidebar. An artifact opens as a tile that
+shows the notice that it comes from another session. If the agent is working,
+OSPREY asks before it ends the turn. If you keep the turn, nothing changes.</p>
 <p>To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
 macOS, hold Cmd. A pinch on a trackpad does the same. <strong>Zoom</strong> in the tile’s
 menu sets a level from 75% to 200%. While a pane is not at 100%, its header
@@ -705,7 +713,10 @@ and ask now</strong> ends the turn and sends it at once.</p>
 session. The write state and the machine you are standing on carry over, and
 the chat shows the cleared conversation too.</p>
 <p>Beneath the composer, a context meter shows how full the context window is.
-From 80 percent it suggests <code class="docutils literal notranslate"><span class="pre">/compact</span></code> or a new conversation.</p>
+From 80 percent it suggests <code class="docutils literal notranslate"><span class="pre">/compact</span></code> or a new conversation.
+On the same line, a tag shows the name of the model that answers in the chat.
+Hover over the tag to see the full model ID. The tag shows the model only: you
+cannot change the model from the chat.</p>
 </section>
 <section id="attaching-a-file">
 <h3>Attaching a file<a class="headerlink" href="#attaching-a-file" title="Link to this heading">#</a></h3>
@@ -1154,7 +1165,8 @@ first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
 <p>Right-click a session to pin, rename, export or copy its ID, or delete a
 past session with its artifacts; a run, here or its row in chat, to open its
 result, approval preview or code; <strong>Sessions</strong> to start a session or to pick
-<strong>Artifacts by</strong> <strong>Activity</strong> or <strong>Kind</strong>. Runs and artifacts also have <strong>Delete…</strong>.</p>
+<strong>Artifacts by</strong> <strong>Activity</strong> or <strong>Kind</strong>. An artifact also has <strong>Open in new
+session</strong> (<a class="reference internal" href="#tiles">Tiles</a>). Runs and artifacts also have <strong>Delete…</strong>.</p>
 <p>Pinned sessions (the pin button on a row) also show in the <strong>Pinned</strong> group
 above <strong>Sessions</strong>; right-click its heading to rename or hide it. <strong>Show pinned
 sessions</strong>, on the <strong>Sessions</strong> menu or on empty sidebar space, brings it back.</p>
