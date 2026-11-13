@@ -48,9 +48,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``records/relations.yaml``,
-``signals.yaml``, ``documents.yaml``, ``policy.yaml``, ``fixes.yaml`` and
-``imported/``; the hello-world preset ships
+demo preset ships all of them except ``signals.yaml``,
+``policy.yaml``, ``fixes.yaml`` and ``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
@@ -387,21 +386,21 @@ focusing quadrupoles on one new supply in a new rack:
    :caption: cables.csv
 
    type,subject,object,object_kind,object_class,document,version,locator
-   powered_by,BR/QF01,BR/QF-PS,,PowerSupply,PS-SCHEDULE,C,p. 4
-   powered_by,BR/QF02,BR/QF-PS,,,PS-SCHEDULE,C,p. 4
-   located_in,BR/QF-PS,RK01,place,,PS-SCHEDULE,C,p. 2
+   powered_by,BR/QF01,BR/QF-PS,,PowerSupply,PS-LIST,C,p. 4
+   powered_by,BR/QF02,BR/QF-PS,,,PS-LIST,C,p. 4
+   located_in,BR/QF-PS,RK01,place,,PS-LIST,C,p. 2
 
 .. code-block:: text
    :caption: racks.csv
 
    place,within,document,version
-   RK01,BR,PS-SCHEDULE,C
+   RK01,BR,PS-LIST,C
 
 .. code-block:: text
    :caption: names.csv
 
    thing,name,scheme,document
-   BR/QF-PS,PS-QF-B,cable-schedule,PS-SCHEDULE
+   BR/QF-PS,PS-QF-B,cable-schedule,PS-LIST
 
 .. code-block:: bash
 

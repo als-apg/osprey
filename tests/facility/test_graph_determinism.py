@@ -2,10 +2,11 @@
 
 - A facility with no relation claims and no aliases renders byte-identically to
   the graph writer before relations existed (the writer at ``BASE``, loaded from
-  git as a module), under every graph setting: a small tree and the demo build.
-  The demo's built graph keeps its ``narad_p:`` predicate set, so the demo pins
-  that count its triples (``EXPECTED_TRIPLES_LOADED`` and the census) stand as
-  they were at ``BASE``.
+  git as a module), under every graph setting: a small tree and the example
+  facility without its Appendix A records. That example's graph keeps the
+  ``narad_p:`` predicate set it had at ``BASE``, and its triple, device and
+  group counts are the ones ``EXPECTED_TRIPLES_LOADED`` and the census pinned
+  at ``BASE``.
 - Two builds of the design's Appendix A tree, their claims split over two claim
   files in different orders and the files written in a different order, give
   the same Turtle, header included, for both variants and every setting.
@@ -28,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.graph import (
     CONTESTED_SUFFIX,
@@ -37,7 +39,12 @@ from osprey.facility.views.graph import (
     graph_text,
 )
 from osprey.facility.views.graph_iri import namespace
-from tests.facility._appendix_a import VARIANTS, appendix_a_tree, build_appendix_a
+from tests.facility._appendix_a import (
+    VARIANTS,
+    appendix_a_tree,
+    build_appendix_a,
+    example_without_appendix_a,
+)
 from tests.facility._graph_relations import (
     LOCATED_IN,
     NARAD_P,
@@ -45,7 +52,6 @@ from tests.facility._graph_relations import (
     expected_relation_edges,
 )
 from tests.facility.test_graph_view import (
-    GRAPH_VIEW,
     PREDICATES,
     _doc,
     _graph,
@@ -53,7 +59,7 @@ from tests.facility.test_graph_view import (
 )
 
 if TYPE_CHECKING:
-    from tests.facility.conftest import BuiltProject
+    from osprey.facility.build import FacilityDocument
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -85,6 +91,13 @@ def base_writer() -> types.ModuleType:
     return module
 
 
+@pytest.fixture(scope="module")
+def pre_appendix_a(tmp_path_factory: pytest.TempPathFactory) -> FacilityDocument:
+    """The example facility built without its Appendix A records: no claims."""
+    root = example_without_appendix_a(tmp_path_factory.mktemp("pre-appendix-a") / "facility")
+    return build_facility(root, project_name="demo")
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -100,25 +113,27 @@ class TestNoRelationsIsTheBaseWriter:
             assert _sha(graph_text(FacilityRecords(_doc()), settings)) == reference, settings
 
     @pytest.mark.slow
-    def test_the_demo_renders_as_the_base_writer_did(
-        self, base_writer: types.ModuleType, built_demo: BuiltProject
+    def test_the_example_without_claims_renders_as_the_base_writer_did(
+        self, base_writer: types.ModuleType, pre_appendix_a: FacilityDocument
     ) -> None:
-        facility = built_demo.facility
-        assert not facility.get("relations")
-        built = (built_demo.build_dir / GRAPH_VIEW).read_bytes()
-        reference = hashlib.sha256(
-            base_writer.graph_text(FacilityRecords(facility)).encode("utf-8")
-        ).hexdigest()
-        assert hashlib.sha256(built).hexdigest() == reference
+        assert not pre_appendix_a.get("relations")
+        reference = _sha(base_writer.graph_text(FacilityRecords(pre_appendix_a)))
         for settings in ALL_SETTINGS:
-            assert _sha(graph_text(FacilityRecords(facility), settings)) == reference, settings
+            assert _sha(graph_text(FacilityRecords(pre_appendix_a), settings)) == reference, (
+                settings
+            )
 
     @pytest.mark.slow
-    def test_the_demo_graph_keeps_its_predicate_set(self, built_demo: BuiltProject) -> None:
-        graph = _graph((built_demo.build_dir / GRAPH_VIEW).read_text(encoding="utf-8"))
+    def test_the_example_without_claims_keeps_its_predicate_set(
+        self, pre_appendix_a: FacilityDocument
+    ) -> None:
+        graph = _graph(graph_text(FacilityRecords(pre_appendix_a)))
         assert _narad_predicates(graph) == PREDICATES
 
-    def test_the_demo_triple_pins_stand_as_they_were(self) -> None:
+    @pytest.mark.slow
+    def test_the_example_without_claims_has_the_base_pins(
+        self, pre_appendix_a: FacilityDocument
+    ) -> None:
         store_test = "tests/integration/test_graphdb_store.py"
         census = "tests/facility/golden/demo_census.json"
 
@@ -131,11 +146,12 @@ class TestNoRelationsIsTheBaseWriter:
                     return ast.literal_eval(node.value)
             raise AssertionError("EXPECTED_TRIPLES_LOADED is not assigned")
 
-        current = (REPO_ROOT / store_test).read_text(encoding="utf-8")
-        assert pinned(current) == pinned(_at_base(store_test))
-        assert json.loads((REPO_ROOT / census).read_text(encoding="utf-8")) == json.loads(
-            _at_base(census)
-        )
+        graph = _graph(graph_text(FacilityRecords(pre_appendix_a)))
+        assert len(graph) == pinned(_at_base(store_test))
+        base_facility = json.loads(_at_base(census))["facility"]
+        assert len(pre_appendix_a["devices"]) == base_facility["devices"]
+        assert len(pre_appendix_a["groups"]) == base_facility["groups"]
+        assert len(pre_appendix_a["channels"]) == base_facility["channels"]
 
 
 def _split_claims(variant: str, seed: int) -> dict[str, Any]:

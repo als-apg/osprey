@@ -1,42 +1,55 @@
 """The design's Appendix A facility, built as a tree.
 
-Appendix A of the relations design extends an example facility around sector
-3 of its storage ring: four documents, five new places, ten new devices (one
-of class ``Host``), a device in an ``imported/controls`` layer, one group and
-eighteen relation claims. This module writes that fragment, plus the existing
-records it reuses, as a self-contained ``data/facility`` tree.
+Appendix A of the relations design extends the example facility around sector
+3 of its storage ring: four documents, five new places, eleven new devices
+(one of class ``Host``, and ``SR/MAG-Q-0301``, the identity claim's other
+end), one group and eighteen relation claims. The packaged example ships all
+of it; this module reads those records from the example by id (``ADDED_IDS``)
+and writes them, plus stubs of the existing records they reuse, as a
+self-contained ``data/facility`` tree.
 
 Helpers:
 
 - ``appendix_a_tree(variant)``: the tree as ``{relpath: data}``. ``no_policy``
-  has no ``policy.yaml``; ``located_in_precedence`` adds the design's
-  ``policy.yaml`` ranking ``rack-layout`` over ``cable-schedule`` for
-  ``located_in``.
+  has no ``policy.yaml`` (the example ships none); ``located_in_precedence``
+  adds the design's ``policy.yaml`` ranking ``rack-layout`` over
+  ``cable-schedule`` for ``located_in``.
 - ``with_readout_control(tree)``: a copy of the tree with the
   ``controlled_by`` claim the Appendix B trace query lacks (the readout
   electronics controlled by the application), so the BPM-to-host path exists.
 - ``build_appendix_a(root, variant)``: write the tree, then build it into its
   facility document.
+- ``example_without_appendix_a(root)``: a copy of the packaged example with
+  every ``ADDED_IDS`` record removed -- the example as it stood before
+  Appendix A.
 
-Corrections to Appendix A, so the fragment builds under the real loader:
+The tree has no ``imported/`` layer; a test that needs one builds it itself.
 
-- The reused records (``SR``, ``SR/SECT3``, ``SR/QF05``, ``SR/BPM13``,
-  ``SR/VALVE03``, ``SR/VALVE04``, ``SR/ION-PUMP13``) come from the example
-  facility, which this tree does not include; they are declared here with the
-  minimum fields a build needs (classes, levels and places as the example
-  facility gives them: ``SR/BPM13`` is a ``BeamPositionMonitor`` and
-  ``SR/ION-PUMP13`` a ``Pump``).
-- ``policy.yaml`` carries the loader's header ``schema:
-  osprey.facility.policy/1`` beside ``relations: {precedence: {located_in:
-  [rack-layout, cable-schedule]}}``.
+The reused records (``SR``, ``SR/SECT3``, ``SR/SECT4``, ``SR/QF05``,
+``SR/BPM13``, ``SR/VALVE03``, ``SR/VALVE04``, ``SR/ION-PUMP13``) are stubs
+with the minimum fields a build needs: the level or class the example gives
+them, and the place it gives them (``SR/VALVE04`` is in ``SR/SECT4``). The
+example places ``SR/QF05`` and ``SR/BPM13`` by a span over the ``SR`` model,
+and the sectors are span places; the stubs carry no model, so the two devices
+author ``SR/SECT3`` as a stand-in for the span (``SPAN_STAND_IN``).
+``policy.yaml`` carries the loader's header ``schema:
+osprey.facility.policy/1`` beside ``relations: {precedence: {located_in:
+[rack-layout, cable-schedule]}}``.
 """
 
 from __future__ import annotations
 
 import copy
+import shutil
+from collections.abc import Mapping
+from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
+import yaml
+
+from tests._preset_data import packaged_facility_dir
 from tests.facility._synthetic_trees import write_tree
 
 Variant = Literal["no_policy", "located_in_precedence"]
@@ -55,241 +68,113 @@ READOUT_CONTROL_CLAIM: dict[str, Any] = {
     "object": {"device": "CTRL/sr-mag-03"},
 }
 
-_DOCUMENTS = [
+# The ids Appendix A adds to the example, by record kind, in the example's order.
+ADDED_IDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
-        "id": "PS-LIST",
-        "title": "Magnet power supply list",
-        "kind": "equipment-list",
-        "system": "document-store",
-    },
-    {
-        "id": "RACK-ROW3",
-        "title": "Equipment hall row 3 rack layout",
-        "kind": "rack-layout",
-        "system": "document-store",
-    },
-    {
-        "id": "CS-RING",
-        "title": "Storage ring cable schedule",
-        "kind": "cable-schedule",
-        "system": "document-store",
-    },
-    {
-        "id": "NET-PLAN",
-        "title": "Controls network plan",
-        "kind": "network-plan",
-        "system": "document-store",
-    },
-]
+        "documents": ("PS-LIST", "RACK-ROW3", "CS-RING", "NET-PLAN"),
+        "places": (
+            "SR/SECT3/G2",
+            "HALL",
+            "HALL/ROW3",
+            "HALL/ROW3/RK07",
+            "HALL/ROW3/RK08",
+        ),
+        "devices": (
+            "SR/QF05-PS",
+            "HALL/PANEL-3A",
+            "SR/BPM13-EL",
+            "SR/MPS-C3",
+            "SR/TIM-EVR3",
+            "SR/TIM-EVR3:OUT4",
+            "SR/LCW-3",
+            "CTRL/sr-mag-03",
+            "CTRL/srioc03",
+            "CTRL/SW-3A",
+            "SR/MAG-Q-0301",
+        ),
+        "groups": ("SR/VS03",),
+        "claims": (
+            "evr3-out4",
+            "bpm13-el-rack",
+            "qf05-ps-rack-a",
+            "qf05-ps-rack-b",
+            "qf05-power",
+            "qf05-ps-mains",
+            "w-03-0117",
+            "w-03-0240",
+            "bpm13-readout",
+            "qf05-control",
+            "app-host",
+            "bpm13-trigger",
+            "qf05-ps-interlock",
+            "vs03-upstream",
+            "vs03-downstream",
+            "srioc03-net",
+            "qf05-water",
+            "qf05-identity",
+        ),
+    }
+)
 
-_PLACES = [
-    # Reused from the example facility.
+CLAIM_IDS: tuple[str, ...] = ADDED_IDS["claims"]
+
+# Where each record kind lives in a facility tree.
+_KIND_FILES: Mapping[str, str] = MappingProxyType(
+    {
+        "documents": "documents.yaml",
+        "places": "records/places.yaml",
+        "devices": "records/devices.yaml",
+        "groups": "records/groups.yaml",
+        "claims": "records/relations.yaml",
+    }
+)
+
+# Devices the example places by a span; their stubs author this place instead.
+SPAN_STAND_IN: Mapping[str, str] = MappingProxyType({"SR/QF05": "SR/SECT3", "SR/BPM13": "SR/SECT3"})
+
+_STUB_PLACES = [
     {"id": "SR", "level": "machine"},
     {"id": "SR/SECT3", "level": "sector"},
-    # Added by Appendix A.
-    {"id": "SR/SECT3/G2", "level": "girder", "description": "Sector 3, girder 2"},
-    {"id": "HALL", "level": "building", "description": "Equipment hall"},
-    {"id": "HALL/ROW3", "level": "row"},
-    {"id": "HALL/ROW3/RK07", "level": "rack"},
-    {"id": "HALL/ROW3/RK08", "level": "rack"},
+    {"id": "SR/SECT4", "level": "sector"},
 ]
 
-_DEVICES = [
-    # Reused from the example facility.
-    {"id": "SR/QF05", "class": "Quadrupole", "place": "SR/SECT3"},
-    {"id": "SR/BPM13", "class": "BeamPositionMonitor", "place": "SR/SECT3"},
+_STUB_DEVICES = [
+    {"id": "SR/QF05", "class": "Quadrupole", "place": SPAN_STAND_IN["SR/QF05"]},
+    {"id": "SR/BPM13", "class": "BeamPositionMonitor", "place": SPAN_STAND_IN["SR/BPM13"]},
     {"id": "SR/VALVE03", "class": "Valve", "place": "SR/SECT3"},
-    {"id": "SR/VALVE04", "class": "Valve", "place": "SR/SECT3"},
+    {"id": "SR/VALVE04", "class": "Valve", "place": "SR/SECT4"},
     {"id": "SR/ION-PUMP13", "class": "Pump", "place": "SR/SECT3"},
-    # Added by Appendix A.
-    {
-        "id": "SR/QF05-PS",
-        "class": "PowerSupply",
-        "scheme_names": [
-            {"name": "PS-Q-0301", "scheme": "cable-schedule"},
-            {
-                "name": "QF05 supply",
-                "scheme": "drawings",
-                "basis": "inferred",
-                "rule": "label-match",
-            },
-        ],
-    },
-    {"id": "HALL/PANEL-3A", "class": "Circuit"},
-    {"id": "SR/BPM13-EL", "class": "ElectronicsChassis"},
-    {
-        "id": "SR/MPS-C3",
-        "class": "ElectronicsChassis",
-        "description": "Interlock chassis, sector 3",
-    },
-    {
-        "id": "SR/TIM-EVR3",
-        "class": "ElectronicsChassis",
-        "description": "Event receiver, sector 3",
-    },
-    {"id": "SR/TIM-EVR3:OUT4", "class": "TimingChannel"},
-    {"id": "SR/LCW-3", "class": "UtilityLoop"},
-    {
-        "id": "CTRL/sr-mag-03",
-        "class": "ControlApplication",
-        "attributes": {"repository": "sr-magnets"},
-    },
-    {"id": "CTRL/srioc03", "class": "Host"},
-    {"id": "CTRL/SW-3A", "class": "NetworkSwitch"},
 ]
 
-_IMPORTED_DEVICES = [
+# The reused records' ids, by record kind.
+STUB_IDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
-        "id": "SR/MAG-Q-0301",
-        "class": "Quadrupole",
-        "scheme_names": [{"name": "MAG-Q-0301", "scheme": "controls"}],
-    },
-]
-
-_GROUPS = [
-    {
-        "id": "SR/VS03",
-        "description": "Vacuum section 3",
-        "members": ["SR/ION-PUMP13", "SR/BPM13", "SR/QF05"],
-    },
-]
+        "places": tuple(place["id"] for place in _STUB_PLACES),
+        "devices": tuple(device["id"] for device in _STUB_DEVICES),
+    }
+)
 
 
-def _source(document: str, version: str, state: str, locator: str) -> dict[str, Any]:
-    return {"document": document, "version": version, "state": state, "locator": locator}
+def _load_text(text: str) -> list[dict[str, Any]]:
+    return yaml.safe_load(text) or []
 
 
-_RELATIONS = [
-    {
-        "id": "evr3-out4",
-        "type": "part_of",
-        "subject": {"device": "SR/TIM-EVR3:OUT4"},
-        "object": {"device": "SR/TIM-EVR3"},
-    },
-    {
-        "id": "bpm13-el-rack",
-        "type": "located_in",
-        "subject": {"device": "SR/BPM13-EL"},
-        "object": {"place": "HALL/ROW3/RK08", "unit": 22},
-        "source": _source("RACK-ROW3", "B", "released", "sheet 2"),
-    },
-    {
-        "id": "qf05-ps-rack-a",
-        "type": "located_in",
-        "subject": {"device": "SR/QF05-PS"},
-        "object": {"place": "HALL/ROW3/RK07", "unit": 12},
-        "source": _source("RACK-ROW3", "B", "released", "sheet 1"),
-    },
-    {
-        "id": "qf05-ps-rack-b",
-        "type": "located_in",
-        "subject": {"device": "SR/QF05-PS"},
-        "object": {"place": "HALL/ROW3/RK08"},
-        "source": _source("CS-RING", "D", "in-work", "row 212"),
-    },
-    {
-        "id": "qf05-power",
-        "type": "powered_by",
-        "subject": {"device": "SR/QF05"},
-        "object": {"device": "SR/QF05-PS", "port": "OUT1"},
-        "source": _source("PS-LIST", "C", "released", "row 41"),
-    },
-    {
-        "id": "qf05-ps-mains",
-        "type": "powered_by",
-        "subject": {"device": "SR/QF05-PS"},
-        "object": {"device": "HALL/PANEL-3A", "port": "breaker 14"},
-        "source": _source("PS-LIST", "C", "released", "row 41"),
-    },
-    {
-        "id": "w-03-0117",
-        "type": "cabled_to",
-        "subject": {"device": "SR/QF05", "port": "T1"},
-        "object": {"device": "SR/QF05-PS", "port": "OUT1"},
-        "attributes": {"cable": "W-03-0117", "routed_from": "object", "length_m": 42},
-        "source": _source("CS-RING", "D", "in-work", "row 117"),
-    },
-    {
-        "id": "w-03-0240",
-        "type": "cabled_to",
-        "subject": {"device": "SR/BPM13", "port": "A"},
-        "object": {"place": "HALL/ROW3/RK08"},
-        "attributes": {"cable": "W-03-0240", "signal": "button A"},
-        "source": _source("CS-RING", "D", "in-work", "row 240"),
-    },
-    {
-        "id": "bpm13-readout",
-        "type": "read_out_by",
-        "subject": {"device": "SR/BPM13"},
-        "object": {"device": "SR/BPM13-EL", "port": "CH1"},
-        "basis": "inferred",
-        "rule": "bpm-electronics-in-cable-destination-rack",
-        "source": _source("CS-RING", "D", "in-work", "row 240"),
-    },
-    {
-        "id": "qf05-control",
-        "type": "controlled_by",
-        "subject": {"device": "SR/QF05-PS"},
-        "object": {"device": "CTRL/sr-mag-03"},
-    },
-    {
-        "id": "app-host",
-        "type": "runs_on",
-        "subject": {"device": "CTRL/sr-mag-03"},
-        "object": {"device": "CTRL/srioc03"},
-    },
-    {
-        "id": "bpm13-trigger",
-        "type": "triggered_by",
-        "subject": {"device": "SR/BPM13-EL", "port": "TRIG"},
-        "object": {"device": "SR/TIM-EVR3:OUT4"},
-    },
-    {
-        "id": "qf05-ps-interlock",
-        "type": "interlocked_by",
-        "subject": {"device": "SR/QF05-PS"},
-        "object": {"device": "SR/MPS-C3", "port": "IN7"},
-        "attributes": {"signal": "magnet over-temperature"},
-    },
-    {
-        "id": "vs03-upstream",
-        "type": "bounded_by",
-        "subject": {"group": "SR/VS03"},
-        "object": {"device": "SR/VALVE03"},
-        "attributes": {"side": "upstream"},
-    },
-    {
-        "id": "vs03-downstream",
-        "type": "bounded_by",
-        "subject": {"group": "SR/VS03"},
-        "object": {"device": "SR/VALVE04"},
-        "attributes": {"side": "downstream"},
-    },
-    {
-        "id": "srioc03-net",
-        "type": "networked_to",
-        "subject": {"device": "CTRL/srioc03", "port": "eth0"},
-        "object": {"device": "CTRL/SW-3A", "port": "12"},
-        "source": _source("NET-PLAN", "A", "released", "table 3"),
-    },
-    {
-        "id": "qf05-water",
-        "type": "supplied_by",
-        "subject": {"device": "SR/QF05"},
-        "object": {"device": "SR/LCW-3"},
-        "attributes": {"medium": "cooling-water"},
-    },
-    {
-        "id": "qf05-identity",
-        "type": "same_as",
-        "subject": {"device": "SR/QF05"},
-        "object": {"device": "SR/MAG-Q-0301"},
-        "basis": "inferred",
-        "rule": "family-and-ordinal-match",
-    },
-]
+def _load(path: Path) -> list[dict[str, Any]]:
+    return _load_text(path.read_text(encoding="utf-8"))
 
-CLAIM_IDS: tuple[str, ...] = tuple(claim["id"] for claim in _RELATIONS)
+
+@cache
+def _example_records() -> dict[str, list[dict[str, Any]]]:
+    """The ``ADDED_IDS`` records as the packaged example holds them, by kind."""
+    example = packaged_facility_dir()
+    records: dict[str, list[dict[str, Any]]] = {}
+    for kind, ids in ADDED_IDS.items():
+        shipped = {record["id"]: record for record in _load(example / _KIND_FILES[kind])}
+        missing = [rid for rid in ids if rid not in shipped]
+        if missing:
+            raise AssertionError(f"the example lacks Appendix A {kind} {missing}")
+        records[kind] = [shipped[rid] for rid in ids]
+    return records
 
 
 def appendix_a_tree(variant: Variant = "no_policy") -> dict[str, Any]:
@@ -303,13 +188,13 @@ def appendix_a_tree(variant: Variant = "no_policy") -> dict[str, Any]:
     """
     if variant not in VARIANTS:
         raise ValueError(f"unknown Appendix A variant {variant!r}")
+    added = _example_records()
     tree: dict[str, Any] = {
-        "documents.yaml": _DOCUMENTS,
-        "records/places.yaml": _PLACES,
-        "records/devices.yaml": _DEVICES,
-        "records/groups.yaml": _GROUPS,
-        "records/relations.yaml": _RELATIONS,
-        "imported/controls/devices.yaml": _IMPORTED_DEVICES,
+        "documents.yaml": added["documents"],
+        "records/places.yaml": [*_STUB_PLACES, *added["places"]],
+        "records/devices.yaml": [*_STUB_DEVICES, *added["devices"]],
+        "records/groups.yaml": added["groups"],
+        "records/relations.yaml": added["claims"],
     }
     if variant == "located_in_precedence":
         tree["policy.yaml"] = POLICY
@@ -359,3 +244,47 @@ def build_appendix_a(
     document = report.validated.document
     assert document is not None
     return document
+
+
+def _without(text: str, ids: set[str]) -> str:
+    """``text`` (a YAML list of records) minus the records whose id is in ``ids``.
+
+    Works on the text, one top-level ``- `` item at a time, so every other
+    record and the file's header comment keep their bytes.
+    """
+    kept: list[str] = []
+    drop = False
+    for line in text.splitlines(keepends=True):
+        if line.startswith("- "):
+            item = yaml.safe_load(line)
+            drop = isinstance(item, list) and str(item[0].get("id")) in ids
+        if not drop:
+            kept.append(line)
+    return "".join(kept)
+
+
+def example_without_appendix_a(root: Path) -> Path:
+    """Write the packaged example minus every ``ADDED_IDS`` record under ``root``.
+
+    The example as it stood before Appendix A: no documents, no claims, and
+    none of the places, devices or group Appendix A adds. A file left with no
+    record (``documents.yaml``, ``records/relations.yaml``) is not written.
+
+    Args:
+        root: The ``data/facility`` directory to create.
+
+    Returns:
+        ``root``, the written facility directory.
+    """
+    shutil.copytree(packaged_facility_dir(), root)
+    for kind, ids in ADDED_IDS.items():
+        path = root / _KIND_FILES[kind]
+        remaining = _without(path.read_text(encoding="utf-8"), set(ids))
+        left = _load_text(remaining)
+        if {record["id"] for record in left} & set(ids):
+            raise AssertionError(f"{path} still holds Appendix A {kind}")
+        if left:
+            path.write_text(remaining, encoding="utf-8")
+        else:
+            path.unlink()
+    return root

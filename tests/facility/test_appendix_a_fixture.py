@@ -7,15 +7,33 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
+from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import (
+    ADDED_IDS,
     CLAIM_IDS,
     READOUT_CONTROL_CLAIM,
+    SPAN_STAND_IN,
+    STUB_IDS,
     VARIANTS,
     appendix_a_tree,
     build_appendix_a,
+    example_without_appendix_a,
     with_readout_control,
 )
+
+_KIND_FILES = {
+    "documents": "documents.yaml",
+    "places": "records/places.yaml",
+    "devices": "records/devices.yaml",
+    "groups": "records/groups.yaml",
+    "claims": "records/relations.yaml",
+}
+
+
+def _load(path: Path) -> list[dict[str, Any]]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or []
 
 
 def _claims(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -105,7 +123,10 @@ class TestRecords:
         document = built["no_policy"]
         devices = {device["id"]: device for device in document["devices"]}
         assert devices["CTRL/srioc03"]["class"] == "Host"
-        assert "SR/MAG-Q-0301" in devices
+        assert devices["SR/MAG-Q-0301"]["class"] == "Quadrupole"
+        assert [s["layer"] for s in devices["SR/MAG-Q-0301"]["provenance"]["sources"]] == [
+            "authored"
+        ]
         assert [n["name"] for n in devices["SR/QF05-PS"]["scheme_names"]] == [
             "PS-Q-0301",
             "QF05 supply",
@@ -144,3 +165,57 @@ class TestReadoutControl:
         assert added["subject"] == {"device": "SR/BPM13-EL"}
         assert added["object"] == {"device": "CTRL/sr-mag-03"}
         assert added["standing"] == "accepted"
+
+
+class TestReadsTheExample:
+    """The fixture's Appendix A records are the packaged example's, and the pre variant drops them."""
+
+    def test_the_fixture_holds_the_examples_appendix_a_records(self) -> None:
+        tree = appendix_a_tree()
+        example = packaged_facility_dir()
+        for kind, relpath in _KIND_FILES.items():
+            shipped = {r["id"]: r for r in _load(example / relpath)}
+            added = [shipped[rid] for rid in ADDED_IDS[kind]]
+            fixture = [r for r in tree[relpath] if r["id"] in set(ADDED_IDS[kind])]
+            assert fixture == added, kind
+            assert not set(ADDED_IDS[kind]) & set(STUB_IDS.get(kind, ())), kind
+        assert tree["documents.yaml"] == _load(example / "documents.yaml")
+        assert tree["records/relations.yaml"] == _load(example / "records/relations.yaml")
+        assert ADDED_IDS["claims"] == CLAIM_IDS
+        assert "SR/MAG-Q-0301" in ADDED_IDS["devices"]
+        assert not any(relpath.startswith("imported/") for relpath in tree)
+
+    def test_the_stubs_sit_where_the_example_puts_them(self) -> None:
+        tree = appendix_a_tree()
+        example = packaged_facility_dir()
+        for kind, field in (("places", "level"), ("devices", "class")):
+            relpath = _KIND_FILES[kind]
+            shipped = {r["id"]: r for r in _load(example / relpath)}
+            stubs = {r["id"]: r for r in tree[relpath] if r["id"] in set(STUB_IDS[kind])}
+            assert set(stubs) == set(STUB_IDS[kind]), kind
+            for rid, stub in stubs.items():
+                assert stub[field] == shipped[rid][field], rid
+                # SR/QF05 and SR/BPM13 are span-placed in the example; their stubs author
+                # the span's sector instead.
+                assert stub.get("place") == shipped[rid].get("place", SPAN_STAND_IN.get(rid)), rid
+        devices = {d["id"]: d for d in tree["records/devices.yaml"]}
+        assert devices["SR/VALVE04"]["place"] == "SR/SECT4"
+
+    def test_the_example_without_appendix_a_builds_with_no_claim(self, tmp_path: Path) -> None:
+        from osprey.facility.build import LATER_STAGES
+        from osprey.facility.validate import run_stages
+
+        facility = example_without_appendix_a(tmp_path / "facility")
+        assert facility == tmp_path / "facility"
+        assert not (facility / "documents.yaml").exists()
+        assert not (facility / "records" / "relations.yaml").exists()
+        report = run_stages(facility, project_name="p", later=LATER_STAGES)
+        assert report.failed is None, [e.format_message() for e in report.errors]
+        document = report.validated.document
+        assert not document.get("relations")
+        assert not document.get("documents")
+        for kind in ("places", "devices", "groups"):
+            ids = {r["id"] for r in document.get(kind) or []}
+            assert not ids & set(ADDED_IDS[kind]), kind
+            shipped = {r["id"] for r in _load(packaged_facility_dir() / _KIND_FILES[kind])}
+            assert ids == shipped - set(ADDED_IDS[kind]), kind

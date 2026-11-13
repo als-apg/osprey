@@ -1,11 +1,11 @@
 """The graph view the demo build writes.
 
 A corpus that nobody counts can drift silently: a change to the facility or to
-the view's writer would quietly seed a different graph. The census below (1016
+the view's writer would quietly seed a different graph. The census below (1027
 devices, 4731 bindings, 674 written and 4052 read signals) is the demo facility
 as the build renders it, and the 674 writes are all `:SP` addresses.
 The prose census sits beside it: a description on every binding, a system
-description plus the SYSTEM token on every device, a family description on
+description plus the SYSTEM token on every device placed in a system, a family description on
 every device a described group names, and none of the three descriptions on a
 semantic signal.
 
@@ -30,8 +30,9 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: and the two structural classes live.
 NARAD_SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 
-#: Classes in ``narad_sem:`` that type something other than a device.
-NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
+#: Classes in ``narad_sem:`` that type something other than a device: a
+#: relation claim and a group node are records about devices, not devices.
+NON_DEVICE_CLASSES = {"ChannelBinding", "Claim", "Group", "SemanticSignal"}
 
 #: The demo facility's census, as the build renders it: the tier-3 channel
 #: database's 2908 device channels, the four tune and chromaticity channels
@@ -41,13 +42,17 @@ NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 #: mode, and the storage ring's 1390 peripheral channels. A channel that names
 #: no signal is neither written nor read: the four tune and chromaticity
 #: channels and the user beam mode.
-EXPECTED_DEVICES = 1016
+EXPECTED_DEVICES = 1027
 EXPECTED_BINDINGS = 4731
 EXPECTED_WRITES = 674
 EXPECTED_READS = 4052
 
+#: Devices placed in a system, each carrying its system's description and
+#: SYSTEM token: every device but the ten the facility places nowhere.
+EXPECTED_SYSTEM_DESCRIBED = 1017
+
 #: Devices a described group names, each carrying its family's description:
-#: every device is in one.
+#: every device that has channels is in one.
 EXPECTED_FAMILY_DESCRIBED = 1016
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
@@ -101,7 +106,7 @@ def test_binding_and_signal_census(graph) -> None:
 
 
 def test_prose_census(graph) -> None:
-    """Every binding and every device carries its prose, exactly once.
+    """Every binding and every device placed in a system carries its prose, once.
 
     The subject counts are what make this a census rather than a spot check: a
     predicate appearing 4731 times spread over 40 bindings would satisfy a
@@ -124,10 +129,11 @@ def test_prose_census(graph) -> None:
         assert len(subjects(predicate)) == EXPECTED_BINDINGS
 
     for predicate in DEVICE_DESCRIPTION_PREDICATES + DEVICE_TOKEN_PREDICATES:
-        assert triples(predicate) == EXPECTED_DEVICES, (
-            f"narad_p:{predicate} appears {triples(predicate)} times, not once per device."
+        assert triples(predicate) == EXPECTED_SYSTEM_DESCRIBED, (
+            f"narad_p:{predicate} appears {triples(predicate)} times, "
+            "not once per device placed in a system."
         )
-        assert len(subjects(predicate)) == EXPECTED_DEVICES
+        assert len(subjects(predicate)) == EXPECTED_SYSTEM_DESCRIBED
 
     for predicate in FAMILY_DESCRIPTION_PREDICATES:
         assert triples(predicate) == EXPECTED_FAMILY_DESCRIBED, (

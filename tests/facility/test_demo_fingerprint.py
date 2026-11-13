@@ -6,9 +6,10 @@ Its channels, joined as the fingerprint joins them less the ``names`` column
 address, role and value type unchanged and its description as the prefix of
 the served one, and what they hold beyond the frozen rows is exactly the
 additions file, the transfer line's rows among them; no demo channel carries
-a name. The build holds 1016 devices in 79 groups, five of them the line's,
+a name. The build holds 1027 devices in 80 groups, five of them the line's,
 and twelve sectors under ``SR``. The file validates as the
-generated ``Facility`` model, and the committed sources validate clean. The
+generated ``Facility`` model, and the committed sources validate with exactly
+the two relation warnings the shipped Appendix A claims raise. The
 channel roster read off the built render enumerates every frozen address with
 the direction its role states.
 """
@@ -106,10 +107,10 @@ def test_the_line_rows_are_exactly_the_additions_line_rows(
     assert served == added
 
 
-def test_the_demo_holds_1016_devices_in_79_groups(built_demo: BuiltProject) -> None:
+def test_the_demo_holds_1027_devices_in_80_groups(built_demo: BuiltProject) -> None:
     groups = sorted(group["id"] for group in built_demo.facility["groups"])
-    assert len(built_demo.facility["devices"]) == 1016
-    assert len(groups) == 79
+    assert len(built_demo.facility["devices"]) == 1027
+    assert len(groups) == 80
     assert [group for group in groups if group.startswith("LINE/")] == [
         "LINE/BPM",
         "LINE/HCM",
@@ -126,7 +127,8 @@ def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> N
     assert built_demo.facility["schema"] == FACILITY_HEADER
 
 
-def test_the_sources_validate_clean(built_demo: BuiltProject) -> None:
+def test_the_sources_validate_with_only_the_relation_warnings(built_demo: BuiltProject) -> None:
+    """The example ships no ``policy.yaml``, so its claims warn and nothing else does."""
     from osprey.facility.validate import validate
 
     out = io.StringIO()
@@ -135,7 +137,18 @@ def test_the_sources_validate_clean(built_demo: BuiltProject) -> None:
         project_name=built_demo.repo.name,
         file=out,
     )
-    assert (code, out.getvalue()) == (0, "")
+    assert (code, out.getvalue().splitlines()) == (
+        0,
+        [
+            "facility: relation-coarse: relation type cabled_to — 1 claim states less than"
+            " the facility knows (1 place end); fix: name the device, port, unit or key"
+            " attribute the claims leave out",
+            "facility: relation-contested: located_in device SR/QF05-PS — claims"
+            " qf05-ps-rack-a, qf05-ps-rack-b state different ends and none ranks first;"
+            " fix: rank the kinds of their documents in policy.yaml, or correct the wrong"
+            " claim",
+        ],
+    )
 
 
 def test_twelve_sectors_lie_under_sr(

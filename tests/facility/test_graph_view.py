@@ -5,7 +5,11 @@ channel a ``narad_sem:ChannelBinding`` joined to its signal by its role, joins
 each place to its parent by ``partOf`` and each placed device to its place by
 ``locatedIn``, writes the names of places, devices and channels as
 ``skos:altLabel``, and carries exactly the ``narad_p:`` predicates of
-:data:`PREDICATES`.
+:data:`PREDICATES` when no relation is claimed. The demo, which ships the
+Appendix A claims, adds :data:`DEMO_RELATION_PREDICATES`: each accepted claim
+is one plain edge, each contested claim one ``…Contested`` edge, each claim one
+``narad_sem:Claim`` node, and a group a claim names one ``narad_sem:Group``
+node with ``groupId`` and ``hasMember``.
 """
 
 from __future__ import annotations
@@ -19,12 +23,17 @@ import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
 from osprey.facility.records import FacilityRecords
+from osprey.facility.relations import end_identity
 from osprey.facility.render import facility_bytes
-from osprey.facility.validate import FACILITY_HEADER
+from osprey.facility.validate import FACILITY_HEADER, relation_types
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
-from tests.facility._graph_relations import expected_located_in, expected_part_of
+from tests.facility._graph_relations import (
+    expected_located_in,
+    expected_part_of,
+    relation_predicate,
+)
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -57,6 +66,55 @@ PREDICATES = {
     "partOf",
     "locatedIn",
 }
+
+#: The ``narad_p:`` predicates the demo's relation claims add to :data:`PREDICATES`.
+DEMO_RELATION_PREDICATES = {
+    # relation types the demo claims, besides partOf and locatedIn
+    "boundedBy",
+    "cabledTo",
+    "controlledBy",
+    "interlockedBy",
+    "networkedTo",
+    "poweredBy",
+    "readOutBy",
+    "runsOn",
+    "sameAs",
+    "suppliedBy",
+    "triggeredBy",
+    # the two contested located_in claims
+    "locatedInContested",
+    # the claim nodes
+    "basis",
+    "claimId",
+    "claimObject",
+    "claimSubject",
+    "contests",
+    "document",
+    "documentState",
+    "documentVersion",
+    "locator",
+    "objectPort",
+    "objectUnit",
+    "relationType",
+    "rule",
+    "standing",
+    "subjectPort",
+    # scalar claim attributes, written under their key
+    "cable",
+    "length_m",
+    "medium",
+    "routed_from",
+    "side",
+    "signal",
+    # the group node of SR/VS03
+    "groupId",
+    "hasMember",
+}
+
+#: The claims the demo ships, and how they stand without a policy.
+DEMO_CLAIMS = 18
+DEMO_ACCEPTED = 16
+DEMO_CONTESTED = 2
 
 
 def _doc() -> dict[str, Any]:
@@ -397,7 +455,7 @@ class TestTheBuiltGraph:
         assert text.split("\n", 1)[0] == HEADER_PREFIX + digest
 
     def test_the_predicates_are_exactly_the_kept_and_new_ones(self, graph: Graph) -> None:
-        assert _narad_predicates(graph) == PREDICATES
+        assert _narad_predicates(graph) == PREDICATES | DEMO_RELATION_PREDICATES
 
     def test_every_setpoint_and_readback_with_a_signal_has_one_signal_edge(
         self, built_demo: BuiltProject, graph: Graph
@@ -471,6 +529,70 @@ class TestTheBuiltGraph:
             (str(subject), str(obj)) for subject, obj in graph.subject_objects(P.locatedIn)
         } == expected
         assert set(located.values()) == {1}, "a device is located in more than one place"
+
+    def test_each_claim_is_one_edge_under_its_standing(
+        self, built_demo: BuiltProject, graph: Graph
+    ) -> None:
+        facility = built_demo.facility
+        code = facility["identity"]["code"]
+        claims = facility["relations"]
+        symmetric = {name for name, row in relation_types().items() if row.get("symmetric")}
+        standings = Counter(claim["standing"] for claim in claims)
+
+        assert len(claims) == DEMO_CLAIMS
+        assert standings == {"accepted": DEMO_ACCEPTED, "contested": DEMO_CONTESTED}
+        for claim in claims:
+            subject_end = end_identity(claim["subject"])
+            object_end = end_identity(claim["object"])
+            assert subject_end is not None and object_end is not None
+            subject = URIRef(iri(code, *subject_end))
+            obj = URIRef(iri(code, *object_end))
+            name = relation_predicate(claim["type"])
+            plain, contested = P[name], P[name + "Contested"]
+            edge, other = (
+                (plain, contested)
+                if claim["standing"] == "accepted"
+                else (
+                    contested,
+                    plain,
+                )
+            )
+            ends = (
+                {(subject, obj), (obj, subject)} if claim["type"] in symmetric else {(subject, obj)}
+            )
+            assert any((s, edge, o) in graph for s, o in ends), claim["id"]
+            assert not any((s, other, o) in graph for s, o in ends), claim["id"]
+
+    def test_the_contested_claims_place_the_power_supply_in_two_racks(
+        self, built_demo: BuiltProject, graph: Graph
+    ) -> None:
+        code = built_demo.facility["identity"]["code"]
+
+        assert set(graph.subject_objects(P.locatedInContested)) == {
+            (URIRef(iri(code, "device", "SR/QF05-PS")), URIRef(iri(code, "place", rack)))
+            for rack in ("HALL/ROW3/RK07", "HALL/ROW3/RK08")
+        }
+
+    def test_every_claim_is_one_claim_node(self, built_demo: BuiltProject, graph: Graph) -> None:
+        nodes = set(graph.subjects(RDF.type, SEM.Claim))
+
+        assert len(nodes) == DEMO_CLAIMS
+        assert {str(next(graph.objects(node, P.claimId))) for node in nodes} == {
+            claim["id"] for claim in built_demo.facility["relations"]
+        }
+
+    def test_the_bounded_group_is_one_group_node_with_its_members(
+        self, built_demo: BuiltProject, graph: Graph
+    ) -> None:
+        code = built_demo.facility["identity"]["code"]
+        group = URIRef(iri(code, "group", "SR/VS03"))
+
+        assert set(graph.subjects(RDF.type, SEM.Group)) == {group}
+        assert list(graph.objects(group, P.groupId)) == [Literal("SR/VS03")]
+        assert set(graph.objects(group, P.hasMember)) == {
+            URIRef(iri(code, "device", member))
+            for member in ("SR/ION-PUMP13", "SR/BPM13", "SR/QF05")
+        }
 
     def test_two_independent_builds_render_equal_bytes(self) -> None:
         from osprey.facility.build import build_facility

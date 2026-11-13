@@ -1,7 +1,7 @@
 """The relations import end to end: Appendix A moved into tables builds as authored.
 
-The Appendix A fixture is split: the records it reuses (``SR``, ``SR/SECT3``,
-the five reused devices, ``imported/controls``) stay authored, and everything
+The Appendix A fixture is split: the records it reuses (``SR``, the sectors,
+the five reused devices) stay authored, and everything
 Appendix A adds -- its places, its devices (as stubs with class columns), its
 group, the names of ``SR/QF05-PS`` and the eighteen relation claims -- moves
 into the relations, places, members and names tables of one ``cables`` layer.
@@ -37,7 +37,7 @@ from tests.facility._synthetic_trees import write_tree
 
 LAYER = "cables"
 
-REUSED_PLACES = {"SR", "SR/SECT3"}
+REUSED_PLACES = {"SR", "SR/SECT3", "SR/SECT4"}
 REUSED_DEVICES = {"SR/QF05", "SR/BPM13", "SR/VALVE03", "SR/VALVE04", "SR/ION-PUMP13"}
 
 RELATION_COLUMNS = (

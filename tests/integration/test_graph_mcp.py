@@ -101,7 +101,12 @@ EXPECTED_READ_ONLY = 4052
 #: The place's tune, chromaticity and user beam mode channels name no signal; its
 #: operation mode reads one.
 EXPECTED_UNSIGNALLED = 5
-EXPECTED_MAGNETS = 480
+#: Devices typed under ``Magnet``. ``SR/MAG-Q-0301``, the quadrupole the controls
+#: system names and no channel binds, counts with them: ``sameAs`` merges nothing.
+EXPECTED_MAGNETS = 481
+#: The magnets that carry a channel binding: what the ontology rollup and the
+#: channel search count.
+EXPECTED_BOUND_MAGNETS = 480
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
@@ -628,11 +633,11 @@ def test_example_q5_reproduces_the_verified_direction_split() -> None:
 
 
 def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
-    """Rolling ``Magnet`` up its subclasses lists exactly the 480 verified devices.
+    """Rolling ``Magnet`` up its subclasses lists exactly the 481 verified devices.
 
     The rollup is larger than the shipped row cap, so the cap is lifted to the
     example's own ``LIMIT`` for this test: the claim here is the count, and a
-    capped answer would compare 200 against 480 and say nothing about the
+    capped answer would compare 200 against 481 and say nothing about the
     hierarchy.
     """
     assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
@@ -649,7 +654,7 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1b_puts_the_magnets_under_one_branch() -> None:
-    """The branch rollup reaches the same 480 without naming a magnet subclass."""
+    """The branch rollup reaches the same 481 without naming a magnet subclass."""
     payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
@@ -666,7 +671,7 @@ def test_the_taxonomy_separates_a_grouping_from_a_kind_of_device(demo_read: Any)
     by_uri = {row["uri"]: row for row in result.rows}
 
     magnet = by_uri[MAGNET_CLASS_URI]
-    assert magnet["rollup"] == EXPECTED_MAGNETS, magnet
+    assert magnet["rollup"] == EXPECTED_BOUND_MAGNETS, magnet
     assert magnet["direct"] == 0, magnet
 
     quadrupole = by_uri[QUADRUPOLE_CLASS_URI]
@@ -696,7 +701,7 @@ def _assert_usable(key: str, payload: dict[str, Any]) -> None:
 
     Truncation is deliberately not asserted here: whether an example's own
     ``LIMIT`` lands above or below the row cap is a property of the corpus (the
-    demo machine has 480 magnets to a 200-row cap), and the tests that need a
+    demo machine has 481 magnets to a 200-row cap), and the tests that need a
     *complete* answer to compare against a verified count say so themselves.
     """
     assert payload["row_count"] >= 1, f"{key} returned no rows: {payload}"
@@ -943,7 +948,7 @@ def test_search_by_class_rolls_a_parent_up_to_its_subclasses(demo_read: Any) -> 
 
     row = _search(demo_read, cls=MAGNET_CLASS_URI)
 
-    assert row["devices"] == EXPECTED_MAGNETS, row["devices"]
+    assert row["devices"] == EXPECTED_BOUND_MAGNETS, row["devices"]
     assert row["rows"], row
     outside = _count(
         demo_read,
@@ -988,7 +993,7 @@ def test_search_unfiltered_reports_the_whole_corpus(demo_read: Any) -> None:
     assert len(row["rows"]) == 50, len(row["rows"])
 
     classes = _facet(row, "class")
-    assert classes.get(MAGNET_CLASS_URI) == EXPECTED_MAGNETS, classes.get(MAGNET_CLASS_URI)
+    assert classes.get(MAGNET_CLASS_URI) == EXPECTED_BOUND_MAGNETS, classes.get(MAGNET_CLASS_URI)
 
     directions = _facet(row, "dir")
     assert {"R", "W"} <= set(directions), directions

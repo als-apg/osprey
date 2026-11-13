@@ -1,0 +1,185 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+- id: evr3-out4
+  type: part_of
+  subject:
+    device: SR/TIM-EVR3:OUT4
+  object:
+    device: SR/TIM-EVR3
+- id: bpm13-el-rack
+  type: located_in
+  subject:
+    device: SR/BPM13-EL
+  object:
+    place: HALL/ROW3/RK08
+    unit: 22
+  source:
+    document: RACK-ROW3
+    version: B
+    state: released
+    locator: sheet 2
+- id: qf05-ps-rack-a
+  type: located_in
+  subject:
+    device: SR/QF05-PS
+  object:
+    place: HALL/ROW3/RK07
+    unit: 12
+  source:
+    document: RACK-ROW3
+    version: B
+    state: released
+    locator: sheet 1
+- id: qf05-ps-rack-b
+  type: located_in
+  subject:
+    device: SR/QF05-PS
+  object:
+    place: HALL/ROW3/RK08
+  source:
+    document: CS-RING
+    version: D
+    state: in-work
+    locator: row 212
+- id: qf05-power
+  type: powered_by
+  subject:
+    device: SR/QF05
+  object:
+    device: SR/QF05-PS
+    port: OUT1
+  source:
+    document: PS-LIST
+    version: C
+    state: released
+    locator: row 41
+- id: qf05-ps-mains
+  type: powered_by
+  subject:
+    device: SR/QF05-PS
+  object:
+    device: HALL/PANEL-3A
+    port: breaker 14
+  source:
+    document: PS-LIST
+    version: C
+    state: released
+    locator: row 41
+- id: w-03-0117
+  type: cabled_to
+  subject:
+    device: SR/QF05
+    port: T1
+  object:
+    device: SR/QF05-PS
+    port: OUT1
+  attributes:
+    cable: W-03-0117
+    routed_from: object
+    length_m: 42
+  source:
+    document: CS-RING
+    version: D
+    state: in-work
+    locator: row 117
+- id: w-03-0240
+  type: cabled_to
+  subject:
+    device: SR/BPM13
+    port: A
+  object:
+    place: HALL/ROW3/RK08
+  attributes:
+    cable: W-03-0240
+    signal: button A
+  source:
+    document: CS-RING
+    version: D
+    state: in-work
+    locator: row 240
+- id: bpm13-readout
+  type: read_out_by
+  subject:
+    device: SR/BPM13
+  object:
+    device: SR/BPM13-EL
+    port: CH1
+  basis: inferred
+  rule: bpm-electronics-in-cable-destination-rack
+  source:
+    document: CS-RING
+    version: D
+    state: in-work
+    locator: row 240
+- id: qf05-control
+  type: controlled_by
+  subject:
+    device: SR/QF05-PS
+  object:
+    device: CTRL/sr-mag-03
+- id: app-host
+  type: runs_on
+  subject:
+    device: CTRL/sr-mag-03
+  object:
+    device: CTRL/srioc03
+- id: bpm13-trigger
+  type: triggered_by
+  subject:
+    device: SR/BPM13-EL
+    port: TRIG
+  object:
+    device: SR/TIM-EVR3:OUT4
+- id: qf05-ps-interlock
+  type: interlocked_by
+  subject:
+    device: SR/QF05-PS
+  object:
+    device: SR/MPS-C3
+    port: IN7
+  attributes:
+    signal: magnet over-temperature
+- id: vs03-upstream
+  type: bounded_by
+  subject:
+    group: SR/VS03
+  object:
+    device: SR/VALVE03
+  attributes:
+    side: upstream
+- id: vs03-downstream
+  type: bounded_by
+  subject:
+    group: SR/VS03
+  object:
+    device: SR/VALVE04
+  attributes:
+    side: downstream
+- id: srioc03-net
+  type: networked_to
+  subject:
+    device: CTRL/srioc03
+    port: eth0
+  object:
+    device: CTRL/SW-3A
+    port: '12'
+  source:
+    document: NET-PLAN
+    version: A
+    state: released
+    locator: table 3
+- id: qf05-water
+  type: supplied_by
+  subject:
+    device: SR/QF05
+  object:
+    device: SR/LCW-3
+  attributes:
+    medium: cooling-water
+- id: qf05-identity
+  type: same_as
+  subject:
+    device: SR/QF05
+  object:
+    device: SR/MAG-Q-0301
+  basis: inferred
+  rule: family-and-ordinal-match

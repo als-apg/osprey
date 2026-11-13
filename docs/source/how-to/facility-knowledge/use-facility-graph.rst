@@ -81,7 +81,8 @@ corrector is a corrector, and a corrector is a magnet.
 
 An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
 tie each device to its class, and teal marks the walk in step 4. The legend
-adds the edges relation claims write, which the demo has none of.
+adds the edges relation claims write; the demo's claims are the sector-3
+example in :doc:`/architecture/facility-relations`.
 
 The walk is what a list of addresses cannot do on its own: the question says
 "steerer" and "section 1", and no address spells either. The same shape answers
@@ -401,7 +402,7 @@ only its own status channels. After ``osprey build`` the views hold:
      - Relationship to the graph
    * - Graph view (``data/graph/facility.ttl``)
      - 4731
-     - Build output, written from the facility file: 1016 devices, and one
+     - Build output, written from the facility file: 1027 devices, and one
        binding per channel; the 674 setpoint channels are the write-direction
        bindings.
    * - Channel finder — hierarchical and graph builds

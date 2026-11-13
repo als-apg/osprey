@@ -461,17 +461,15 @@ def test_facility_tree_is_what_init_writes(built_demo: BuiltProject) -> None:
     paths = _facility_tree()
     not_shipped = [rel for rel in paths if not _on_disk(facility, rel)]
     assert not_shipped == [
-        "records/relations.yaml",
         "signals.yaml",
-        "documents.yaml",
         "policy.yaml",
         "fixes.yaml",
         "imported/<layer>/",
     ]
     sentence = " ".join(_page_text(FACILITY_PAGE).split())
     assert (
-        "ships all of them except ``records/relations.yaml``, ``signals.yaml``,"
-        " ``documents.yaml``, ``policy.yaml``, ``fixes.yaml`` and ``imported/``"
+        "ships all of them except ``signals.yaml``, ``policy.yaml``, ``fixes.yaml``"
+        " and ``imported/``"
     ) in sentence
 
     drawn_top = {rel.split("/")[0] for rel in paths}

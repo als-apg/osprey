@@ -6980,3 +6980,39 @@
   names:
   - VCM72
   label: VCM 72
+- id: SR/QF05-PS
+  class: PowerSupply
+  scheme_names:
+  - name: PS-Q-0301
+    scheme: cable-schedule
+  - name: QF05 supply
+    scheme: drawings
+    basis: inferred
+    rule: label-match
+- id: HALL/PANEL-3A
+  class: Circuit
+- id: SR/BPM13-EL
+  class: ElectronicsChassis
+- id: SR/MPS-C3
+  class: ElectronicsChassis
+  description: Interlock chassis, sector 3
+- id: SR/TIM-EVR3
+  class: ElectronicsChassis
+  description: Event receiver, sector 3
+- id: SR/TIM-EVR3:OUT4
+  class: TimingChannel
+- id: SR/LCW-3
+  class: UtilityLoop
+- id: CTRL/sr-mag-03
+  class: ControlApplication
+  attributes:
+    repository: sr-magnets
+- id: CTRL/srioc03
+  class: Host
+- id: CTRL/SW-3A
+  class: NetworkSwitch
+- id: SR/MAG-Q-0301
+  class: Quadrupole
+  scheme_names:
+  - name: MAG-Q-0301
+    scheme: controls

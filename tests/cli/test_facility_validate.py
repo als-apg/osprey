@@ -2,10 +2,12 @@
 
 The verb builds the facility file from ``data/facility/``, renders the repo's
 main profile into a temporary directory and hands that render to
-``render_facility_outputs``, then discards it. A clean repo without a kept
-response export exits 0 and prints nothing; a failing stage prints every one of
-its lines, sorted, to stderr and exits 1. The repo's tree, ``build/`` included,
-is byte-unchanged either way.
+``render_facility_outputs``, then discards it. A clean repo without relation
+claims or a kept response export exits 0 and prints nothing; the demo, which
+ships the Appendix A claims, exits 0 with its two relation warnings and the
+relation summary on stderr; a failing stage prints every one of its lines,
+sorted, to stderr and exits 1. The repo's tree, ``build/`` included, is
+byte-unchanged either way.
 """
 
 from __future__ import annotations
@@ -26,7 +28,12 @@ from osprey.cli.main import cli
 from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import Restorable, init_project, run_build
-from tests.facility._appendix_a import VARIANTS, Variant, appendix_a_tree
+from tests.facility._appendix_a import (
+    VARIANTS,
+    Variant,
+    appendix_a_tree,
+    example_without_appendix_a,
+)
 
 pytestmark = pytest.mark.slow
 
@@ -90,7 +97,14 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
 def test_a_clean_repo_exits_0_and_prints_nothing(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Checking a facility file renders outside any build, so it asks no container runtime."""
+    """Checking a facility file renders outside any build, so it asks no container runtime.
+
+    The facility is the example without its Appendix A records, so no claim
+    warns and no relation summary is printed.
+    """
+    facility_dir = repo / "data" / "facility"
+    shutil.rmtree(facility_dir)
+    example_without_appendix_a(facility_dir)
     asked: list[Any] = []
 
     def _ask(config: Any = None) -> list[str]:
@@ -104,6 +118,27 @@ def test_a_clean_repo_exits_0_and_prints_nothing(
     assert asked == []
     assert result.exit_code == 0, result.output
     assert (result.stdout, result.stderr) == ("", "")
+
+
+#: What ``facility validate`` prints for the demo: one ``relation-coarse`` and
+#: one ``relation-contested`` warning, then the relation summary.
+DEMO_STDERR = [
+    "facility: relation-coarse: relation type cabled_to \u2014 1 claim states less than the"
+    " facility knows (1 place end); fix: name the device, port, unit or key attribute the"
+    " claims leave out",
+    "facility: relation-contested: located_in device SR/QF05-PS \u2014 claims qf05-ps-rack-a,"
+    " qf05-ps-rack-b state different ends and none ranks first; fix: rank the kinds of their"
+    " documents in policy.yaml, or correct the wrong claim",
+    "relations: 18 claims (16 stated, 2 inferred); 16 accepted, 2 contested",
+]
+
+
+def test_the_demo_exits_0_with_its_relation_warnings_and_summary(repo: Path) -> None:
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    assert result.stderr.splitlines() == DEMO_STDERR
 
 
 def test_a_wrapped_position_warns_in_validate_and_in_the_build(repo: Path) -> None:
@@ -386,22 +421,17 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
     assert result.exit_code == 2
 
 
-def _add_appendix_a(repo: Path, variant: Variant) -> None:
-    """Add the Appendix A fragment to the demo repo's ``data/facility``.
+def _add_policy(repo: Path, variant: Variant) -> None:
+    """Write the ``policy.yaml`` of an Appendix A variant into the demo repo.
 
-    The demo facility already holds the records Appendix A reuses; every
-    other entry is appended to the demo's file of its kind, or written as a
-    new file.
+    The demo already ships the Appendix A records and claims; a variant
+    differs only by its policy, and ``no_policy`` writes nothing.
     """
-    facility_dir = repo / "data" / "facility"
-    for relpath, entries in appendix_a_tree(variant).items():
-        path = facility_dir / relpath
-        if path.exists():
-            existing = yaml.safe_load(path.read_text(encoding="utf-8")) or []
-            ids = {entry["id"] for entry in existing}
-            entries = existing + [entry for entry in entries if entry["id"] not in ids]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(entries, sort_keys=False), encoding="utf-8")
+    policy = appendix_a_tree(variant).get("policy.yaml")
+    if policy is not None:
+        (repo / "data" / "facility" / "policy.yaml").write_text(
+            yaml.safe_dump(policy, sort_keys=False), encoding="utf-8"
+        )
 
 
 #: The summary line per Appendix A variant: two contested ``located_in``
@@ -419,7 +449,7 @@ def test_a_facility_with_claims_closes_with_the_relation_summary(
     repo: Path, variant: Variant
 ) -> None:
     """The summary counts claims by basis and standing, after every warning."""
-    _add_appendix_a(repo, variant)
+    _add_policy(repo, variant)
 
     result = _validate(repo)
 

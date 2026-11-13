@@ -6,7 +6,8 @@ a writer that drifts from the rule. Every IRI is returned as a plain string, so
 a Cypher ``n.uri`` result compares directly.
 
 - :func:`expected_part_of` — each place whose id has a ``/`` is ``partOf`` the
-  place whose id is its own without the last segment;
+  place whose id is its own without the last segment, and each accepted
+  ``part_of`` claim is ``partOf`` from its subject end to its object end;
 - :func:`expected_located_in` — each device with a place is ``locatedIn`` that
   place;
 - :func:`expected_name_holders` — the places, devices and channels one of whose
@@ -55,14 +56,26 @@ def _code(records: FacilityRecords) -> str:
 
 
 def expected_part_of(records: FacilityRecords | Mapping[str, Any]) -> frozenset[tuple[str, str]]:
-    """Each ``(place, parent place)`` IRI pair the view should join by ``partOf``."""
+    """Each ``(child, parent)`` IRI pair the view should join by ``partOf``.
+
+    The place parents its id implies, and the ends of each accepted ``part_of``
+    claim.
+    """
     read = _records(records)
     code = _code(read)
-    return frozenset(
+    pairs = {
         (iri(code, "place", place_id), iri(code, "place", place_id.rsplit("/", 1)[0]))
         for place_id in (str(place["id"]) for place in read.of_kind("place"))
         if "/" in place_id
-    )
+    }
+    for claim in read.document.get("relations") or []:
+        if claim["type"] != "part_of" or claim["standing"] != "accepted":
+            continue
+        subject_end = end_identity(claim["subject"])
+        object_end = end_identity(claim["object"])
+        assert subject_end is not None and object_end is not None
+        pairs.add((iri(code, *subject_end), iri(code, *object_end)))
+    return frozenset(pairs)
 
 
 def expected_located_in(

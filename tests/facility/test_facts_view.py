@@ -114,7 +114,7 @@ def test_the_facts_are_the_facility_files(built_demo: BuiltProject) -> None:
         "description": facility["identity"]["description"],
     }
     assert facts["identity"]["description"]
-    assert facts["place_levels"] == ["machine", "sector"]
+    assert facts["place_levels"] == ["building", "machine", "row", "sector", "girder", "rack"]
     assert facts["hierarchy_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
     assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
