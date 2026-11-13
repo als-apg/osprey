@@ -13,17 +13,6 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
-from osprey_connectors.simulation.view import Model
-
-# The composite under test delivers model inputs; connectors <=2026.11.9 (the
-# floor lane's) read none from the view. Removed by the floor bump past
-# 2026.11.9.
-if not hasattr(Model, "inputs"):
-    pytest.skip(
-        "the installed connectors predate model inputs (<=2026.11.9)",
-        allow_module_level=True,
-    )
-
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import REFRESH, SCHEMAS
 from tests._simulator_view import view_channel

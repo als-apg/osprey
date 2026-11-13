@@ -55,10 +55,10 @@ from osprey.interfaces.web_terminal.sidecar_status import (
     status_message,
 )
 from osprey.profiles.web_panels import (
-    BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
+    panel_label,
     panel_spec_enabled,
 )
 from osprey.registry.web import (
@@ -184,12 +184,12 @@ def _resolve_targets(
         if panel_id in SIDECAR_PANELS:
             root = shared_root if shared_root is not None else _recorded_root(cfg)
             status = read_status(root, panel_id) if root is not None else None
-            config_rows.append(_sidecar_row(panel_id, status))
+            config_rows.append(_sidecar_row(panel_id, status, panel_label(panel_id, panels_cfg)))
             continue
         try:
             target = _builtin_target(panel_id, cfg)
         except WebServerConfigDepthError as exc:
-            config_rows.append(_misconfigured_row(panel_id, exc))
+            config_rows.append(_misconfigured_row(panel_id, exc, panel_label(panel_id, panels_cfg)))
             continue
         if target is not None:
             targets.append(target)
@@ -217,7 +217,8 @@ def _builtin_target(panel_id: str, cfg: Mapping[str, Any]) -> _Target | None:
         return None
 
     host, port = resolve_web_server_address(registry_key, cfg)
-    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
+    web_cfg = cfg.get("web")
+    label = panel_label(panel_id, web_cfg.get("panels") if isinstance(web_cfg, dict) else None)
     return _Target(panel_id, label, f"http://{host}:{port}/health", contract=True)
 
 
@@ -233,7 +234,7 @@ def _recorded_root(cfg: Mapping[str, Any]) -> Path | None:
         return None
 
 
-def _sidecar_row(panel_id: str, status: SidecarStatus | None) -> CheckResult:
+def _sidecar_row(panel_id: str, status: SidecarStatus | None, label: str) -> CheckResult:
     """Report a sidecar panel from the start outcome the web terminal recorded.
 
     A sidecar has no address of its own: the web terminal starts it and it is
@@ -246,7 +247,6 @@ def _sidecar_row(panel_id: str, status: SidecarStatus | None) -> CheckResult:
     every terminal-less host broken.
     """
     name = f"{CATEGORY}.{panel_id.replace('-', '_')}"
-    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
     if status is None:
         return CheckResult(
             name,
@@ -259,7 +259,7 @@ def _sidecar_row(panel_id: str, status: SidecarStatus | None) -> CheckResult:
             name,
             CATEGORY,
             Status.WARNING,
-            status_message(panel_id, status) or f"{label} failed to start",
+            status_message(panel_id, status, label=label) or f"{label} failed to start",
             value="failed",
             details=(
                 f"Recorded by the web terminal at {status.recorded_at}. Opening the {label} "
@@ -279,7 +279,7 @@ def _sidecar_row(panel_id: str, status: SidecarStatus | None) -> CheckResult:
     )
 
 
-def _misconfigured_row(panel_id: str, exc: WebServerConfigDepthError) -> CheckResult:
+def _misconfigured_row(panel_id: str, exc: WebServerConfigDepthError, label: str) -> CheckResult:
     """Report a panel whose config section cannot yield an address.
 
     A warning, not an error, to keep the category advisory: the loud refusal
@@ -287,7 +287,6 @@ def _misconfigured_row(panel_id: str, exc: WebServerConfigDepthError) -> CheckRe
     declines to start the panel). What this row owes the operator is the exact
     key to fix.
     """
-    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
     return CheckResult(
         f"{CATEGORY}.{panel_id.replace('-', '_')}",
         CATEGORY,

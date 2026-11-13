@@ -1,4 +1,4 @@
-"""Tier 1 build + MCP boot smoke tests.
+"""Preset build + MCP boot smoke tests.
 
 Runs ``osprey build`` as a real subprocess (so the project venv is created and
 dependencies are installed), then for every entry in the generated

@@ -1,37 +1,52 @@
 {
-  "ariel": {
-    "captured_utc": "2026-11-02T21:19:12.931951+00:00",
+  "agent_record": {
+    "captured_utc": "2026-11-11T16:54:18.090589+00:00",
     "kind": "static",
-    "osprey_version": "2026.9.0b3.post4981+g08ccec1fa.d20261102"
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "ariel": {
+    "captured_utc": "2026-11-11T16:58:22.296222+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
   "control_target_popover": {
-    "captured_utc": "2026-11-01T21:26:48.254324+00:00",
+    "captured_utc": "2026-11-11T19:02:07.986414+00:00",
     "kind": "static",
-    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
+    "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111"
   },
   "display_menu": {
-    "captured_utc": "2026-11-01T20:26:28.711350+00:00",
+    "captured_utc": "2026-11-11T16:53:46.824174+00:00",
     "kind": "static",
-    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
   "install_flow": {
-    "captured_utc": "2026-09-06T19:18:11.962704+00:00",
+    "captured_utc": "2026-11-11T16:53:52.448039+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.2.post2455+g031c71899.d20260906"
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "multi_user_landing": {
+    "captured_utc": "2026-11-11T16:54:14.780352+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
   "qmd_query_pipeline": {
-    "captured_utc": "2026-08-19T04:20:17.523563+00:00",
+    "captured_utc": "2026-11-11T16:53:50.571915+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.2.post1352+geab911034"
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
   "retrieval_map": {
-    "captured_utc": "2026-11-07T02:16:47.545940+00:00",
+    "captured_utc": "2026-11-11T16:53:48.719524+00:00",
     "kind": "static",
-    "osprey_version": "2026.9.0b3.post5869+g88799cf62.d20261107"
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
+  },
+  "sign_in": {
+    "captured_utc": "2026-11-11T16:54:16.456070+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
   "web_terminal_hero": {
-    "captured_utc": "2026-11-05T15:04:22.420135+00:00",
+    "captured_utc": "2026-11-11T17:10:54.311478+00:00",
     "kind": "agentic",
-    "osprey_version": "2026.9.0b3.post5072+ga72474dcc.d20261105"
+    "osprey_version": "2026.9.0b3.post6982+g0640017c1.d20261111"
   }
 }

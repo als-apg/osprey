@@ -156,17 +156,21 @@ class TestHierarchicalExplore:
             resp = client.get(url)
         assert resp.status_code == 422
 
-    def test_explore_build_partitions_valid_invalid(self, client):
+    def test_explore_build_answers_with_the_existing_channels(self, client):
         _set_pipeline(client, "hierarchical")
+        answer = {
+            "channels": ["A"],
+            "total": 1,
+            "invalid_count": 1,
+            "invalid_examples": [{"x": "z"}],
+        }
         mock_db = MagicMock(spec=HierarchicalChannelDatabase)
-        mock_db.build_channels_from_selections.return_value = ["A", "B"]
-        mock_db.validate_channel.side_effect = lambda ch: ch == "A"
+        mock_db.build_existing_channels.return_value = answer
         with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.get('/api/explore/build?selections={"x":"y"}')
+            resp = client.get('/api/explore/build?selections={"x":["y","z"]}')
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["valid"] == ["A"]
-        assert data["invalid"] == ["B"]
+        assert resp.json() == answer
+        mock_db.build_existing_channels.assert_called_once_with({"x": ["y", "z"]})
 
     def test_hierarchy_info(self, client):
         _set_pipeline(client, "hierarchical")

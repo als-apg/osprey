@@ -1157,6 +1157,14 @@ button.osprey-chip:focus-visible {
   background: var(--overlay-black-30);
 }
 
+/* The toggle's chevron (the icon's last stroke) points the way the sidebar
+   will move: left to hide it, right to show it. */
+.osprey-panel-sidebar-toggle[aria-expanded="false"] > .osprey-ic > :last-child {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scaleX(-1);
+}
+
 /* Centred state: loading, connecting, empty, error and unreachable, built
    by panel-state.js. An icon, one message, an optional second line and at
    most one .osprey-btn. */

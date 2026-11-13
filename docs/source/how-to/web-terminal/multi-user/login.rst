@@ -107,6 +107,28 @@ not a boundary: ``none`` is for rooms where the agents are trusted too.
        auth:
          method: password
 
+A card then opens the sign-in page for its user:
+
+.. figure:: /_static/screenshots/sign_in_light.png
+   :class: only-light
+   :figclass: only-light
+   :alt: The sign-in page for alice — a password field and an Unlock terminal button
+         under the facility name
+   :width: 100%
+
+   The password sign-in page a card opens, here for ``alice`` on the ``demo``
+   preset. Captured with OSPREY |captured_sign_in|.
+
+.. figure:: /_static/screenshots/sign_in_dark.png
+   :class: only-dark
+   :figclass: only-dark
+   :alt: The sign-in page for alice — a password field and an Unlock terminal button
+         under the facility name
+   :width: 100%
+
+   The password sign-in page a card opens, here for ``alice`` on the ``demo``
+   preset. Captured with OSPREY |captured_sign_in|.
+
 **OIDC**, against your facility's single sign-on. Each roster entry names the
 identity that maps to it, so a valid login as somebody else cannot open this
 user's terminal:

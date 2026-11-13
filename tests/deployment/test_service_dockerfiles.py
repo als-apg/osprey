@@ -960,11 +960,11 @@ def test_apt_runs_deliver_the_proxy_settings(dockerfile):
 
 
 @pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
-def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
-    """Every recipe that installs the local manifest pins setuptools below 84.
+def test_manifest_installing_recipes_constrain_setuptools_dso(dockerfile):
+    """Every recipe that installs the local manifest holds setuptools_dso at 2.12.4+.
 
-    setuptools 84.0.0 broke ``setuptools_dso``'s compile-probe error handling,
-    so any source build of the EPICS toolchain (p4p pulls
+    Under setuptools 84, ``setuptools_dso`` before 2.12.4 lets a failed compile
+    probe's ``CompileError`` escape, so any source build of the EPICS toolchain (p4p pulls
     pvxslibs/epicscorelibs) dies where no binary wheel exists — every
     linux/arm64 image. p4p is a base framework dependency, so it is in the
     manifest, so this is not optional for any recipe that installs it.
@@ -979,13 +979,13 @@ def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
         pytest.skip("recipe does not install the local-requirements manifest")
 
     deps_run = next(body for body in _run_bodies(text) if MANIFEST_INSTALL in body)
-    assert "setuptools<84" in deps_run, (
-        f"{dockerfile.parent.name}: deps layer does not pin setuptools below 84.0.0, "
-        f"which breaks setuptools_dso's compile probe and fails every EPICS "
+    assert "setuptools-dso>=2.12.4" in deps_run, (
+        f"{dockerfile.parent.name}: deps layer does not hold setuptools_dso at 2.12.4+, "
+        f"without which setuptools 84 breaks its compile probe and fails every EPICS "
         f"source build (linux/arm64):\n{deps_run}"
     )
     assert "PIP_CONSTRAINT" in deps_run, (
-        f"{dockerfile.parent.name}: the setuptools pin must be exported as "
+        f"{dockerfile.parent.name}: the setuptools_dso floor must be exported as "
         f"PIP_CONSTRAINT — a plain requirement pin does not reach pip's "
         f"isolated build environments:\n{deps_run}"
     )

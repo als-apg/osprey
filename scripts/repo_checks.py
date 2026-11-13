@@ -1293,7 +1293,7 @@ TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
 SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
     (
         "plugins/osprey/skills/release/SKILL.md",
-        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+        "pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile",
     ): (
         "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
         " until that lane is a check"
@@ -2278,7 +2278,7 @@ LANES: tuple[Lane, ...] = (
         "agentic-per-preset",
         "test_preset_agentic.py",
         why=SPENDS,
-        prefix="Tier 3 — Agentic flow",
+        prefix="Preset Agentic Flow",
     ),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
     _e2e("full-chain-auth-e2e", "test_full_chain_auth.py"),
@@ -2310,6 +2310,20 @@ LANES: tuple[Lane, ...] = (
         "qmd-cache-warmup",
         "main-branch cache",
         ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
+    ),
+    Lane(
+        "deploy-cache-warmup",
+        "main-branch cache",
+        (
+            "src/osprey/deployment/build_cache.py",
+            "src/osprey/templates/**/Dockerfile*",
+            "uv.lock",
+            # The two target images it writes beside the demo deployment's.
+            "docker/virtual-accelerator/**",
+            "docker/bench-ioc/**",
+            ".github/actions/build-virtual-accelerator-image/**",
+            ".github/actions/build-bench-ioc-image/**",
+        ),
     ),
     _e2e(
         "target-switch-agentic-e2e",

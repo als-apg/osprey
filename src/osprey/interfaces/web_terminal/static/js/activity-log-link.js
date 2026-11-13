@@ -59,3 +59,54 @@ export function activityLogUrl(sessionId) {
 export function openActivityLog(getSessionId) {
   window.open(activityLogUrl(getSessionId()), '_blank', 'noopener');
 }
+
+/** @typedef {'timeline'|'tools'|'safety'|'artifacts'} View */
+
+/** The page's views, in tab order. */
+export const VIEWS = /** @type {const} */ (['timeline', 'tools', 'safety', 'artifacts']);
+
+/**
+ * What the page's own hash selects: `#<transcript id>/<view>`, either part
+ * optional. A part that is not a session key, or not a view, reads as `null`.
+ * @param {string} hash - a location.hash string
+ * @returns {{id: string|null, view: View|null}}
+ */
+export function readHash(hash) {
+  const [id, view] = hash.replace(/^#/, '').split('/');
+  const known = VIEWS.find((name) => name === view);
+  return { id: isSessionKey(id) ? id : null, view: known ?? null };
+}
+
+/**
+ * The hash that selects `view` of transcript `id`; with no id, the view of
+ * whichever session the page is following.
+ * @param {string|null} id
+ * @param {View} view
+ * @returns {string}
+ */
+export function writeHash(id, view) {
+  return `#${id ?? ''}/${view}`;
+}
+
+/**
+ * A link to `view` of transcript `id` on the page itself. It drops the query:
+ * `?session_id=` follows a terminal tab, and a shared link names one session.
+ * @param {string} id
+ * @param {View} view
+ * @param {{origin: string, pathname: string}} [here]
+ * @returns {string}
+ */
+export function shareUrl(id, view, here = window.location) {
+  return `${here.origin}${here.pathname}${writeHash(id, view)}`;
+}
+
+/**
+ * Where the artifact gallery serves the file of artifact `id`. The route
+ * resolves the file by id alone; its trailing name segment only has to be
+ * there.
+ * @param {string} id
+ * @returns {string}
+ */
+export function artifactFileUrl(id) {
+  return withPrefix(`/panel/artifacts/files/${encodeURIComponent(id)}/file`);
+}

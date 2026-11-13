@@ -93,6 +93,13 @@ class EnginePlugin(Protocol):
                                             the response of the wired monitors,
                                             ``rows``, ``columns``, ``matrix`` and the
                                             ``unsolved`` correctors with their texts.
+                                            ``row_positions`` and ``column_positions``
+                                            place each row and column by lattice element
+                                            index, counted for ``"trajectory"`` from the
+                                            injection element; an answer without them,
+                                            or with ``None``, states no positions and
+                                            callers get none. For ``"trajectory"`` the
+                                            rows are the monitors' turn-buffer records.
                                             One that takes no ``kind`` is called without
                                             it for ``"orbit"``, and any other kind is
                                             refused naming the engine. Raising one of

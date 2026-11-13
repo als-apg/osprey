@@ -78,7 +78,7 @@ jobs:
       run: python3 scripts/ci/connectors_compat_matrix.py github-output --framework "$DISPATCHED"
 
   connectors-compat:
-    name: Connectors ${{ inputs.connectors || 'head' }} under framework ${{ matrix.framework || '(none listed)' }}
+    name: Connectors Compat — connectors ${{ inputs.connectors || 'head' }}, framework ${{ matrix.framework || 'none listed' }}
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -131,7 +131,7 @@ jobs:
         --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
 
   release-tests:
-    name: Framework ${{ matrix.framework || '(none listed)' }} tests against connectors ${{ inputs.connectors || 'head' }}
+    name: Framework Release Tests — framework ${{ matrix.framework || 'none listed' }}, connectors ${{ inputs.connectors || 'head' }}
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 60

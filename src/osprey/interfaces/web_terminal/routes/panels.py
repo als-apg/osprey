@@ -55,12 +55,12 @@ from osprey.interfaces.web_terminal.presets import (
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
-    BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
     in_catalog_order,
     panel_id_refusal,
+    panel_labels,
 )
 from osprey.registry.web import panel_url_state_attr
 
@@ -173,7 +173,9 @@ def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
         "url": proxy_url,
         "available": proxy_url is not None,
         "state": status.state if status is not None else None,
-        "message": status_message(panel_id, status),
+        "message": status_message(
+            panel_id, status, label=getattr(state, "panel_labels", {}).get(panel_id)
+        ),
     }
 
 
@@ -454,7 +456,9 @@ async def get_panels(request: Request):
     default = getattr(request.app.state, "default_panel", None)
     visible = list(getattr(request.app.state, "visible_panels", enabled))
     active = getattr(request.app.state, "active_panel", None)
-    labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
+    state_labels = getattr(request.app.state, "panel_labels", None)
+    builtin_labels = state_labels if state_labels is not None else panel_labels()
+    labels = {pid: builtin_labels[pid] for pid in enabled if pid in builtin_labels}
     # Whether the Config panel's SERVER surface is live (web.config_panel.enabled).
     # `false` means /api/config and /api/claude-setup refuse every verb with 403,
     # so this payload must not advertise the panel in any form: the client reads

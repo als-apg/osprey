@@ -139,18 +139,19 @@ ARG PIP_EXTRA_INDEX_URL=""
 # dependency list is installed with every third-party package held to the
 # version the lock holds, and the file is kept at
 # /opt/osprey/lock-constraints.txt so that every later install layer is held to
-# it as well. The lock's lines are appended to the setuptools constraint file
+# it as well. The lock's lines are appended to the setuptools_dso constraint file
 # below rather than replacing it, so they reach uv's build environments too,
-# and a lock that pins setuptools>=84 fails this layer loudly instead of
-# quietly dropping the fix that constraint is for. With no file staged (a
+# and a lock that pins setuptools_dso below 2.12.4 fails this layer loudly
+# instead of quietly dropping the fix that constraint is for. With no file staged (a
 # release build) the layer is exactly what it was. The `.osprey-layer-anchor`
 # sibling keeps the glob COPY matching either way, and the file is the same
 # bytes in every context, so the layer stays shared.
 COPY .osprey-layer-anchor osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
-# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
-# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
-# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
-# pip's isolated build environments. Drop once a fixed release is out.
+# Under setuptools 84, setuptools_dso before 2.12.4 lets the CompileError of a
+# failed compile probe escape, which fails sdist compiles of the EPICS toolchain
+# (pvxslibs/epicscorelibs/softioc) where no binary wheel exists (notably
+# linux/arm64); the constraint holds setuptools_dso at that fix or later, and
+# PIP_CONSTRAINT reaches pip's isolated build environments.
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -158,7 +159,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
-    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && printf 'setuptools-dso>=2.12.4\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \

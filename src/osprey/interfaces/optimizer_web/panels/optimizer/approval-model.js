@@ -344,7 +344,7 @@ function notADraftReason(status) {
 }
 
 /**
- * @typedef {{ enabled: boolean, reason: string|null, warning: string|null }} StartGate
+ * @typedef {{ enabled: boolean, reason: string|null, warnings: string[] }} StartGate
  */
 
 /**
@@ -361,8 +361,11 @@ function notADraftReason(status) {
  * write. A readonly run writes nothing, so it is not warned. The service
  * stays the authority.
  *
+ * A draft's `start_notice` (its algorithm may not move from the current
+ * setpoints) warns the same way: the operator may still start it.
+ *
  * @param {ApprovalState} state
- * @param {{ job_id: string, status: string }|null} job
+ * @param {{ job_id: string, status: string, start_notice?: string|null }|null} job
  * @param {{ starting?: boolean, envLoaded?: boolean, ownerKnown?: boolean|null }} [flags]
  * @returns {StartGate}
  */
@@ -371,12 +374,16 @@ export function startGate(
   job,
   { starting = false, envLoaded = false, ownerKnown = null } = {}
 ) {
-  const warning =
-    job?.status === 'created' && ownerKnown === false && state.config?.execution_mode !== 'readonly'
-      ? OWNER_UNKNOWN_NOTICE
-      : null;
+  /** @type {string[]} */
+  const warnings = [];
+  if (job?.status === 'created') {
+    if (ownerKnown === false && state.config?.execution_mode !== 'readonly') {
+      warnings.push(OWNER_UNKNOWN_NOTICE);
+    }
+    if (job.start_notice) warnings.push(job.start_notice);
+  }
   /** @param {string|null} reason */
-  const held = (reason) => ({ enabled: false, reason, warning });
+  const held = (reason) => ({ enabled: false, reason, warnings });
   if (!job) return held('No draft to start.');
   if (job.status !== 'created') return held(notADraftReason(job.status));
   if (state.jobId !== job.job_id || !state.config) return held('The draft is still loading.');
@@ -384,7 +391,7 @@ export function startGate(
   if (state.needsReview) return held('Review the changed draft first.');
   if (!envLoaded) return held("Direction unverified: the draft's environment is loading.");
   if (starting) return held('Starting…');
-  return { enabled: true, reason: null, warning };
+  return { enabled: true, reason: null, warnings };
 }
 
 /**

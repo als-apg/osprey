@@ -1020,27 +1020,20 @@ async def explore_options(request: Request, level: str, selections: str | None =
 
 @router.get("/explore/build")
 async def explore_build(request: Request, selections: str):
-    """Build channel addresses from hierarchy selections.
+    """Build the channel addresses that hierarchy selections hold.
 
     Args:
         request: FastAPI request.
         selections: JSON-encoded dict of hierarchy selections.
+
+    Returns:
+        ``channels`` (existing addresses, each once), ``total``, ``invalid_count``
+        and ``invalid_examples`` (selection combinations that hold no channel).
     """
     db = _get_hierarchical_database(request)
 
     try:
-        parsed_selections = json.loads(selections)
-        channels = db.build_channels_from_selections(parsed_selections)
-        valid = [ch for ch in channels if db.validate_channel(ch)]
-        invalid = [ch for ch in channels if not db.validate_channel(ch)]
-        return {
-            "channels": channels,
-            "total": len(channels),
-            "valid": valid,
-            "invalid": invalid,
-            "valid_count": len(valid),
-            "invalid_count": len(invalid),
-        }
+        return db.build_existing_channels(json.loads(selections))
 
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc

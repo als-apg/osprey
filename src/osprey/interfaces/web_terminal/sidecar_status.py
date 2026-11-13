@@ -162,16 +162,25 @@ def failure_reason(message: str, stderr_tail: str, secret: str | None) -> str:
     return reason
 
 
-def status_message(panel_id: str, status: SidecarStatus | None) -> str | None:
+def status_message(
+    panel_id: str, status: SidecarStatus | None, *, label: str | None = None
+) -> str | None:
     """The operator-facing sentence for *status*, or ``None`` when there is none.
 
     ``failed`` reads ``<LABEL> failed to start: <reason>``; ``starting`` reads
     ``<LABEL> is starting``. A running sidecar, or one with no record, has no
     message.
+
+    Args:
+        panel_id: The sidecar panel's id.
+        status: The recorded start outcome.
+        label: What the deployment calls the panel
+            (:func:`osprey.profiles.web_panels.panel_label`); ``None`` reads
+            the registry's own label.
     """
     if status is None:
         return None
-    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
+    label = label or BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
     if status.state == "failed":
         return f"{label} failed to start: {status.reason}"
     if status.state == "starting":

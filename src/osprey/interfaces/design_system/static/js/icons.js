@@ -312,11 +312,64 @@ const SHAPES = Object.freeze({
     'M12 9v4',
     'M12 17h.01',
   ],
+  // Glyphs for a deployment's own panels (`web.panels.<id>.icon`): an operator
+  // screen, a camera view, a report, a meeting, a radiation survey, a fleet of
+  // controllers.
+  monitor: [
+    ['rect', { width: '20', height: '14', x: '2', y: '3', rx: '2' }],
+    'M8 21h8',
+    'M12 17v4',
+  ],
+  camera: [
+    'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z',
+    ['circle', { cx: '12', cy: '13', r: '3' }],
+  ],
+  'chart-column': ['M3 3v16a2 2 0 0 0 2 2h16', 'M18 17V9', 'M13 17V5', 'M8 17v-3'],
+  users: [
+    'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2',
+    ['circle', { cx: '9', cy: '7', r: '4' }],
+    'M22 21v-2a4 4 0 0 0-3-3.87',
+    'M16 3.13a4 4 0 0 1 0 7.75',
+  ],
+  radiation: [
+    'M12 12h.01',
+    'M7.5 4.2c-.3-.5-.9-.7-1.3-.4C3.9 5.5 2.3 8.1 2 11c-.1.5.4 1 1 1h5c0-1.5.8-2.8 2-3.4-1.1-1.9-2-3.5-2.5-4.4z',
+    'M21 12c.6 0 1-.4 1-1-.3-2.9-1.8-5.5-4.1-7.1-.4-.3-1.1-.2-1.3.3-.6.9-1.5 2.5-2.6 4.3 1.2.7 2 2 2 3.5h5z',
+    'M7.5 19.8c-.3.5-.1 1.1.4 1.3 2.6 1.2 5.6 1.2 8.2 0 .5-.2.7-.8.4-1.3-.5-.9-1.4-2.5-2.5-4.3-1.2.7-2.8.7-4 0-1.1 1.8-2 3.4-2.5 4.3z',
+  ],
+  cpu: [
+    ['rect', { width: '16', height: '16', x: '4', y: '4', rx: '2' }],
+    ['rect', { width: '6', height: '6', x: '9', y: '9', rx: '1' }],
+    'M15 2v2',
+    'M15 20v2',
+    'M2 15h2',
+    'M2 9h2',
+    'M20 15h2',
+    'M20 9h2',
+    'M9 2v2',
+    'M9 20v2',
+  ],
   // A session pin (the sidebar's pinned sessions).
   pin: [
     'M12 17v5',
     'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
   ],
+  // The Activity page: a call the configuration allowed, the operator, a tool
+  // call without a server mark, a failed call, a deep link, a nested step.
+  'shield-check': [
+    'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z',
+    'm9 12 2 2 4-4',
+  ],
+  user: ['M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2', ['circle', { cx: '12', cy: '7', r: '4' }]],
+  wrench: [
+    'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
+  ],
+  'circle-x': [['circle', { cx: '12', cy: '12', r: '10' }], 'm15 9-6 6', 'm9 9 6 6'],
+  link: [
+    'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71',
+    'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+  ],
+  'corner-down-right': ['m15 10 5 5-5 5', 'M4 4v7a4 4 0 0 0 4 4h12'],
 });
 
 /** Icons drawn heavier than the 1.75 default, set on each child. */

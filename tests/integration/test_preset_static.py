@@ -1,4 +1,4 @@
-"""Tier 0 static checks — preset YAML, skill ↔ MCP-tool consistency.
+"""Preset static checks — preset YAML, skill ↔ MCP-tool consistency.
 
 Fast (<5s), no model calls, no subprocess. Run on every push.
 
@@ -8,8 +8,8 @@ Catches drift between:
   • SKILL.md ``mcp__server__tool`` references and the actual ``@mcp.tool()``
     function names exposed by the framework MCP servers
 
-MCP-server short names are matched at .mcp.json render time (Tier 1 covers
-that).
+MCP-server short names are matched at .mcp.json render time (the build + MCP boot
+job covers that).
 """
 
 from __future__ import annotations

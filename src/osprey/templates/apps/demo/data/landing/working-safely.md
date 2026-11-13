@@ -5,9 +5,9 @@ can affect real hardware. You are the operator and the agent is a tool: you are
 responsible for every action it takes.
 
 This file is yours to edit. It is listed under `modules.web_terminals.landing.notices`
-in `config.yml`, and every file listed there becomes one section on the landing
-page. Add your own for local procedures, contacts, or anything else operators
-should read before they start.
+in the `config:` block of `profile.yml`, and every file listed there becomes one
+section on the landing page. Add your own for local procedures, contacts, or
+anything else operators should read before they start.
 
 ## Be mindful of what you approve
 

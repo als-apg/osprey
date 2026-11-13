@@ -4699,9 +4699,10 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
 def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
     """A ``type: apps`` landing section is the retired spelling of ``type: shared``.
 
-    Read as ``type: shared`` for one release, with one warning naming the
-    rewrite; ``osprey init --revalidate`` makes it.
+    Read as ``type: shared`` until the roster window closes, with one warning
+    naming the rewrite; ``osprey init --revalidate`` makes it.
     """
+    from osprey.cli.build_profile_load import RETIRED_ROSTER_KEYS_REFUSED_FROM
     from osprey.deployment.web_terminals.render import RETIRED_SHARED_GROUP_TYPE
 
     groups = as_dict(web_terminals.get("landing")).get("groups")
@@ -4714,8 +4715,9 @@ def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.landing.groups[{i}] spells `type: "
                 f"{RETIRED_SHARED_GROUP_TYPE}`, which is read as `type: shared` (the shared "
-                "logins section); `type: apps` is deprecated and will be refused in the next "
-                "release. To rewrite it, run `osprey init --revalidate`"
+                "logins section); `type: apps` is deprecated and refused from OSPREY "
+                f"{RETIRED_ROSTER_KEYS_REFUSED_FROM}. To rewrite it, run "
+                "`osprey init --revalidate`"
             ),
         )
         for i, entry in enumerate(groups)

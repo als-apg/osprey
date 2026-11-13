@@ -71,7 +71,6 @@ from .build_profile_presets import (
     bundled_service_names,
 )
 from .build_profile_schema import (
-    DEFAULT_DEVIATION_MARKER,
     DEFAULT_LISTS_MODE,
     LISTS_MODES,
     LOGIN_APP_ENTRY_KEYS,
@@ -404,10 +403,17 @@ def known_profile_keys(kind: ProfileKind) -> frozenset[str]:
     return _KIND_KEYS[kind]
 
 
-# Keys recognized inside the ``provenance:`` block. Closed like the others: a
-# misspelled `deviation_marker:` would silently leave the default tag in force
-# and every `# SITE-DEVIATION:` comment unread.
-_KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
+#: The ``provenance:`` key earlier releases read as the tag of the
+#: ``# <TAG>: <why>`` comments that excused a difference from the preset. Nothing
+#: reads it now: a profile that still carries it loads, and ``osprey init
+#: --revalidate`` drops it.
+RETIRED_PROVENANCE_KEY = "deviation_marker"
+
+# Keys recognized inside the ``provenance:`` block. Closed like the others, so a
+# misspelled key is refused rather than silently ignored.
+_KNOWN_PROVENANCE_KEYS = frozenset(
+    {"preset", "preset_hash", "providers_hash", RETIRED_PROVENANCE_KEY}
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -456,7 +462,8 @@ def _app_entry_key_problem(name: str, key: str, *, login: bool) -> str | None:
     if key in _APP_ENTRY_KEYS:
         return (
             f"{spelled} is legal only in the deployment's {PROFILE_FILENAME}: a login "
-            f"selects an application and sets only apps.{name}.shown."
+            f"selects an application and sets only apps.{name}.shown and "
+            f"apps.{name}.panel_hidden."
         )
     if key in _KNOWN_MCP_SERVER_KEYS:
         return (
@@ -505,6 +512,11 @@ def _app_block_problems(raw: Mapping[Any, Any], *, login: bool) -> list[str]:
         shown = entry.get("shown")
         if shown is not None and not isinstance(shown, bool):
             problems.append(f"apps.{name}.shown must be true or false (got {shown!r}).")
+        panel_hidden = entry.get("panel_hidden")
+        if panel_hidden is not None and not isinstance(panel_hidden, bool):
+            problems.append(
+                f"apps.{name}.panel_hidden must be true or false (got {panel_hidden!r})."
+            )
         if login:
             continue
         config = entry.get("config")
@@ -558,6 +570,7 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
                 for key, axes in (entry.get("services") or {}).items()
             },
             shown=entry.get("shown"),
+            panel_hidden=entry.get("panel_hidden"),
         )
     return parsed
 
@@ -2178,13 +2191,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"drop the block rather than half-filling it."
             )
         _reject_unknown_block_keys(provenance_raw, _KNOWN_PROVENANCE_KEYS, "provenance")
-        marker = provenance_raw.get("deviation_marker", DEFAULT_DEVIATION_MARKER)
-        if not isinstance(marker, str) or not marker.strip():
-            raise BuildProfileError(
-                f"Profile 'provenance.deviation_marker' must be a non-empty string — the "
-                f"tag of the `# <TAG>:` comment that marks a deliberate difference from "
-                f"the preset (got {marker!r})."
-            )
         provenance = ProfileProvenance(
             preset=str(provenance_raw["preset"]),
             preset_hash=str(provenance_raw["preset_hash"]),
@@ -2192,7 +2198,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             # provider catalog became a sibling file has no stamp for it, and
             # the reader of an absent stamp simply draws no catalog note.
             providers_hash=str(provenance_raw.get("providers_hash") or ""),
-            deviation_marker=marker.strip(),
         )
 
     # A `config:` key present but empty — every entry commented out, say —

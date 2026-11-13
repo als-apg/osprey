@@ -949,7 +949,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
     write posture of every command, as it does every write. A command holds no
     setting, so there is nothing to re-read: the batch goes out as one
     ``write_multiple_channels`` call with ``confirm=False``, and every result
-    goes through :func:`~osprey_connectors.control_system.raise_for_write_result`.
+    goes through :func:`~osprey_connectors.control_system.raise_for_write_results`.
     The connector is the caller's own; nothing here reaches the sandbox's
     connector, target pin or validator.
 
@@ -990,7 +990,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         _notify_write,
         _phase_for_outcome,
     )
-    from osprey_connectors.control_system import raise_for_write_result
+    from osprey_connectors.control_system import raise_for_write_results
     from osprey_connectors.errors import (
         ChannelError,
         ChannelLimitsViolationError,
@@ -1040,12 +1040,11 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         if _phase_for_outcome(outcome) != _WRITE_PHASE_REFUSED
     ]
     try:
-        for result in results:
-            try:
-                raise_for_write_result(result)
-            except ChannelError as exc:
-                exc.commands_fired = fired
-                raise
+        try:
+            raise_for_write_results(results)
+        except ChannelError as exc:
+            exc.commands_fired = fired
+            raise
     except BaseException as exc:
         _audit(context, fired, exc)
         raise

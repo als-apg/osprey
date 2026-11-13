@@ -195,6 +195,11 @@ def resolve_config_path() -> Path:
          project directory, whose root *is* the render, and the path reported
          when nothing exists at all.
 
+    This is also where a lookup that names no config reads from
+    (:func:`osprey_connectors.config.get_config_value` and the connector
+    factory's no-argument forms), once ``CONFIG_FILE`` is ruled out, so a
+    process has one answer however it asks.
+
     ``CONFIG_FILE`` is deliberately NOT read here, even though
     :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it
     ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process

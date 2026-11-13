@@ -45,7 +45,7 @@ import { withPrefix } from './api.js';
 import { queryAllDocuments } from './attached-window.js';
 import { panelIdOf } from './dock-apply.js';
 import { managedIframe } from './dock-iframe.js';
-import { fmtBytes } from './session-helpers.js';
+import { formatBytes } from './activity-log-format.js';
 import { ARTIFACTS_BASE } from './sidebar-artifact-listing.js';
 import { titleOf } from './sidebar-artifact-rows.js';
 import { artifactOrigin, onOriginChange } from './artifact-origin.js';
@@ -92,7 +92,7 @@ export function headerItems(shown, { notice = false } = {}) {
   return [
     { kind: 'crumb', id: 'name', root: 'Artifact', leaf: titleOf(shown) },
     info,
-    typeof size === 'number' ? { ...download, title: `Download (${fmtBytes(size)})` } : download,
+    typeof size === 'number' ? { ...download, title: `Download (${formatBytes(size)})` } : download,
   ];
 }
 
@@ -196,7 +196,7 @@ export function infoContent(entry, dir, origin = null) {
   const created = createdOn(entry.timestamp);
   if (created) rows.push({ label: 'Created', value: created });
   if (typeof entry.size_bytes === 'number') {
-    rows.push({ label: 'Size', value: fmtBytes(entry.size_bytes) });
+    rows.push({ label: 'Size', value: formatBytes(entry.size_bytes) });
   }
   if (entry.filename) {
     rows.push({

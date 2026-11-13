@@ -754,7 +754,8 @@ The More menu
 
 **☰ More**, or a right-click on the sidebar footer, shows your user name and
 role at the top. It holds the theme
-(see :doc:`theming`), **Settings** and the tour.
+(see :doc:`theming`), **Settings**, the tour and the **Activity log**
+(see :ref:`agent-record-read-a-session`).
 
 .. _web-terminal-sign-out:
 

@@ -379,9 +379,8 @@ is the right time to do it, not now.
 
 ### Known follow-ups
 
-1. `<osprey-theme-switcher>` now has one consumer, `web_terminal`'s
-   `session.html`, plus `static/reference.html`. It stays a shipped component
-   for as long as that page mounts it.
+1. `<osprey-theme-switcher>` has no consumer but `static/reference.html`. It
+   stays a shipped component for as long as that page mounts it.
 
 Worth doing whenever the file is next open: reword the `var(--…)` prose in
 `components/osprey-theme-switcher.js`'s module docstring (line 52). That

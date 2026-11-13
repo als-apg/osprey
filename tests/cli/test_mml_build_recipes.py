@@ -312,7 +312,7 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     imported = import_facility(runner, repo, exports, facility_mapping(SOURCE))
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
-    validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
+    validate = invoke(runner, "validate", "--repo", str(repo))
     build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
@@ -376,7 +376,7 @@ def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
     imported = import_facility(runner, repo, exports, facility_mapping(fixture))
     invoke(runner, "set", "--repo", str(repo), NO_START_SET, *MIDDLE_LAYER_SETTINGS)
 
-    validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
+    validate = invoke(runner, "validate", "--repo", str(repo))
     stopped, remedied, build = build_past_the_seed_stops(
         runner, repo, responses=expected_response_lines(tree)
     )
