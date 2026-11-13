@@ -2,8 +2,9 @@
 
 A measurement kind's own view files are
 ``facts["measurement_models"][<model>]["kinds"][<kind>]["view_files"]``, each
-resolved by name in ``facts["measurement_models"][<model>]["files"]``; its own
-facts keys are ``facts.get("kinds", {}).get(<kind>, {})``.
+resolved by name in ``facts["measurement_models"][<model>]["files"]``; the facts
+its writer wrote for the model are
+``facts["measurement_models"][<model>]["kinds"][<kind>].get("facts", {})``.
 """
 
 from __future__ import annotations

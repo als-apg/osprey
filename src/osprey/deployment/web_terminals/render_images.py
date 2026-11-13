@@ -747,7 +747,7 @@ def verify_renders(
     *,
     serves_roster: bool = True,
 ) -> None:
-    """Check every referenced tier and app has a usable rendered project, or refuse.
+    """Check every referenced login has a usable rendered project, or refuse.
 
     Every render :func:`build_render_images` is about to build needs a
     rendered project on disk: its ``Dockerfile`` and ``config.yml`` are the
@@ -761,7 +761,7 @@ def verify_renders(
     render appearing at start time makes that account false exactly when it
     matters: the operator whose tier file changed would get a fresh tier standing
     beside a deployment rendered from the earlier profile. The drift gate
-    already refuses that start (the tier and app files are folded into the build
+    already refuses that start (the login files are folded into the build
     fingerprint), so the honest reading of a missing render is "this build is
     stale or partial", and the honest remedy is the one that replaces ``build/``
     whole.

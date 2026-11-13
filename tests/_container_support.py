@@ -110,6 +110,84 @@ def docker_cli_unavailable_reason_once() -> str | None:
     return docker_cli_unavailable_reason()
 
 
+class ContainerRuntimeNotAnswering(AssertionError):
+    """The container runtime, not the test, is why a Docker-backed fixture failed.
+
+    An ``AssertionError``, so it reports as the real failure it is: past a
+    module's ``skipif`` the runtime is known to exist, and one that stops
+    answering is a fact about the host that a skip would hide.
+    """
+
+
+def require_container_runtime(
+    probe: Callable[[], object] | None = None,
+    label: str = "the service",
+    *,
+    container: object | None = None,
+    deadline: float = DOCKER_CLI_PROBE_TIMEOUT,
+    service_timeout: float = 60.0,
+) -> None:
+    """The one readiness check every Docker-backed fixture passes before its first command.
+
+    Waits up to *deadline* for the runtime to answer ``docker info``. Given a
+    *probe* for a started service, it then waits for the service to accept a
+    connection (:func:`wait_until_ready`, with *container* for its liveness
+    and *service_timeout* as its quiet budget). A service that does not answer
+    while the runtime has stopped answering too is reported as the runtime's
+    failure, since the service's port is the runtime's forwarder.
+
+    The fixture's own commands after this carry no budget of their own (see
+    :func:`runtime_command`): a runtime that answered finishes a slow command,
+    and the per-test timeout breaks a hang.
+
+    Args:
+        probe: Zero-argument callable that raises until the service answers;
+            ``None`` when the fixture starts no service of its own yet.
+        label: The service's name in a failure.
+        container: The started container behind *probe*, when it is one.
+        deadline: Seconds ``docker info`` may take before the runtime is the failure.
+        service_timeout: Seconds the service may show no progress.
+
+    Raises:
+        ContainerRuntimeNotAnswering: The runtime did not answer within *deadline*.
+        AssertionError: The runtime answers and the service never did.
+    """
+    reason = docker_cli_unavailable_reason(timeout=deadline)
+    if reason is not None:
+        raise ContainerRuntimeNotAnswering(_runtime_failure(reason))
+    if probe is None:
+        return
+    try:
+        wait_until_ready(probe, label, timeout=service_timeout, container=container)
+    except AssertionError as exc:
+        reason = docker_cli_unavailable_reason(timeout=deadline)
+        if reason is None:
+            raise
+        raise ContainerRuntimeNotAnswering(
+            f"{_runtime_failure(reason)}; {label} did not answer meanwhile"
+        ) from exc
+
+
+def _runtime_failure(reason: str) -> str:
+    return f"the container runtime is the cause, not this test: {reason}"
+
+
+def runtime_command(*args: str, **kwargs: Any) -> subprocess.CompletedProcess:
+    """Run one ``docker`` CLI command of a fixture that passed :func:`require_container_runtime`.
+
+    No ``timeout``: the readiness check is the bound on a runtime that does not
+    answer, and a command on one that does ends on its own. A budget of the
+    command's own failed a healthy test whenever a loaded runtime was slow.
+
+    Args:
+        *args: The command after ``docker``, e.g. ``"rm", "-f", name``.
+        **kwargs: Passed to :func:`subprocess.run`.
+    """
+    if "timeout" in kwargs:
+        raise TypeError("runtime_command takes no timeout; require_container_runtime bounds it")
+    return subprocess.run(["docker", *args], **kwargs)
+
+
 def is_image_present(reference: str) -> bool:
     """Return True if a local image matching ``reference`` exists.
 
@@ -449,6 +527,23 @@ class ContainerExitedError(AssertionError):
     """
 
 
+class ForeignListenerError(AssertionError):
+    """Something other than the subject answered on the subject's published port.
+
+    A probe raises it when the reply is not the subject's protocol at all. On a
+    host where the container runtime forwards a port it chose inside its VM, a
+    process on the host can already hold that port on the loopback address, and
+    the host routes the probe to it rather than to the forwarder. The subject
+    may be up and healthy, but nothing reaches it on that port, so waiting
+    cannot help; like an exited container, only a fresh one, published on
+    another port, can come up differently.
+    """
+
+
+#: How a readiness wait that a foreign listener ended opens its ``ending``.
+_FOREIGN_ENDING = "a foreign listener answered on the published port"
+
+
 class RuntimeContainer:
     """A container known only by name, read through its runtime's CLI.
 
@@ -582,6 +677,8 @@ def wait_until_ready(
     Raises:
         ContainerExitedError: If the wait ended because *container* reached a
             terminal state. A subclass of ``AssertionError``.
+        ForeignListenerError: At once, re-raised with the wait's account, when
+            *probe* raises it: another process answers on the port.
         AssertionError: If no call succeeded before the wait ended for any
             other reason.
     """
@@ -601,7 +698,11 @@ def wait_until_ready(
             attempts += 1
             try:
                 probe()
-            except Exception as exc:  # any failure means "not ready yet"
+            except ForeignListenerError as exc:
+                last = exc
+                ending = _FOREIGN_ENDING
+                break
+            except Exception as exc:  # any other failure means "not ready yet"
                 last = exc
                 only_refusals = only_refusals and _is_refused_connection(exc)
             else:
@@ -626,8 +727,13 @@ def wait_until_ready(
                 break
             time.sleep(interval)
 
-        exited = ending.startswith(_EXITED_ENDING_PREFIX)
-        raise (ContainerExitedError if exited else AssertionError)(
+        if ending.startswith(_EXITED_ENDING_PREFIX):
+            failure: type[AssertionError] = ContainerExitedError
+        elif ending == _FOREIGN_ENDING:
+            failure = ForeignListenerError
+        else:
+            failure = AssertionError
+        raise failure(
             _readiness_failure(
                 label=label,
                 elapsed=time.monotonic() - started,
@@ -735,15 +841,22 @@ def _readiness_failure(
     while a subject that answered and kept refusing is the request the probe
     makes — most often its credentials.
     """
-    if only_refusals:
-        shape = "nothing ever listened on the port"
+    if ending == _FOREIGN_ENDING:
+        message = (
+            f"{label}: started, but never reached — {ending} after {elapsed:.1f}s "
+            f"and {attempts} attempt(s): its reply is not the subject's protocol, so "
+            f"another process on this host holds the port the runtime published."
+        )
     else:
-        shape = "something answered but would not serve the probe"
-    message = (
-        f"{label}: started, but never answered — {ending} after {elapsed:.1f}s "
-        f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
-        f"is a real failure, not a missing dependency."
-    )
+        if only_refusals:
+            shape = "nothing ever listened on the port"
+        else:
+            shape = "something answered but would not serve the probe"
+        message = (
+            f"{label}: started, but never answered — {ending} after {elapsed:.1f}s "
+            f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
+            f"is a real failure, not a missing dependency."
+        )
     if container is not None and ending.startswith(_EXITED_ENDING_PREFIX):
         message += _container_exit_detail(container)
     elif container is not None:

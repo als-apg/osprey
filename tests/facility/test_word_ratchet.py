@@ -15,6 +15,16 @@ matching anything fails, so the list only shrinks.
 
 The example deployment name that named a site (``SITE_EXAMPLE_WORD``) is a
 third token, scanned over the core text under ``SITE_SCAN_PATHS``.
+
+The phrase that named two login kinds (``RETIRED_TWO_KIND_PHRASE``) is a fourth
+token, scanned over the folded text of ``TWO_KIND_SCAN_PATHS``, so a wrapped
+phrase is found as an unwrapped one is. A file that must keep it is a
+``RETIRED_TWO_KIND_READERS`` row with its reason; an allowlist row that stops
+matching anything fails, so the list only shrinks.
+
+The phrase that called a built-in feature an app (``RETIRED_BUILT_IN_APP_PHRASE``)
+is a fifth token, scanned the same way over ``BUILT_IN_APP_SCAN_PATHS``, with
+``RETIRED_BUILT_IN_APP_READERS`` as its allowlist.
 """
 
 from __future__ import annotations
@@ -28,11 +38,81 @@ import pytest
 
 from tests._vocabulary import (
     ENGINE_WORDS,
+    RETIRED_BUILT_IN_APP_PHRASE,
     RETIRED_ROSTER_WORD,
+    RETIRED_TWO_KIND_PHRASE,
     SITE_EXAMPLE_WORD,
+    Phrase,
+    fold_lines,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# --- the fold a phrase row is matched over -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "folded"),
+    [
+        ("the tier\nor app", "the tier or app"),
+        ("# the tier\n# or app", "# the tier or app"),
+        ("    the tier\n    or app", "    the tier or app"),
+        ("// the tier\n  // or app", "// the tier or app"),
+        (" * the tier\n * or app", " * the tier or app"),
+        ("; the tier\n;or app", "; the tier or app"),
+        ("-- the tier\n-- or app", "-- the tier or app"),
+        (".. the tier\n.. or app", ".. the tier or app"),
+        ("> the tier\n> or app", "> the tier or app"),
+        ("| the tier\n| or app", "| the tier or app"),
+        ("\tthe tier\r\n\tor app", "\tthe tier or app"),
+    ],
+)
+def test_fold_lines_joins_a_wrapped_line(text: str, folded: str) -> None:
+    assert fold_lines(text).text == folded
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the tier\n\nAnd app",
+        "# the tier\n#\n# And app",
+        "the tier\n   \nAnd app",
+    ],
+)
+def test_fold_lines_keeps_a_break(text: str) -> None:
+    lines = [line for _, line in fold_lines(text).lines()]
+
+    assert len(lines) > 1
+    assert not any(re.search(r"tier\s+(?:And\s+)?app", line) for line in lines)
+
+
+@pytest.mark.parametrize("bullet", ["-", "+"])
+def test_fold_lines_keeps_a_list_bullet(bullet: str) -> None:
+    folded = fold_lines(f"{bullet} a tier\n{bullet} and an app")
+
+    assert folded.text == f"{bullet} a tier {bullet} and an app"
+    assert re.search(RETIRED_TWO_KIND_PHRASE, folded.text) is None
+
+
+def test_fold_lines_folds_one_prefix_only() -> None:
+    assert fold_lines("# the tier\n# # or app").text == "# the tier # or app"
+
+
+def test_fold_lines_maps_an_offset_to_its_original_line() -> None:
+    folded = fold_lines("one\n\n  # two\n  # three\nfour\n")
+
+    for word, line in [("one", 1), ("two", 3), ("three", 4), ("four", 5)]:
+        assert folded.line_at(folded.text.index(word)) == line
+    assert [line for _, line in folded.lines()] == ["one", "", "  # two three four", ""]
+    assert all(folded.text[start:].startswith(line) for start, line in folded.lines())
+
+
+def test_the_two_kind_row_is_a_phrase_and_the_word_rows_are_not() -> None:
+    assert isinstance(RETIRED_TWO_KIND_PHRASE, Phrase)
+    assert isinstance(RETIRED_BUILT_IN_APP_PHRASE, Phrase)
+    for row in (ENGINE_WORDS, RETIRED_ROSTER_WORD, SITE_EXAMPLE_WORD):
+        assert not isinstance(row, Phrase)
 
 
 def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
@@ -65,6 +145,7 @@ ENGINE_ZONES: dict[str, str] = {
     "src/osprey/facility/layers/**": "the importers author a model's wiring in its engine's words",
     "src/osprey/templates/**/data/**": "a shipped facility definition states its engine blocks",
     "src/osprey/templates/facilities/**": "a shipped facility definition states its engine blocks",
+    "src/osprey/apps/sdk/testing/**": "the SDK's synthetic facility trees state their engine blocks",
     "src/osprey/interfaces/lattice_dashboard/state.py": "walks the pyAT elements of a deck",
     "src/osprey/interfaces/lattice_dashboard/workers/**": "walk the pyAT elements of a deck",
     "src/osprey/mcp_server/phoebus/tools/databrowser_tools.py": "Phoebus's own plot axis key",
@@ -300,3 +381,249 @@ def test_a_planted_site_example_is_flagged(tmp_path: Path) -> None:
 
 def test_no_core_text_names_the_site_example() -> None:
     assert site_example_hits(REPO_ROOT) == []
+
+
+# --- the retired two-kind phrase --------------------------------------------------
+
+#: The core text the phrase never enters.
+TWO_KIND_SCAN_PATHS: tuple[str, ...] = ("src", "docs/source", "plugins")
+
+#: Where the phrase stays for good, each with why.
+RETIRED_TWO_KIND_READERS: dict[str, str] = {}
+
+
+def phrase_hits(root: Path, phrase: Phrase, pathspecs: list[str]) -> list[str]:
+    """Every tracked text file's ``path:line`` where *phrase* starts in its folded text.
+
+    ``git grep`` reads one line at a time, so the files are listed by git and
+    each is folded and matched here. A file that is not text is skipped, as
+    ``git grep -I`` skips it; hits starting on one line are one entry.
+    """
+    paths = subprocess.run(
+        ["git", "ls-files", "-z", "--", *pathspecs],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    hits: set[str] = set()
+    for path in filter(None, paths):
+        file = root / path
+        if not file.is_file():
+            continue
+        data = file.read_bytes()
+        if b"\0" in data[:8000]:
+            continue
+        folded = fold_lines(data.decode("utf-8", errors="replace"))
+        for offset, line in folded.lines():
+            for match in re.finditer(phrase, line):
+                hits.add(f"{path}:{folded.line_at(offset + match.start())}")
+    return sorted(hits)
+
+
+def two_kind_phrase_hits(
+    root: Path, allowed: Mapping[str, str] = RETIRED_TWO_KIND_READERS
+) -> list[str]:
+    """Every ``path:line`` under ``TWO_KIND_SCAN_PATHS`` naming the two-kind phrase."""
+    excludes = [f":(exclude,glob){glob}" for glob in allowed]
+    return phrase_hits(root, RETIRED_TWO_KIND_PHRASE, [*TWO_KIND_SCAN_PATHS, *excludes])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a tier or app file",
+        "every Tier and App render",
+        "the tiers and apps its roster names",
+        "tiers or apps share a project",
+        "a tier and an app are",
+        "one per tier/app",
+        "Tier, app and image renders",
+        "TIER OR APP",
+    ],
+)
+def test_two_kind_phrase_finds_the_phrase(text: str) -> None:
+    assert re.search(RETIRED_TWO_KIND_PHRASE, text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the login's tier",
+        "an app's panel",
+        "tiers, apps, and secrets",
+        "tier and application",
+        "tiers/ and apps/ folders",
+        "tiers, apps = _roster_layers(config)",
+        "the tier and write switch",
+        "framework artifacts, tiers, apps and secrets",
+        "data, tiers, apps and watchdogs",
+    ],
+)
+def test_two_kind_phrase_leaves_other_words(text: str) -> None:
+    assert re.search(RETIRED_TWO_KIND_PHRASE, text) is None
+
+
+def test_a_planted_two_kind_phrase_is_flagged(tmp_path: Path) -> None:
+    line = "names the tier or app file\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/x.py": line,
+            "docs/source/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "docs/other/x.md": line,
+            "tests/x.py": line,
+            "CHANGELOG.md": line,
+            "src/clean.py": "# the login's tier; an app's panel\n",
+            # Wrapped across lines, each reported at the line the phrase starts on.
+            "src/comment.py": "x = 1\n# names the tier\n# or app file\n",
+            "src/docstring.py": 'def f():\n    """Names the tier\n    or app file."""\n',
+            "docs/source/paragraph.rst": "Intro.\n\nEach tier\nor app file is built.\n",
+            "docs/source/directive.rst": ".. note::\n\n   Each tier\n   and app render.\n",
+            "plugins/x/quote.md": "> names the tier\n> or app file\n",
+            "src/block.js": "/**\n * names the tier\n * or app file\n */\n",
+            "src/comment.yaml": "# names the tier\n# or app file\nkey: 1\n",
+            "src/twice.py": "# tier or app; tier\n# or app\n",
+            # Broken by a blank line or a list bullet: stays clean.
+            "docs/source/break.rst": "The tier\n\nAnd app files are built.\n",
+            "plugins/x/list.md": "Kinds:\n\n- a tier\n- and an app\n",
+        },
+    )
+
+    assert two_kind_phrase_hits(root) == [
+        "docs/source/directive.rst:3",
+        "docs/source/paragraph.rst:3",
+        "docs/source/x.rst:1",
+        "plugins/x/SKILL.md:1",
+        "plugins/x/quote.md:1",
+        "src/block.js:2",
+        "src/comment.py:2",
+        "src/comment.yaml:1",
+        "src/docstring.py:2",
+        "src/twice.py:1",
+        "src/x.py:1",
+    ]
+
+
+def test_no_core_text_names_the_two_kind_phrase() -> None:
+    assert two_kind_phrase_hits(REPO_ROOT) == []
+
+
+def test_every_two_kind_allowlist_entry_still_matches() -> None:
+    hit_paths = {hit.rsplit(":", 1)[0] for hit in two_kind_phrase_hits(REPO_ROOT, allowed={})}
+    stale = []
+    for glob in RETIRED_TWO_KIND_READERS:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+# --- the retired built-in-app phrase ----------------------------------------------
+
+#: The core text the phrase never enters.
+BUILT_IN_APP_SCAN_PATHS: tuple[str, ...] = ("src/osprey", "docs/source", "plugins")
+
+#: Where the phrase stays for good, each with why.
+RETIRED_BUILT_IN_APP_READERS: dict[str, str] = {}
+
+
+def built_in_app_phrase_hits(
+    root: Path, allowed: Mapping[str, str] = RETIRED_BUILT_IN_APP_READERS
+) -> list[str]:
+    """Every ``path:line`` under ``BUILT_IN_APP_SCAN_PATHS`` calling a built-in an app."""
+    excludes = [f":(exclude,glob){glob}" for glob in allowed]
+    return phrase_hits(root, RETIRED_BUILT_IN_APP_PHRASE, [*BUILT_IN_APP_SCAN_PATHS, *excludes])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the channel-finder app runs",
+        "the Channel Finder app",
+        "the shipped ARIEL app",
+        "for the logbook app",
+        "the knowledge app is the graph",
+        "the Bluesky app",
+        "the bundled logbook, knowledge and channel-finder apps",
+        "the knowledge and logbook apps",
+        "LOGBOOK APP",
+    ],
+)
+def test_built_in_app_phrase_finds_the_phrase(text: str) -> None:
+    assert re.search(RETIRED_BUILT_IN_APP_PHRASE, text) is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "the channel finder reads it",
+        "the channel-finder login",
+        "the logbook login's render",
+        '<div class="app-container" id="ariel-app">',
+        "the bluesky-app fixture",
+        "knowledge-app-mcp",
+        "Create the Channel Finder FastAPI application",
+        "the logbook application",
+        "an app's panel",
+        "the knowledge graph app",
+    ],
+)
+def test_built_in_app_phrase_leaves_other_words(text: str) -> None:
+    assert re.search(RETIRED_BUILT_IN_APP_PHRASE, text) is None
+
+
+def test_a_planted_built_in_app_phrase_is_flagged(tmp_path: Path) -> None:
+    line = "the channel-finder app reads it\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/osprey/x.py": line,
+            "docs/source/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "src/other/x.py": line,
+            "docs/other/x.md": line,
+            "tests/x.py": line,
+            "changelog.d/x.changed.md": line,
+            "src/osprey/clean.py": "# the channel finder; the channel-finder login\n",
+            "src/osprey/ident.html": '<div id="ariel-app"></div>\n',
+            # Wrapped across lines, reported at the line the phrase starts on.
+            "src/osprey/comment.py": "x = 1\n# the shipped ARIEL\n# app ingests\n",
+            "docs/source/paragraph.rst": "Intro.\n\nThe bundled logbook and knowledge\napps are built.\n",
+        },
+    )
+
+    assert built_in_app_phrase_hits(root) == [
+        "docs/source/paragraph.rst:3",
+        "docs/source/x.rst:1",
+        "plugins/x/SKILL.md:1",
+        "src/osprey/comment.py:2",
+        "src/osprey/x.py:1",
+    ]
+
+
+def test_no_core_text_calls_a_built_in_an_app() -> None:
+    assert built_in_app_phrase_hits(REPO_ROOT) == []
+
+
+def test_every_built_in_app_allowlist_entry_still_matches() -> None:
+    hit_paths = {hit.rsplit(":", 1)[0] for hit in built_in_app_phrase_hits(REPO_ROOT, allowed={})}
+    stale = []
+    for glob in RETIRED_BUILT_IN_APP_READERS:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"

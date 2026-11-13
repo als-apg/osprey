@@ -32,18 +32,108 @@ import yaml
 
 from osprey.utils.tool_rules import matches_denylist
 
-_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+#: Where the block opens and closes: ``---``, trailing spaces or tabs found here so that
+#: ``_unreadable_frontmatter`` refuses a delimiter that is not exactly ``---``.
+_DELIMITER_RE = re.compile(r"---[ \t]*")
+
+
+def _normalised_text(path: Path) -> str:
+    """The file's text with a leading byte-order mark dropped and ``\\r\\n`` folded to ``\\n``.
+
+    A lone ``\\r`` stays in its line, so the check sees the characters the copy carries.
+    """
+    text = path.read_bytes().decode("utf-8").removeprefix("\ufeff")
+    return text.replace("\r\n", "\n")
+
+
+def _frontmatter_lines(md_text: str) -> tuple[list[str], bool] | None:
+    """The lines inside the frontmatter block, and whether a delimiter line closes it.
+
+    The block opens on a first line that is a delimiter and closes on the next line
+    that is one (the close may end the file), as Claude Code reads it. ``None`` when
+    the text opens no block.
+    """
+    lines = md_text.split("\n")
+    if not _DELIMITER_RE.fullmatch(lines[0]):
+        return None
+    for index, line in enumerate(lines[1:], start=1):
+        if _DELIMITER_RE.fullmatch(line):
+            return lines[1:index], True
+    return lines[1:], False
+
+
+def _frontmatter_head_length(md_text: str) -> int | None:
+    """Where the closing delimiter line starts, or ``None`` when no block is closed.
+
+    ``md_text[:n]`` is the opening line and the block, each line ending ``\\n``.
+    """
+    block = _frontmatter_lines(md_text)
+    if block is None or not block[1]:
+        return None
+    opening = md_text.split("\n", 1)[0]
+    return len(opening) + 1 + sum(len(line) + 1 for line in block[0])
 
 
 def _parse_frontmatter(md_text: str) -> dict[str, Any] | None:
-    m = _FRONTMATTER_RE.match(md_text)
-    if not m:
+    block = _frontmatter_lines(md_text)
+    if block is None or not block[1]:
         return None
     try:
-        data = yaml.safe_load(m.group(1))
+        data = yaml.safe_load("\n".join(block[0]))
     except yaml.YAMLError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def _loose_delimiter(line: str) -> bool:
+    """Whether a looser reader could take *line* for a delimiter.
+
+    True for a line that starts with ``---`` once a byte-order mark is dropped, or that
+    is ``---`` once any Unicode whitespace (a no-break space, a form feed) is stripped.
+    """
+    return line.removeprefix("\ufeff").startswith("---") or line.strip() == "---"
+
+
+#: The characters ``str.splitlines()`` breaks a line on, besides the newline itself.
+_OTHER_LINE_BREAKS = frozenset("\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+
+
+def _opens_after_stripping(md_text: str) -> bool:
+    """Whether the text starts with ``---`` once leading whitespace and marks are dropped.
+
+    A reader that strips the file first (Unicode whitespace, blank lines, byte-order
+    marks) opens a block there.
+    """
+    start = 0
+    while start < len(md_text) and (md_text[start].isspace() or md_text[start] == "\ufeff"):
+        start += 1
+    return md_text.startswith("---", start)
+
+
+def _unreadable_frontmatter(md_text: str) -> bool:
+    """Whether the text opens a frontmatter block a reader could take differently.
+
+    True when a looser reader opens a block (after stripping the text first) but the
+    delimiter rule does not open one on the first line, when no delimiter line closes
+    the block, when a line inside it a looser reader would close on (one starting with
+    ``---``, or ``---`` after a Unicode strip) hides the keys after it, when the block
+    holds a line break other than the newline (a reader splitting on it sees other
+    lines), when a delimiter line is not exactly ``---`` (a reader that takes only that
+    line closes elsewhere), or when the block is not a YAML mapping. A caller that
+    copies the file on refuses it.
+    """
+    block = _frontmatter_lines(md_text)
+    if block is None:
+        return _opens_after_stripping(md_text)
+    lines, closed = block
+    if not closed or any(_loose_delimiter(line) for line in lines):
+        return True
+    all_lines = md_text.split("\n")
+    if all_lines[0] != "---" or all_lines[len(lines) + 1] != "---":
+        return True
+    if any(char in _OTHER_LINE_BREAKS for line in lines for char in line):
+        return True
+    return _parse_frontmatter(md_text) is None
 
 
 def _split_tools(value: Any) -> list[str]:
@@ -99,7 +189,13 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
 
     errors: list[str] = []
     for md_file in sorted(agents_dir.glob("*.md")):
-        text = md_file.read_text(encoding="utf-8")
+        text = _normalised_text(md_file)
+        if _unreadable_frontmatter(text):
+            errors.append(
+                f"agent file {md_file.name}: the frontmatter does not parse as a YAML mapping "
+                "closed by a line that is exactly ---"
+            )
+            continue
         fm = _parse_frontmatter(text)
         if not fm:
             continue
@@ -139,7 +235,7 @@ def agent_file_models(agents_dir: Path) -> dict[str, str | None]:
         return {}
     models: dict[str, str | None] = {}
     for md_file in sorted(agents_dir.glob("*.md")):
-        fm = _parse_frontmatter(md_file.read_text(encoding="utf-8")) or {}
+        fm = _parse_frontmatter(_normalised_text(md_file)) or {}
         model = fm.get("model")
         models[md_file.stem] = None if model is None else str(model)
     return models

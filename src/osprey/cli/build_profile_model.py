@@ -319,8 +319,8 @@ def project_name_errors(project_name: Any) -> list[str]:
 def render_key_errors(config: Any) -> list[str]:
     """Refuse a profile that spells the render projection the build derives.
 
-    ``modules.web_terminals.renders`` is the build's account of every tier and
-    app it renders — each entry's ``kind``, ``project`` and ``project_path``
+    ``modules.web_terminals.renders`` is the build's account of every login
+    it renders — each entry's ``kind``, ``project`` and ``project_path``
     derived from the file's location and the top-level ``project_name:``
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
     its ``extra_mounts``, ``seed_base`` and ``image`` read from the file's top
@@ -432,7 +432,7 @@ class BuildProfile:
     models, decks, seeds, limits, scenarios) from that directory and only the
     deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``)
     from ``<data>/facility``. Unset, ``<data>/facility`` plays both roles, as
-    for every deployment before the key existed. Root-only: a tier or app may
+    for every deployment before the key existed. Root-only: a login may
     not restate it, because the machine a deployment drives is deployment-wide.
     :meth:`validate` checks only that it is a non-empty string; the location
     itself is checked by :meth:`resolved_facility_roots`, which build,
@@ -651,44 +651,57 @@ class BuildProfile:
     def _validate_apps(self, profile_dir: Path) -> list[str]:
         """Return validation errors for the ``apps:`` block, closed against the manifests.
 
-        Every listed name must be an application under ``apps/<name>/``, every
-        ``services.<key>`` one of that application's containers, and every axis
-        value well-formed.
+        Every listed name must be an application under ``apps/<name>/`` or one an
+        installed package declares (:mod:`osprey.apps.origin`), every
+        ``services.<key>`` one of that application's containers, every axis
+        value well-formed, and ``config`` set only for an application with a
+        container, the one part that reads it.
 
         Args:
             profile_dir: The profile root, whose ``apps/`` holds the applications.
 
         Returns:
             Human-readable error messages; empty when the block is valid.
+
+        Raises:
+            AppManifestError: A listed application's manifest is refused; :meth:`validate`
+                keeps its violations whole, so each is printed with its rule as
+                ``osprey app check`` prints it, never folded into a profile error.
         """
         if not self.apps:
             return []
-        from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import MANIFEST_FILE
         from osprey.apps.loader import load as load_apps
+        from osprey.apps.origin import installed_apps
 
         from .application_material import application_dirs
 
-        try:
-            manifests = {m.name: m for m in load_apps(profile_dir, self.apps)}
-        except AppManifestError as exc:
-            return [f"apps: {exc}"]
+        installed = installed_apps()
+        manifests = {m.name: m for m in load_apps(profile_dir, self.apps, installed=installed)}
 
         errors: list[str] = []
         dirs = application_dirs(profile_dir)
-        known = ", ".join(d.name for d in dirs if (d / MANIFEST_FILE).is_file()) or "none"
+        found = [d.name for d in dirs if (d / MANIFEST_FILE).is_file()]
+        known = ", ".join(sorted({*found, *installed})) or "none"
         for name, entry in sorted(self.apps.items()):
             manifest = manifests.get(name)
             if manifest is None:
                 errors.append(
-                    f"apps.{name} names no application: there is no apps/{name}/app.yml "
-                    f"(applications here: {known})."
+                    f"apps.{name} names no application: there is no apps/{name}/app.yml and "
+                    f"no installed package declares one (applications here: {known})."
                 )
                 continue
+            if entry.access is not None:
+                errors.extend(self._app_access_errors(name, entry.access))
+            if entry.config and not manifest.containers:
+                errors.append(
+                    f"apps.{name}.config is read by no part of {name}: its app.yml declares "
+                    "no container, and only a container is handed the config."
+                )
             for key, axes in sorted(entry.services.items()):
                 where = f"apps.{name}.services.{key}"
                 if key not in manifest.containers:
-                    containers = ", ".join(sorted(manifest.containers))
+                    containers = ", ".join(sorted(manifest.containers)) or "none"
                     errors.append(
                         f"{where} names no container of {name}: its app.yml declares {containers}."
                     )
@@ -771,6 +784,29 @@ class BuildProfile:
                 ),
             )
         return FacilityRoots(machine=machine, content=content)
+
+    def _app_access_errors(self, name: str, access: Any) -> list[str]:
+        """Why ``apps.<name>.access`` cannot be read, through the roster's one parser.
+
+        Args:
+            name: The application's name.
+            access: The authored value.
+
+        Returns:
+            One message naming the login, the application and the value, or none.
+        """
+        from osprey.deployment.web_terminals.roster import (
+            APP_ENTRY_KIND,
+            resolve_access_principals,
+        )
+
+        try:
+            resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "login": self.name, "access": access}
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        return []
 
     def _is_known_panel_id(self, pid: str, app_panels: Collection[str] = ()) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
@@ -1145,7 +1181,7 @@ class BuildProfile:
     def _runs_the_channel_finder(self) -> bool:
         """Whether this profile keeps the channel-finder MCP server switched on.
 
-        A tier or app narrows the deployment it is rendered from by switching
+        A login narrows the deployment it is rendered from by switching
         servers off in its ``config:`` overlay, and one of them takes the whole
         channel finder — server, tools and subagent — out of that render. Such a
         layer still inherits ``channel_finder_mode`` from the root profile,
@@ -1918,7 +1954,13 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
-        errors.extend(self._validate_apps(profile_dir))
+        from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation
+
+        refused: tuple[Violation, ...] = ()
+        try:
+            errors.extend(self._validate_apps(profile_dir))
+        except AppManifestError as manifest_refusal:
+            refused = manifest_refusal.violations
 
         if (
             self.channel_finder_mode is not None
@@ -2495,6 +2537,8 @@ class BuildProfile:
                 )
             )
 
+        if refused:
+            raise AppsRefusedError(refused, errors)
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)

@@ -20,6 +20,12 @@
  * icon, description, endpoints), the page stamps those descriptors on <html>,
  * and this module builds one descriptor per entry.
  *
+ * An application panel reaches the browser as a custom def of /api/panels,
+ * which panel-manager.js turns into a catalog entry with {@link customPanelEntry}.
+ * Its tooltip and help page are the def's own, declared in the application's
+ * manifest, under the same names a sidecar descriptor uses; its glyph travels
+ * with every other configured glyph, in the page's icon stamp.
+ *
  * The sidebar shows each label in title case ({@link titleCase}) and each
  * panel with an icons.js glyph ({@link panelIconName}). A deployment names a
  * built-in panel its own way, and picks any panel's glyph, in `web.panels.<id>`
@@ -37,8 +43,9 @@ import { ICON_NAMES } from '/design-system/js/icons.js';
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
  * @property {string} [startEndpoint] - POST target that starts a failed sidecar again
- * @property {string} [icon] - icons.js glyph the registry names for a sidecar panel
- * @property {string} [description] - tooltip sentence the registry gives a sidecar panel
+ * @property {string} [icon] - icons.js glyph a sidecar's registry entry names
+ * @property {string} [description] - tooltip sentence of a sidecar or application panel
+ * @property {string} [help] - an application panel's help page: docs-root-relative, or an https:// URL
  */
 
 /** Sidebar id of the Agent pane (the terminal/chat tile). NOT a service panel:
@@ -116,10 +123,46 @@ function sidecarPanels() {
 }
 
 /**
+ * The catalog entry of a custom panel /api/panels answers with: a
+ * config-defined one (an application's panel among them) or a runtime-registered
+ * one. The def's `description` and `help` are carried when they are non-empty
+ * strings.
+ * @param {{ id: string, label?: string, healthEndpoint?: string | null, path?: string,
+ *   description?: unknown, help?: unknown }} def
+ * @returns {Panel}
+ */
+export function customPanelEntry(def) {
+  /** @type {Panel} */
+  const panel = {
+    id: def.id,
+    label: titleCase(def.label || def.id.toUpperCase()),
+    configEndpoint: null,
+    healthEndpoint: def.healthEndpoint, // null = skip health polling
+    path: def.path || '/', // subpath for iframe (e.g. "/panel/")
+  };
+  const description = stringOr(def.description, null);
+  if (description) panel.description = description;
+  const help = stringOr(def.help, null);
+  if (help) panel.help = help;
+  return panel;
+}
+
+/**
+ * The catalog entry for a panel id: the live roster's first, then the
+ * page's sidecar descriptors (which the roster may have filtered out).
+ * @param {string} id
+ * @returns {Panel | undefined}
+ */
+export function panelEntry(id) {
+  return PANELS.find((p) => p.id === id) ?? SIDECAR_PANELS.find((p) => p.id === id);
+}
+
+/**
  * The icons.js glyph of each known companion panel's sidebar row. A sidecar
- * panel's glyph is its registry entry's; a panel named in neither place (a
- * custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON} unless
- * its config block names one.
+ * panel's glyph is its registry entry's; an application panel's is the one its
+ * manifest names, which reaches the page as that panel's `web.panels.<id>.icon`;
+ * a panel named in none of these places (another custom or runtime-registered
+ * one) wears {@link FALLBACK_PANEL_ICON} unless its config block names one.
  * @type {Readonly<Record<string, string>>}
  */
 export const PANEL_ICONS = Object.freeze({
@@ -171,23 +214,27 @@ function configuredIcons() {
 const CONFIGURED_ICONS = configuredIcons();
 
 /**
- * The icons.js name for a panel's sidebar row: the deployment's own choice
- * (`web.panels.<id>.icon`) for any panel, else the panel's own glyph.
+ * The icons.js name for a panel's sidebar row: the glyph `web.panels.<id>.icon`
+ * names for any panel (a deployment's own choice, or an application manifest's),
+ * else the panel's own glyph. A sidecar glyph icons.js does not draw wears
+ * {@link FALLBACK_PANEL_ICON}.
  * @param {string} id
  * @returns {string}
  */
 export function panelIconName(id) {
   if (Object.hasOwn(CONFIGURED_ICONS, id)) return CONFIGURED_ICONS[id];
   const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
-  if (sidecar) return sidecar.icon ?? FALLBACK_PANEL_ICON;
+  if (sidecar) {
+    return sidecar.icon && ICON_NAMES.includes(sidecar.icon) ? sidecar.icon : FALLBACK_PANEL_ICON;
+  }
   return Object.hasOwn(PANEL_ICONS, id) ? PANEL_ICONS[id] : FALLBACK_PANEL_ICON;
 }
 
 /**
  * One plain sentence per known companion panel, shown as the explanatory line
- * of its sidebar tooltip. A sidecar panel's sentence is its registry entry's;
- * a panel named in neither place (a custom or runtime-registered one) has no
- * description, and its tooltip stays a bare label.
+ * of its sidebar tooltip. A sidecar or application panel's sentence is its own
+ * entry's; a panel named in none of these places (another custom or
+ * runtime-registered one) has no description, and its tooltip stays a bare label.
  * @type {Readonly<Record<string, string>>}
  */
 export const PANEL_DESCRIPTIONS = Object.freeze({
@@ -208,8 +255,9 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
  * @returns {string | null} `null` when the panel has no description
  */
 export function describePanel(id) {
-  const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
-  if (sidecar) return sidecar.description ?? null;
+  const entry = panelEntry(id);
+  if (entry?.description) return entry.description;
+  if (SIDECAR_PANELS.some((p) => p.id === id)) return null;
   return Object.hasOwn(PANEL_DESCRIPTIONS, id) ? PANEL_DESCRIPTIONS[id] : null;
 }
 

@@ -251,7 +251,7 @@ dependencies = [
     # the same `pyaml/` package directory, so this one is never installed beside
     # accelerator-middle-layer. String-equal to the pin in
     # packages/pyaml-cs-osprey/pyproject.toml (a test holds them together).
-    "accelerator-middle-layer-apg==0.3.1.post1",
+    "accelerator-middle-layer-apg==0.3.1.post2",
     # pySC, the measurement engine pyAML's tuning tools drive.
     "accelerator-commissioning==1.5.3",
 ]
@@ -502,6 +502,11 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 # operator's terminal. Pinned by tests/cli/test_main.py::TestConsoleScriptWiring.
 osprey = "osprey.cli.main:main"
 
+# The fixtures an application's own test suite gets by installing the framework:
+# synthetic_deployment and rendered_tree (osprey.apps.sdk.testing).
+[project.entry-points.pytest11]
+osprey_apps = "osprey.apps.sdk.testing.pytest_plugin"
+
 # Built-in trigger sources for the event dispatcher, discovered by
 # osprey.dispatch.source_registry.SourceRegistry at startup.
 [project.entry-points."osprey.trigger_sources"]
@@ -514,6 +519,15 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 [project.entry-points."osprey.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
 injection = "osprey.simulation.engines.injection"
+
+# Measurement kinds, each entry naming its KindDeclaration; a facility build
+# reaches a kind only through this group. The five below are the built-in ones.
+[project.entry-points."osprey.facility.kinds"]
+orm = "osprey.facility.kinds:ORM"
+dispersion = "osprey.facility.kinds:DISPERSION"
+trm = "osprey.facility.kinds:TRM"
+crm = "osprey.facility.kinds:CRM"
+chromaticity_monitor = "osprey.facility.kinds:CHROMATICITY_MONITOR"
 
 # Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
@@ -537,7 +551,7 @@ injection = "osprey.simulation.engines.injection"
 # package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-11-11T00:00:00Z", accelerator-middle-layer-apg = "2026-10-11T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-11-11T00:00:00Z", accelerator-middle-layer-apg = "2026-10-17T00:00:00Z" }
 # soupsieve 3+ needs Python 3.11.5. Without these floors, the lock's Python 3.11.0–3.11.4
 # fork keeps the newest soupsieve preference and backs beautifulsoup4 (via nbconvert) off to
 # 4.6.3 from 2018 instead; with them, that fork takes soupsieve 2.10 and a current bs4.
@@ -958,6 +972,9 @@ allowed_importers = [
     "osprey.cli.build_cmd",
     "osprey.cli.build_injectors",
     "osprey.cli.build_profile_model",
+    # `osprey set` refuses an agent pin before writing it exactly as the build
+    # would, so it reads the application agents the build accepts.
+    "osprey.cli.set_cmd",
 ]
 
 [[tool.importlinter.contracts]]
@@ -1085,6 +1102,7 @@ ignore_imports = [
     # `_ARIEL_DRAFTS` and `SCANNED_PACKAGES` name `osprey.interfaces.ariel`.
     # simulation scenario
     "osprey.cli.sim -> osprey.services.ariel_search.cli_operations",
+    "osprey.cli.sim -> osprey.services.ariel_search.exceptions",
     "osprey.simulation.apply -> osprey.services.ariel_search.cli_operations",
     "osprey.simulation.apply -> osprey.services.ariel_search.entry_url",
     "osprey.simulation.apply -> osprey.services.ariel_search.exceptions",

@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Iterable, Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -64,6 +64,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
+    from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
     from osprey.cli.build_profile import (
@@ -630,6 +631,7 @@ def project_app_login(
     manifests: Iterable[AppManifest],
     ports: Mapping[str, Any],
     selection: LoginSelection,
+    agents: Mapping[str, Sequence[AppAgent]] | None = None,
 ) -> tuple[list[str], dict[str, McpServerDef]]:
     """Write what one login's render carries of its applications into ``config.yml``.
 
@@ -638,12 +640,13 @@ def project_app_login(
         manifests: The deployment's validated manifests.
         ports: A config holding each projected ``services.<key>.port``.
         selection: This render's selection.
+        agents: Each application's checked subagents, by application name.
 
     Returns:
         The panel ids this render adds to its own selection, and its projected
         tool servers, for the caller's panel selection and server persistence.
     """
-    projected = project_login(manifests, ports, selection)
+    projected = project_login(manifests, ports, selection, agents=agents)
     overrides: dict[str, Any] = {
         f"web.panels.{pid}": block for pid, block in projected["web"]["panels"].items()
     }

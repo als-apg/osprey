@@ -2530,16 +2530,24 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
   async function bootResync() {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    const server = { visible: ['artifacts', 'ariel'] };
+    /** `held`, when set, keeps a read's answer back after the server has made it. */
+    const server = {
+      visible: ['artifacts', 'ariel'],
+      /** @type {Promise<void> | null} */ held: null,
+      reads: 0,
+    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async (/** @type {string} */ url) => {
         if (url === '/api/panels') {
+          server.reads += 1;
+          const visible = [...server.visible];
+          if (server.held) await server.held;
           return jsonOk({
             enabled: ['artifacts', 'ariel'],
             custom: [],
             default: null,
-            visible: [...server.visible],
+            visible,
             active: null,
             labels: {},
           });
@@ -2554,12 +2562,14 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
       })
     );
 
-    /** @type {{ onopen?: (() => void) | null }[]} */
+    /** @type {{ onopen?: (() => void) | null, onmessage?: ((e: {data: string}) => void) | null }[]} */
     const sources = [];
     class FakeEventSource {
       constructor() {
         /** @type {(() => void) | null} */
         this.onopen = null;
+        /** @type {((e: {data: string}) => void) | null} */
+        this.onmessage = null;
         sources.push(this);
       }
       close() {}
@@ -2573,6 +2583,10 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
       server,
       open: () => {
         for (const s of sources) s.onopen?.();
+      },
+      /** @param {object} frame */
+      emit: (frame) => {
+        for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) });
       },
     };
   }
@@ -2603,6 +2617,32 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
     open();
 
     await settled(() => expect(entry('ariel')).not.toBeNull());
+  });
+
+  test('a hide that overtakes the read made on reconnect is not undone by it', async () => {
+    const { mod, server, open, emit } = await bootResync();
+    /** @type {() => void} */
+    let release = () => {};
+    server.held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const before = server.reads;
+    open();
+    await settled(() => expect(server.reads).toBe(before + 1));
+
+    // The server answered with ariel on the rail, then ariel was hidden: the
+    // frame reaches the page first, the older answer after it.
+    server.visible = ['artifacts'];
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    expect(entry('ariel')).toBeNull();
+    server.held = null;
+    release();
+
+    // The page reads the list again rather than applying the older answer.
+    await settled(() => expect(server.reads).toBe(before + 2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(entry('ariel')).toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id)).toContain('ariel');
   });
 
   test('an in-sync reconnect changes nothing', async () => {

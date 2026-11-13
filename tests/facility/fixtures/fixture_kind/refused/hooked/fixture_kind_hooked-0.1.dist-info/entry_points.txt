@@ -1,0 +1,2 @@
+[osprey.facility.kinds]
+hooked_kind = fixture_kind_hooked:HOOKED

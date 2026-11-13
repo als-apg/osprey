@@ -92,7 +92,7 @@ reasoning over results delegated to the OSPREY agent layer.
 
          The easiest way to get started is to create a new project from the
          ``demo`` template, which includes ARIEL pre-configured
-         and ships the logbook app on a shared card:
+         and ships the logbook login on a shared card:
 
          .. code-block:: bash
 

@@ -70,7 +70,7 @@ do not attempt their work with your own tools.
   Documented vs. computed: a value that is simply *documented* — a nominal tune, a design beta, terminology — comes from **facility-knowledge** (it wins when the knowledge bundle has the value). Anything that must be *computed* on the lattice model goes to **pyat-specialist**.
 {% endif -%}
 {%- for a in agents if a.enabled and a.name not in in_core_agents %}
-- **{{ a.name }}** — {{ a.description }}
+- **{{ a.name }}** — {{ a.delegation | indent(2) if a.delegation else a.description }}
 {%- endfor %}
 
 {% if "pv-directory" in enabled_servers | default([]) -%}

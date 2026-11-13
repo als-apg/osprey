@@ -181,6 +181,32 @@ def test_an_existing_directory_is_refused_without_force(
     assert (lifecycle_repo / "profile.yml").read_text(encoding="utf-8") == profile
 
 
+@pytest.mark.parametrize("force", [(), ("--force",)], ids=["plain", "force"])
+def test_an_installed_applications_name_is_refused_before_anything_is_written(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    force: tuple[str, ...],
+) -> None:
+    from tests.apps import _installed
+
+    _installed.install(monkeypatch)
+    profile = (lifecycle_repo / "profile.yml").read_text(encoding="utf-8")
+    gitignore = (lifecycle_repo / ".gitignore").read_text(encoding="utf-8")
+
+    result = _new(runner, lifecycle_repo, _installed.NAME, *force)
+
+    assert result.exit_code != 0
+    assert (
+        f"apps/{_installed.NAME}/ has the name of the application {_installed.NAME} that "
+        f"{_installed.DIST} {_installed.VERSION} installs; rename the directory and its "
+        "app.yml name"
+    ) in " ".join(result.output.split())
+    assert not (lifecycle_repo / "apps" / _installed.NAME).exists()
+    assert (lifecycle_repo / "profile.yml").read_text(encoding="utf-8") == profile
+    assert (lifecycle_repo / ".gitignore").read_text(encoding="utf-8") == gitignore
+
+
 def test_force_replaces_the_directory_and_lists_the_application_once(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
@@ -334,6 +360,27 @@ def test_the_copy_passes_app_check_and_builds(runner: CliRunner, lifecycle_repo:
     assert "2 application(s) pass" in checked.output
     assert built.exit_code == 0, built.output
     assert "demo-x" in yaml.safe_dump(rendered_config(lifecycle_repo))
+
+
+@pytest.mark.usefixtures("no_js")
+def test_a_copy_whose_panel_never_marks_itself_ready_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    assert _new(runner, lifecycle_repo, "demo-x").exit_code == 0
+    script = lifecycle_repo / "apps" / "demo-x" / "panel" / "panel.js"
+    text = script.read_text(encoding="utf-8")
+    script.write_text(
+        text.replace(
+            "import { markPageReady } from '/design-system/js/page-ready.js';\n", ""
+        ).replace(".finally(() => markPageReady())", ""),
+        encoding="utf-8",
+    )
+
+    checked = _check(runner, lifecycle_repo)
+
+    assert checked.exit_code == 1
+    assert "apps/demo-x/panel/index.html: " in checked.output
+    assert "[page_ready]" in checked.output
 
 
 @pytest.mark.skipif(

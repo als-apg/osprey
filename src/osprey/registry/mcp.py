@@ -14,6 +14,7 @@ import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
@@ -1413,6 +1414,13 @@ class AgentDefinition:
     # condition keeps the agent out even under ``enabled: true``, and the build
     # logs one line naming this need.
     condition_need: str | None = None
+    # The paragraph the operator brief renders under this agent's entry in
+    # place of ``description``: first line the summary, each further line a
+    # sentence; the template supplies the continuation indent.
+    delegation: str | None = None
+    # The application that carries this agent; its file is the application's,
+    # copied by the build, never one of the framework's templates.
+    app: str | None = None
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -2544,6 +2552,7 @@ def resolve_agents(
     ctx: dict,
     project_dir: Path | None = None,
     resolved_servers: list[dict] | None = None,
+    app_agents: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict]:
     """Resolve the full list of agents from the registry + config overrides.
 
@@ -2552,6 +2561,10 @@ def resolve_agents(
         ctx: Template context.
         project_dir: Project root (for scanning custom agents).
         resolved_servers: Output of ``resolve_servers()`` (for server deps).
+        app_agents: The render's application agents, ``{<app>: {<agent>:
+            {description, delegation}}}`` (``apps.<app>.agents`` of the
+            rendered config). Each is on: the build installs it only where its
+            application is shown.
 
     Returns:
         List of plain dicts with keys: name, enabled, description, is_custom.
@@ -2568,6 +2581,16 @@ def resolve_agents(
             adef.default_enabled = False
         if adef.server_dependency and adef.server_dependency not in enabled_servers:
             adef.default_enabled = False
+
+    # ── Application agents: on wherever the render carries them ──
+    for app, entries in (app_agents or {}).items():
+        for name, entry in entries.items():
+            agents[name] = AgentDefinition(
+                name=name,
+                description=str(entry.get("description") or ""),
+                delegation=entry.get("delegation"),
+                app=app,
+            )
 
     # ── Config overrides: claude_code.agents ─────────────────
     agent_overrides = claude_code_config.get("agents", {})
@@ -2622,6 +2645,8 @@ def _agent_to_dict(adef: AgentDefinition) -> dict:
         "description": adef.description,
         "is_custom": adef.is_custom,
         "requires_ask_tools": sorted(adef.requires_ask_tools),
+        "delegation": adef.delegation,
+        "app": adef.app,
     }
 
 

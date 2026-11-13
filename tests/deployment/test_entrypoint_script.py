@@ -581,13 +581,15 @@ class Sandbox:
             f'printf "cmd\\n" >> "{order_log}"; '
             f'printf "%s\\n" "${{{IDENTITY_SKIPPED_VAR}-{UNSET}}}" > "{skipped_env}"',
         ]
+        # Waited on until the script exits, with no wall-clock budget: a run of
+        # stubs ends on its own however slowly a loaded host starts them, and
+        # the per-test timeout is the hang breaker.
         result = subprocess.run(
             ["/bin/sh", str(self.script), *command],
             capture_output=True,
             text=True,
             check=False,
             env=env,
-            timeout=60,
         )
         return Run(
             returncode=result.returncode,
@@ -674,7 +676,6 @@ class Sandbox:
                 "GID_MAP": str(self.gid_map),
                 "GROUP_DB": str(self.group_db),
             },
-            timeout=60,
         )
 
     def _stubs(

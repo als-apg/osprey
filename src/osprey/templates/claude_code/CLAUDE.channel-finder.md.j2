@@ -33,7 +33,7 @@ do not attempt their work with your own tools.
   Channel-finder returns *addresses*, not values.
 {% endif -%}
 {%- for a in agents if a.enabled and a.name != "channel-finder" %}
-- **{{ a.name }}** — {{ a.description }}
+- **{{ a.name }}** — {{ a.delegation | indent(2) if a.delegation else a.description }}
 {%- endfor %}
 
 {% if "pv-directory" in enabled_servers | default([]) -%}

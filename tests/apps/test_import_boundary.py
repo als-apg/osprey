@@ -16,7 +16,7 @@ from osprey.apps.boundary import check_package
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_APP = REPO_ROOT / "tests/apps/fixtures/boundary_fixture_app"
-LATER_PACKAGES = (
+SHIPPED_PACKAGES = (
     "src/osprey/profiles/presets/apps/orbit-bump/orbit_bump",
     "src/osprey/apps/scaffold-app/scaffold_app",
     "tests/facility/fixtures/fixture_kind",
@@ -36,12 +36,9 @@ def test_the_fixture_app_stays_inside_the_boundary() -> None:
     assert check_package(FIXTURE_APP) == []
 
 
-@pytest.mark.parametrize("relative", LATER_PACKAGES)
+@pytest.mark.parametrize("relative", SHIPPED_PACKAGES)
 def test_a_shipped_package_stays_inside_the_boundary(relative: str) -> None:
-    package = REPO_ROOT / relative
-    if not package.is_dir():
-        pytest.skip(f"{relative} is not in this tree")
-    assert check_package(package) == []
+    assert check_package(REPO_ROOT / relative) == []
 
 
 def test_a_private_import_added_to_the_fixture_app_fails(tmp_path: Path) -> None:
@@ -62,6 +59,9 @@ def test_a_private_import_added_to_the_fixture_app_fails(tmp_path: Path) -> None
         "import osprey.apps.sdk as sdk",
         "from osprey.apps.sdk import serve_tools",
         "from osprey.apps import sdk",
+        "import osprey.apps.sdk.testing",
+        "from osprey.apps.sdk.testing import synthetic_deployment",
+        "from osprey.apps.sdk import testing",
         "import osprey.facility.kinds",
         "from osprey.facility import kinds",
         "from osprey.facility.kinds import declare",
@@ -94,8 +94,15 @@ def test_allowed_import(tmp_path: Path, source: str) -> None:
         ("from osprey.apps import loader", "osprey.apps.loader"),
         ("from osprey.apps.manifest import AppManifest", "osprey.apps.manifest.AppManifest"),
         ("from osprey.apps.sdk import _approval", "osprey.apps.sdk._approval"),
+        ("import osprey.apps.sdk.testing._facility", "osprey.apps.sdk.testing._facility"),
+        (
+            "from osprey.apps.sdk.testing._build import invoke_build",
+            "osprey.apps.sdk.testing._build.invoke_build",
+        ),
         ("from osprey.facility import other", "osprey.facility.other"),
         ("from osprey.facility.kinds_extra import x", "osprey.facility.kinds_extra.x"),
+        ("from osprey.facility.kinds._private import x", "osprey.facility.kinds._private.x"),
+        ("import osprey.facility.kinds._private", "osprey.facility.kinds._private"),
         ("from osprey_connectors import _version", "osprey_connectors._version"),
         (
             "from osprey_connectors.control_system._base import ControlSystemConnector",
@@ -159,3 +166,44 @@ def test_a_file_that_cannot_be_read_fails_instead_of_passing(tmp_path: Path) -> 
 def test_a_missing_package_is_refused_not_passed(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="not a package directory"):
         check_package(tmp_path / "absent")
+
+
+# --- no application package lives under a framework root ---------------------------
+
+
+def _nested_package(tmp_path: Path, parent: str, source: str) -> Path:
+    """A package placed at ``<parent>/fixture`` of a site directory."""
+    package = tmp_path.joinpath(*parent.split("."), "fixture")
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "helpers.py").write_text("")
+    (package / "tools.py").write_text(source + "\n")
+    return package
+
+
+def test_a_nested_package_imports_itself_by_its_dotted_name(tmp_path: Path) -> None:
+    package = _nested_package(tmp_path, "knob_dist", "from knob_dist.fixture.helpers import x")
+
+    assert check_package(package, app="fixture") == []
+
+
+def test_a_package_under_a_framework_root_has_no_imports_of_its_own(tmp_path: Path) -> None:
+    """One rule for every origin: an import under ``osprey`` is OSPREY's, never the app's."""
+    package = _nested_package(tmp_path, "osprey.apps", "from osprey.apps.fixture import helpers")
+
+    [violation] = check_package(package, app="fixture")
+
+    assert violation.rule == "import_boundary"
+    assert violation.field == "osprey.apps.fixture.helpers"
+
+
+def test_a_nested_packages_relative_escape_is_measured_from_its_directory(
+    tmp_path: Path,
+) -> None:
+    package = _nested_package(tmp_path, "knob_dist", "from . import helpers\nfrom .. import loader")
+
+    [violation] = check_package(package)
+
+    assert violation.rule == "relative_import_escape"
+    assert violation.field == ".."
+    assert violation.source == "fixture/tools.py:2"

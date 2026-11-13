@@ -7,7 +7,7 @@ gets sane defaults — and is emitted first; every other theme follows in
 ``tree.themes`` order. Within a block: ``color-scheme``, then (default
 theme only) the fleet-wide promoted-primitive scales (see
 :data:`~.naming.PROMOTED_PRIMITIVE_GROUPS` — font, text, weight,
-leading, space, radius, z, duration), then semantic tokens in source
+leading, space, radius, z, duration, control), then semantic tokens in source
 order, then each interface's extension tokens (interfaces sorted
 alphabetically, each interface's own tokens in source order).
 

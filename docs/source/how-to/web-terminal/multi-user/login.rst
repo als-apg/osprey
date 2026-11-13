@@ -506,7 +506,7 @@ with a whole single sign-on domain, one with two named people:
            tier: readwrite
            access: [user:ada@example.org, user:bo@example.org]
 
-The apps are shared cards by construction. The ``demo`` preset
+Shared logins are shared cards by construction. The ``demo`` preset
 lists three under ``shared:`` — ``logbook``, ``knowledge`` and
 ``channel-finder`` — and any roster login opens them with its own password;
 they carry no credential of their own.

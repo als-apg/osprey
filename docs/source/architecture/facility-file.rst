@@ -170,7 +170,7 @@ stages and a stage runs only when every earlier one is clean:
      - The pair, value, limits and seed rules.
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
-       value from its model's engine.
+       value from its model's engine, and marks each command channel.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
@@ -182,7 +182,7 @@ stages and a stage runs only when every earlier one is clean:
        Warns and never stops.
 
 The second half writes. A build renders more than one tree (the deployment's
-own, one per tier and app, one per container image) and each render receives the
+own, one per login, one per container image) and each render receives the
 same facility file and the views its configuration and served models call
 for. A view a render does not carry is named once on stderr, with the
 configuration key or the model fact that left it out; a channel-finder index
@@ -190,7 +190,7 @@ the profile did not select is neither written nor named.
 
 ``osprey facility validate`` runs the first half and the main profile's render
 into a temporary directory, adds the response check of a Middle Layer import,
-and writes nothing into the repo. Tier, app and image renders are checked by
+and writes nothing into the repo. Login and image renders are checked by
 ``osprey build`` alone.
 
 .. _architecture-facility-settings:
@@ -356,10 +356,12 @@ The graph view writes the facility file back in NARAD's terms.
    :file: ../_diagrams/facility-vocabulary.html
 
 A facility adds device classes in ``classes.yaml``, each under a vocabulary
-class or one it added earlier; they reach the facts view and the graph with their aliases. Signal
-roles are closed: a channel's ``signal`` is one the vocabulary lists. The
-build pairs setpoints with readbacks by the quantity their signals name, so a
-quantity the vocabulary lacks pairs only through an explicit ``pair``.
+class or one it added earlier; they reach the facts view and the graph with their aliases. A
+channel's ``signal`` is a role the vocabulary lists or one the facility adds in
+``signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
+quantity the vocabulary lacks pairs only through an explicit ``pair``. The
+roles a measurement kind and an engine use are in
+:doc:`/reference/contracts/facility-kinds`.
 
 .. _architecture-simulation-models:
 

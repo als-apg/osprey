@@ -1551,7 +1551,7 @@ class TestDemoTiersAndApps:
         assert resolved.base_url == f"http://127.0.0.1:{QMD_DEFAULT_PORT}"
 
     def test_logbook_app_renders_the_graph_surface(self, built_layered_stack: Path) -> None:
-        """The logbook app answers from the logbook AND the facility knowledge
+        """The logbook login answers from the logbook AND the facility knowledge
         graph: it dials the host's store and keeps the graph server on.
 
         Asserted on the real render, because "on" is a pipeline claim: the
@@ -1565,7 +1565,7 @@ class TestDemoTiersAndApps:
         control-target picker, and every write switch off.
         """
         project = _render_dir(built_layered_stack, "logbook")
-        assert project.is_dir(), "the logbook app was never rendered"
+        assert project.is_dir(), "the logbook login was never rendered"
         assert "claude_code.servers.graph.enabled" not in _own_config("tiers", "logbook")
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
@@ -1592,7 +1592,7 @@ class TestDemoTiersAndApps:
     def test_knowledge_app_renders_the_knowledge_surface_and_nothing_else(
         self, built_layered_stack: Path
     ) -> None:
-        """The knowledge app is the graph, the graph channel finder and the
+        """The knowledge login is the graph, the graph channel finder and the
         knowledge bundle — and no control system, sandbox or logbook.
 
         Asserted on the real render: the servers in ``.mcp.json`` are the
@@ -1601,7 +1601,7 @@ class TestDemoTiersAndApps:
         panel is the default, and the one bundle-writing tool is denied.
         """
         project = _render_dir(built_layered_stack, "knowledge")
-        assert project.is_dir(), "the knowledge app was never rendered"
+        assert project.is_dir(), "the knowledge login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
         assert set(servers) == {
@@ -1680,7 +1680,7 @@ class TestDemoTiersAndApps:
             if path.is_file()
             and "mcp__graph__" in path.read_text(encoding="utf-8", errors="ignore")
         )
-        assert hits == [], f"the channel-finder app dials no graph store but rendered {hits}"
+        assert hits == [], f"the channel-finder login dials no graph store but rendered {hits}"
 
 
 def _shipped_profile(key: str, layers: dict[str, BuildProfile]) -> BuildProfile:

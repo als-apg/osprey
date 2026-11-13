@@ -91,15 +91,20 @@ from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 from tests._container_support import (
     RuntimeContainer,
     docker_cli_unavailable_reason_once,
-    wait_until_ready,
+    require_container_runtime,
+    runtime_command,
 )
 from tests.cli.test_tier_app_presets import _build_render_stack
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
+# xdist_group("docker"): the sidecar is a compose service on the runtime, and the
+# group keeps it on the worker that starts every other container, so the sweep
+# does not load the runtime from two workers at once.
 pytestmark = [
     pytest.mark.dockerbuild,
+    pytest.mark.xdist_group("docker"),
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
@@ -208,12 +213,7 @@ def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if (
-        subprocess.run(
-            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
-        ).returncode
-        == 0
-    ):
+    if runtime_command("image", "inspect", tag, capture_output=True).returncode == 0:
         return tag, False
 
     context = tmp_path / "harness"
@@ -393,12 +393,11 @@ def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.
         if response.status_code != 200:
             raise AssertionError(f"/health answered HTTP {response.status_code}")
 
-    wait_until_ready(
+    require_container_runtime(
         probe,
         "bluesky-web sidecar",
         container=RuntimeContainer(container_name),
-        timeout=timeout,
-        interval=0.5,
+        service_timeout=timeout,
     )
 
 
@@ -421,6 +420,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
         f"{_UNENTITLED_USER}'s secret was not minted: his refusal below must be of a real value"
     )
 
+    require_container_runtime()
     image, built_here = _build_harness_image(tmp_path)
 
     # One compose project per run: the container name is a host-global docker
@@ -449,10 +449,10 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     base += ["-p", project]
     subprocess_env = _scrubbed_env()
 
-    def _compose(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*base, *args], capture_output=True, text=True, timeout=timeout, env=subprocess_env
-        )
+    assert base[0] == "docker", base
+
+    def _compose(*args: str) -> subprocess.CompletedProcess:
+        return runtime_command(*base[1:], *args, capture_output=True, text=True, env=subprocess_env)
 
     try:
         started = _compose("up", "-d", "--no-deps", "--no-build", _SERVICE)
@@ -469,7 +469,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     finally:
         _compose("down", "-v", "--remove-orphans", "--timeout", "5")
         if built_here:
-            subprocess.run(["docker", "image", "rm", "-f", image], capture_output=True, timeout=120)
+            runtime_command("image", "rm", "-f", image, capture_output=True)
 
 
 # ---------------------------------------------------------------------------

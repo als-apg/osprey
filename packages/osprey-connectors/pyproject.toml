@@ -154,3 +154,6 @@ addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 tmp_path_retention_policy = "failed"
+markers = [
+    "wallclock: Tests that assert an absolute wall-clock budget. Deselected from the parallel run; the framework's serial wall-clock step times them.",
+]

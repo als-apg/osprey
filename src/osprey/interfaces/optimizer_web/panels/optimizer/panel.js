@@ -24,6 +24,7 @@
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { createApi, readbackValues, saveDraft, seg } from './api-client.js';
 import { createPoller, isActive } from './poller.js';
 import {
@@ -586,5 +587,9 @@ export function createPanel({ api, doc = document, setTimer, clearTimer, now = D
 }
 
 if (typeof document !== 'undefined' && document.getElementById('optimizer-root')) {
-  void createPanel({ api: createApi({ prefix: panelApiPrefix() }) }).boot();
+  // Ready once boot() has drawn the first state (index.html declares the mark
+  // pending until then).
+  void createPanel({ api: createApi({ prefix: panelApiPrefix() }) })
+    .boot()
+    .finally(() => markPageReady());
 }

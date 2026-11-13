@@ -7,6 +7,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { showToast } from '/design-system/js/toast.js';
 import { fetchJSON, putJSON } from './api.js';
@@ -74,46 +75,52 @@ let _initialized = false;
 async function init() {
   if (_initialized) return;
   _initialized = true;
-  initToolbar();
-  // Load pipeline info
   try {
-    const info = await fetchJSON('/api/info');
-    state.setPipelineInfo(info.pipeline_type, info.metadata);
-    state.availablePipelines = info.available_pipelines || [info.pipeline_type];
-    state.dbPath = info.db_path || null;
-    state.setGraphInfo(info.tools, info.graph_store);
-    state.directory = info.directory ?? null;
-    renderProvenance();
-    updatePipelineBadge(info.pipeline_type);
-    buildPipelineDropdown();
-  } catch (e) {
-    console.error('Failed to load pipeline info:', e);
-    showToast('Failed to connect to API', { kind: 'error' });
+    initToolbar();
+    // Load pipeline info
+    try {
+      const info = await fetchJSON('/api/info');
+      state.setPipelineInfo(info.pipeline_type, info.metadata);
+      state.availablePipelines = info.available_pipelines || [info.pipeline_type];
+      state.dbPath = info.db_path || null;
+      state.setGraphInfo(info.tools, info.graph_store);
+      state.directory = info.directory ?? null;
+      renderProvenance();
+      updatePipelineBadge(info.pipeline_type);
+      buildPipelineDropdown();
+    } catch (e) {
+      console.error('Failed to load pipeline info:', e);
+      showToast('Failed to connect to API', { kind: 'error' });
+    }
+
+    // Load stats badges
+    refreshStatsBadges();
+
+    // The scope switch: rewritten when an All PVs page names its directory.
+    renderViewSwitch();
+    state.on('directoryLabel', renderViewSwitch);
+
+    // The Alarms tab's pill: read every 15 s and when the panel is shown, while
+    // it is visible on another view; the Alarms view emits the counts itself.
+    state.on('alarmCounts', (answer) => {
+      alarmCountsSeq += 1;
+      alarmCounts = answer;
+      renderAlarmPill();
+    });
+    window.setInterval(() => void readAlarmCounts(), BADGE_POLL_MS);
+    document.addEventListener('visibilitychange', () => void readAlarmCounts());
+
+    // Route to initial view; a view states its route from its first mount on.
+    state.on('replaceRoute', replaceRoute);
+    routeFromHash();
+    window.addEventListener('hashchange', routeFromHash);
+    // After routing: a panel opened on #/alarms reads the counts through the view.
+    void readAlarmCounts();
+  } finally {
+    // Ready once start-up settled, whatever it drew (index.html declares the
+    // mark pending until then).
+    markPageReady();
   }
-
-  // Load stats badges
-  refreshStatsBadges();
-
-  // The scope switch: rewritten when an All PVs page names its directory.
-  renderViewSwitch();
-  state.on('directoryLabel', renderViewSwitch);
-
-  // The Alarms tab's pill: read every 15 s and when the panel is shown, while
-  // it is visible on another view; the Alarms view emits the counts itself.
-  state.on('alarmCounts', (answer) => {
-    alarmCountsSeq += 1;
-    alarmCounts = answer;
-    renderAlarmPill();
-  });
-  window.setInterval(() => void readAlarmCounts(), BADGE_POLL_MS);
-  document.addEventListener('visibilitychange', () => void readAlarmCounts());
-
-  // Route to initial view; a view states its route from its first mount on.
-  state.on('replaceRoute', replaceRoute);
-  routeFromHash();
-  window.addEventListener('hashchange', routeFromHash);
-  // After routing: a panel opened on #/alarms reads the counts through the view.
-  void readAlarmCounts();
 }
 
 // ---- Routing ----

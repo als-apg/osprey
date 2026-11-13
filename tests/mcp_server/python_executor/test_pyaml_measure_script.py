@@ -30,6 +30,7 @@ from pyaml.common.constants import Action
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
+from osprey.facility.kinds import registered
 from osprey.facility.views.facts import measurement_records
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
@@ -320,6 +321,16 @@ def limits(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
     return steps
 
 
+def _plan(kind: str) -> dict[str, Any]:
+    """The kind's measure plan as the build renders it into the facts: JSON."""
+    plan: dict[str, Any] = json.loads(json.dumps(dict(registered()[kind].measure_plan)))
+    return plan
+
+
+def _matrix(kind: str) -> bool:
+    return registered()[kind].matrix
+
+
 def _execute(
     render: Path,
     execution: Path,
@@ -330,8 +341,12 @@ def _execute(
     by: str | None = None,
     correctors: list[str] | None = None,
     approved: str | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> pytest.CaptureResult[str]:
-    """Execute the rendered script; what it printed to stdout and stderr."""
+    """Execute the rendered script; what it printed to stdout and stderr.
+
+    ``plan`` replaces the kind's measure plan as the build renders it.
+    """
     source = build_measure_script(
         MeasureScript(
             kind=kind,
@@ -345,6 +360,7 @@ def _execute(
             settle=0.25,
             n_avg_meas=2,
             sleep_between_meas=0.5,
+            plan=_plan(kind) if plan is None else plan,
         )
     )
     exec(compile(source, "pyaml_measure", "exec"), {"_execution_dir": str(execution)})
@@ -384,7 +400,13 @@ def _round_trip(
     captured = _execute(render, execution, capsys, **request)
     if stdout is not None:
         stdout.append(captured.out)
-    return parse_measure_result(captured.out, request["kind"])
+    kind = request["kind"]
+    return parse_measure_result(
+        captured.out,
+        kind,
+        matrix=_matrix(kind),
+        scalar=registered()[kind].measure_plan.get("scalar"),
+    )
 
 
 pytestmark = pytest.mark.usefixtures("holder", "limits", "runs")
@@ -450,6 +472,57 @@ def test_a_view_other_than_the_approved_one_is_refused(render, execution, capsys
         "the pyAML view of SR differs from the one the approval prompt showed"
     )
     assert runs == []
+
+
+def _bipolar_token(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["bipolar"]["kwargs"]["corrector_names"] = "@__class__"
+    return plan
+
+
+def _private_delta(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["delta"] = "_private"
+    return plan
+
+
+def _unknown_factory(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["unipolar"]["factory"] = "nonexistent"
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("edit", "modulation", "refusal"),
+    [
+        pytest.param(
+            _bipolar_token,
+            "bipolar",
+            "the measure plan of orm names attribute __class__, which is not a public name",
+            id="dunder-token",
+        ),
+        pytest.param(
+            _private_delta,
+            "bipolar",
+            "the measure plan of orm names attribute _private, which is not a public name",
+            id="private-delta",
+        ),
+        pytest.param(
+            _unknown_factory,
+            "unipolar",
+            "the measure plan of orm names StepMeasurement.nonexistent, which "
+            "pyaml_cs_osprey does not offer",
+            id="unknown-factory",
+        ),
+    ],
+)
+def test_a_plan_resolving_a_name_it_may_not_is_refused_before_any_tool_is_touched(
+    render, execution, capsys, holder, runs, edit, modulation, refusal
+):
+    plan = edit(_plan("orm"))
+
+    result = _run(render, execution, capsys, kind="orm", modulation=modulation, plan=plan)
+
+    assert result == {"kind": "orm", "refused": refusal}
+    assert runs == []
+    assert holder.loaded == []
 
 
 def test_run_tool_is_called_once_at_the_top_level_and_never_inside_a_lock_the_script_takes_itself():
@@ -687,7 +760,9 @@ def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
     assert result["completed"] is False
     assert result["moved"] == [[QUADS[0], 0.0]]
     assert result["missing"] == {QUADS[1]: "the tune readback went away"}
-    assert parse_measure_result(out, "trm")["missing"] == {QUADS[1]: "the tune readback went away"}
+    assert parse_measure_result(out, "trm", matrix=True)["missing"] == {
+        QUADS[1]: "the tune readback went away"
+    }
     assert machine.values[QUADS[0]] == 0.5
 
 

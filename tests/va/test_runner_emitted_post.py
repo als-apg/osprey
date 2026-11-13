@@ -147,6 +147,8 @@ def _runner(module: Any, model: _Model, *, fast_due: bool) -> Any:
     runner._served = {}
     runner._written = frozenset()
     runner._write_pass = False
+    # The base class's own mark for a periodic pass; the stand-in base has none.
+    runner._pass_is_tick = False
     runner._health_file = None
     runner._surface = _Surface()
     runner._evaluate_severity = lambda names: frozenset()

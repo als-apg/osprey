@@ -20,9 +20,10 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.facility.views.pyaml import CONFIGURATION_FILE, TRM_FILE
+from osprey.apps.sdk.testing import measured_sr_deck
+from osprey.facility.kinds import TRM_FILE
+from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import (
-    _sr_deck,
     measured_tree,
     with_correctors,
     with_rf,
@@ -161,7 +162,7 @@ def test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note(
     from pyaml.accelerator import Accelerator
 
     def elements(at: Any) -> list[Any]:
-        found = _sr_deck().elements(at)
+        found = measured_sr_deck().elements(at)
         (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
         thick = at.Corrector("SCORT", 0.1, [0.0, 0.0])
         return [*found[:after], thick, *found[after:]]
@@ -191,7 +192,7 @@ def _thin_qd_tree() -> dict[str, Any]:
     """The measured tree with QD a zero-length thin multipole between two drifts."""
 
     def elements(at: Any) -> list[Any]:
-        found = _sr_deck().elements(at)
+        found = measured_sr_deck().elements(at)
         (index,) = [i for i, element in enumerate(found) if element.FamName == "QD"]
         thin = at.ThinMultipole("QD", [0.0, 0.0], [0.0, -0.5])
         return [

@@ -6,7 +6,7 @@ description: >
   declared in one app.yml. Use whenever someone wants to create, scaffold,
   extend or fix an OSPREY app or application, runs or asks about `osprey app
   new` / `osprey app check`, edits an app.yml, adds a tool, a route, a write
-  with an approval card, or a skill to an app, or wants an operator screen
+  with an approval card, or a skill or subagent to an app, or wants an operator screen
   that the agent can also read and drive, even when they only say "panel
   with a backend" or "give the agent a tool for X". Works in a facility
   deployment repo with OSPREY installed and in an OSPREY checkout. Starts by
@@ -16,10 +16,13 @@ description: >
 
 # Build an OSPREY app
 
-An app is three parts over one backend: a **backend** container (FastAPI) that
-holds the state and talks to the machine, a **panel** the operator sees, and a
-**tool server** the agent calls. `app.yml` declares all three; `osprey build`
-reads nothing else about the app.
+An app is any of five parts, at least one: a **backend** container (FastAPI)
+that holds the state and talks to the machine, a **panel** the operator sees, a
+**tool server** the agent calls, **skills** and **subagents**. A panel needs the backend, and
+so does a write tool on a login that writes; without one the tool server only
+reads or computes, keeps nothing between calls and opens no data store of the
+deployment. `app.yml` declares every part (an empty one is refused); `osprey
+build` reads nothing else about the app. The scaffold is the full shape.
 
 This skill carries what does not change from release to release: the order of
 work, the product rules, what to verify and the mistakes to avoid. The facts
@@ -64,8 +67,8 @@ it; steps 3 to 6 refer to it as *the summary*. `--drift-only` and
 These are decisions, not conventions. Each says what the checker enforces
 today and what is left to you.
 
-1. **One backend per app.** The panel and every tool go through the same
-   backend routes. A tool never reads a file, a store or a channel itself; it
+1. **At most one backend per app.** With a backend, the panel and every tool
+   go through the same backend routes. A tool never reads a file, a store or a channel itself; it
    calls a route through the terminal's panel door (`/panel/<app>/<route>`).
    Enforced in part: the import rule keeps app code off OSPREY internals, and
    the door reaches only the routes `panel.agent_routes` declares. Nothing
@@ -78,7 +81,14 @@ today and what is left to you.
    `skills/<name>/SKILL.md` is missing, and a skill name two apps share. The
    scaffold ships one; keep it when tool docstrings alone do not tell the
    agent the order of work or what a refusal means, drop it (directory and
-   `skills:` entry together) when they do.
+   `skills:` entry together) when they do. A **subagent** is optional too:
+   `agents:` lists each `agents/<name>.md`, installed where the app is shown.
+   The check refuses a listed agent with no file, a name two apps share, a
+   name of one of OSPREY's own agents, a `model`, `hooks`, `permissionMode` or
+   `mcpServers` key in its frontmatter, an `mcp__<app>__<tool>` the app does
+   not declare, a `delegates` tool the agent does not hold, `delegates`
+   without `{delegated_tools}` in its `delegation` note, and the placeholder
+   with no `delegates`.
 4. **Panels use the design system.** `index.html` links the terminal's
    `tokens.css`, `base.css` and `primitives.css`, and uses `osprey-*` classes
    for buttons, chips, cards, toggles. `osprey app check` refuses a panel
@@ -94,9 +104,13 @@ today and what is left to you.
    the write verdict and the audit record. Any other route to hardware (a raw
    EPICS client, a subprocess) bypasses all of that; the import rule refuses
    the obvious ones.
-6. **No hook code.** `app.yml` has no key for a hook and refuses unknown
-   keys. Approval is declared, and OSPREY's own hook reads the rendered
-   declaration; it never runs app code.
+6. **No hook code.** `osprey app check` refuses a `hooks` key in `app.yml`,
+   a `hooks/` directory at the app root, a `.claude/` directory anywhere under
+   the app, and `hooks` in a listed skill's or agent's frontmatter, each with rule
+   `no_hooks`; a listed skill whose frontmatter does not parse as a YAML
+   mapping, or does not close on a line that is exactly `---`, is refused with
+   rule `skill_frontmatter`. Approval is declared, and
+   OSPREY's own hook reads the rendered declaration; it never runs app code.
 
 ## Workflow
 
@@ -104,7 +118,8 @@ today and what is left to you.
 
 - **Is it an app?** State that the operator and the agent both act on, or a
   write that needs its own approval card: an app. A page that only displays:
-  the panel skill. A capability with no screen: an MCP server in the profile.
+  the panel skill. Tools, skills or subagents with no screen and no state: an
+  app with no `containers:`.
 - **Write the parity table.** One row per panel element: what it shows or
   does, the backend route, the tool or argument, and whether it writes a
   channel. A route that writes no channel (compute a plan, clear it) backs a
@@ -129,7 +144,8 @@ osprey app check          # the scaffold passes as copied
 
 `new` copies the scaffold to `apps/<name>/`, renames the app and its Python
 package, lists it under `apps:` in `profile.yml` (listing turns it on) and
-git-ignores fetched panel files. Read the copied files before changing them:
+git-ignores fetched panel files. A name an installed package already gives an
+application is refused. Read the copied files before changing them:
 they are the reference implementation of every pattern below. The summary
 ends with the path of a larger worked example (several routes and tools, a
 panel that writes).
@@ -144,7 +160,8 @@ apps:
 ```
 
 The block is free-form; the build writes it to the file named by
-`OSPREY_APP_CONFIG`, which the backend reads at start.
+`OSPREY_APP_CONFIG`, which the backend reads at start. An app with no
+container has nothing to read it, so its `config:` is refused.
 
 ### 3. Manifest
 
@@ -187,6 +204,11 @@ route the tools call must be in `panel.agent_routes`; a tool must be under
 - Plain HTML, CSS and ES modules. Addresses are relative (`api/state`), since
   the page is served under `/panel/<id>/`; the panel's files are served from
   `static/`.
+- The page says when it can be driven: `index.html` carries
+  `<html data-page-ready="pending">`, and the script imports `markPageReady`
+  from `/design-system/js/page-ready.js` and calls it once the first refresh
+  has drawn, error or not. `osprey app check` refuses a panel that never
+  imports it; whatever drives the panel waits for that mark.
 - Primitives first; `panel.css` holds only the app's own layout, on design
   tokens (`var(--space-2)`), with a rule for every class you introduce.
 - Export the functions that render state and test them in
@@ -203,6 +225,13 @@ When kept: write it from the parity table. Which tool for which request, each
 tool's panel equivalent, the order (read, tell the operator, then write), what
 each refusal means, and that `approved_*` arguments are left unset. Update the
 table whenever a tool or panel element changes.
+
+A subagent instead, when the task reads a lot to answer a little: one file
+`agents/<name>.md` with `name`, `description`, `tools` (explicit, no
+wildcard), `delegation` (the brief's note) and optionally `delegates` (the
+app's tools the main agent is told to leave to it, named where
+`{delegated_tools}` stands). The body is copied as written; the build adds the
+`model:` line.
 
 ### 8. Verify
 
@@ -225,7 +254,8 @@ read-only login. Walk the parity table once more against the running panel.
 One `tools.approval` entry per write tool. `prompt` is the card's text, with
 `{{ input.<arg> }}` for call arguments and `{{ state.<key> }}` for the answer
 of `state_path`. `bind.state_fields` copies state values into the call as
-`approved_*` fields; `bind.input_digests` binds the arguments themselves;
+`approved_*` fields (a dotted `key`, `step.digest`, is a path into nested
+state); `bind.input_digests` binds the arguments themselves;
 `require` names the fields a call must carry. Three places then check one
 declaration: OSPREY's approval hook, the tool (`check_approved_call`), and the
 backend against its current state.
@@ -275,7 +305,7 @@ names it, and says when this has moved). The summary is the authority.
 ```yaml
 name: <name>                  # = directory = panel id = tool server name
 summary: <one sentence>
-containers:
+containers:                   # optional; a panel and armed write tools need one
   <name>:
     runtime: osprey           # or image: with a compose fragment
     command: [python, -m, <package>.server]
@@ -284,7 +314,7 @@ containers:
     state: var/<name>         # kept across restarts
 panel:
   label: <sidebar text>
-  icon: <glyph>               # optional: the sidebar row's icon, from the icon set
+  icon: <glyph>               # optional, from the icon set; so are description: (tooltip) and help: (page)
   container: <name>
   launch_token: true          # write routes demand the terminal's token
   agent_routes:               # what the tools may call; non-GET = write route
@@ -301,11 +331,12 @@ tools:
       require: {all_of: [approved_target, approved_readback]}
   errors: {unreachable: <sentence>, refused: <sentence>}
 skills: [<name>]              # optional
+agents: [<name>]              # optional, each agents/<name>.md
 ```
 
 Files of an app: `app.yml`, `pyproject.toml`, `<package>/{__init__,server,tools}.py`,
 `panel/{index.html,panel.js,panel.css}`, `tests/panel.test.js`,
-`skills/<name>/SKILL.md`. Application code imports `osprey.apps.sdk`,
+`skills/<name>/SKILL.md`, `agents/<name>.md`. Application code imports `osprey.apps.sdk`,
 `osprey.facility.kinds` and `osprey_connectors`, nothing else of OSPREY.
 
 The narrative version of all this, with the worked example, is the

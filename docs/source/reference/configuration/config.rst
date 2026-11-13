@@ -327,7 +327,7 @@ category picks one automatically:
 - A deployment that serves web terminals has the choice made for it. The
   terminals run on the host's network, where a compose service name does not
   resolve, so ``osprey build`` writes ``url_key: host_url`` into each render,
-  tier and app renders included. That is the same address the agent dials. Setting
+  login renders included. That is the same address the agent dials. Setting
   the key to anything else in such a profile is refused at build time.
 - Otherwise the framework detects whether the health check is itself running
   inside a container — the runtime's own marker file, ``/.dockerenv`` under

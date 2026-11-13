@@ -77,7 +77,11 @@ INVARIANT_TESTS = (
     "tests/scripts/test_ruff_file_selection.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
+    "tests/apps/test_no_trajectory_service.py",
+    "tests/services/ariel_search/test_store_deadline_guard.py",
     "tests/interfaces/test_js_module_tests.py",
+    "tests/interfaces/test_page_ready_guard.py",
+    "tests/interfaces/test_page_ready_pages.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
@@ -1114,7 +1118,7 @@ def wallclock_unit_files() -> list[str]:
         raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.marked_files(kit.ROOT)
+    return module.marked_files(kit.ROOT, UNIT_SELECTION.roots)
 
 
 def _wallclock_unit_command(
@@ -1919,8 +1923,9 @@ CHECKS: tuple[Check, ...] = (
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
     ),
-    # The image-free budgets: every wallclock test outside tests/integration,
-    # whose budgets need the sidecar image and are timed by pytest-wallclock.
+    # The image-free budgets: every wallclock test under the sweep's roots
+    # outside tests/integration, whose budgets need the sidecar image and are
+    # timed by pytest-wallclock.
     # The files are found by a scan of the tree when the check runs, so a budget
     # added anywhere is timed alone with no new wiring, and the run collects
     # those files rather than the whole tree.
@@ -1929,7 +1934,12 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         FULL,
         (*UV_RUN, "pytest"),
-        scope=("tests/**", "*.py", "pyproject.toml", "uv.lock"),
+        scope=(
+            *(f"{root.rstrip('/')}/**" for root in UNIT_SELECTION.roots),
+            "*.py",
+            "pyproject.toml",
+            "uv.lock",
+        ),
         needs=("free-space", "uv", "install-current"),
         bound_s=900,
         report="junit-pytest",

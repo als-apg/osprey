@@ -779,17 +779,6 @@ class FixOpEnum(str, Enum):
     drop = "drop"
 
 
-class MeasurementKindEnum(str, Enum):
-    """
-    The measurements a model's measurement file allows.
-    """
-    orm = "orm"
-    dispersion = "dispersion"
-    trm = "trm"
-    crm = "crm"
-    chromaticity_monitor = "chromaticity_monitor"
-
-
 
 class AcceleratorDevice(ConfiguredBaseModel):
     """
@@ -1258,6 +1247,7 @@ class Facility(ConfiguredBaseModel):
     schema: str = Field(default=..., description="""The file header, `osprey.facility.<doc>/<version>`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Facility']} })
     identity: Identity = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Facility']} })
     classes: Optional[list[FacilityClass]] = Field(default=None, description="""The facility-added device classes, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Facility'], 'list_elements_ordered': True} })
+    signals: Optional[list[FacilitySignal]] = Field(default=None, description="""The facility-added signal roles, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Facility'], 'list_elements_ordered': True} })
     places: Optional[list[Place]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility'], 'list_elements_ordered': True} })
     devices: Optional[list[Device]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility'], 'list_elements_ordered': True} })
     channels: Optional[list[Channel]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility'], 'list_elements_ordered': True} })
@@ -1288,9 +1278,10 @@ class Identity(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     code: str = Field(default=..., description="""Names IRIs, status channels and the graph token.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity']} })
-    name: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
+    name: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1319,9 +1310,30 @@ class FacilityClass(ConfiguredBaseModel):
 
     class_: str = Field(default=..., alias="class", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass', 'Device']} })
     parent: str = Field(default=..., description="""A vocabulary class or an earlier facility-added class.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass']} })
-    aliases: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass'], 'list_elements_ordered': True} })
+    aliases: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass', 'FacilitySignal'],
+         'list_elements_ordered': True} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
+                       'Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Scenario']} })
+
+
+class FacilitySignal(ConfiguredBaseModel):
+    """
+    A signal role a facility adds beside the vocabulary's.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario']} })
+    aliases: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['FacilityClass', 'FacilitySignal'],
+         'list_elements_ordered': True} })
+    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+                       'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1366,6 +1378,7 @@ class Place(ConfiguredBaseModel):
     level: Optional[str] = Field(default=None, description="""The facility's word for this depth of its tree.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1399,6 +1412,7 @@ class Device(ConfiguredBaseModel):
     place: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'OnTarget']} })
     description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1443,6 +1457,7 @@ class Channel(ConfiguredBaseModel):
     unit: Optional[str] = Field(default=None, description="""Free text.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     description: Optional[str] = Field(default=None, description="""What this channel is. When a source states none and the channel names a `signal`, the build composes one from its owner, its signal and its unit, and records it in `provenance.defaults`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1458,6 +1473,7 @@ class Channel(ConfiguredBaseModel):
     shape: Optional[list[int]] = Field(default=None, description="""The dimensions of a waveform channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel'], 'list_elements_ordered': True} })
     precision: Optional[int] = Field(default=None, description="""The decimals a display shows, 0 to 17; only on a float channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     simulation: Optional[Seed] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    command: Optional[bool] = Field(default=None, description="""Computed; true on a command, a setpoint fired rather than set: its vocabulary signal is a command word or a model's engine marks its wiring record command. Absent on every other channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
 
@@ -1576,6 +1592,7 @@ class Group(ConfiguredBaseModel):
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
     description: Optional[str] = Field(default=None, description="""What the set is, in the facility's words.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1593,7 +1610,7 @@ class Model(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario']} })
     engine: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'ModelInput', 'Wiring']} })
     deck: Optional[str] = Field(default=None, description="""Relative to the facility tree.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     settings: Optional[Any] = Field(default=None, description="""`{<engine>: {...}}`, the one key equal to `engine`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
@@ -1704,9 +1721,10 @@ class Measurement(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    kinds: Optional[list[MeasurementKindEnum]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
-    groups: Optional[MeasurementGroups] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
-    instruments: Optional[MeasurementInstruments] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    kinds: Optional[list[str]] = Field(default=None, description="""The measurement kinds the model allows, each a kind registered under the osprey.facility.kinds entry points; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    groups: Optional[Any] = Field(default=None, description="""`{<role>: <group id> | [<group id>, ...]}`, each group role a listed kind uses; a role naming several groups takes their members together. A role is the pyAML view's (bpm, hcor, vcor, quad, sext) or one a listed kind declares; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
+    instruments: Optional[Any] = Field(default=None, description="""`{<role>: <channel address>}`, each instrument role a listed kind uses: the pyAML view's (tune, rf) or one a listed kind declares; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    kind_blocks: Optional[Any] = Field(default=None, description="""`{<kind>: {...}}`, what is a listed kind's own (its trigger, settings or chain, say), validated by the measurement schema the kind declares, an absent block as an empty one; the build refuses a block for a kind the file does not list or that declares no schema.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_step: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_avg_meas: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     fit_order: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
@@ -1716,29 +1734,6 @@ class Measurement(ConfiguredBaseModel):
     quad_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     sextu_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     frequency_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
-
-
-class MeasurementGroups(ConfiguredBaseModel):
-    """
-    Group ids; a role naming several groups takes their members together.
-    """
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    bpm: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    hcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    vcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    quad: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    sext: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-
-
-class MeasurementInstruments(ConfiguredBaseModel):
-    """
-    Channel addresses.
-    """
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    tune: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
-    rf: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
 
 
 class Limits(ConfiguredBaseModel):
@@ -1771,9 +1766,10 @@ class Scenario(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
+    name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario']} })
     description: Optional[str] = Field(default=None, description="""What the scenario shows.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
+                       'FacilitySignal',
                        'Place',
                        'Device',
                        'Channel',
@@ -1839,6 +1835,7 @@ TimingReference.model_rebuild()
 Facility.model_rebuild()
 Identity.model_rebuild()
 FacilityClass.model_rebuild()
+FacilitySignal.model_rebuild()
 Provenance.model_rebuild()
 ProvenanceSource.model_rebuild()
 ProvenanceFix.model_rebuild()
@@ -1867,8 +1864,6 @@ Curve.model_rebuild()
 LinearCurve.model_rebuild()
 TableCurve.model_rebuild()
 Measurement.model_rebuild()
-MeasurementGroups.model_rebuild()
-MeasurementInstruments.model_rebuild()
 Limits.model_rebuild()
 LimitRecord.model_rebuild()
 Scenario.model_rebuild()

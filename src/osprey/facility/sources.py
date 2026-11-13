@@ -4,6 +4,7 @@ The tree the loader reads::
 
     identity.yaml             {code, name?, description?}
     classes.yaml              [{class, parent, aliases?, description?}]
+    signals.yaml              [{name, aliases?, description?}]
     models.yaml               [{name, engine, deck?, settings?, wiring: [...]}]
     limits.yaml               {records}
     seeds.yaml                {<address>: {nominal?, noise?, drift?, clamp?, linear?}}
@@ -49,6 +50,7 @@ __all__ = [
     "LoadResult",
     "SourceRecord",
     "Sources",
+    "facility_signals",
     "group_families",
     "load_sources",
     "slot_names",
@@ -73,7 +75,7 @@ LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "place": frozenset({"provenance"}),
     "device": frozenset({"ordinalInPlace", "ordinalInModel", "groups", "provenance"}),
-    "channel": frozenset({"provenance"}),
+    "channel": frozenset({"command", "provenance"}),
     "group": frozenset({"provenance"}),
     "model": frozenset({"provenance"}),
     "wiring": frozenset(
@@ -105,11 +107,6 @@ SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
         ("Device", "groups"),
         ("Wiring", "marks"),
         ("Measurement", "kinds"),
-        ("MeasurementGroups", "bpm"),
-        ("MeasurementGroups", "hcor"),
-        ("MeasurementGroups", "vcor"),
-        ("MeasurementGroups", "quad"),
-        ("MeasurementGroups", "sext"),
     }
 )
 
@@ -127,6 +124,7 @@ _TOP_FILES = frozenset(
     {
         "identity.yaml",
         "classes.yaml",
+        "signals.yaml",
         "models.yaml",
         "limits.yaml",
         "seeds.yaml",
@@ -245,6 +243,7 @@ class Sources:
     Attributes:
         identity: ``identity.yaml`` without its header, or ``None`` when absent.
         classes: ``classes.yaml``'s records, in file order.
+        signals: ``signals.yaml``'s records, in file order.
         records: Every layer's records, ordered by layer, file and position.
         seeds: ``seeds.yaml``, address to seed record.
         limits: ``limits.yaml`` without its header, or ``None`` when absent or
@@ -257,6 +256,7 @@ class Sources:
 
     identity: dict[str, Any] | None = None
     classes: list[dict[str, Any]] = field(default_factory=list)
+    signals: list[dict[str, Any]] = field(default_factory=list)
     records: list[SourceRecord] = field(default_factory=list)
     seeds: dict[str, dict[str, Any]] = field(default_factory=dict)
     limits: dict[str, Any] | None = None
@@ -295,6 +295,25 @@ def load_sources(facility_dir: Path) -> LoadResult:
     return _Reader(facility_dir).read()
 
 
+def facility_signals(facility_dir: Path) -> list[dict[str, Any]]:
+    """The signal roles a facility directory's ``signals.yaml`` adds.
+
+    For a reader that runs before any combined document exists (the MML
+    import). A row the build refuses is left out; ``osprey build`` reports it.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+
+    Returns:
+        The accepted ``signals.yaml`` rows, in file order; none when the file or
+        the directory is absent.
+    """
+    reader = _Reader(facility_dir)
+    if facility_dir.is_dir():
+        reader._read_signals()
+    return reader.sources.signals
+
+
 class _Reader:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -310,6 +329,7 @@ class _Reader:
                 self._path_error(path.name, "is not a facility source file", "remove or rename it")
         self._read_identity()
         self._read_classes()
+        self._read_signals()
         self._read_layer(AUTHORED, root / "records", root / "models.yaml")
         imported = root / "imported"
         if imported.is_dir():
@@ -398,6 +418,36 @@ class _Reader:
                 continue
             self._check_keys(row, "FacilityClass", (), "path", f"{rel}.{index}", rel)
             self.sources.classes.append(row)
+
+    def _read_signals(self) -> None:
+        from osprey.facility.validate import signal_roles
+
+        rel = "signals.yaml"
+        built_in = signal_roles()
+        declared: dict[str, str] = {}
+        for index, row in enumerate(self._list(self.root / rel) or []):
+            where = f"{rel}.{index}"
+            if not isinstance(row, dict):
+                self._path_error(where, "is not a mapping", "write it as a mapping")
+                continue
+            self._check_keys(row, "FacilitySignal", (), "path", where, rel)
+            name = str(row.get("name"))
+            if name in built_in:
+                self._path_error(
+                    where,
+                    f"{rel} role {name} shadows the vocabulary signal role {name}",
+                    f"remove {name} from {rel} and use the vocabulary role",
+                )
+                continue
+            if name in declared:
+                self._path_error(
+                    where,
+                    f"{where} role {name} shadows {declared[name]} role {name}",
+                    f"declare {name} once in {rel}",
+                )
+                continue
+            declared[name] = where
+            self.sources.signals.append(row)
 
     def _read_imported(self, layer_dir: Path) -> None:
         layer = layer_dir.name

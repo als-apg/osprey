@@ -456,13 +456,13 @@ def _facility_tree() -> list[str]:
 
 
 def test_facility_tree_is_what_init_writes(built_demo: BuiltProject) -> None:
-    """Every entry but the two the page says the preset leaves out is written, and nothing else."""
+    """Every entry but those the page says the preset leaves out is written, and nothing else."""
     facility = built_demo.facility_dir
     paths = _facility_tree()
     not_shipped = [rel for rel in paths if not _on_disk(facility, rel)]
-    assert not_shipped == ["fixes.yaml", "imported/<layer>/"]
+    assert not_shipped == ["signals.yaml", "fixes.yaml", "imported/<layer>/"]
     sentence = " ".join(_page_text(FACILITY_PAGE).split())
-    assert "ships all of them except ``fixes.yaml`` and ``imported/``" in sentence
+    assert "ships all of them except ``signals.yaml``, ``fixes.yaml`` and ``imported/``" in sentence
 
     drawn_top = {rel.split("/")[0] for rel in paths}
     on_disk_top = {path.name for path in facility.iterdir()}

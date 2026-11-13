@@ -1,0 +1,55 @@
+# A deployment with six logins under tiers/ and one image-container application.
+# It states the shape a site deployment takes once its logins carry no
+# `exclude:`: the hand tool server stays here, on the root, and every login
+# that does without it switches it off by name; the skill and the panel only
+# some logins carry live in those logins' lists, not here.
+#
+# The test assembles apps/controls-admin-like/ from the controls_admin_like
+# fixture and data/facility/ from the packaged example facility.
+extends: hello-world
+name: Six Logins
+project_name: six-logins
+data: data
+
+skills:
+  - diagnose
+  - session-report
+
+agents:
+  - data-visualizer
+
+web_panels:
+  - system-health
+
+# The application's tool server is a hand entry, as any HTTP tool server is.
+mcp_servers:
+  controls_admin:
+    url: http://127.0.0.1:8095/mcp
+    writes: []
+
+apps:
+  controls-admin-like:
+    services:
+      controls-admin:
+        network: host
+        env: [CONTROLS_ADMIN_EXTRA]
+
+config:
+  control_system.writes: allowed
+  control_system.connector.epics.gateways.read_only.address: gw.example
+  control_system.connector.epics.gateways.read_only.port: 5064
+  modules.web_terminals:
+    enabled: true
+    image_source: local
+    default_tier: readonly
+    auth:
+      method: password
+      allow_insecure_http: true
+    users:
+      - {name: alice, index: 0, tier: readwrite}
+      - {name: bob, index: 1, tier: readonly}
+      - {name: carol, index: 2, tier: admin}
+    shared:
+      - controls
+      - knowledge
+      - logbook

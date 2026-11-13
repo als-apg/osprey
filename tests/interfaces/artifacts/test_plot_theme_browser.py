@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.artifacts.test_opaque_origin_browser import (
     GALLERY,
     artifact_frame,
@@ -186,6 +187,7 @@ def test_standalone_page_follows_query_theme_outside_main_family(
     with _launch(tmp_path, monkeypatch) as (base_url, path):
         page = chromium_browser.new_page()
         page.goto(f"{base_url}{path}?theme=high-contrast-light")
+        wait_for_page_ready(page)
         _assert_follows_tokens(_probe(page), "high-contrast-light")
 
 
@@ -196,6 +198,7 @@ def test_standalone_page_follows_os_light_preference(tmp_path, monkeypatch, chro
         ctx = chromium_browser.new_context(color_scheme="light")
         page = ctx.new_page()
         page.goto(f"{base_url}{path}")
+        wait_for_page_ready(page)
         _assert_follows_tokens(_probe(page), "light")
 
 
@@ -207,6 +210,7 @@ def test_standalone_page_honors_pinned_web_theme(tmp_path, monkeypatch, chromium
         ctx = chromium_browser.new_context(color_scheme="dark")
         page = ctx.new_page()
         page.goto(f"{base_url}{path}")
+        wait_for_page_ready(page)
         _assert_follows_tokens(_probe(page), "light")
 
 
@@ -235,6 +239,7 @@ def test_unstyled_html_artifact_gets_themed_defaults(tmp_path, monkeypatch, chro
     with hub_with_gallery(tmp_path, monkeypatch, seed=seed) as (base_url, path):
         page = chromium_browser.new_page()
         page.goto(f"{base_url}{path}?theme=dark")
+        wait_for_page_ready(page)
         page.wait_for_function(
             "() => document.documentElement.getAttribute('data-theme') === 'dark'"
         )

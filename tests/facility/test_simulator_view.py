@@ -112,7 +112,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
         )
     # The deployment's render runs a Bluesky lane; a render without one has no view.
     assert BLUESKY in built_demo.outputs[0].files
-    # Only the channel-finder app's render selects the hierarchical pipeline,
+    # Only the channel-finder login's render selects the hierarchical pipeline,
     # once in its own render and once in its image.
     assert [
         outputs.render_dir.name for outputs in built_demo.outputs if CHANNEL_INDEX in outputs.files
