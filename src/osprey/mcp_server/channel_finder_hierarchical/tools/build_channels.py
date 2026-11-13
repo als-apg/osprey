@@ -30,31 +30,18 @@ def build_channels(selections: dict) -> str:
             All levels from the hierarchy must be included — omitting a required level returns no channels.
 
     Returns:
-        JSON with list of constructed channel addresses and total count.
+        JSON with:
+        - channels: the addresses that exist in the database, each once
+        - total: their count
+        - invalid_count: number of selection combinations that hold no channel
+        - invalid_examples: up to 10 of those combinations, as level -> selected value.
+          They are selections, not addresses missing from the database: a list at
+          several levels is combined in every way, and a combination that names no
+          leaf (a device under a sector it is not in) holds nothing.
     """
     try:
         registry = get_cf_hier_context()
-        db = registry.database
-
-        channels = db.build_channels_from_selections(selections)
-
-        valid = []
-        invalid = []
-        for ch in channels:
-            if db.validate_channel(ch):
-                valid.append(ch)
-            else:
-                invalid.append(ch)
-
-        result = {
-            "channels": channels,
-            "total": len(channels),
-            "valid": valid,
-            "invalid": invalid,
-            "valid_count": len(valid),
-            "invalid_count": len(invalid),
-        }
-        return json.dumps(result)
+        return json.dumps(registry.database.build_existing_channels(selections))
 
     except ValueError as exc:
         return make_error(
