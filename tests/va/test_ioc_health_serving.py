@@ -9,6 +9,7 @@ leaves them for the next one.
 from __future__ import annotations
 
 import json
+import queue
 from pathlib import Path
 from typing import Any
 
@@ -255,6 +256,7 @@ def test_two_periodic_passes_publish_an_advanced_heartbeat(
     monkeypatch.setattr(Runner, "_post_outputs", lambda _self, values, _ts: posted.append(values))
     runner = object.__new__(ModelRunner)
     runner.model = composite
+    runner.queue = queue.Queue()
     runner._cycle_requested_names = ()
     runner._timed_names = frozenset()
     runner._needs_timed = False
