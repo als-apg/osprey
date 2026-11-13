@@ -30,6 +30,7 @@ from osprey.agent_record.client import ClientAnswer
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.stores.artifact_store import ArtifactStore
 from tests.agent_record.fakes import FakeRecordClient
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 from tests.interfaces.web_terminal._fakes import FakePtySession
 
@@ -181,6 +182,7 @@ def test_views_switch_and_show_their_counts(tmp_path, monkeypatch, chromium_brow
     )
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         expect(_view(page, "timeline")).to_have_attribute("aria-pressed", "true")
         expect(page.locator(_VIEW_CONTENT["timeline"]).first).to_be_visible()
@@ -204,6 +206,7 @@ def test_views_switch_and_show_their_counts(tmp_path, monkeypatch, chromium_brow
 def test_builtin_call_is_listed_in_tool_calls(tmp_path, monkeypatch, chromium_browser):
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(f"{url}/tools", wait_until="load")
+        wait_for_page_ready(page)
 
         rows = page.locator("table.act-table tr.row")
         expect(rows).to_have_count(3)
@@ -220,6 +223,7 @@ def test_builtin_call_is_listed_in_tool_calls(tmp_path, monkeypatch, chromium_br
 def test_safety_names_the_operator_approval(tmp_path, monkeypatch, chromium_browser):
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(f"{url}/safety", wait_until="load")
+        wait_for_page_ready(page)
 
         card = page.locator(".act-approval")
         expect(card).to_have_count(1)
@@ -235,6 +239,7 @@ def test_incomplete_read_says_record_incomplete(tmp_path, monkeypatch, chromium_
     )
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         expect(page.locator("#record-chip")).to_have_text("Record incomplete")
         expect(page.locator("button.act-row").first).to_be_visible()
@@ -244,6 +249,7 @@ def test_incomplete_read_says_record_incomplete(tmp_path, monkeypatch, chromium_
 def test_complete_read_says_record_complete(tmp_path, monkeypatch, chromium_browser):
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         expect(page.locator("#record-chip")).to_have_text("Record complete")
 
@@ -264,6 +270,7 @@ def test_open_row_and_scroll_survive_the_poll(tmp_path, monkeypatch, chromium_br
     ) as (page, url):
         page.clock.install()
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         row = page.locator('button.act-row[data-toggle="t1"]')
         row.click()
@@ -288,6 +295,7 @@ def test_picked_session_at_rest_is_not_read_again(tmp_path, monkeypatch, chromiu
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.clock.install()
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
         expect(page.locator("button.act-row").first).to_be_visible()
         asked: list[str] = []
         page.on("request", lambda r: asked.append(r.url))
@@ -304,6 +312,7 @@ def test_fresh_session_says_no_activity_yet(tmp_path, monkeypatch, chromium_brow
     record.answers["timeline"] = ClientAnswer(data=[], complete=True)
     with _activity_page(tmp_path, monkeypatch, chromium_browser, live=True) as (page, url):
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         expect(page.locator("#inner")).to_contain_text("No activity in this session yet")
         # The key's own transcript was read, and no other session's.
@@ -318,6 +327,7 @@ def test_terminal_session_at_rest_is_read_again(tmp_path, monkeypatch, chromium_
     with _activity_page(tmp_path, monkeypatch, chromium_browser, by_key=True) as (page, url):
         page.clock.install()
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
         expect(page.locator("#inner")).to_contain_text("No activity in this session yet")
 
         with page.expect_request(lambda r: "/api/session-activity?" in r.url):
@@ -380,6 +390,7 @@ def test_tool_calls_table_cells_do_not_overlap_at_1280(
         tmp_path, monkeypatch, chromium_browser, viewport={"width": 1280, "height": 800}
     ) as (page, url):
         page.goto(f"{url}/tools", wait_until="load")
+        wait_for_page_ready(page)
         expect(page.locator("table.act-table tr.row")).to_have_count(5)
 
         found = page.evaluate(_CELL_OVERLAP_JS)
@@ -408,6 +419,7 @@ def test_table_sets_the_server_apart_from_the_tool_name(
     record.answers["timeline"] = ClientAnswer(data=[*_nodes(), gate], complete=True)
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(f"{url}/{view}", wait_until="load")
+        wait_for_page_ready(page)
         expect(page.locator("table.act-table td.act-name .act-srv").first).to_be_visible()
 
         gaps = page.evaluate(_NAME_GAP_JS)
@@ -420,6 +432,7 @@ def test_unavailable_record_offers_try_again(tmp_path, monkeypatch, chromium_bro
     record.unavailable = "record service down"
     with _activity_page(tmp_path, monkeypatch, chromium_browser) as (page, url):
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
 
         expect(page.locator("#record-chip")).to_have_text("Record unavailable")
         again = page.locator("#inner").get_by_role("button", name="Try again")
@@ -439,6 +452,7 @@ def test_reading_is_kept_while_the_record_does_not_answer(
     with _activity_page(tmp_path, monkeypatch, chromium_browser, live=True) as (page, url):
         page.clock.install()
         page.goto(url, wait_until="load")
+        wait_for_page_ready(page)
         rows = page.locator("button.act-row")
         expect(rows.first).to_be_visible()
         shown = rows.count()

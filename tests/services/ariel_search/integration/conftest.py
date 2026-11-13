@@ -393,9 +393,8 @@ def scratch_database(database_url: str):
     """A fresh, empty database on the session server, dropped at teardown.
 
     For the tests that need an empty store, a fresh migration run or exactly
-    today's migration set: the shared ``ariel_test`` database is migrated once
-    per session and carries every other module's state, so it can answer none
-    of those. ``vector`` is created when the server has pgvector, as the
+    today's migration set: the session database is migrated once per session
+    and carries every other module's state, so it can answer none of those. ``vector`` is created when the server has pgvector, as the
     session database has it.
 
     Args:

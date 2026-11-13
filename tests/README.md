@@ -215,9 +215,21 @@ too, each because the real thing makes a test slow or flaky:
   `artifacts.store_watcher.StoreIndexWatcher(observer_factory=)` — a
   deterministic polling observer. Without it, the watcher's own tests read the
   live FSEvents stream, which replays history and coalesces at will.
-- `dock-workspace.js:bootLayoutSettled()` — the browser readiness probe. The dock
-  re-parents the terminal card during boot; a browser test that acts before this
-  resolves (plus one frame) races that move.
+- `wait_for_page_ready(target)` (`tests/interfaces/_browser.py`) — the one wait
+  after a navigation. Every page OSPREY serves sets `data-page-ready="true"` on
+  its `<html>` once it can be driven (`design-system/js/page-ready.js`); the
+  helper waits for it on a page, frame or frame locator. `open_hub_page`,
+  `open_panel_host`, `PanelHost.goto` and `PanelHost.reload` wait through it.
+  `tests/interfaces/test_page_ready_guard.py` fails a test whose next use of a
+  page after `goto`, `reload`, `wait_for_url` or a popup is anything else; a
+  document OSPREY does not author, or a test whose subject is the page before
+  it is ready, carries `# page-ready: <reason>` on the navigation's line.
+  `tests/interfaces/test_page_ready_pages.py` fails a served page that never
+  reaches the mark.
+- `dock-workspace.js:bootLayoutSettled()` — the dock's own readiness probe
+  (`wait_for_dock_settled`). The dock re-parents the terminal card during boot;
+  a browser test that types before this resolves (plus one frame) races that
+  move. The page-ready mark does not answer this.
 
 **Vitest.** Module-private state in a JS module is isolated by the `vmThreads`
 pool (a fresh module graph per file), `vi.resetModules()` between tests, and the

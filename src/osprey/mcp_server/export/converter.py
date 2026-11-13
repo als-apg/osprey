@@ -22,7 +22,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -79,7 +78,11 @@ def _plotly_script_src() -> str:
     return asset_cdn_url("Plotly.js")
 
 
-# Total budget for loading an injected page and waiting for its plot to draw.
+# The deadline of a whole export. A plain page's load is held to all of it; an
+# injected page's load and its plot's draw are both held to it. The draw gets its own budget, timed from the page's
+# load; the load (a local file and the Plotly bundle, slow to parse on a loaded
+# host) gets the rest, so a slow load is never read as a plot that did not draw.
+_EXPORT_DEADLINE_MS = 60_000
 _PLOTLY_BUDGET_MS = 10_000
 
 # True once the first Plotly graph has drawn — its layout is computed and no
@@ -111,20 +114,32 @@ class PlaywrightNotInstalledError(Exception):
     """Raised when Playwright or its browsers are not available."""
 
 
-class PlotNotDrawnError(Exception):
-    """Raised when a page's Plotly plot did not draw within the render budget.
+class ExportDeadlineError(Exception):
+    """Raised when an export missed its deadline; nothing is written then.
 
-    Nothing is written then: a screenshot of a plot that did not draw is a blank
-    image a reader would take for the plot.
+    A screenshot of a page that did not load, or of a plot that did not draw, is
+    a blank image a reader would take for the plot.
     """
 
+    _WHAT = "The page {name} did not finish within {ms} ms"
+
     def __init__(self, source: Path, budget_ms: int) -> None:
-        super().__init__(
-            f"The Plotly plot in {source.name} did not draw within {budget_ms} ms; "
-            "no image was written."
-        )
+        what = self._WHAT.format(name=source.name, ms=budget_ms)
+        super().__init__(f"{what}; no image was written.")
         self.source = source
         self.budget_ms = budget_ms
+
+
+class PageNotLoadedError(ExportDeadlineError):
+    """Raised when the page did not load within its share of the export deadline."""
+
+    _WHAT = "The page {name} did not load within {ms} ms"
+
+
+class PlotNotDrawnError(ExportDeadlineError):
+    """Raised when the page's Plotly plot did not draw within its budget after the load."""
+
+    _WHAT = "The Plotly plot in {name} did not draw within {ms} ms"
 
 
 def _is_missing_browser(exc: BaseException) -> bool:
@@ -183,9 +198,13 @@ async def _render(
     plot has drawn. The source file itself is never modified.
 
     Raises:
-        PlotNotDrawnError: The plot had not drawn when the budget ran out; no
-            image is written.
+        PageNotLoadedError: The page had not loaded within the export deadline
+            (less the draw budget, for an injected page); no image is written.
+        PlotNotDrawnError: The plot had not drawn within the draw budget, timed
+            from the page's load; no image is written.
     """
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
     from osprey.interfaces.vendor import html_needs_plotly
 
     html = source.read_bytes()
@@ -194,13 +213,16 @@ async def _render(
             browser = await p.chromium.launch()
             try:
                 page = await browser.new_page(viewport={"width": width, "height": height})
-                await page.goto(source.as_uri(), wait_until="networkidle")
+                try:
+                    await page.goto(
+                        source.as_uri(), wait_until="networkidle", timeout=_EXPORT_DEADLINE_MS
+                    )
+                except PlaywrightTimeoutError as exc:
+                    raise PageNotLoadedError(source, _EXPORT_DEADLINE_MS) from exc
                 await page.screenshot(path=str(dest), type=fmt, full_page=True)
             finally:
                 await browser.close()
         return
-
-    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
     injected = _inject_plotly(html, f"{source.parent.as_uri()}/", _plotly_script_src())
     with tempfile.NamedTemporaryFile(suffix=".html", dir=dest.parent, delete=False) as tmp:
@@ -211,13 +233,13 @@ async def _render(
             browser = await p.chromium.launch()
             try:
                 page = await browser.new_page(viewport={"width": width, "height": height})
-                started = time.monotonic()
+                load_ms = _EXPORT_DEADLINE_MS - _PLOTLY_BUDGET_MS
                 try:
-                    await page.goto(copy.as_uri(), wait_until="load", timeout=_PLOTLY_BUDGET_MS)
-                    elapsed_ms = (time.monotonic() - started) * 1000
-                    # Playwright reads timeout=0 as "no timeout"; floor at 1 ms.
-                    remaining_ms = max(1, int(_PLOTLY_BUDGET_MS - elapsed_ms))
-                    await page.wait_for_function(_PLOT_DRAWN_JS, timeout=remaining_ms)
+                    await page.goto(copy.as_uri(), wait_until="load", timeout=load_ms)
+                except PlaywrightTimeoutError as exc:
+                    raise PageNotLoadedError(source, load_ms) from exc
+                try:
+                    await page.wait_for_function(_PLOT_DRAWN_JS, timeout=_PLOTLY_BUDGET_MS)
                     await page.evaluate(_TWO_FRAMES_JS)
                 except PlaywrightTimeoutError as exc:
                     raise PlotNotDrawnError(source, _PLOTLY_BUDGET_MS) from exc
@@ -254,6 +276,7 @@ async def convert_html_to_image(
     Raises:
         PlaywrightNotInstalledError: Playwright is not importable, or Chromium is
             absent and could not be installed.
+        PageNotLoadedError: The page did not load within the export deadline.
         PlotNotDrawnError: The page's Plotly plot did not draw in time.
         FileNotFoundError: *html_path* does not exist.
         ValueError: Unsupported *fmt*.

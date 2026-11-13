@@ -1046,7 +1046,7 @@ def test_an_empty_governed_claims_mapping_goes_red():
 
 
 def test_the_logbook_claim_is_measured_from_the_app_render():
-    """The logbook app governs its write pair; the host's machine tools are gone."""
+    """The logbook login governs its write pair; the host's machine tools are gone."""
     tools = make_guard().governed_tools("logbook")
     assert {"entry_create", "entry_publish"} <= tools
     assert not tools & {"channel_write", "execute", "control_target_set", "queue_add"}

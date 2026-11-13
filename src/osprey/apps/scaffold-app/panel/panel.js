@@ -1,6 +1,8 @@
 // The panel: shows the backend's state of the one channel, refreshed on a timer.
 // Its address is relative: the page is served under the terminal's /panel/<id>/.
 
+import { markPageReady } from '/design-system/js/page-ready.js';
+
 const STATE_URL = 'api/state';
 const REFRESH_MS = 2000;
 
@@ -72,6 +74,8 @@ export async function refresh(root, fetcher = fetch) {
 
 const panel = document.getElementById('scaffold-state');
 if (panel) {
-  void refresh(panel);
+  // The page is ready to drive once the first refresh has drawn, whatever it drew;
+  // index.html declares the mark pending until then.
+  void refresh(panel).finally(() => markPageReady());
   setInterval(() => void refresh(panel), REFRESH_MS);
 }

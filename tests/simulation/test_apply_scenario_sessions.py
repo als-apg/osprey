@@ -297,7 +297,7 @@ def test_apply_session_free_facility_writes_no_seed(tmp_path):
 
 
 def _no_logbook_seed(monkeypatch) -> None:
-    async def _no_seed(_ariel_config, _entries, _pictures):
+    async def _no_seed(_ariel_config, _entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         return 0, False
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)

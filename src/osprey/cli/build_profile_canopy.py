@@ -2,7 +2,7 @@
 
 The two commands that gate on the profile, ``osprey build`` and
 ``osprey validate``, call this producer beside the other profile-side checks,
-once for the profile and once for each tier and app file. The key names the screen
+once for the profile and once for each login file. The key names the screen
 CANOPY lands on by its library id; a build that rendered an id the library does
 not hold would ship a panel that opens on nothing, so it is refused before
 anything is written.
@@ -79,7 +79,7 @@ def _holdings(screens: tuple[str, ...]) -> str:
 def repo_home_screen_errors(
     profile: Any, repo_root: Path, overlays: tuple[Path, ...] = ()
 ) -> list[str]:
-    """:func:`canopy_home_screen_errors` for a repo's profile and each of its tier and app files.
+    """:func:`canopy_home_screen_errors` for a repo's profile and each of its login files.
 
     Each layer file (:func:`~osprey.cli.build_cmd._layer_files`) is judged on
     the resolution the build renders it from, with the same overlays, and

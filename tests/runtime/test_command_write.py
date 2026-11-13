@@ -10,7 +10,8 @@ this process holds the run lock with a context whose owner is the owner the
 write path reads, the connector drives the context's target, the context's
 ``limits_off`` is the target's, the connector's limits validator is not the
 fail-safe one (and it carries one unless limits are off), and every address is
-a command of the rendered facility definition and passes the validator in the
+a channel the rendered facility definition marks ``command`` (the build's mark,
+never a rule about the signal) and passes the validator in the
 validator's own mode. Then it makes one ``write_multiple_channels`` call with
 ``confirm=False``. Every call files one audit record naming the commands that
 fired. The validator here is the product's own; the connector records what it
@@ -51,22 +52,22 @@ from osprey_connectors.errors import (
 from osprey_connectors.workspace import reset_config_cache
 from tests._guarded_run import LIVE_BASELINE, reset_run_state
 
-#: Commands of the facility definition: setpoints whose signal ends in ``command``.
+#: Commands of the facility definition: the setpoints the build marked ``command``.
 ARM = "SYN:BPM:ARM"
 REQUEST = "SYN:INJ:REQ"
 CONFIRMING = "SYN:INJ:CONFIRMING"
 #: A setpoint of the facility definition that is not a command.
 CORRECTOR = "SYN:COR:SP"
-#: A readback whose signal ends in ``command``: a readback is never a command.
+#: A readback whose signal ends in ``command`` and that the build did not mark.
 ECHO = "SYN:INJ:ECHO"
 #: A channel the facility definition does not name at all.
 STRANGER = "SYN:NOT:THERE"
 
 #: The rendered facility definition's channels.
 FACILITY_CHANNELS: list[dict[str, Any]] = [
-    {"id": ARM, "role": "setpoint", "signal": "reset_command"},
-    {"id": REQUEST, "role": "setpoint", "signal": "power_on_command"},
-    {"id": CONFIRMING, "role": "setpoint", "signal": "lamp_command"},
+    {"id": ARM, "role": "setpoint", "signal": "reset_command", "command": True},
+    {"id": REQUEST, "role": "setpoint", "signal": "power_on_command", "command": True},
+    {"id": CONFIRMING, "role": "setpoint", "signal": "lamp_command", "command": True},
     {"id": CORRECTOR, "role": "setpoint", "signal": "ramp_rate_setpoint"},
     {"id": ECHO, "signal": "valve_open_command"},
 ]
@@ -380,6 +381,20 @@ async def test_a_batch_naming_a_channel_the_facility_does_not_mark_a_command_is_
 
     assert refusal.channel_address == address
     assert "facility definition" in refusal.reason
+
+
+async def test_command_ness_is_the_build_s_mark_and_never_a_rule_about_the_signal(
+    repo: Path,
+) -> None:
+    channels = [
+        {"id": ARM, "role": "setpoint", "signal": "reset_command"},
+        {"id": CORRECTOR, "role": "setpoint", "signal": "ramp_rate_setpoint", "command": True},
+    ]
+    _facility(repo, channels)
+
+    with lock(None, context=ALICE_LIVE):
+        assert await command_write(_Connector(), [CORRECTOR], 1) == [CORRECTOR]
+    assert (await _refused(_Connector(), [ARM])).channel_address == ARM
 
 
 async def test_command_ness_is_the_facility_definitions_and_never_the_callers() -> None:

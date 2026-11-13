@@ -6,7 +6,7 @@ Every download here is served by a local HTTP stub; nothing reaches the network.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,6 +163,65 @@ def test_offline_without_a_copy_fails_naming_the_app_and_package(
     assert stub.hits == []
 
 
+@pytest.fixture
+def installed_knob(
+    tmp_path: Path, stub: _Stub
+) -> Iterator[Callable[[bytes | None], tuple[Path, list]]]:
+    """The knob application as an installed package ships it, its directory read-only.
+
+    Called with what the package holds at the url entry's target (``None``: nothing);
+    returns the deployment root and the manifests. Write access is given back after.
+    """
+    from osprey.apps.origin import AppOrigin
+
+    package = tmp_path / "site" / "apps" / "knob"
+
+    def make(shipped: bytes | None) -> tuple[Path, list]:
+        manifests = _deployment(tmp_path / "site", stub)
+        for entry in manifests[0].vendor:
+            (package / entry.into).parent.mkdir(parents=True, exist_ok=True)
+        if shipped is not None:
+            (package / manifests[0].vendor[0].into).write_bytes(shipped)
+        (package / manifests[0].vendor[1].into).write_bytes(UPLOT)
+        manifests[0].bind_origin(AppOrigin("installed", package, "knob-dist", "1.2.3", "knob"))
+        for directory in _directories(package):
+            directory.chmod(0o555)
+        return tmp_path / "root", manifests
+
+    yield make
+    for directory in _directories(package):
+        directory.chmod(0o755)
+
+
+def _directories(root: Path) -> list[Path]:
+    return [root, *(p for p in root.rglob("*") if p.is_dir())] if root.is_dir() else []
+
+
+def test_an_installed_apps_verified_vendor_files_are_used_in_place(
+    installed_knob: Callable[[bytes | None], tuple[Path, list]], stub: _Stub
+) -> None:
+    root, manifests = installed_knob(LIB)
+
+    assert vendor.fetch_app_vendor(root, manifests, offline=False, quiet=True) == []
+    assert stub.hits == []
+
+
+@pytest.mark.parametrize("shipped", [None, b"tampered"], ids=["missing", "mismatched"])
+def test_an_installed_apps_vendor_file_is_never_fetched(
+    installed_knob: Callable[[bytes | None], tuple[Path, list]],
+    stub: _Stub,
+    shipped: bytes | None,
+) -> None:
+    root, manifests = installed_knob(shipped)
+
+    with pytest.raises(vendor.AppVendorError) as exc:
+        vendor.fetch_app_vendor(root, manifests, offline=False, quiet=True)
+
+    assert exc.value.app == "knob"
+    assert "is not shipped by knob-dist 1.2.3; reinstall it" in str(exc.value)
+    assert stub.hits == []
+
+
 def test_offline_with_a_tampered_copy_fails(tmp_path: Path, stub: _Stub) -> None:
     manifests = _deployment(tmp_path, stub)
     vendor.fetch_app_vendor(tmp_path, manifests, offline=False, quiet=True)
@@ -257,6 +316,8 @@ def test_the_panel_validator_skips_an_app_panels_vendor_dir(tmp_path: Path, stub
     (panel_dir / "index.html").write_text(
         '<!doctype html><script src="/design-system/js/theme-boot.js"></script>'
         '<link rel="stylesheet" href="/design-system/css/tokens.css">'
+        '<link rel="stylesheet" href="/design-system/css/base.css">'
+        '<link rel="stylesheet" href="/design-system/css/primitives.css">'
         '<link rel="stylesheet" href="/static/fonts/fonts.css">\n',
         encoding="utf-8",
     )

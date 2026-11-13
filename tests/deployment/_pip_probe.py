@@ -39,8 +39,13 @@ def stubbed_env(tmp_path: Path, stubs: dict[str, str], **extra: str) -> dict[str
 
 
 def run_body(body: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Run a RUN body under ``sh -c`` with *env*."""
-    return subprocess.run(["sh", "-c", body], capture_output=True, text=True, env=env, timeout=60)
+    """Run a RUN body under ``sh -c`` with *env*.
+
+    Waited on until the body exits, with no wall-clock budget: every tool it
+    calls is a stub, so it ends on its own however slowly a loaded host starts
+    them, and the per-test timeout is the hang breaker.
+    """
+    return subprocess.run(["sh", "-c", body], capture_output=True, text=True, env=env)
 
 
 def deps_sandbox(

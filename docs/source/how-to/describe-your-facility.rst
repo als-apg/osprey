@@ -30,6 +30,7 @@ The tree
        channels.yaml           the control-system channels
        groups.yaml             named sets of devices
      classes.yaml              device classes the facility adds
+     signals.yaml              signal roles the facility adds
      models.yaml               the simulation models and their wiring
      decks/                    the decks those models name
      limits.yaml               the write limits
@@ -44,7 +45,7 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``fixes.yaml`` and
+demo preset ships all of them except ``signals.yaml``, ``fixes.yaml`` and
 ``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
@@ -194,6 +195,15 @@ child of an existing class:
    - class: Undulator
      parent: Magnet
      aliases: [insertion device, ID]
+
+``signals.yaml`` adds signal roles the vocabulary lacks; one it already has is
+refused:
+
+.. code-block:: yaml
+
+   - name: taper_setpoint
+     aliases: [gap taper]
+     description: Commanded gap difference between an undulator's two ends.
 
 Layers
 ======
@@ -536,7 +546,13 @@ the other plane pairs with:
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
 
-A model solved in a single pass allows ``orm`` alone. A group plays one role;
+A measurement OSPREY does not ship is a kind an installed package registers
+(:doc:`register-a-measurement-kind`). It is listed under ``kinds`` like the
+five, may name roles of its own under ``groups`` and ``instruments``, and
+takes its own settings under ``kind_blocks.<kind>``.
+
+A model solved in a single pass allows only the kinds that run single pass;
+of the shipped ones, ``orm`` alone. A group plays one role;
 only ``hcor`` and ``vcor`` may name the same group. A role naming several
 groups is one pyAML array named after the role. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
@@ -566,7 +582,7 @@ Build
 ``osprey build`` runs the checks of ``osprey facility validate`` but the
 response check, stops at the first that fails, and then writes
 ``build/facility.json`` and the views into the deployment's render and each
-tier, app and image render.
+login and image render.
 
 .. seealso::
 

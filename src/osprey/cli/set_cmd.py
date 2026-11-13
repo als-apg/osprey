@@ -539,6 +539,24 @@ def _configured_agents(profile: dict) -> list[str]:
     return sorted(names)
 
 
+def _application_agents(repo_root: Path, profile: dict) -> list[str]:
+    """The agent names the applications the profile's ``apps:`` block names carry.
+
+    Empty when an application does not load: ``osprey build`` names that problem.
+    """
+    from osprey.apps.errors import AppManifestError
+    from osprey.apps.loader import load
+
+    apps = profile.get("apps")
+    if not isinstance(apps, (dict, list)) or not apps:
+        return []
+    try:
+        manifests = load(repo_root, [str(name) for name in apps])
+    except AppManifestError:
+        return []
+    return sorted({agent for manifest in manifests for agent in manifest.agents})
+
+
 def _model_check(repo_root: Path, pairs: tuple[str, ...]) -> list[tuple[str, str, list[str]]]:
     """Each model id *pairs* writes, the provider it runs on, and what that provider serves.
 
@@ -589,7 +607,9 @@ def _model_check(repo_root: Path, pairs: tuple[str, ...]) -> list[tuple[str, str
         _refuse_alias_word(f"{AGENT_MODELS_KEY}.{agent}", pins[agent], provider, served)
 
     errors = agent_model_pin_errors(
-        repo_root / "agents", pins, {*FRAMEWORK_AGENTS, *_configured_agents(profile)}
+        repo_root / "agents",
+        pins,
+        {*FRAMEWORK_AGENTS, *_configured_agents(profile), *_application_agents(repo_root, profile)},
     )
     if errors:
         raise click.UsageError("\n".join(errors))

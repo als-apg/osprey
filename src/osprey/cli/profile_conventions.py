@@ -1881,7 +1881,7 @@ def convention_selections(lists: Mapping[str, Iterable[Any]]) -> frozenset[str]:
 
 #: The hook event that gates a tool call. A hook on it is a guard, and guards
 #: are a floor: every one in force on the deployment's render reaches every
-#: tier and app render.
+#: login render.
 GUARD_EVENT = "PreToolUse"
 
 _CLAUDE_CODE_HOOKS = ("claude_code", "hooks")

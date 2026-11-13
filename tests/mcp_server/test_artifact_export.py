@@ -3,7 +3,13 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from osprey.mcp_server.export.converter import PlaywrightNotInstalledError, PlotNotDrawnError
+import pytest
+
+from osprey.mcp_server.export.converter import (
+    PageNotLoadedError,
+    PlaywrightNotInstalledError,
+    PlotNotDrawnError,
+)
 from osprey.stores.artifact_store import ArtifactStore
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -144,8 +150,15 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-async def test_export_plot_not_drawn_names_it_and_saves_no_image(tmp_path, monkeypatch):
-    """A plot that did not draw is refused by name; no image artifact is saved."""
+@pytest.mark.parametrize(
+    ("refusal", "budget_ms", "words"),
+    [(PlotNotDrawnError, 10_000, "did not draw"), (PageNotLoadedError, 50_000, "did not load")],
+)
+async def test_export_plot_not_drawn_names_it_and_saves_no_image(
+    tmp_path, monkeypatch, refusal, budget_ms, words
+):
+    """A page that did not load, or a plot that did not draw, is refused by name;
+    no image artifact is saved."""
     monkeypatch.chdir(tmp_path)
 
     store = ArtifactStore(workspace_root=tmp_path)
@@ -159,7 +172,7 @@ async def test_export_plot_not_drawn_names_it_and_saves_no_image(tmp_path, monke
     )
 
     async def raise_not_drawn(*args, **kwargs):
-        raise PlotNotDrawnError(Path("plot.html"), 10_000)
+        raise refusal(Path("plot.html"), budget_ms)
 
     with (
         patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
@@ -173,5 +186,5 @@ async def test_export_plot_not_drawn_names_it_and_saves_no_image(tmp_path, monke
             await fn(artifact_id=entry.id)
 
     message = exc_ctx["envelope"]["error_message"]
-    assert "plot.html" in message and "10000 ms" in message
+    assert "plot.html" in message and f"{words} within {budget_ms} ms" in message
     assert [e.mime_type for e in store.list_entries()] == ["text/html"]

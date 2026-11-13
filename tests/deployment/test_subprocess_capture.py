@@ -841,7 +841,16 @@ def _sleeping_group(ready: Path, *, ignore_term: bool = False) -> subprocess.Pop
     group = subprocess.Popen(
         ["sh", "-c", f"{trap}: > {shlex.quote(str(ready))}; exec sleep 60"], process_group=0
     )
-    _wait_for_file(ready, empty_ok=True)
+    # No wall-clock budget: the shell writes ``ready`` or exits on its own
+    # however slowly a loaded host starts it; the per-test timeout is the hang
+    # breaker.
+    wait_until(
+        lambda: ready.exists() or group.poll() is not None,
+        timeout=None,
+        interval=0.02,
+        what=f"a write to {ready} or the shell's exit",
+    )
+    assert ready.exists(), f"the shell exited {group.returncode} before writing {ready}"
     return group
 
 
@@ -984,11 +993,14 @@ class TestProcessGroupStop:
         def end_the_group_on_the_first_poll(seconds: float) -> None:
             if not polls:
                 group.stdin.close()
-                group.wait(timeout=30)
+                group.wait()
             polls.append(seconds)
 
+        # The deadline is kept on a clock only the polls move, so it is the
+        # number of polls that decides, not how long a loaded host takes to read
+        # the process table or to end the group.
         waiting = types.SimpleNamespace(
-            monotonic=time.monotonic, sleep=end_the_group_on_the_first_poll
+            monotonic=lambda: sum(polls), sleep=end_the_group_on_the_first_poll
         )
         monkeypatch.setattr(subprocess_capture, "time", waiting)
         try:

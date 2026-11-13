@@ -82,7 +82,7 @@ def ariel_ingestion_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
     ``ariel.ingestion.source_url`` is where ARIEL reads entries from, and an
     ``http(s)`` one is a logbook on another host: something has to poll it, and
     the bundled ``osprey.ariel_sync`` service is what does. A local path needs
-    no service — the shipped ARIEL app ingests a seed file straight off disk —
+    no service — ARIEL as shipped ingests a seed file straight off disk —
     and an attached render (empty ``deployed_services``) deploys nothing at
     all, so both are silent. Advisory only: the deployment runs, ARIEL just
     answers from whatever was last ingested.

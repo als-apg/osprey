@@ -5,10 +5,11 @@ A change is clean when every check below that applies to it ran here and passed.
 Each check is declared once, by the code that owns it, and every caller runs it
 from there::
 
-    check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [-- PATH...]
-    check.py full  [--changed BASE [--worktree] | --base BASE]         [-- PATH...]
-    check.py run ID... [--base BASE] [--shard cli-a|cli-b|rest-a|rest-b|rest-c|macos] [-- EXEC-FLAGS...]
+    check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [--reports-dir DIR] [-- PATH...]
+    check.py full  [--changed BASE [--worktree] | --base BASE]   [--reports-dir DIR] [-- PATH...]
+    check.py run ID... [--base BASE] [--shard cli-a|cli-b|rest-a|rest-b|rest-c|macos] [--reports-dir DIR] [-- EXEC-FLAGS...]
     check.py list [--tier quick|full] [--changed BASE] [--json]
+    check.py failures DIR [--json]
 
 An owner declares its checks in a ``repo_checks.py`` module beside its code:
 ``scripts/repo_checks.py`` for the framework and the repository as a whole, and
@@ -73,6 +74,13 @@ check of the run is attempted even after an earlier one failed, and the last
 line is the verdict. A failed test check names its failing tests, read from the
 report its runner writes for the command. A refusal names every check it cannot
 judge and what to install.
+
+``--reports-dir DIR`` keeps those reports in *DIR* (one subdirectory per check,
+each with the check's ``outcome.json``) instead of a temporary directory; *DIR*
+must be missing or empty. ``failures DIR`` then prints every failing test id the
+run left there, read by the same reader the verdict uses. A check stopped at its
+bound with no failing ids is ``no verdict, host bound``, not a clean list; one
+that left ids reports them as partial.
 An environment fault stops the run before any check starts and prints one last
 line, ``check: environment: <probe>: <fact>``: too little free space, an install
 a re-sync could not make current, Docker storage that does not work.
@@ -576,6 +584,13 @@ _NAMED_AFTER = (OFF_VENUE, NOT_INSTALLED)
 FAILURES_SHOWN = 5
 #: run_bounded.py's status for a command stopped at its bound.
 TIMED_OUT = 124
+#: The words for a check stopped at its bound: with no failing ids it gave no
+#: verdict, and the ids it did leave are not the whole list.
+HOST_BOUND = "no verdict, host bound"
+PARTIAL = "partial, cut at its bound"
+NO_IDS = "failed, no ids"
+#: The file ``--reports-dir`` keeps beside each check's reports.
+OUTCOME_FILE = "outcome.json"
 
 
 @dataclass(frozen=True)
@@ -736,8 +751,9 @@ def _run_check(check: Check, selection: Selection, context: Context) -> Outcome:
         # The runner collected the paths and the marker expression left none
         # of their tests: nothing ran, so the check is named and not counted.
         return Outcome(check.id, NOT_RUN, DESELECTED, hosts=tuple(_hosts_over(selection.paths)))
-    named = check.report and status != TIMED_OUT
-    failures = failing_tests(check, context.reports) if named else ()
+    # A run stopped at its bound may still have left a report: its ids are named,
+    # and the line says the list is partial.
+    failures = failing_tests(check, context.reports) if check.report else ()
     return Outcome(check.id, FAILED, status=status, failures=failures)
 
 
@@ -753,14 +769,34 @@ def _classify(check: Check, selection: Selection, context: Context) -> Outcome |
 
 
 def execute(
-    planned: Sequence[tuple[Check, Selection]], context: Context, fix: bool = False
+    planned: Sequence[tuple[Check, Selection]],
+    context: Context,
+    fix: bool = False,
+    reports_dir: str | None = None,
 ) -> list[Outcome]:
     """Run every planned check, each one whatever the earlier ones did.
 
     A check that will not run here is classified first, and only the needs of
     the rest are probed. When one is unmet, nothing runs and every check with an
     unmet need is refused.
+
+    The runners write their reports into a temporary directory, or into
+    *reports_dir* when given, which is kept with each check's outcome beside its
+    reports. A *reports_dir* that already holds anything is refused: an earlier
+    run's reports would be read as this run's.
     """
+    if reports_dir is not None:
+        kept = Path(reports_dir)
+        if kept.exists() and (not kept.is_dir() or any(kept.iterdir())):
+            raise Refused(
+                f"--reports-dir {reports_dir} is not empty; its reports would be read"
+                " as this run's: name an empty or missing directory"
+            )
+        try:
+            kept.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise EnvironmentFault("free space", str(error)) from error
+        return _execute(planned, dataclasses.replace(context, reports=str(kept)), fix, keep=True)
     try:
         directory = tempfile.TemporaryDirectory(prefix="check-reports-")
     except OSError as error:
@@ -769,8 +805,32 @@ def execute(
         return _execute(planned, dataclasses.replace(context, reports=reports), fix)
 
 
+def _bound_cut(outcome: Outcome) -> bool:
+    """Whether *outcome* is a check stopped at its declared bound."""
+    declared = _by_id().get(outcome.id)
+    return (
+        outcome.state == FAILED
+        and outcome.status == TIMED_OUT
+        and bool(declared and declared.bound_s)
+    )
+
+
+def _keep_outcome(outcome: Outcome, reports: str) -> None:
+    """Write *outcome*'s state beside its check's reports, for ``failures`` to read."""
+    if outcome.state not in (RAN, FAILED):
+        return
+    record = {
+        "state": outcome.state,
+        "status": outcome.status,
+        "bound_cut": _bound_cut(outcome),
+    }
+    directory = Path(reports, outcome.id)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / OUTCOME_FILE).write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+
 def _execute(
-    planned: Sequence[tuple[Check, Selection]], context: Context, fix: bool
+    planned: Sequence[tuple[Check, Selection]], context: Context, fix: bool, keep: bool = False
 ) -> list[Outcome]:
     outcomes: dict[str, Outcome] = {}
     running: list[tuple[Check, Selection]] = []
@@ -812,6 +872,8 @@ def _execute(
             line = installed[check.id].attestation(outcome.state == RAN)
             outcome = dataclasses.replace(outcome, attestation=line)
         outcomes[check.id] = outcome
+        if keep:
+            _keep_outcome(outcome, context.reports)
     return [outcomes[check.id] for check, _selection in planned]
 
 
@@ -821,16 +883,22 @@ def _names(failures: Sequence[str]) -> str:
     return ", ".join([*failures[:FAILURES_SHOWN], *([f"+{hidden}"] if hidden > 0 else [])])
 
 
+def _failed_detail(outcome: Outcome) -> str:
+    """What a failed *outcome* names: its failing tests, and for a check stopped
+    at its bound that the list is partial, or that it gave no verdict."""
+    if not _bound_cut(outcome):
+        return _names(outcome.failures)
+    if outcome.failures:
+        return f"{_names(outcome.failures)}; {PARTIAL}"
+    return HOST_BOUND
+
+
 def _fact(outcome: Outcome) -> str:
     """The parenthesised fact of *outcome*'s line, or ``""`` when it has none."""
     by_id = _by_id()
     declared = by_id.get(outcome.id)
     if outcome.state == FAILED:
-        if outcome.failures:
-            return _names(outcome.failures)
-        if outcome.status == TIMED_OUT and declared and declared.bound_s:
-            return "still running at its bound"
-        return f"exit {outcome.status}"
+        return _failed_detail(outcome) or f"exit {outcome.status}"
     if outcome.state == REFUSED:
         return outcome.need
     if outcome.reason == OFF_VENUE and declared and declared.venue:
@@ -881,7 +949,7 @@ def verdict(outcomes: Sequence[Outcome], lanes: Sequence[str], scoped: bool) -> 
     failed = []
     for o in outcomes:
         if o.state == FAILED:
-            detail = "; ".join(part for part in (_names(o.failures), _repair(o)) if part)
+            detail = "; ".join(part for part in (_failed_detail(o), _repair(o)) if part)
             failed.append(f"{o.id} ({detail})" if detail else o.id)
     parts = [f"not clean: failed: {', '.join(failed)}" if failed else "clean"]
     parts += [o.attestation for o in outcomes if o.state in (RAN, FAILED) and o.attestation]
@@ -918,6 +986,14 @@ def report(outcomes: Sequence[Outcome], lanes: Sequence[str], scoped: bool) -> i
 # Command line
 
 
+def _reports_dir_option(verb: argparse.ArgumentParser) -> None:
+    verb.add_argument(
+        "--reports-dir",
+        metavar="DIR",
+        help="keep the reports and each check's outcome in DIR (missing or empty)",
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="check.py",
@@ -943,10 +1019,17 @@ def _parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="let the checks that declare a fix rewrite files first",
             )
+        _reports_dir_option(verb)
     run = verbs.add_parser("run", help="run the named checks; execution flags may follow --")
     run.add_argument("ids", nargs="+", metavar="ID")
     run.add_argument("--base", metavar="BASE", help="the base of the checks that judge a range")
     run.add_argument("--shard", choices=sorted({s for c in CHECKS for s in c.shards}))
+    _reports_dir_option(run)
+    failures = verbs.add_parser(
+        "failures", help="print every failing test id a --reports-dir run left in DIR"
+    )
+    failures.add_argument("dir", metavar="DIR")
+    failures.add_argument("--json", action="store_true")
     listing = verbs.add_parser("list", help="print the declaration")
     listing.add_argument("--tier", choices=TIERS)
     listing.add_argument(
@@ -972,6 +1055,7 @@ class _Request:
     lanes: tuple[str, ...] = ()
     scoped: bool = False
     fix: bool = False
+    reports_dir: str | None = None
 
 
 def _tier_flags(tier: str) -> dict[str, tuple[str, ...]]:
@@ -997,7 +1081,8 @@ def _request(argv: Sequence[str]) -> _Request:
         if unbased:
             raise Refused(f"{', '.join(unbased)}: needs --base BASE")
         context = Context("full", args.base, args.shard, {"*": tuple(tail)}, named=True)
-        return _Request([(check, Selection(WHOLE)) for check in chosen], context)
+        planned = [(check, Selection(WHOLE)) for check in chosen]
+        return _Request(planned, context, reports_dir=args.reports_dir)
     if args.changed and args.base and args.changed != args.base:
         raise Refused("--changed and --base name different bases")
     base = args.changed or args.base
@@ -1011,15 +1096,17 @@ def _request(argv: Sequence[str]) -> _Request:
     plan = select(args.verb, paths, tail, files, reach)
     context = Context(args.verb, base, None, _tier_flags(args.verb), worktree=args.worktree)
     planned = [(by_id[name], selection) for name, selection in plan.selections.items()]
-    return _Request(planned, context, plan.lanes, plan.scoped, getattr(args, "fix", False))
+    fix = getattr(args, "fix", False)
+    return _Request(planned, context, plan.lanes, plan.scoped, fix, args.reports_dir)
 
 
 def resolve(argv: Sequence[str]) -> list[list[str]]:
     """The effective commands of a ``quick``, ``full`` or ``run`` line, without running them.
 
-    A check the range does not touch contributes no line, and ``list`` runs nothing.
+    A check the range does not touch contributes no line, and ``list`` and
+    ``failures`` run nothing.
     """
-    if _parser().parse_args(_split(argv)[0]).verb == "list":
+    if _parser().parse_args(_split(argv)[0]).verb in ("list", "failures"):
         return []
     request = _request(argv)
     return [
@@ -1096,6 +1183,71 @@ def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
     return CLEAN
 
 
+def read_failures(reports_dir: str) -> dict[str, dict[str, object]]:
+    """Per declared check with a directory under *reports_dir*, what its run left.
+
+    Each entry holds ``state`` -- ``failed``, ``passed``, ``host bound`` (stopped
+    at its bound with no failing ids: no verdict), or ``unrecorded`` (no
+    ``outcome.json`` and no failing ids) -- ``partial`` (stopped at its bound, so
+    the ids are not the whole list) and ``failures``, read by ``failing_tests``,
+    the reader the verdict uses. Raises ``Refused`` when *reports_dir* is missing
+    or holds no check's directory.
+    """
+    root = Path(reports_dir)
+    if not root.is_dir():
+        raise Refused(f"{reports_dir}: no such directory")
+    found: dict[str, dict[str, object]] = {}
+    for declared in CHECKS:
+        directory = root / declared.id
+        if not directory.is_dir():
+            continue
+        ids = failing_tests(declared, reports_dir) if declared.report else ()
+        try:
+            recorded = json.loads((directory / OUTCOME_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            recorded = None
+        bound_cut = bool(recorded and recorded.get("bound_cut"))
+        if bound_cut and not ids:
+            state = "host bound"
+        elif ids or (recorded and recorded.get("state") == FAILED):
+            state = FAILED
+        elif recorded:
+            state = "passed"
+        else:
+            state = "unrecorded"
+        found[declared.id] = {
+            "state": state,
+            "partial": bound_cut and bool(ids),
+            "failures": list(ids),
+        }
+    if not found:
+        raise Refused(f"{reports_dir}: holds no check's reports")
+    return found
+
+
+def _ids(entry: Mapping[str, object]) -> list[str]:
+    ids = entry["failures"]
+    return list(ids) if isinstance(ids, list) else []
+
+
+def _failures(reports_dir: str, as_json: bool) -> int:
+    found = read_failures(reports_dir)
+    every = sorted({str(test) for entry in found.values() for test in _ids(entry)})
+    if as_json:
+        print(json.dumps({"failures": every, "checks": found}, indent=2))
+        return CLEAN
+    for test in every:
+        print(test)
+    for name, entry in found.items():
+        if entry["state"] == "host bound":
+            print(f"{name}: {HOST_BOUND}")
+        elif entry["partial"]:
+            print(f"{name}: {PARTIAL}")
+        elif entry["state"] == FAILED and not _ids(entry):
+            print(f"{name}: {NO_IDS}")
+    return CLEAN
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return the exit status."""
     argv = sys.argv[1:] if argv is None else list(argv)
@@ -1106,6 +1258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.changed:
                 require_base(args.changed)
             return _list(args.tier, args.json, args.changed)
+        if args.verb == "failures":
+            return _failures(args.dir, args.json)
         base = args.base if args.verb == "run" else (args.changed or args.base)
         if base:
             require_base(base)
@@ -1113,7 +1267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for check, selection in request.planned:
             if selection.reason:
                 print(f"check: {check.id}: widened by {selection.reason}", flush=True)
-        outcomes = execute(request.planned, request.context, request.fix)
+        outcomes = execute(request.planned, request.context, request.fix, request.reports_dir)
     except Refused as refusal:
         print(f"check: refused: {refusal}", file=sys.stderr, flush=True)
         return REFUSED_EXIT

@@ -92,8 +92,8 @@ def _named_repo(dest: Path) -> Path:
     - ``skills/house-report``: named by profile.yml, so the deployment and every
       tier carry it; no app names it.
     - ``output-styles/house-terse``: named by profile.yml.
-    - ``skills/house-diag``: named by the admin tier and the logbook app.
-    - ``agents/house-search``: named by the logbook app alone.
+    - ``skills/house-diag``: named by the admin tier and the logbook login.
+    - ``agents/house-search``: named by the logbook login alone.
     - ``rules/house-rule``: named by the readonly tier alone.
     - ``hooks/house_guard.py``: wired by the admin tier alone, by declaration.
     - ``skills/house-unlisted``: named by nothing.
@@ -113,7 +113,7 @@ def _named_repo(dest: Path) -> Path:
     logbook = repo / "tiers" / "logbook.yml"
     _insert_after(logbook, "skills:", "  - skills/house-diag")
     _insert_after(logbook, "agents:", "  - agents/house-search")
-    # The deployment's own safety rule, named by its path in the logbook app
+    # The deployment's own safety rule, named by its path in the logbook login
     # alone; every other render selects the library rule by its bare name.
     _write(repo / "rules" / "safety.md", HOUSE_SAFETY)
     _swap_entry(logbook, "safety", "rules/safety")

@@ -89,7 +89,7 @@ forge is filled in.
 The directory's name is proposed as the deployment's name: ``osprey init``
 normalizes it to a valid compose project name and records it in
 ``profile.yml`` as ``project_name:``, beside the display ``name:``. That
-tracked value names the compose project, volumes, images and tier and app renders
+tracked value names the compose project, volumes, images and login renders
 on every host from then on; the folder a later clone sits in plays no part. Change
 it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
 first ``osprey up`` if the folder name is not the name you want
@@ -153,7 +153,7 @@ since the repository last took them, the provider entries and keys OSPREY
 added since (every value already in ``providers.yml`` is kept), and, while the
 profile's lists name nothing by path, the repo's own
 skills, agents, rules, output styles and hooks named by path in ``profile.yml``
-and each app (a bare entry the repo ships a file for becomes its path), so
+and each ``lists: own`` login (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
 A preset change is applied only where your file still holds the preset's old
 value: an added key, panel or step you lack is added, and a removed or changed
@@ -166,7 +166,13 @@ it has and the profile lacks. A repository made before this tracking existed
 starts it on its first ``--revalidate``: nothing records what its presets said,
 so that run fills in the ``config:`` keys the profile lacks and lists whatever
 else differs from the presets under "left for you", applying none of it.
-Your deployment's own selections — the roster, the shared apps, the default
+A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
+is re-emitted from the bundled login, an edited one keeps its lines and gains
+``lists: own`` and, unless it states its writes, ``control_system.writes:
+never``; where the ``tiers/`` file already exists, the output says to merge the
+two by hand. A ``landing.groups`` entry ``type: apps`` becomes
+``type: shared``; until then it reads as ``shared`` for one release.
+Your deployment's own selections — the roster, the shared logins, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
@@ -246,9 +252,8 @@ Check the deployment profile without building.
    osprey validate [TARGET] [--repo DIRECTORY]
 
 With no argument, validates the deployment repository enclosing the working
-directory. ``TARGET`` names a different profile to check instead — a tier
-file under ``tiers/``, an app file under ``apps/``, or a directory holding a
-``profile.yml``.
+directory. ``TARGET`` names a different profile to check instead — a login
+file under ``tiers/``, or a directory holding a ``profile.yml``.
 
 Resolves ``extends:`` chains and runs the full consistency check — convention
 directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
@@ -257,7 +262,7 @@ problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
 The profile is yours to edit, so no difference from the preset ``osprey init``
-wrote it from is refused or listed, in ``profile.yml``, a tier or app file, or
+wrote it from is refused or listed, in ``profile.yml``, a login file, or
 ``providers.yml``. When the bundled preset has changed since, ``validate`` and
 ``osprey build`` print one line saying so.
 
@@ -356,7 +361,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    Print the composition card ``osprey init`` prints, for a repo that already
    exists: who can sign in and with what rights, what the agent runs on, what
    machine it talks to, and what runs beside it. It reads ``profile.yml`` and
-   the tier and app files beside it; nothing is built, started or probed.
+   the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
 
@@ -435,7 +440,7 @@ has changed since the build, ``up`` refuses and says what moved, because
 starting would deploy something other than what the profile now describes.
 
 One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any tier or app
+at every start — its compose file, nginx config, landing page, and any login
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.
 
@@ -1163,7 +1168,9 @@ is :doc:`/how-to/apps/index`.
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
-   does not name is reported and not checked. The JS checks execute the
+   does not name is reported and not checked. An application an installed package
+   ships is checked too; its violations name the
+   distribution (``<dist>:<module path>/<file>``). The JS checks execute the
    application's JS tests, with none of the shell's secrets; they need Node and
    install a pinned toolchain into the user's cache once; an application with no
    JS needs neither.
@@ -1196,6 +1203,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility:`` link in the body that names no channel or device, prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   A measurement kind no installed package registers, in a tree that mounts no
+   machine root and lists no application and no dependency, prints one
+   ``facility: kind-deferred: measurement <model> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
@@ -1216,7 +1227,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    groups) and the wiring record count per model, each model with its engine,
    whether the main render serves it and its solve setting, and each view with
    its path under the render and whether it is written. The views are those of
-   the main render, ``build/config.yml``; a tier's or app's selection does not change
+   the main render, ``build/config.yml``; a login's selection does not change
    them. A view that is not written names the config key or model fact that
    left it out. With ``ID`` it prints every place, device, channel, group or
    model of that id, each under its kind, with its provenance (the layer and
@@ -1363,6 +1374,12 @@ osprey ariel
 
 Manage the ARIEL logbook search service. Run from anywhere inside a deployment
 repo: the commands read its ``build/config.yml``.
+
+Every command gives the database 30 s to answer when it opens it; the limit
+covers the open, not the work after it. A database that does not answer ends
+the command with exit code 1 and
+``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``. A
+database that refuses the connection fails at once.
 
 ``osprey ariel quickstart [-s, --source PATH]``
    Full setup: migrate, then ingest ``--source`` or the configured ingestion
@@ -1675,7 +1692,7 @@ All subcommands accept a common flag:
 
 ``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
-   allocation, reserved service names, duplicate users, tier and app references).
+   allocation, reserved service names, duplicate users, login references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate. The retired ``--config`` is refused,
    as under ``render`` below.
@@ -1722,6 +1739,10 @@ switch the interfaces over to local bundles.
 
    ``-t, --target DIR`` — Fetch only the assets for this manifest target
    directory, e.g. ``tuning/static/vendor/`` (repeatable). Default: every target.
+   A target the manifest marks ``"base": "package"`` is named relative to the
+   ``osprey`` package rather than its ``interfaces`` package; an unknown target is
+   refused with the list of known ones. An application's own ``vendor:`` entries
+   are fetched by ``osprey build``, not by this command.
 
    Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
    fails cert verification until it is pointed at the site's CA bundle.

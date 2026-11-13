@@ -1,0 +1,26 @@
+# Its own lists, shared, read-only; switches off each server it does without.
+name: Knowledge
+lists: own
+claude_md_template: CLAUDE.knowledge.md.j2
+default_panel: okf
+channel_finder_mode: in_context
+hooks:
+  - approval
+  - error-guidance
+rules:
+  - safety
+  - artifacts
+skills: []
+agents:
+  - facility-knowledge
+output_styles:
+  - control-operator
+web_panels:
+  - okf
+mcp_servers: {}
+config:
+  control_system.writes: never
+  claude_code.servers.controls_admin.enabled: false
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.ariel.enabled: false

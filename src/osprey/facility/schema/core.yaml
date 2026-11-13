@@ -103,15 +103,6 @@ enums:
       add:
       drop:
 
-  measurement_kind_enum:
-    description: The measurements a model's measurement file allows.
-    permissible_values:
-      orm:
-      dispersion:
-      trm:
-      crm:
-      chromaticity_monitor:
-
 classes:
   Facility:
     tree_root: true
@@ -131,6 +122,12 @@ classes:
         inlined_as_list: true
         list_elements_ordered: true
         description: The facility-added device classes, carried verbatim.
+      signals:
+        range: FacilitySignal
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The facility-added signal roles, carried verbatim.
       places:
         range: Place
         multivalued: true
@@ -184,6 +181,17 @@ classes:
       parent:
         required: true
         description: A vocabulary class or an earlier facility-added class.
+      aliases:
+        multivalued: true
+        list_elements_ordered: true
+      description:
+
+  FacilitySignal:
+    description: A signal role a facility adds beside the vocabulary's.
+    attributes:
+      name:
+        identifier: true
+        required: true
       aliases:
         multivalued: true
         list_elements_ordered: true
@@ -383,6 +391,12 @@ classes:
       simulation:
         range: Seed
         inlined: true
+      command:
+        range: boolean
+        description: >-
+          Computed; true on a command, a setpoint fired rather than set: its
+          vocabulary signal is a command word or a model's engine marks its
+          wiring record command. Absent on every other channel.
       provenance:
         range: Provenance
         inlined: true
@@ -727,14 +741,30 @@ classes:
       step and settle keys are pyAML's own, carried verbatim.
     attributes:
       kinds:
-        range: measurement_kind_enum
+        description: >-
+          The measurement kinds the model allows, each a kind registered under
+          the osprey.facility.kinds entry points; the build refuses any other.
         multivalued: true
       groups:
-        range: MeasurementGroups
-        inlined: true
+        range: Any
+        description: >-
+          `{<role>: <group id> | [<group id>, ...]}`, each group role a listed
+          kind uses; a role naming several groups takes their members
+          together. A role is the pyAML view's (bpm, hcor, vcor, quad, sext) or
+          one a listed kind declares; the build refuses any other.
       instruments:
-        range: MeasurementInstruments
-        inlined: true
+        range: Any
+        description: >-
+          `{<role>: <channel address>}`, each instrument role a listed kind
+          uses: the pyAML view's (tune, rf) or one a listed kind declares; the
+          build refuses any other.
+      kind_blocks:
+        range: Any
+        description: >-
+          `{<kind>: {...}}`, what is a listed kind's own (its trigger, settings
+          or chain, say), validated by the measurement schema the kind
+          declares, an absent block as an empty one; the build refuses a block
+          for a kind the file does not list or that declares no schema.
       n_step:
         range: integer
       n_avg_meas:
@@ -753,26 +783,6 @@ classes:
         range: float
       frequency_delta:
         range: float
-
-  MeasurementGroups:
-    description: Group ids; a role naming several groups takes their members together.
-    attributes:
-      bpm:
-        multivalued: true
-      hcor:
-        multivalued: true
-      vcor:
-        multivalued: true
-      quad:
-        multivalued: true
-      sext:
-        multivalued: true
-
-  MeasurementInstruments:
-    description: Channel addresses.
-    attributes:
-      tune:
-      rf:
 
   Limits:
     attributes:

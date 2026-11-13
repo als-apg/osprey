@@ -70,6 +70,14 @@ templates.env.globals["vendor_script"] = _shell_vendor_script
 _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">"""
 
+# A page whose start-up runs past the shared one (a plot draws at ``load``)
+# declares the page-ready mark pending in markup, before any script runs
+# (design-system/js/page-ready.js). The snippet is injected into a document the
+# gallery did not write, so it carries the attribute on an ``<html>`` start tag
+# of its own: the HTML parser adds the attributes of a later ``<html>`` tag to
+# the root element, wherever in the head or body the tag lands.
+_PAGE_READY_PENDING = '<html data-page-ready="pending">'
+
 # Every page below is served into the content sandbox's opaque origin
 # (``self.origin === 'null'``). Each one's module script calls theme-manager.js's
 # ``initTheme({ role: 'follower' })``, which on an opaque page takes the hub's
@@ -113,7 +121,9 @@ _ARTIFACT_MESSAGE_LISTENER = """<script>
 # is over it (frame-pointer.js: the strip shows then), and hides Plotly's own
 # modebar, which the strip replaces; a plot opened on its own keeps the modebar.
 _RESPONSIVE_PLOTLY = (
-    _DESIGN_SYSTEM_HEAD
+    _PAGE_READY_PENDING
+    + "\n"
+    + _DESIGN_SYSTEM_HEAD
     + "\n"
     + _ARTIFACT_MESSAGE_LISTENER
     + r"""
@@ -137,6 +147,7 @@ html[data-osprey-framed] .modebar { display: none !important; }
 /* OSPREY: responsive sizing, live re-theming from the design tokens, and the
    gallery's content-strip commands. */
 import { initTheme, subscribe, chartRelayout } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { followPlotCommands, rememberViews } from '/static/js/plot-commands.js';
 import { reportPointer } from '/static/js/frame-pointer.js';
 
@@ -144,14 +155,15 @@ function plots() { return Array.from(document.querySelectorAll('.js-plotly-plot'
 function reveal(gd) { gd.style.visibility = 'visible'; }
 
 function applyTheme() {
-  if (typeof Plotly === 'undefined') { plots().forEach(reveal); return; }
-  plots().forEach((gd) => {
+  if (typeof Plotly === 'undefined') { plots().forEach(reveal); return Promise.resolve(); }
+  return Promise.all(plots().map((gd) => {
     try {
-      Plotly.relayout(gd, chartRelayout(gd)).then(() => reveal(gd), () => reveal(gd));
+      return Plotly.relayout(gd, chartRelayout(gd)).then(() => reveal(gd), () => reveal(gd));
     } catch {
       reveal(gd);
+      return undefined;
     }
-  });
+  }));
 }
 
 function resizeAll() {
@@ -166,7 +178,8 @@ function initAll() {
   loaded = true;
   resizeAll();
   rememberViews(plots());
-  applyTheme();
+  // The page is ready once its plots have drawn in the theme in force.
+  applyTheme().finally(() => markPageReady());
   /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
   setTimeout(() => plots().forEach(reveal), 400);
 }
@@ -241,8 +254,17 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 
 # The notebook page renders light whatever the theme (the gallery frames it as
 # ``preview-iframe-light``), so it carries the C-MSG listener without a theme
-# follower.
-_NOTEBOOK_SNIPPET = _NOTEBOOK_RESPONSIVE_CSS + "\n" + _ARTIFACT_MESSAGE_LISTENER
+# follower, and sets the page-ready mark itself once it is parsed.
+_NOTEBOOK_SNIPPET = (
+    _NOTEBOOK_RESPONSIVE_CSS
+    + "\n"
+    + _ARTIFACT_MESSAGE_LISTENER
+    + """
+<script type="module">
+import { markPageReady } from '/design-system/js/page-ready.js';
+markPageReady();
+</script>"""
+)
 
 _RESPONSIVE_SNIPPETS = {
     "plot_html": _RESPONSIVE_PLOTLY,
@@ -1685,7 +1707,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
             cache_dir = store.artifact_dir / "_notebook_cache"
             html, _ = get_or_render_html(filepath, cache_dir=cache_dir)
-            html_bytes = _inject_html_snippet(html.encode("utf-8"), _NOTEBOOK_SNIPPET)
+            html_bytes = _inject_html_snippet(
+                html.encode("utf-8"), inline_assets.self_contained(_NOTEBOOK_SNIPPET)
+            )
             return HTMLResponse(
                 content=_stamp_data_theme(html_bytes.decode("utf-8"), web_theme_pin),
                 headers=opaque_headers(),

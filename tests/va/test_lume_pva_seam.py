@@ -411,6 +411,8 @@ class _Observed:
         self.put_lags: list[int] = []
         self.max_depth = 0
         self.sampling = False
+        self.hold_put_cycle = False
+        self.tick_queued = threading.Event()
 
 
 class _PassFault:
@@ -490,7 +492,11 @@ def _inject_undeliverable_reply(fault: _ReplyFault) -> None:
 
 
 def _instrument(runner: Any, observed: _Observed) -> None:
-    """Count the run loop's passes and how many each value-carrying item waited."""
+    """Count the run loop's passes and how many each value-carrying item waited.
+
+    A put's cycle can be held open once its put has completed, until a tick is
+    queued: the place a cycle is in while it records its outcome.
+    """
     run_cycle = runner._run_cycle
     put = runner.queue.put
 
@@ -499,9 +505,14 @@ def _instrument(runner: Any, observed: _Observed) -> None:
             observed.passes_started += 1
             if item.get("values") and "_enqueued_at" in item:
                 observed.put_lags.append(observed.passes_started - item["_enqueued_at"])
+            held = observed.hold_put_cycle and bool(item.get("values"))
+            if held:
+                observed.hold_put_cycle = False
         try:
             run_cycle(item)
         finally:
+            if held:
+                observed.tick_queued.wait(COMMAND_TIMEOUT_S)
             with observed.lock:
                 observed.passes_done += 1
 
@@ -509,6 +520,8 @@ def _instrument(runner: Any, observed: _Observed) -> None:
         if item.get("values"):
             with observed.lock:
                 item["_enqueued_at"] = observed.passes_started
+        if item.get("tick"):
+            observed.tick_queued.set()
         put(item, *args, **kwargs)
 
     def sample() -> None:
@@ -638,15 +651,28 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
     def undeliverable_next_reply(armed: bool) -> None:
         reply_fault.armed = armed
 
+    def tick_and_wait() -> None:
+        # The queue is served in order, so a job queued behind the tick runs
+        # only once the tick's whole cycle is over, its recorded outcome too.
+        runner._tick()
+        _on_loop(runner, lambda: None)
+
+    def hold_next_put_cycle() -> None:
+        observed.tick_queued.clear()
+        with observed.lock:
+            observed.hold_put_cycle = True
+
     commands: dict[str, Callable[..., Any]] = {
         "config": lambda: json.loads(json.dumps(runner.config)),
         "tick": runner._tick,
+        "tick_and_wait": tick_and_wait,
         "counts": counts,
         "held": lambda names: _on_loop(runner, lambda: composite.held(names)),
         "start_sampling": start_sampling,
         "stop_sampling": stop_sampling,
         "fail_next_pass": fail_next_pass,
         "undeliverable_next_reply": undeliverable_next_reply,
+        "hold_next_put_cycle": hold_next_put_cycle,
     }
     while True:
         try:
@@ -1104,11 +1130,12 @@ def _tick_and_wait(server: _Server) -> None:
 
     A CA read is answered from the server's own copy of each value, which a
     pass sets one channel at a time, so a read made during a pass can see one
-    channel moved and the next not yet.
+    channel moved and the next not yet. The pass waited for is the one queued
+    here: a put completes before its own cycle ends, so a count of finished
+    cycles taken after a put can still be one short, and the next cycle to
+    finish would then be the put's.
     """
-    passes = server.ask("counts")["passes"]
-    server.ask("tick")
-    assert _wait_until(lambda: server.ask("counts")["passes"] > passes), "the pass never finished"
+    server.ask("tick_and_wait")
 
 
 class TestDemoComposite:
@@ -1251,6 +1278,22 @@ class TestDemoComposite:
         restated = _ca(CORRECTOR)
 
         assert (refused["severity"], refused["status"]) == CA_WRITE
+        assert restated["value"] == held
+        assert (restated["severity"], restated["status"]) == NO_ALARM
+
+    def test_a_tick_waited_for_behind_a_put_still_ending_its_cycle_restates_the_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+        demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
+        # The put completes before its cycle ends: the outcome is recorded after it.
+        demo_server.ask("hold_next_put_cycle")
+
+        _caput(CORRECTOR, target)
+        _tick_and_wait(demo_server)
+        restated = _ca(CORRECTOR)
+
         assert restated["value"] == held
         assert (restated["severity"], restated["status"]) == NO_ALARM
 

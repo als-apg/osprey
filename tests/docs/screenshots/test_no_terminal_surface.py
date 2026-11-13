@@ -12,7 +12,7 @@ import inspect
 
 import pytest
 from docs.screenshots import capture, contact_sheet, video_layout
-from docs.screenshots.recipes import REGISTRY, DocShot
+from docs.screenshots.recipes import REGISTRY, DocShot, validate_registry
 from docs.screenshots.video_layout import Layout
 from docs.screenshots.videos import VIDEOS, validate_videos
 
@@ -57,11 +57,21 @@ def test_a_hermetic_hub_recipe_boots_in_the_chat(tmp_path, monkeypatch) -> None:
         lambda _browser, _hub, _theme, agent, _dest, **_kw: agents.append(agent),
     )
     monkeypatch.setattr(capture, "output_dir", lambda: tmp_path)
-    recipes = [shot for shot in REGISTRY if shot.environment == "hermetic_hub"]
+    recipes = [shot for shot in REGISTRY if shot.environment == "hermetic_hub" and not shot.hub]
     assert recipes
     for shot in recipes:
         capture._capture_hermetic_hub(object(), shot)
     assert set(agents) == {"chat"}
+
+
+def test_a_hub_page_recipe_is_never_the_hub_itself() -> None:
+    """A page recipe names a page beside the hub, so the Agent tile is not in it."""
+    pages = [shot for shot in REGISTRY if shot.hub]
+    assert pages
+    assert all(shot.path != "/" for shot in pages)
+    at_the_hub = dataclasses.replace(pages[0], path="/")
+    with pytest.raises(ValueError, match="a hub recipe names a page other than '/'"):
+        validate_registry([at_the_hub])
 
 
 def test_only_the_popover_capture_opens_the_terminal_and_only_behind_a_crop() -> None:

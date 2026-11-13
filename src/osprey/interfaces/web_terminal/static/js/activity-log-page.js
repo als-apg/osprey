@@ -123,8 +123,10 @@ function part(id) {
  * @param {Object} [options]
  * @param {string | null} [options.sessionKey]  the session the page was opened on
  * @param {boolean} [options.sidebarOpen]  whether the session list starts shown
- * @returns {{ load: () => Promise<void>, follow: (key: string | null) => void, stop: () => void }}
- *   `follow` moves the page to another session key and drops a picked transcript
+ * @returns {{ ready: Promise<void>, load: () => Promise<void>,
+ *   follow: (key: string | null) => void, stop: () => void }}
+ *   `ready` settles once the first read is drawn; `follow` moves the page to
+ *   another session key and drops a picked transcript
  */
 export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}) {
   const views = part('views');
@@ -514,9 +516,10 @@ export function mountActivityPage({ sessionKey = null, sidebarOpen = true } = {}
   on(window, 'hashchange', onHash);
 
   void listSessions();
-  void load();
+  const ready = load();
 
   return {
+    ready,
     load,
     follow(next) {
       key = next;
