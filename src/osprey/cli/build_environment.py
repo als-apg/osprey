@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -919,7 +919,11 @@ def deployment_dependencies(
 
 
 def _plan_project_venv(
-    profile: Any, deployment_packages: Sequence[DeploymentPackage] = (), *, install: bool
+    profile: Any,
+    deployment_packages: Sequence[DeploymentPackage] = (),
+    *,
+    install: bool,
+    listed_kinds: Mapping[str, str] | None = None,
 ) -> _ProjectVenvPlan:
     """Judge the project environment's inputs without writing anything.
 
@@ -947,6 +951,10 @@ def _plan_project_venv(
 
     See :func:`_resolve_osprey_spec` for how ``profile.osprey_install`` is
     interpreted.
+
+    ``listed_kinds`` is what a caller that builds no wheel hands in for
+    ``deployment_packages``: the kinds the listed packages' project files
+    declare (:func:`osprey.facility.kinds.listed_kinds`).
     """
     import sys
 
@@ -1003,7 +1011,7 @@ def _plan_project_venv(
         if packages
         else None
     )
-    refuse_unshipped_kinds(extra_deps)
+    refuse_unshipped_kinds(extra_deps, listed=listed_kinds)
     refuse_unshipped_apps(extra_deps, listed_installed(profile.apps or {}))
 
     # --- Choose the installer ---

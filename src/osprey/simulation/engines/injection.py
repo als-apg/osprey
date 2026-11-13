@@ -178,14 +178,15 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     ``request`` and ``parameter`` are ``setpoint`` records refreshed by
     ``pass``; every other signal is an ``output``: ``counter``, ``charge``,
     ``efficiency`` and ``busy`` refresh by ``event``, ``current`` by
-    ``pass`` and ``current_fast`` by ``fast``. No record has a plane.
+    ``pass`` and ``current_fast`` by ``fast``. No record has a plane. The
+    ``request`` carries the ``command`` mark: a write to it asks for one shot.
 
     Args:
         wiring_record: One wiring record, read by key or by attribute.
 
     Returns:
         ``{role, plane, refresh, kind}``, the ``kind`` the signal, or the
-        quantity of a ``parameter``.
+        quantity of a ``parameter``; the ``request`` also carries ``marks``.
 
     Raises:
         ValueError: Naming the record's address, for an engine block that
@@ -196,12 +197,13 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     """
     entry = _read(wiring_record)
     role = "setpoint" if entry.signal in _SETPOINTS else "output"
-    return {
+    description = {
         "engine_role": role,
         "plane": None,
         "refresh": _REFRESH.get(entry.signal, _EVENT),
         "kind": entry.quantity or entry.signal,
     }
+    return {**description, "marks": ["command"]} if entry.signal == REQUEST else description
 
 
 # -- start values --------------------------------------------------------------------
