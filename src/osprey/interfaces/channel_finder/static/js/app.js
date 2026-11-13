@@ -188,26 +188,23 @@ function activateView(viewName, params) {
 // ---- Scope switch ----
 
 /**
- * The view switch's buttons: the scope switch when /api/info carries the
- * directory descriptor, with Curated being whichever paradigm runs, Alarms
- * when an alarm-state service is configured and Archive when the deployment's
- * archive serves some target, and Explore | Feedback otherwise.
+ * The view switch's buttons, in the one order the panel has: Curated · All PVs
+ * · Alarms · Archive · Feedback, each kept while viewAvailable says so (Curated
+ * is whichever paradigm runs). Without the directory descriptor Curated reads
+ * Explore, and only it and Feedback remain.
  * @returns {{ id: string, label: string }[]}
  */
 function viewTabs() {
-  if (!state.directory) {
-    return [
-      { id: 'explore', label: 'Explore' },
-      { id: 'feedback', label: 'Feedback' },
-    ];
-  }
-  return [
-    { id: 'explore', label: 'Curated' },
-    { id: 'allpvs', label: state.directory.label },
-    ...(alarmsConfigured() ? [{ id: 'alarms', label: 'Alarms' }] : []),
-    ...(archiveConfigured() ? [{ id: 'archive', label: 'Archive' }] : []),
+  const directory = state.directory;
+  /** @type {{ id: string, label: string }[]} */
+  const order = [
+    { id: 'explore', label: directory ? 'Curated' : 'Explore' },
+    { id: 'allpvs', label: directory?.label ?? '' },
+    { id: 'alarms', label: 'Alarms' },
+    { id: 'archive', label: 'Archive' },
     { id: 'feedback', label: 'Feedback' },
   ];
+  return order.filter(({ id }) => viewAvailable(id));
 }
 
 /**
