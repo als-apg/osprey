@@ -35,8 +35,9 @@
  *   idempotent
  * @property {Record<string, never>} reset - the log was cleared
  * @property {{ model: string | null }} model - the model that answers in the
- *   chat, from each snapshot the live feed opens with; null when the feed
- *   finds no agent for the chat. A live `system` `init` frame names it too
+ *   chat, from each snapshot the live feed opens with, or, while no agent runs
+ *   for the chat, the deployment's default. Null when the server names none.
+ *   A live `system` `init` frame names it too
  */
 
 const bus = new EventTarget();

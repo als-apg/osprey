@@ -38,7 +38,8 @@ import { endsTurn, isResponseFrame } from './chat-frames.js';
 /**
  * @typedef {object} TurnFollower
  * @property {(frame: ChatEvent) => void} frame - one frame from the feed, its opening snapshot included
- * @property {() => void} noAgent - the feed found no agent for the chat
+ * @property {(model?: string | null) => void} noAgent - the feed found no agent for
+ *   the chat; *model* is the one that will answer its first prompt, when the server names it
  * @property {() => void} restart - a new feed opens: no turn followed, no frame seen yet
  * @property {() => void} logChanged - the log changed under any transcript read in
  *   flight: this tab sent a prompt, or the console was cleared
@@ -237,9 +238,9 @@ export function createTurnFollower(host) {
 
   return {
     frame,
-    noAgent() {
-      // No agent runs for the chat, so no model answers in it yet.
-      emitChat('model', { model: null });
+    noAgent(model = null) {
+      // No agent runs yet: the model that will answer is the deployment's.
+      emitChat('model', { model: typeof model === 'string' && model ? model : null });
       noAgent();
     },
     restart() {

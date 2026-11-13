@@ -156,7 +156,7 @@ test('a reconnect whose transcript read fails keeps drawing the turn, and reads 
   expect(reads).toHaveLength(2);
 });
 
-test("each snapshot passes on the chat's model, and no agent means no model", () => {
+test("each snapshot passes on the chat's model, and no agent passes on the default", () => {
   const { follower } = mount();
   /** @type {Array<string | null>} */
   const models = [];
@@ -166,9 +166,12 @@ test("each snapshot passes on the chat's model, and no agent means no model", ()
     // A server that names no model, or something that is not one.
     follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [] });
     follower.frame({ type: 'hello', seq: 0, in_flight: false, pending: [], model: 42 });
+    // No agent yet: the model that will answer its first prompt, when the server names one.
+    follower.noAgent('claude-default');
+    follower.noAgent(null);
     follower.noAgent();
   } finally {
     stop();
   }
-  expect(models).toEqual(['claude-x', null, null, null]);
+  expect(models).toEqual(['claude-x', null, null, 'claude-default', null, null]);
 });

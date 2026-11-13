@@ -808,6 +808,26 @@ class TestChatEventsRoute:
         assert resp.status_code == 204
         assert resp.content == b""
 
+    def test_the_204_names_the_default_model_resolved_once_for_the_app(self):
+        """A fresh chat shows the model its first prompt will get; polls read no config."""
+        client = TestClient(_make_chat_app(_FakeRegistry(session=None)))
+        resolve = "osprey.interfaces.web_terminal.operator_session.resolve_default_model"
+        with patch(resolve, return_value="claude-sonnet-4-5") as resolved:
+            first = client.get("/api/chat/fresh/events")
+            second = client.get("/api/chat/fresh/events")
+        assert first.status_code == second.status_code == 204
+        assert first.headers[chat_module.CHAT_MODEL_HEADER] == "claude-sonnet-4-5"
+        assert second.headers[chat_module.CHAT_MODEL_HEADER] == "claude-sonnet-4-5"
+        assert resolved.call_count == 1
+
+    def test_a_default_that_cannot_be_resolved_leaves_the_header_out(self):
+        client = TestClient(_make_chat_app(_FakeRegistry(session=None)))
+        resolve = "osprey.interfaces.web_terminal.operator_session.resolve_default_model"
+        with patch(resolve, side_effect=RuntimeError("no config")):
+            resp = client.get("/api/chat/fresh/events")
+        assert resp.status_code == 204
+        assert chat_module.CHAT_MODEL_HEADER not in resp.headers
+
     def test_the_frame_that_says_the_agent_ended_reaches_the_feed(self):
         """The child can exit before the feed reads again; its last frame still goes out."""
         ended = {

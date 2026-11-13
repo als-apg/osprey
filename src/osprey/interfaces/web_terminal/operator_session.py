@@ -427,11 +427,13 @@ class _RenderFacts:
 _NO_RENDER = _RenderFacts(config={}, hook_config={}, tier_allows=False)
 
 
-def _default_model(project_dir: str) -> str | None:
+def default_chat_model(project_dir: str) -> str | None:
     """The model *project_dir*'s config names for its agent. BLOCKING; never raises.
 
-    ``None`` when the config cannot be read: the chat then names no model until
-    the child reports one.
+    What a chat names before its child reports a model: a session until its
+    first ``init``, and the chat route while no agent runs for a chat. ``None``
+    when the config cannot be read: the chat then names no model until the
+    child reports one.
     """
     try:
         return resolve_default_model(Path(project_dir))
@@ -1189,7 +1191,7 @@ class OperatorSession:
         # puts it in front of the operator on a write-enabled render.
         self._render = await asyncio.to_thread(_read_render, self._cwd)
         if self._model is None:
-            self._model = await asyncio.to_thread(_default_model, self._cwd)
+            self._model = await asyncio.to_thread(default_chat_model, self._cwd)
         # The side-effect surface, read from the render the child runs in, plus every
         # prefix the render's approval hook asks about: the hook asks on each call, so
         # a standing allow there would do nothing or skip its ask. If either cannot be

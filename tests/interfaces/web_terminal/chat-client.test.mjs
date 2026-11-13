@@ -832,6 +832,27 @@ describe('followChat', () => {
     expect(onNoAgent).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(10000);
     expect(onNoAgent).toHaveBeenCalledTimes(2);
+    // The server named no model.
+    expect(onNoAgent).toHaveBeenLastCalledWith(null);
+    feed.close();
+  });
+
+  test('a 204 passes on the model the server names for the chat', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 204,
+        body: null,
+        headers: new Headers({ [chat.CHAT_MODEL_HEADER]: 'claude-sonnet-4-5' }),
+      }))
+    );
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onNoAgent).toHaveBeenCalledWith('claude-sonnet-4-5');
     feed.close();
   });
 

@@ -296,6 +296,9 @@ export async function answerPermission(chatId, body) {
   return res;
 }
 
+/** The header of a 204 from the chat's event feed: the model that will answer the chat. */
+export const CHAT_MODEL_HEADER = 'X-Osprey-Chat-Model';
+
 /**
  * A live feed held open by {@link followChat}.
  * @typedef {object} ChatFeed
@@ -309,7 +312,8 @@ export async function answerPermission(chatId, body) {
  * agent runs for the chat, yet or any longer) more slowly.
  * @param {string} chatId
  * @param {ChatCallbacks} callbacks - `onEvent` gets every frame; `onNoAgent`
- *   hears each 204, the answer that no agent runs for the chat
+ *   hears each 204, the answer that no agent runs for the chat, with the model
+ *   that will answer its first prompt ({@link CHAT_MODEL_HEADER}), or null
  * @returns {ChatFeed}
  */
 export function followChat(chatId, callbacks) {
@@ -343,7 +347,7 @@ export function followChat(chatId, callbacks) {
       if (res.status === 204) {
         next = 10000;
         if (mine === generation && typeof callbacks.onNoAgent === 'function') {
-          callbacks.onNoAgent();
+          callbacks.onNoAgent(res.headers?.get(CHAT_MODEL_HEADER) || null);
         }
       } else if (res.ok && res.body) {
         delay = 1000;
