@@ -326,6 +326,24 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     return panel_spec_enabled(panel)
 
 
+def config_code_panels(config: Any) -> tuple[str, ...]:
+    """The panels ``config`` shows that run code a person types, in registry order.
+
+    The sidecar panels whose registry entry says so
+    (:attr:`~osprey.profiles.sidecar_panels.SidecarPanel.runs_code`) and that
+    ``config`` declares (:func:`config_declares_panel`). A panel switched off
+    starts no process and counts for nothing.
+
+    :param config: A parsed project config.
+    :return: The panel ids; empty when the project shows no such panel.
+    """
+    return tuple(
+        panel_id
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.runs_code and config_declares_panel(config, panel_id)
+    )
+
+
 def config_needs_dispatcher_token(config: Any) -> bool:
     """True if ``config`` declares the EVENTS panel and so needs the dispatcher bearer.
 
