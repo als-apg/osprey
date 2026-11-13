@@ -252,7 +252,7 @@ button {
    (terminal.css) and looks the same; keep the two in step. */
 .osprey-context-menu {
   position: fixed;
-  min-width: 200px;
+  min-width: 180px;
   max-width: 300px;
   padding: var(--space-1);
   background: var(--bg-secondary);
@@ -267,12 +267,13 @@ button {
 .osprey-context-item {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: 6px var(--space-2);
   text-align: left;
   font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
   color: var(--text-primary);
   background: none;
   border: none;
@@ -337,8 +338,8 @@ button {
    so it starts where the labels under it start. */
 .osprey-context-heading,
 .rail-context-heading {
-  padding: var(--space-1) var(--space-3) 2px
-    calc(var(--space-3) + 16px + var(--space-3));
+  padding: var(--space-1) var(--space-2) 2px
+    calc(var(--space-2) + 16px + var(--space-2));
   font-family: var(--font-display);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -367,6 +368,22 @@ button {
   text-align: center;
 }
 
+/* A menu with no glyph and no toggle anywhere drops the blank column, so
+   its labels start at the row's padding rather than behind an empty slot. */
+:is(.osprey-context-menu, .rail-context-menu):not(
+    :has(.osprey-context-glyph, .rail-context-glyph, [role="menuitemcheckbox"])
+  )
+  :is(.osprey-context-glyph-blank, .rail-context-glyph-blank) {
+  display: none;
+}
+
+:is(.osprey-context-menu, .rail-context-menu):not(
+    :has(.osprey-context-glyph, .rail-context-glyph, [role="menuitemcheckbox"])
+  )
+  :is(.osprey-context-heading, .rail-context-heading) {
+  padding-left: var(--space-2);
+}
+
 .osprey-context-label,
 .rail-context-label {
   flex: 1 1 auto;
@@ -380,7 +397,7 @@ button {
 .rail-context-value {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: var(--text-md);
+  font-size: var(--text-base);
   color: var(--text-muted);
   white-space: nowrap;
 }

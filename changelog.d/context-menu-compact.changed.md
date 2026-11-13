@@ -1,0 +1,1 @@
+Right-click menus and ⋯ menus are more compact. The rows are about 28 px high (before: 36 px), the text is 12 px, the same size as the sidebar (before: 13 px), and the menus are at least 180 px wide (before: 200 px). A menu with no check marks and no icons has no empty column at the start of its rows, so its labels start at the left padding.
