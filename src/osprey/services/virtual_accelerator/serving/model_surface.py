@@ -288,17 +288,7 @@ class _ViewSurface(ModelSurface):
     ) -> None:
         self._composite = composite
         self._channels = list(view.channels())
-        status = view.document(ADDRESSES_FILE)["status"]
-        ioc_health = getattr(view, "ioc_health_by_model", None)
-        self._served = [
-            *self._channels,
-            *(str(address) for address in status),
-            *(
-                address
-                for signals in (ioc_health() if ioc_health is not None else {}).values()
-                for address in signals.values()
-            ),
-        ]
+        self._served = served_addresses(view)
         self._served_set = frozenset(self._served)
         self._start(
             instance=instance,
@@ -432,6 +422,25 @@ class _ViewSurface(ModelSurface):
         return list(drifted)
 
 
+def served_addresses(view: SimulatorView) -> list[str]:
+    """Every address a server of ``view`` serves, in the order ``info`` lists them.
+
+    The view's channels, then its status addresses, then its IOC health
+    addresses, each model's together. A view without the ``ioc_health`` field,
+    or from a connectors release without its accessor, serves none of the last.
+    """
+    ioc_health = getattr(view, "ioc_health_by_model", None)
+    return [
+        *view.channels(),
+        *(str(address) for address in view.document(ADDRESSES_FILE)["status"]),
+        *(
+            address
+            for signals in (ioc_health() if ioc_health is not None else {}).values()
+            for address in signals.values()
+        ),
+    ]
+
+
 def _finite_or_not_a_number(value: Any) -> bool:
     """False only for a real number that is not finite.
 
@@ -472,4 +481,5 @@ __all__ = [
     "SURFACE_SERVED",
     "WRITES_DISABLED",
     "ModelSurface",
+    "served_addresses",
 ]
