@@ -10,6 +10,11 @@ Three pages state facts a reader acts on, and each fact is owned by code:
 * ``reference/contracts/facility-graph.rst`` numbers the ``graph`` server's
   tools, and ``use-facility-graph.rst`` names them in prose; both equal the
   tools the server registers, and "four" on both pages is that count.
+* ``reference/contracts/facility-graph.rst`` names places, the ``PARTOF`` and
+  ``LOCATEDIN`` relationships the graph view writes (``P_PART_OF``,
+  ``P_LOCATED_IN``, uppercased by neosemantics), and quotes
+  ``RECORD_NAME_MATCH_RULE`` verbatim; no page under ``docs/source`` still
+  names the panel's retired derived ``inPlace`` relation.
 * ``how-to/facility-knowledge/facility-rules.rst`` names a ``rules:`` entry
   and ``osprey scaffold`` targets, each of which is a build-artifact catalog
   name.
@@ -249,6 +254,60 @@ def test_a_renamed_or_miscounted_tool_is_caught() -> None:
         _registered_graph_tools()
     )
     assert tool_counts("the same five tools, and the four ``graph`` MCP tools") == [5, 4]
+
+
+# --- places, their relations and record names ------------------------------------
+
+
+def _contract_holds_places(page: str) -> list[str]:
+    """What the contract page fails to state about places and record names."""
+    from osprey.facility.views.graph import P_LOCATED_IN, P_PART_OF
+    from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
+
+    holds = _section(page, "What the Graph Holds")
+    wanted = {
+        "a Places entry": "* **Places** —",
+        "PARTOF": f"``{P_PART_OF.upper()}``",
+        "LOCATEDIN": f"``{P_LOCATED_IN.upper()}``",
+        "the record-name rule": RECORD_NAME_MATCH_RULE,
+    }
+    return [name for name, text in wanted.items() if text not in holds]
+
+
+def test_the_contract_names_places_their_relations_and_the_record_name_rule() -> None:
+    assert _contract_holds_places(CONTRACT_PAGE.read_text(encoding="utf-8")) == []
+
+
+def test_the_kinds_count_is_the_kinds_listed() -> None:
+    holds = _section(CONTRACT_PAGE.read_text(encoding="utf-8"), "What the Graph Holds")
+    (word,) = re.findall(r"\b(\w+) kinds of thing", " ".join(holds.split()))
+    kinds = re.findall(r"^\* \*\*[A-Z][\w ]+\*\* —", holds, re.M)
+    assert _NUMBER_WORDS[word.lower()] == len(kinds), (word, kinds)
+
+
+def _in_place_mentions() -> list[str]:
+    return [
+        path.relative_to(DOCS).as_posix()
+        for path in sorted(DOCS.rglob("*"))
+        if path.suffix in {".rst", ".md", ".txt", ".py", ".svg"}
+        and "inPlace" in path.read_text(encoding="utf-8", errors="replace")
+    ]
+
+
+def test_no_page_names_the_retired_derived_in_place_relation() -> None:
+    assert "is marked *derived*" not in GRAPH_PAGE.read_text(encoding="utf-8")
+    assert _in_place_mentions() == []
+
+
+def test_a_dropped_relation_rule_or_stale_in_place_is_caught() -> None:
+    from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
+
+    page = CONTRACT_PAGE.read_text(encoding="utf-8")
+    assert _contract_holds_places(page.replace("``LOCATEDIN``", "``LOCATED_IN``")) == ["LOCATEDIN"]
+    assert _contract_holds_places(page.replace(RECORD_NAME_MATCH_RULE, "")) == [
+        "the record-name rule"
+    ]
+    assert "inPlace" not in "ordinalInPlace"
 
 
 # --- facility-rules names --------------------------------------------------------

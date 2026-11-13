@@ -112,7 +112,7 @@ the questions that come up around a machine:
 
    .. code-block:: cypher
 
-      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE l = "steerer")
+      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE toLower(l) CONTAINS "steerer")
       MATCH (cls:Class)-[:SUBCLASSOF*0..]->(word)
       MATCH (d:Resource)-[:TYPE]->(cls)
       WHERE d.sectionCode = "SECT1"
@@ -290,14 +290,17 @@ facility runs holds. With no ``ttl_path`` there is no **Graph** view.
   120 nodes. A node with more than 12 relations is drawn but not walked
   through; its badge counts what is left out. Double-click a node to move the
   focus to it.
-* The search field finds nodes by name or id.
+* The search field matches a node's label — a device's id, a place's path, a
+  channel's address, a class or signal name — or its id, ignoring case. It
+  does not search ``altLabel`` names.
 * The relation checkboxes take a relation out of the drawing and out of the
   walk.
 * Right-click a node, a relation or the empty drawing for its menu: copy a
   name, hide a relation or show it alone, reset the view.
 
-``inPlace`` is marked *derived*: the graph view holds each device's place as a
-property, and the panel draws it as a relation.
+A device's place is its stored ``locatedIn`` relation, and a place's parent its
+stored ``partOf``. The **Overview** draws no ``partOf``, since both ends sit in
+the one places group; the legend still counts it.
 
 Clicking a ``facility:`` link in a concept document opens the linked record in
 the **Graph** view, and a picked node lists the concept documents that name it.

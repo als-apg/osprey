@@ -14,15 +14,19 @@ What the Graph Holds
 
 The corpus is a Turtle (``.ttl``) file in the NARAD convention — facts written
 as subject-predicate-object triples — which the neosemantics plugin turns into
-the nodes and relationships a query walks. Four kinds of thing matter to a
+the nodes and relationships a query walks. Five kinds of thing matter to a
 query:
 
+* **Places** — one node per place, carrying ``placePath`` (its id) and
+  ``sectionCode``, and, unless it is a top place, one ``PARTOF`` to its parent
+  place. A place has no RDF class, so its only label is ``Resource``.
 * **Devices** — one node per physical device, carrying ``deviceId``,
   ``sourceName`` (the device's id), ``system``, ``placePath`` and ``sectionCode``, plus
   ``sPositionM`` (position along the beamline, in metres), ``lengthM``,
   ``ordinalInPlace`` and ``ordinalInModel``, each only when the facility file
   carries it, and the prose for the levels the device sits under:
-  ``familyDescription`` and ``systemDescription``.
+  ``familyDescription`` and ``systemDescription``. A device with a place
+  reaches it over ``LOCATEDIN``.
 * **Channel bindings** — one node per control system address, carrying
   ``bindingId``, ``fullPv`` and ``description``, the sentence written for that
   one channel. A device reaches its bindings over ``HASBINDING``.
@@ -35,6 +39,14 @@ query:
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
   without the query naming ``HCorrector``. Classes also carry the synonyms an
   operator would say out loud, as ``skos:altLabel``.
+
+Places, devices and channel bindings carry their names as ``altLabel``, a list.
+A name is an identifier, so match a whole entry, ignoring case — ``CONTAINS``
+would let ``U1`` match ``U10``:
+
+.. code-block:: cypher
+
+   MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))
 
 The descriptions are what makes the graph reachable from a phrase rather than
 only from a name: "the magnets that bend the beam" matches text no address
@@ -58,10 +70,11 @@ from memory:
   does not exist returns zero rows rather than an error, so a guess produces a
   confident wrong answer — which is what ``get_schema`` is for.
 * ``altLabel`` is a **list**, not a string: the store keeps every synonym
-  instead of letting the last one win. Match it with
-  ``ANY(l IN c.altLabel WHERE l = $label)``. Comparing it to a string —
-  ``c.altLabel = $label`` — is a list against a text and never matches, and the
-  string operators do not apply to it at all.
+  instead of letting the last one win. Match a class synonym over
+  ``(c:Class)`` with ``ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)``.
+  Never compare the list itself with ``=``: ``c.altLabel = $term`` is a list
+  against a text and never matches, and the string operators do not apply to
+  the list at all.
 
 
 The Four Tools
