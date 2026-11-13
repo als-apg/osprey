@@ -56,16 +56,7 @@ async function _render() {
     const status = await fetchJSON('/api/feedback/status');
     if (getContainer() !== container) return;
     if (!status.available) {
-      // Two different "no feedback store" answers, and only the paradigm tells
-      // them apart. The graph paradigm keeps no hint store by design, yet the
-      // capture hook fills the pending queue there like anywhere else — so
-      // showing the switched-off state hid real captured searches behind advice to
-      // switch on a setting that paradigm does not have.
-      if (status.paradigm === 'graph') {
-        await _renderGraphReviews();
-      } else {
-        _renderDisabled();
-      }
+      _renderDisabled();
       return;
     }
     if (getCurrentKey()) {
@@ -100,41 +91,6 @@ function _renderDisabled() {
     detail:
       'Check the channel finder feedback setting in the configuration, then reload this panel.',
   });
-}
-
-/**
- * The graph paradigm's feedback view: the capture queue on its own.
- *
- * Nothing is hidden here and nothing is broken — there is simply no hint
- * store to browse, because the graph agent answers each question by querying
- * the facility graph rather than by replaying a saved path. What the hook
- * captures is still worth an operator's eye, so the queue is rendered with
- * Dismiss only; approving would write a hint nothing reads back.
- */
-async function _renderGraphReviews() {
-  const container = getContainer();
-  if (!container) return;
-
-  const pendingData = await fetchJSON('/api/pending-reviews/status')
-    .then((/** @type {any} */ s) =>
-      s.available ? fetchJSON('/api/pending-reviews') : { items: [] }
-    )
-    .catch(() => ({ items: [] }));
-  if (getContainer() !== container) return;
-
-  container.innerHTML = `
-    <div class="fb-paradigm-note">
-      <div class="fb-paradigm-note-title">Reviewing graph answers</div>
-      <div class="fb-paradigm-note-body">
-        This deployment answers channel searches by querying the facility graph,
-        so there are no saved navigation hints to browse or edit. The searches
-        the agent ran are still captured below for review &mdash; look them over,
-        then dismiss the ones you are done with.
-      </div>
-    </div>
-    ${_renderPendingSection(pendingData.items || [], { canPromote: false })}
-  `;
-  _bindPendingEvents();
 }
 
 // ---- List View ----
@@ -233,9 +189,7 @@ async function _renderList() {
   html += '</section>';
 
   // ---- Pending Reviews Section ----
-  // Shared with the graph view (see _renderGraphReviews); here the deployment
-  // has a feedback store, so promotion is on offer.
-  html += _renderPendingSection(pendingItems, { canPromote: true });
+  html += _renderPendingSection(pendingItems);
 
   container.innerHTML = html;
   container.querySelector('[data-action="new"]')?.append(icon('plus'));

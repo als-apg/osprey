@@ -83,7 +83,7 @@ def test_the_archive_tab_shows_the_archived_count_and_the_configuration(
     panel_url: str,  # noqa: F811
 ) -> None:
     host = _open(chromium_browser, panel_url, "#/archive")
-    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Archive", "Feedback"]
+    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Archive"]
     host.wait_for_selector('.archive-tile[data-tile="archived"]')
 
     answer = json.loads(host.evaluate("() => fetch('/api/directory/archive').then(r => r.text())"))
