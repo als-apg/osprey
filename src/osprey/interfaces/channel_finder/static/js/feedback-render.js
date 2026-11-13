@@ -128,7 +128,7 @@ export function _renderChannelList(channels, visibleCount = 3) {
   html += '<div class="fb-pending-channels-list">';
   html += visible.map((ch) => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
   if (overflow.length > 0) {
-    html += '<div class="fb-pending-channels-overflow" style="display:none">';
+    html += '<div class="fb-pending-channels-overflow" hidden>';
     html += overflow.map((ch) => `<span class="fb-pending-pv">${esc(ch)}</span>`).join('');
     html += '</div>';
     html += `<button type="button" class="fb-pending-channels-toggle" data-full="${overflow.length}">+${overflow.length} more</button>`;
@@ -144,7 +144,7 @@ export function _renderChannelList(channels, visibleCount = 3) {
  */
 export function _renderSelections(selections) {
   if (!selections || Object.keys(selections).length === 0) {
-    return '<span style="color: var(--text-muted); font-size: var(--text-sm);">(empty)</span>';
+    return '<span class="fb-sel-empty">(empty)</span>';
   }
   return Object.entries(selections)
     .map(([k, v]) => {
@@ -252,7 +252,7 @@ export function _renderPendingSection(items, options = {}) {
               ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>`
               : '';
           const approveHtml = canPromote
-            ? `<button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>`
+            ? `<button type="button" class="osprey-btn primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>`
             : '';
           return `
         <div class="fb-pending-card" data-id="${esc(item.id)}">
@@ -271,7 +271,7 @@ export function _renderPendingSection(items, options = {}) {
             ${artifactHtml}
             <div class="fb-pending-actions">
               ${approveHtml}
-              <button class="btn btn-sm btn-danger fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
+              <button type="button" class="osprey-btn fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
             </div>
           </div>
         </div>`;
