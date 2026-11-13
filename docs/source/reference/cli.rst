@@ -1202,8 +1202,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``alias-shared`` per scheme name two records carry, one
    ``identity-ambiguous`` per imported layer holding two devices one
    ``same_as`` chain joins, one ``part-cycle`` per loop of ``part_of`` and
-   ``runs_on`` claims and one ``relation-stub`` per imported layer with
-   ``Unidentified`` devices that claims name.
+   ``runs_on`` claims, one ``relation-stub`` per imported layer with
+   ``Unidentified`` devices that claims name, one ``place-parents-disagree``
+   per place name that relations layers create under two or more parents, and
+   one ``place-unplaced`` per place a relations layer creates top-level with no
+   citation.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
@@ -1243,7 +1246,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
-   ``data/facility/imported/``; the importers are ``mml`` and ``list``.
+   ``data/facility/imported/``; the importers are ``mml``, ``list`` and
+   ``relations``.
 
 ``osprey facility import mml EXPORT... [--repo DIRECTORY]``
    Write MML exports as the mml layer's sources under
@@ -1308,6 +1312,25 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    for a device no row states ``s`` for is ignored with one ``import list:``
    warning on stderr naming the file, row, device and model; the rest of the
    device's rows are imported.
+
+``osprey facility import relations TABLE --layer NAME [--names FILE] [--places FILE] [--members FILE] [--stub-unknown] [--repo DIRECTORY]``
+   Write relation tables as the sources of the layer ``NAME`` under
+   ``data/facility/imported/<NAME>/``. ``TABLE`` holds the claims;
+   ``--names``, ``--places`` and ``--members`` name the three optional tables
+   the claims lean on. The tables and their columns are in
+   :ref:`how-to-describe-your-facility-relations`. A device end the facility
+   lacks is stubbed only when its row states ``subject_class`` or
+   ``object_class``, or, as ``Unidentified``, with ``--stub-unknown``; place
+   and group ends are never stubbed. Ends and names resolve against the whole
+   facility except the layer being replaced. The layer directory is replaced
+   whole and no other file changes: the run does not replace a bundled
+   facility nor refuse hand-written records. Each file written prints one
+   ``wrote <path>`` line. ``NAME`` must match ``[a-z0-9][a-z0-9_-]*`` and is
+   not ``authored``, ``list`` or ``mml``, and a directory holding a file this
+   import never writes is refused. A refused name, directory or row prints one
+   ``facility: source-invalid:`` line per problem; the import writes nothing
+   and exits 1. A profile that does not resolve prints a one-line failure and
+   exits 1. A profile that states ``machine:`` imports into that machine root.
 
 .. _cli-osprey-sim:
 

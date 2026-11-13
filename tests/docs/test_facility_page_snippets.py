@@ -12,6 +12,9 @@ preset's bundled facility, ``templates/facilities/example``:
 * the channel list the page includes is imported the way ``osprey facility
   import list`` does it, into the preset with its bundled files replaced, and
   the page's fixes are applied on top; that facility must pass the validator;
+* the relation tables are imported the way ``osprey facility import
+  relations`` does it, into the preset as it ships, and that facility must
+  pass the validator;
 * the shipped files the page includes exist and are bundled files.
 
 ``import-mml-export.rst`` shows fragments of an MML import's ``mapping.yaml``;
@@ -45,6 +48,10 @@ PRESET = TEMPLATE_ROOT / "facilities/example"
 SKIPPED: dict[tuple[str, str], str] = {
     ("describe-your-facility.rst", "data/facility/"): "a directory tree, not a file",
     ("describe-your-facility.rst", "osprey facility validate"): "commands, not a facility file",
+    (
+        "describe-your-facility.rst",
+        "osprey facility import relations cables.csv --layer cables --places racks.csv --names names.csv",
+    ): "a command; its tables are checked",
     ("import-mml-export.rst", "osprey facility import mml --print-exporter > mml_export.m"): (
         "a command; needs MATLAB"
     ),
@@ -169,6 +176,13 @@ SUBSETS: dict[str, str] = {
 #: The fixes block, applied on top of the imported channel list.
 FIXES = "schema: osprey.facility.fixes/1"
 
+#: The relation tables, by first line: the ``import_relations`` argument each is.
+RELATION_TABLES: dict[str, str] = {
+    "type,subject,object,object_kind,object_class,document,version,locator": "table",
+    "place,within,document,version": "places",
+    "thing,name,scheme,document": "names",
+}
+
 #: The channel list the page includes, relative to the page.
 CHANNEL_LIST = "examples/facility/channels.csv"
 
@@ -204,7 +218,7 @@ def _facility_blocks() -> list[Block]:
 
 
 def test_every_block_on_the_facility_page_is_checked() -> None:
-    placed = {*PASTED, *SUBSETS, FIXES}
+    placed = {*PASTED, *SUBSETS, *RELATION_TABLES, FIXES}
     skipped = {first for page, first in SKIPPED if page == FACILITY_PAGE.name}
     unplaced = [
         f"{block.line}: {block.first}"
@@ -254,6 +268,30 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
     import_list(HOW_TO / CHANNEL_LIST, facility)
     _dump(facility / "fixes.yaml", _block(FACILITY_PAGE, FIXES).data)
 
+    assert _validates(facility) == ""
+
+
+@pytest.mark.slow  # validating the whole preset takes a few seconds
+def test_the_relation_tables_build_on_the_preset(tmp_path: Path) -> None:
+    """``osprey facility import relations`` leaves the bundled preset in place."""
+    from osprey.facility.layers.relations import import_relations
+
+    facility = tmp_path / "facility"
+    shutil.copytree(PRESET, facility)
+    tables: dict[str, Path] = {}
+    for first, argument in RELATION_TABLES.items():
+        path = tmp_path / f"{argument}.csv"
+        path.write_text(_block(FACILITY_PAGE, first).text, encoding="utf-8")
+        tables[argument] = path
+
+    table = tables.pop("table")
+    written = import_relations(table, facility, "cables", **tables)
+
+    layer = facility / "imported/cables"
+    assert {path.name for path in written} >= {"relations.yaml", "devices.yaml", "places.yaml"}
+    assert [record["id"] for record in _load(layer / "places.yaml")] == ["BR/RK01"]
+    assert _load(layer / "devices.yaml")[0]["class"] == "PowerSupply"
+    assert len(_load(layer / "relations.yaml")) == 3
     assert _validates(facility) == ""
 
 

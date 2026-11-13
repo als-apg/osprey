@@ -241,8 +241,8 @@ the one value any layer states. Two layers stating different values for one
 field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
 settles it (see `Fixes`_).
 
-The importers are ``osprey facility import mml`` and
-``osprey facility import list``.
+The importers are ``osprey facility import mml``,
+``osprey facility import list`` and ``osprey facility import relations``.
 
 A Middle Layer export
 ---------------------
@@ -324,6 +324,113 @@ such as an ``add`` fix, or the build stops with ``reference-missing``. The
 list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.
+
+.. _how-to-describe-your-facility-relations:
+
+Relation tables
+---------------
+
+``osprey facility import relations TABLE --layer NAME`` reads relation claims,
+from a cable schedule or a rack list, into ``data/facility/imported/<NAME>/``.
+``TABLE`` holds the claims; three optional tables hold what the claims lean on.
+Each is UTF-8 CSV with a header row naming its columns in any order; an empty
+cell is absent.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 16 22 46
+
+   * - Table
+     - Option
+     - Required columns
+     - Optional columns
+   * - claims
+     - ``TABLE``
+     - ``type``, ``subject``, ``object``
+     - ``subject_kind``, ``object_kind`` (``device``, ``place`` or ``group``;
+       empty means ``device``), ``subject_port``, ``object_port``,
+       ``object_unit``, ``attrs`` (``key=value`` pairs separated by ``;``),
+       ``basis``, ``rule``, ``subject_class``, ``object_class``
+   * - names
+     - ``--names``
+     - ``thing``, ``name``, ``scheme``
+     - ``basis``, ``rule``
+   * - places
+     - ``--places``
+     - ``place``
+     - ``within``, ``basis``, ``rule``
+   * - members
+     - ``--members``
+     - ``group``, ``member``
+     - ``member_kind``
+
+Every table also takes the citation columns ``document``, ``version``,
+``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``
+needs a ``rule``. Against the demo preset, these three tables put both booster
+focusing quadrupoles on one new supply in a new rack:
+
+.. code-block:: text
+   :caption: cables.csv
+
+   type,subject,object,object_kind,object_class,document,version,locator
+   powered_by,BR/QF01,BR/QF-PS,,PowerSupply,PS-SCHEDULE,C,p. 4
+   powered_by,BR/QF02,BR/QF-PS,,,PS-SCHEDULE,C,p. 4
+   located_in,BR/QF-PS,RK01,place,,PS-SCHEDULE,C,p. 2
+
+.. code-block:: text
+   :caption: racks.csv
+
+   place,within,document,version
+   RK01,BR,PS-SCHEDULE,C
+
+.. code-block:: text
+   :caption: names.csv
+
+   thing,name,scheme,document
+   BR/QF-PS,PS-QF-B,cable-schedule,PS-SCHEDULE
+
+.. code-block:: bash
+
+   osprey facility import relations cables.csv --layer cables --places racks.csv --names names.csv
+
+Each end and name resolves against the whole facility except the layer being
+replaced. The rules:
+
+* **Stubs.** A device end the facility lacks is created as a stub only when its
+  row states ``subject_class`` or ``object_class``, a class of the facility or
+  the shared vocabulary; one row's class holds for every row naming that
+  device. ``--stub-unknown`` stubs a class-less end as ``Unidentified``, and
+  the build reports such stubs with ``relation-stub``. Without either, the row
+  is refused, so a misspelt name stops the import. Place and group ends are
+  never stubbed.
+* **Places.** ``within`` names an authored place or one the places table
+  creates, never one another imported layer creates, so where a layer puts a
+  place does not depend on import order. A place's id is its path,
+  ``BR/RK01`` above. The build reports a place name that relations layers put
+  under two parents with ``place-parents-disagree``, and a place created
+  top-level with no citation with ``place-unplaced``.
+* **Members.** The members table creates a group no other source has. A row
+  for another source's group is accepted only when that group already holds
+  the member, and changes nothing.
+* **Names.** The names table names only the stub devices and the places this
+  layer creates. A name for a record the authored file or another layer
+  states, or for a group, is refused.
+* **Ids.** A claim's id is ``<NAME>/<type>/<hash>``. The hash covers the type,
+  both ends (in either order for a symmetric type), the ports, the type's key
+  attribute and the cited document, never its version, locator or
+  ``imported`` date: a new revision of the schedule keeps every id. A
+  symmetric row written reversed, or a repeated row, is one claim; one fact
+  cited from two documents is two claims. The import never stamps a date of
+  its own.
+
+The layer is replaced whole: ``relations.yaml``, ``devices.yaml`` (the stubs),
+``places.yaml`` and ``groups.yaml``, each written only when it holds a record,
+and a byte copy of each table. A file of the previous run this one does not
+write is removed. Nothing outside ``imported/<NAME>/`` changes: unlike the
+other importers, it neither replaces a bundled facility nor refuses
+hand-written records. A refused row prints one ``source-invalid`` line, every
+refusal is reported and the import writes nothing. The layer name matches
+``[a-z0-9][a-z0-9_-]*`` and is not ``authored``, ``list`` or ``mml``.
 
 Fixes
 =====
