@@ -45,6 +45,7 @@ import requests
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, PANEL_CAP_SEGMENT
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal.panel_discovery import DiscoveredPanel
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 try:
@@ -246,6 +247,7 @@ def test_an_opaque_panel_renders_from_its_cap_and_cannot_post_as_the_operator(
                 ),
             )
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             assert _operator_get(base_url, _OPERATOR_ROUTE)["active_panel"] != target
 
             url = _cap_url(page, panel_id)
@@ -285,6 +287,7 @@ def test_the_panel_without_its_cap_does_not_load_in_an_opaque_frame(chromium_bro
         page = chromium_browser.new_page()
         try:
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             status = page.evaluate(
                 """async () => {
                     const r = await fetch('/panel-static/agent-bundle/data.json', {
@@ -333,6 +336,7 @@ def test_the_factory_frames_an_agent_panel_opaque_and_the_theme_reaches_it(
         page = chromium_browser.new_page()
         try:
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             page.wait_for_selector(
                 f'.panel-rail-button[data-panel-id="{panel_id}"]', timeout=15_000
             )
@@ -372,6 +376,7 @@ def test_an_osprey_catalog_panel_keeps_todays_sandbox(chromium_browser, tmp_path
         page = chromium_browser.new_page()
         try:
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             page.wait_for_selector(
                 '.panel-rail-button[data-panel-id="terminal"]:not(.disabled)', timeout=15_000
             )

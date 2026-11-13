@@ -54,6 +54,8 @@
   --duration-fast: 150ms;
   --duration-base: 200ms;
   --duration-slow: 300ms;
+  --control-h: 28px;
+  --control-h-sm: 24px;
   --bg-terminal: #141619;
   --bg-primary: #111217;
   --bg-secondary: #141619;

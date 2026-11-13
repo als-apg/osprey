@@ -355,7 +355,7 @@ def build_lint_view(
 
     - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
     - the render projection ``modules.web_terminals.renders`` — one entry per
-      tier and app file under *profile_root*, its ``project`` /
+      login file under *profile_root*, its ``project`` /
       ``project_path`` derived from ``project_name``
       (:func:`~osprey.deployment.web_terminals.render_naming.derived_renders`);
     - ``project_name`` itself, at the root, where the rendered config carries

@@ -1209,6 +1209,18 @@ class TestResolveAgents:
         assert {"channel-finder"} <= disabled
         assert "data-visualizer" in enabled
 
+    def test_every_agent_dict_carries_delegation(self):
+        """Framework and config-defined agents resolve with no delegation note."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents(
+            {"agents": {"my-db-agent": {"description": "Searches the facility DB."}}},
+            ctx,
+            resolved_servers=servers,
+        )
+        assert all("delegation" in a for a in agents)
+        assert all(a["delegation"] is None for a in agents)
+
     def test_disable_framework_agent(self):
         """New format: agents: {logbook-search: {enabled: false}}."""
         ctx = _base_ctx()

@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.views.pyaml import CONFIGURATION_FILE, E_DELTA_CAP, E_DELTA_ORBIT
+from osprey.facility.kinds import E_DELTA_CAP, E_DELTA_ORBIT
+from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import (
     LINE_GROUPS,
     SR_GROUPS,

@@ -47,7 +47,7 @@ import pytest
 import requests
 
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import rail_entry, wait_for_hub_ready
+from tests.interfaces._browser import rail_entry, wait_for_page_ready
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import unserved_url
 from tests.interfaces.web_terminal.test_panels_browser import _open_second_tile
@@ -217,7 +217,7 @@ def _open_page(browser, base_url: str) -> Page:
     page = browser.new_page()
     page.add_init_script(_FETCH_COUNTER_JS)
     page.goto(base_url, wait_until="domcontentloaded")
-    wait_for_hub_ready(page)
+    wait_for_page_ready(page)
     return page
 
 
@@ -1090,6 +1090,7 @@ def test_slow_restore_reports_nothing_before_the_layout_is_final(tmp_path, chrom
         page.on("response", _record_response)
 
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=20_000)
         # Outlast the settle window plus a generous margin so a late report is
@@ -1176,6 +1177,7 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
         dockless = chromium_browser.new_page()
         dockless.route("**/dockview-core*", lambda route: route.abort())
         dockless.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(dockless)
         expect(rail_entry(dockless, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         assert (
             dockless.evaluate(

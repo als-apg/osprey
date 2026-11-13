@@ -142,7 +142,7 @@ ARG OPTIMIZER_TORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
 # lock-driven install: nothing is primed from a released optimizer, and the
 # staged wheels' base requirements and the extra's are installed here, with
 # the toolchain, every third-party package held to the version the lock holds.
-# The lock's lines are appended to the setuptools constraint file, so they
+# The lock's lines are appended to the setuptools_dso constraint file, so they
 # reach uv's build environments too, and the file is kept at
 # /opt/osprey/lock-constraints.txt for the wheel layer below. With no lock file
 # staged (a release build) the layer is exactly what it was.
@@ -165,7 +165,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
-    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && printf 'setuptools-dso>=2.12.4\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
               UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \

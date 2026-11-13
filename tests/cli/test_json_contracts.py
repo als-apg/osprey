@@ -291,7 +291,7 @@ class _StubService:
 def _install_ariel_service(service: _StubService) -> Any:
     """Return a patch context routing ``create_ariel_service`` to *service*."""
 
-    async def _create(_config: Any) -> _StubService:
+    async def _create(_config: Any, *, store_deadline_s=None) -> _StubService:  # noqa: ARG001 - the signature it stands in for
         return service
 
     return patch("osprey.services.ariel_search.create_ariel_service", new=_create)

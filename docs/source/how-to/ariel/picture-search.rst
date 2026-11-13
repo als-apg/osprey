@@ -53,7 +53,7 @@ Agent tools for pictures
 On by default, skipped when unavailable
 ========================================
 
-The ``demo`` preset and its logbook app turn captions,
+The ``demo`` preset and its logbook login turn captions,
 picture search and the view tool on, and they choose a service and model for
 each: Ollama with ``qwen3-vl:4b`` for captions, and a site-run llama-server
 with ``qwen3-vl-embedding-2b`` for picture search. These are preset defaults,

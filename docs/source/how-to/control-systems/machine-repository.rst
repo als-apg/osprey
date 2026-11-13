@@ -63,7 +63,7 @@ same) and name its facility directory in the root ``profile.yml``:
 
 ``machine:`` resolves and is folded into the profile hash like ``data:``
 (:doc:`/how-to/build-profiles`), so a new machine commit reports the build out of date.
-Only the root ``profile.yml`` states it; every tier and app drives the same
+Only the root ``profile.yml`` states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted.
 
 With ``machine:`` set, ``osprey facility import`` writes into the machine root,
@@ -86,7 +86,7 @@ fix, on:
    ``ariel/`` and ``benchmarks/``. Edit the fact in the machine repository and
    remove the deployment's copy.
 ``profile-invalid``
-   ``machine:`` and ``data:`` overlap; a tier or app states ``machine:``; or the
+   ``machine:`` and ``data:`` overlap; a login file states ``machine:``; or the
    profile states ``simulation.default_scenarios`` beside ``start: true`` marks
    or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.

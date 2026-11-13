@@ -50,6 +50,7 @@ from uuid import uuid4
 
 import click
 
+from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
 from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
@@ -68,7 +69,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
+from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -121,6 +122,7 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
     from osprey.facility.build import FacilityDocument
@@ -131,6 +133,14 @@ if TYPE_CHECKING:
     from .profile_root import ProfileKind
 
 logger = get_logger("build")
+
+
+def _log_app_refusal(violations: Sequence[Violation]) -> None:
+    """Log every application violation as ``osprey app check`` prints it, then the count."""
+    *lines, count = refusal_lines(violations)
+    for line in lines:
+        logger.error("%s", line)
+    logger.error("✗ %s", count)
 
 
 def _report_fact(message: str) -> None:
@@ -1351,7 +1361,7 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
 class _SharedRenderInputs(NamedTuple):
     """What every project one ``osprey build`` renders has in common.
 
-    A repo with tier and app files renders several projects — the deployment's own and one
+    A repo with login files renders several projects — the deployment's own and one
     per delta — and the whole point of a render is that it differs from its host
     in the profile and in NOTHING ELSE. Everything that is a property of the
     build rather than of the profile therefore lives here and is passed to each
@@ -1837,7 +1847,7 @@ def _pin_rendered_container_runtime(
     the build writes that answer (:attr:`_SharedRenderInputs.container_runtime`);
     a render outside a build asks nothing and writes nothing. An explicit
     ``docker``/``podman`` is the operator's answer and is left as written; a
-    tier or app cannot state one (:func:`~osprey.cli.build_profile_merge._refuse_layer_spellings`),
+    login cannot state one (:func:`~osprey.cli.build_profile_merge._refuse_layer_spellings`),
     so every render of one build states the same runtime. A host where no
     runtime answers keeps ``auto``: there is nothing to pin to, such a host
     cannot start anything, and a build there is still a valid thing to do.
@@ -2197,8 +2207,10 @@ def _copy_app_skills(
     Returns:
         The skill names copied.
     """
+    from osprey.apps.origin import origin_of
     from osprey.apps.projection import login_skills
 
+    directories = {m.name: origin_of(m, repo_root).directory for m in manifests}
     copied: list[str] = []
     for app, skill in login_skills(manifests, selection):
         destination = render_dir / ".claude" / "skills" / skill
@@ -2207,8 +2219,43 @@ def _copy_app_skills(
                 f"Application {app!r} carries a skill named {skill!r}, and this render "
                 f"already has one by that name; rename the application's skill."
             )
-        shutil.copytree(repo_root / APPS_DIRNAME / app / "skills" / skill, destination)
+        shutil.copytree(directories[app] / "skills" / skill, destination)
         copied.append(skill)
+    return copied
+
+
+def _copy_app_agents(
+    repo_root: Path,
+    render_dir: Path,
+    manifests: Sequence[AppManifest],
+    agents: Mapping[str, Sequence[AppAgent]],
+    selection: LoginSelection,
+) -> list[str]:
+    """Copy the subagents of the applications this render shows into its ``.claude/agents/``.
+
+    Each file is copied as written; regeneration then adds the ``model:`` line the
+    deployment decides. Runs after the profile's own artifacts, so a name already
+    taken there is refused rather than either copy silently winning.
+
+    Returns:
+        The agent names copied.
+    """
+    from osprey.apps.agents import AGENTS_DIR
+    from osprey.apps.origin import origin_of
+    from osprey.apps.projection import login_agents
+
+    directories = {m.name: origin_of(m, repo_root).directory for m in manifests}
+    copied: list[str] = []
+    for app, agent in login_agents(manifests, agents, selection):
+        destination = render_dir / ".claude" / "agents" / f"{agent.name}.md"
+        if destination.exists():
+            raise BuildProfileError(
+                f"Application {app!r} carries an agent named {agent.name!r}, and this render "
+                f"already has an agent by that name; rename the application's agent."
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(directories[app] / AGENTS_DIR / f"{agent.name}.md", destination)
+        copied.append(agent.name)
     return copied
 
 
@@ -2504,9 +2551,9 @@ def _render_project(
         # health_url_key_errors refuses any other value at validation, so the
         # overwrite never silently replaces a different value. The render
         # projection `modules.web_terminals.renders` is DERIVED from this repo's
-        # tier and app files (validation refuses a profile spelling of it). The
+        # login files (validation refuses a profile spelling of it). The
         # deployment projects it when it stands up web terminals or runs its
-        # dispatch workers at a tier; a tier's or app's render stands up neither,
+        # dispatch workers at a tier; a login's render stands up neither,
         # so no render projects renders-of-a-render. The `facility` entry is
         # OVERRIDE-CHECKED: `osprey.facility.settings` derives each key the
         # profile leaves unstated and refuses a stated one the facility
@@ -2666,6 +2713,7 @@ def _render_project(
                 shared.applications.manifests,
                 _rendered_config(render_dir) if build_profile.deploy_services else host_config,
                 shared.applications.logins[login],
+                shared.applications.agents,
             )
 
         # The selection, projected. The tab strip is read from `web.panels` alone,
@@ -2774,6 +2822,15 @@ def _render_project(
             )
             if copied:
                 progress("  ✓ Applied %d application skill(s): %s", len(copied), ", ".join(copied))
+            copied = _copy_app_agents(
+                repo_root,
+                render_dir,
+                shared.applications.manifests,
+                shared.applications.agents,
+                shared.applications.logins[login],
+            )
+            if copied:
+                progress("  ✓ Applied %d application agent(s): %s", len(copied), ", ".join(copied))
 
         # The limits database is the limits view, written below with the other
         # facility outputs; the render names it before anything reads the config.
@@ -2896,7 +2953,12 @@ def _render_project(
         pin_errors = agent_model_pin_errors(
             render_dir / ".claude" / "agents",
             spec.agent_models,
-            {*FRAMEWORK_AGENTS, *(rendered_claude_code.get("agents") or {})},
+            {
+                *FRAMEWORK_AGENTS,
+                *(rendered_claude_code.get("agents") or {}),
+                # An application's agent is the deployment's wherever its app is hidden.
+                *(a.name for agents in shared.applications.agents.values() for a in agents),
+            },
         )
         if pin_errors:
             raise BuildProfileError("Agent model pins do not apply:\n  " + "\n  ".join(pin_errors))
@@ -3628,7 +3690,8 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     taken over that one profile (:func:`_relocate_container_manifest`), so one
     set serves the deployment's image and every tier's and app's. Every input
     lies under the repository root; the profile loader refuses one that does
-    not.
+    not. An installed application is no repository content: the image
+    installs its distribution.
     """
     from .build_profile_document import _read_profile_document
     from .build_profile_merge import profile_inputs, resolve_profile_document
@@ -3637,7 +3700,7 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     document = resolve_profile_document(
         _read_profile_document(profile_path), profile_path, warn=False
     )
-    paths = [entry.path for entry in profile_inputs(document)]
+    paths = [entry.path for entry in profile_inputs(document) if entry.in_repository]
 
     root = repo_root.resolve()
     return [path.resolve().relative_to(root) for path in paths]
@@ -4044,7 +4107,7 @@ def _build_repo(
         # reporting the same half-written block a second time. The zone is
         # judged here, profile-side, because the render bakes it into the
         # agent's rules and every container's `TZ`. The CANOPY home screen is
-        # judged for the profile and every tier and app file the build renders.
+        # judged for the profile and every login file the build renders.
         web_errors = [
             *web_errors,
             *limits_block_errors(build_profile.config),
@@ -4347,7 +4410,7 @@ def _build_repo(
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
 
-            # Tiers and apps BEFORE the compose files: the services render reads
+            # Logins BEFORE the compose files: the services render reads
             # their rendered config.yml files for its per-render grants (the
             # bluesky_web sidecar's roster secrets), and the start verbs are
             # as-built — a grant this pass misses reaches no container.
@@ -4374,12 +4437,12 @@ def _build_repo(
                     output.note(
                         f"⚠ {artifact} reaches no render: no claude_code.hooks declaration "
                         f"wires it. Declare it under claude_code.hooks.<event> in profile.yml, "
-                        f"or in the tier or app that should run it."
+                        f"or in the login that should run it."
                     )
                     continue
                 output.note(
                     f"⚠ {artifact} reaches no render: no list names it. Add it to the "
-                    f"{field}: list of profile.yml, or of the tier or app that should "
+                    f"{field}: list of profile.yml, or of the login that should "
                     f"carry it, or run `osprey init --revalidate`."
                 )
 
@@ -4467,6 +4530,14 @@ def _build_repo(
     except click.UsageError as e:
         logger.error("✗ %s", e)
         raise
+    except AppsRefusedError as e:
+        for error in e.errors:
+            logger.error("✗ Build error: %s", error)
+        _log_app_refusal(e.violations)
+        raise click.Abort() from e
+    except AppManifestError as e:
+        _log_app_refusal(e.violations)
+        raise click.Abort() from e
     except BuildProfileError as e:
         logger.error("✗ Build error: %s", e)
         raise click.Abort() from e

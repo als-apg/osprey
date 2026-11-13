@@ -15,7 +15,8 @@ which is exactly what it writes, with the stamped fingerprint under the
 caller's control so drift is a one-line parameter.
 
 For the tests that do run one, :func:`invoke_build` is the in-process
-``osprey build`` with the install and the lifecycle hooks skipped,
+``osprey build`` with the install and the lifecycle hooks skipped (the one the
+application SDK's test support runs, named here for OSPREY's own tests),
 :func:`invoke_build_in` the same from a working directory instead of ``--repo``, and
 :func:`rendered_config` reads back the ``build/config.yml`` it rendered.
 
@@ -32,7 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from click.testing import CliRunner, Result
+from click.testing import Result
+
+from osprey.apps.sdk.testing import invoke_build
 
 #: The smallest rendered config that still resolves a provider. Enough for the
 #: pre-flight probes and the provider lookups the launch verbs run before they
@@ -96,25 +99,6 @@ def stub_build(
         json.dumps({"creation": creation}), encoding="utf-8"
     )
     return build
-
-
-def invoke_build(repo: Path | None = None, *args: str) -> Result:
-    """Run ``osprey build`` in-process with :data:`CI_FLAGS`.
-
-    Args:
-        repo: The repo, passed as ``--repo``. ``None`` passes none, so the build
-            finds its repo from the working directory the caller set.
-        *args: Further arguments, after the flags.
-
-    Returns:
-        The CliRunner result.
-    """
-    from osprey.cli.build_cmd import build
-
-    repo_args = [] if repo is None else ["--repo", str(repo)]
-    # The flags spelled out rather than as `*CI_FLAGS`: tests/test_offline_build_env.py
-    # reads build argv from source and credits only a literal `--skip-deps`.
-    return CliRunner().invoke(build, [*repo_args, "--skip-deps", "--skip-lifecycle", *args])
 
 
 def invoke_build_in(cwd: Path, *args: str) -> Result:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import app
+from tests.apps import _installed
+from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
 
 FIXTURE_APP = Path(__file__).parents[1] / "apps" / "fixtures" / "js_check_app"
@@ -109,6 +112,75 @@ def test_a_violation_reads_as_the_build_prints_it(
         assert text in built.output + caplog.text
 
 
+def test_a_schema_error_in_app_yml_reads_as_a_violation_the_build_prints_too(
+    runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "colour: blue\n")
+
+    result = _check(runner, lifecycle_repo)
+    built = invoke_build(lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "does not resolve" not in result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    text, _, rule = line.rpartition(" [")
+    assert text.startswith("apps/knob/app.yml: colour: ")
+    assert rule == "extra_forbidden]"
+    assert "1 violation(s)." in result.output
+    assert built.exit_code != 0
+    assert line in built.output + caplog.text
+    assert "1 violation(s)." in built.output + caplog.text
+
+
+def test_a_schema_error_beside_a_profile_error_reports_both(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "colour: blue\n")
+    profile = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["channel_finder_mode"] = "bogus"
+    (lifecycle_repo / "profile.yml").write_text(
+        yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "The profile does not resolve." in result.output
+    assert "channel_finder_mode" in result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    assert line.startswith("apps/knob/app.yml: colour: ")
+    assert line.endswith(" [extra_forbidden]")
+    assert "1 violation(s)." in result.output
+
+
+def test_a_hooks_key_is_refused_saying_what_to_declare(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "app.yml", _manifest("knob") + "hooks:\n  PreToolUse: []\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    assert "apps/knob/app.yml: hooks: apps ship no hook code" in result.output
+    assert "`tools.approval` for a write" in result.output
+
+
+def test_a_hooks_directory_is_refused_with_its_rule(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "hooks/x.py", "")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[no_hooks]")]
+    assert line.startswith("apps/knob: hooks: apps ship no hook code")
+
+
 def test_a_requirement_only_an_unlisted_directory_holds_is_reported(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
@@ -200,9 +272,13 @@ def test_an_application_with_no_package_passes_the_boundary_saying_so(
 # --- the panel's design-system styling ------------------------------------------
 
 
-def _page(*sheets: str, body: str = '<main class="osprey-card knob"></main>') -> str:
+def _page(
+    *sheets: str,
+    body: str = '<main class="osprey-card knob"></main>',
+    html: str = '<html data-page-ready="true">',
+) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
-    return f"<head>\n{links}</head>\n<body>{body}</body>\n"
+    return f"{html}\n<head>\n{links}</head>\n<body>{body}</body>\n</html>\n"
 
 
 STYLED_PAGE = _page("tokens.css", "base.css", "primitives.css")
@@ -274,6 +350,157 @@ def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
         "apps/knob/panel/main.js: no rule in the panel's or the linked design-system "
         "stylesheets for class knob-on, knob-row, knob-unit [undefined_class]"
     ) in result.output
+
+
+# --- the panel's page-ready mark ------------------------------------------------
+
+#: The line a panel's script adds to set the mark.
+READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';\n"
+PENDING = '<html data-page-ready="pending">'
+
+
+@pytest.mark.usefixtures("js")
+def test_a_panel_whose_script_marks_it_ready_passes(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(
+        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+    )
+    _write(app_dir, "panel/main.js", READY_IMPORT + "void load().finally(() => markPageReady());\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.usefixtures("js")
+def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_add(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(
+        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+    )
+    _write(app_dir, "panel/main.js", "// " + READY_IMPORT + "void load();\n")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "apps/knob/panel/index.html: " in result.output
+    assert READY_IMPORT.strip() in result.output
+    assert result.output.count("[page_ready]") == 1
+
+
+def test_a_panel_with_no_script_carries_the_mark_in_its_markup(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html="<html>"))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    assert "[page_ready]" in result.output
+
+
+# --- an installed application, checked from its origin -------------------------
+
+
+def _installed_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> Path:
+    """The fixture application, copied to a site directory with *files* added, installed.
+
+    *files* maps a path under the package to its text.
+    """
+    site = tmp_path / "site"
+    package = site / MODULE
+    shutil.copytree(_installed.DIRECTORY, package)
+    for relative, text in files.items():
+        _write(package, relative, text)
+    _installed.install(monkeypatch, entry_point())
+    monkeypatch.syspath_prepend(str(site))
+    monkeypatch.delitem(sys.modules, MODULE, raising=False)
+    return package
+
+
+def test_a_deployment_apps_output_is_unchanged_with_nothing_installed(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _app(lifecycle_repo)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "apps/knob/: no Python package, no import boundary to check",
+        "✓ 1 application(s) pass.",
+    ]
+
+
+def test_an_installed_app_is_checked_from_its_origin(
+    runner: CliRunner, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _app(lifecycle_repo)
+    _installed.install(monkeypatch)
+    monkeypatch.delitem(sys.modules, MODULE, raising=False)
+    _list(lifecycle_repo, "knob", NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[-1] == "✓ 2 application(s) pass (1 in apps/, 1 installed)."
+
+
+def test_a_refused_import_in_an_installed_app_names_its_distribution(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(tmp_path, monkeypatch, {"leak.py": "\nfrom osprey.registry import mcp\n"})
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[import_boundary]")]
+    assert line.startswith(f"{DIST}:{MODULE}/leak.py:2: osprey.registry.mcp: ")
+
+
+def test_an_installed_apps_import_of_itself_is_its_own(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(tmp_path, monkeypatch, {"own.py": f"from {MODULE}.tools import read_fixture\n"})
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
+def test_an_installed_panel_without_the_ready_mark_names_its_distribution(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _installed_copy(
+        tmp_path,
+        monkeypatch,
+        {
+            "panel/index.html": _page(
+                "tokens.css", "base.css", "primitives.css", body="<main></main>", html="<html>"
+            )
+        },
+    )
+    _list(lifecycle_repo, NAME)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("]")]
+    assert line.startswith(f"{DIST}:{MODULE}/panel/index.html: never sets the page-ready mark")
+    assert line.endswith("[page_ready]")
 
 
 # --- the JS halves, with a stubbed runner ---------------------------------------

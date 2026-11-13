@@ -439,7 +439,7 @@ def agent_data_root_at(anchor, config) -> str:
 
 
 def repo_agent_data_root(hook_input=None) -> str:
-    """The agent-data root the gallery and the channel-finder app write under.
+    """The agent-data root the gallery and the channel finder write under.
 
     ``agent_data.base_dir`` anchored on the repo (:func:`get_repo_root`) rather
     than the render, because ``build/`` is disposable. It does not read the

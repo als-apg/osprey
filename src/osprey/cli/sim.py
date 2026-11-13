@@ -40,6 +40,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = get_logger("sim")
 
+#: Seconds ``osprey sim`` gives the ARIEL store to answer each time it opens it.
+_STORE_DEADLINE_S = 30.0
+
 
 def _parse_now(now_iso: str) -> datetime:
     """Parse an ISO-8601 ``--now`` anchor into an aware datetime.
@@ -402,7 +405,7 @@ def apply_command(
         from osprey.services.ariel_search.cli_operations import get_purge_info
 
         try:
-            info = asyncio.run(get_purge_info(ariel_config))
+            info = asyncio.run(get_purge_info(ariel_config, store_deadline_s=_STORE_DEADLINE_S))
         except Exception:
             info = None  # DB unreachable — apply will surface the error below
         if info is not None:
@@ -423,11 +426,19 @@ def apply_command(
             seed_logbook=seed_logbook,
             seed_archive=seed_archive,
             now=now,
+            store_deadline_s=_STORE_DEADLINE_S,
         )
     except (ValueError, RuntimeError) as exc:
         output.fail("The scenarios could not be applied", str(exc))
         raise SystemExit(1) from None
     except Exception as exc:
+        from osprey.services.ariel_search.exceptions import StoreSilentError
+
+        if isinstance(exc, StoreSilentError):
+            output.fail(
+                str(exc), None, "check that the ARIEL database is running, or pass --no-seed"
+            )
+            raise SystemExit(1) from None
         msg = str(exc)
         if "connect" in msg.lower():
             output.fail(

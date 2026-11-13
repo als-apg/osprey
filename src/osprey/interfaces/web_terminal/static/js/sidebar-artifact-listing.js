@@ -445,6 +445,10 @@ export function createTreeData({ onChange }) {
   const counted = new Set();
   /** @type {Set<string>} */
   let summarized = new Set();
+  /** How many live frames re-counted each session. @type {Map<string, number>} */
+  const moves = new Map();
+  /** How many live frames moved the owned total. */
+  let ownedMoves = 0;
   const totals = {
     /** @type {Record<string, FormCounts>} */
     counts: {},
@@ -480,6 +484,9 @@ export function createTreeData({ onChange }) {
   /**
    * Summarize the sessions not summarized yet, or all of them (`all`: a
    * delete, a reconnect), one request per page. Resolves whether it asked.
+   * A session a live frame re-counted while its answer was on the way keeps
+   * the frame's count and is asked again; so does the owned total, which a
+   * frame for any session moves.
    * @param {string[]} ids
    * @param {boolean} [all]
    */
@@ -490,12 +497,20 @@ export function createTreeData({ onChange }) {
     const pages = [];
     for (let i = 0; i < wanted.length; i += SUMMARY_PAGE)
       pages.push(wanted.slice(i, i + SUMMARY_PAGE));
+    const before = wanted.map((id) => moves.get(id));
+    const ownedBefore = ownedMoves;
     const answers = await Promise.all(pages.map((page) => fetchSummary(page)));
+    // An answer is the index as it was read, possibly before a frame applied here.
+    const stale = wanted.filter((id, n) => moves.get(id) !== before[n]);
+    const totalMoved = ownedMoves !== ownedBefore;
     for (const summary of answers) {
       if (!summary) continue;
-      Object.assign(totals.counts, summary.counts ?? {});
-      totals.ownedTotal = summary.owned_total ?? totals.ownedTotal;
+      const counts = { ...(summary.counts ?? {}) };
+      for (const id of stale) delete counts[id];
+      Object.assign(totals.counts, counts);
+      if (!totalMoved) totals.ownedTotal = summary.owned_total ?? totals.ownedTotal;
     }
+    if (stale.length || totalMoved) await summarize(stale.length ? stale : wanted, true);
     return true;
   }
 
@@ -503,6 +518,8 @@ export function createTreeData({ onChange }) {
   function bump(entry, delta) {
     const form = entry.form;
     if (!form || entry.owner == null) return;
+    moves.set(entry.owner, (moves.get(entry.owner) ?? 0) + 1);
+    ownedMoves += 1;
     const bucket = (totals.counts[entry.owner] ??= { total: 0, by_form: {} });
     bucket.total = Math.max(0, bucket.total + delta);
     bucket.by_form[form] = Math.max(0, (bucket.by_form[form] ?? 0) + delta);

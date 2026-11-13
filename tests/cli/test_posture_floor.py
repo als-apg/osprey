@@ -530,6 +530,10 @@ def _run_cli(
         cwd: Working directory for the command.
         env: Additions to the environment the command runs under.
 
+    The run is waited on until the command exits, with no wall-clock budget: a
+    whole ``init`` or ``build`` ends on its own however slowly a loaded host runs
+    it, and the per-test timeout is the hang breaker.
+
     Returns:
         The completed process, output captured, a non-zero exit not raised.
     """
@@ -540,7 +544,6 @@ def _run_cli(
         capture_output=True,
         text=True,
         check=False,
-        timeout=120,
     )
 
 

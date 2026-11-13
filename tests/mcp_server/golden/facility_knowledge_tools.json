@@ -1,0 +1,204 @@
+{
+  "_owner": "tests/mcp_server/test_facility_knowledge_tool_json_golden.py",
+  "_rule": "A change to this file is a declared delta: the PR that makes it names the delta. Regenerate with: PYTHONPATH=src:.:packages/osprey-connectors/tests ./.venv/bin/python tests/mcp_server/test_facility_knowledge_tool_json_golden.py",
+  "calls": [
+    {
+      "tool": "capabilities",
+      "args": {},
+      "answer": {
+        "bundle_path": "<BUNDLE_ROOT>",
+        "count": 18,
+        "types": [
+          "convention",
+          "device",
+          "procedure",
+          "subsystem"
+        ]
+      }
+    },
+    {
+      "tool": "list_concepts",
+      "args": {},
+      "answer": {
+        "concepts": [
+          {
+            "concept_id": "beamlines/insertion_devices",
+            "title": "Insertion Devices",
+            "description": "Undulators and wigglers on the storage ring.",
+            "url": "panel/okf#beamlines/insertion_devices"
+          },
+          {
+            "concept_id": "controls/channel_naming",
+            "title": "Channel Naming Convention",
+            "description": "How control-system channels are named.",
+            "url": "panel/okf#controls/channel_naming"
+          },
+          {
+            "concept_id": "controls/epics_gateways",
+            "title": "EPICS Gateways",
+            "description": "Read-only bridges between control networks.",
+            "url": "panel/okf#controls/epics_gateways"
+          },
+          {
+            "concept_id": "diagnostics/beam_loss_monitors",
+            "title": "Beam Loss Monitors",
+            "description": "Scintillator paddles that report local losses.",
+            "url": "panel/okf#diagnostics/beam_loss_monitors"
+          },
+          {
+            "concept_id": "diagnostics/beam_position_monitors",
+            "title": "Beam Position Monitors",
+            "description": "Button pickups that report transverse position.",
+            "url": "panel/okf#diagnostics/beam_position_monitors"
+          },
+          {
+            "concept_id": "diagnostics/current_monitor",
+            "title": "Stored Current Monitor",
+            "description": "Non-destructive stored-current readout.",
+            "url": "panel/okf#diagnostics/current_monitor"
+          },
+          {
+            "concept_id": "magnets/corrector_magnets",
+            "title": "Corrector Magnets",
+            "description": "Small dipoles that trim the closed orbit.",
+            "url": "panel/okf#magnets/corrector_magnets"
+          },
+          {
+            "concept_id": "magnets/quadrupoles",
+            "title": "Quadrupole Magnets",
+            "description": "Gradient magnets that focus the beam.",
+            "url": "panel/okf#magnets/quadrupoles"
+          },
+          {
+            "concept_id": "magnets/sextupoles",
+            "title": "Sextupole Magnets",
+            "description": "Nonlinear magnets that set the ring's momentum optics.",
+            "url": "panel/okf#magnets/sextupoles"
+          },
+          {
+            "concept_id": "operations/orbit_feedback",
+            "title": "Orbit Feedback",
+            "description": "Slow and fast loops that hold the beam still.",
+            "url": "panel/okf#operations/orbit_feedback"
+          },
+          {
+            "concept_id": "operations/shift_handover",
+            "title": "Shift Handover",
+            "description": "What each operator crew passes to the next.",
+            "url": "panel/okf#operations/shift_handover"
+          },
+          {
+            "concept_id": "operations/top_off_injection",
+            "title": "Top-Off Injection",
+            "description": "Frequent small injections during user operation.",
+            "url": "panel/okf#operations/top_off_injection"
+          },
+          {
+            "concept_id": "rf/accelerating_cavities",
+            "title": "Accelerating Cavities",
+            "description": "The ring's radio-frequency accelerating structures.",
+            "url": "panel/okf#rf/accelerating_cavities"
+          },
+          {
+            "concept_id": "rf/low_level_rf_control",
+            "title": "Low-Level RF Control",
+            "description": "Amplitude, phase, and plunger regulation.",
+            "url": "panel/okf#rf/low_level_rf_control"
+          },
+          {
+            "concept_id": "safety/machine_protection",
+            "title": "Machine Protection System",
+            "description": "Equipment-protection interlock chain.",
+            "url": "panel/okf#safety/machine_protection"
+          },
+          {
+            "concept_id": "safety/personnel_safety_system",
+            "title": "Personnel Safety System",
+            "description": "Radiation-safety interlock chain.",
+            "url": "panel/okf#safety/personnel_safety_system"
+          },
+          {
+            "concept_id": "vacuum/bakeout_procedure",
+            "title": "Chamber Bakeout",
+            "description": "Restoring ultra-high vacuum after a vent.",
+            "url": "panel/okf#vacuum/bakeout_procedure"
+          },
+          {
+            "concept_id": "vacuum/ion_pumps",
+            "title": "Ion Pumps",
+            "description": "Sputter-ion pumps and their current-based gauging.",
+            "url": "panel/okf#vacuum/ion_pumps"
+          }
+        ],
+        "count": 18
+      }
+    },
+    {
+      "tool": "read_concept",
+      "args": {
+        "concept_id": "magnets/quadrupoles"
+      },
+      "answer": {
+        "concept_id": "magnets/quadrupoles",
+        "frontmatter": {
+          "type": "device",
+          "title": "Quadrupole Magnets",
+          "description": "Gradient magnets that focus the beam in one plane and defocus in the other.",
+          "tags": [
+            "magnets",
+            "optics",
+            "tune"
+          ]
+        },
+        "body": "# Quadrupole Magnets\n\nA quadrupole has four poles and a field that grows linearly with distance from the\naxis, so it acts as a lens: converging in one transverse plane and diverging in\nthe other. Alternating converging and diverging lenses around the ring produces\nnet confinement in both planes.\n\nQuadrupoles are grouped into families that share a power supply, and the family\ncurrents are what operators actually adjust when they move the betatron tunes onto\nthe working point. A per-magnet trim winding allows small individual adjustments\nfor beta-beat compensation.\n\nFamily currents are re-optimized after any chromaticity correction, because the\nsextupole change shifts the measured tunes slightly and the working point has to\nbe restored before user operation resumes.\n\nRamping is rate-limited in the supply firmware; a step request larger than the\nlimit is stretched over several seconds rather than rejected.",
+        "url": "panel/okf#magnets/quadrupoles"
+      }
+    },
+    {
+      "tool": "read_concept",
+      "args": {
+        "concept_id": "no/such/concept"
+      },
+      "error": {
+        "error": true,
+        "error_type": "not_found",
+        "error_message": "Concept not found: 'no/such/concept' (expected <BUNDLE_ROOT>/no/such/concept.md)",
+        "suggestions": [
+          "Use list_concepts to see available concept IDs.",
+          "Concept IDs are the file path minus .md (e.g. 'tables/users')."
+        ]
+      }
+    },
+    {
+      "tool": "search",
+      "args": {
+        "query": "steering magnets"
+      },
+      "answer": {
+        "query": "steering magnets",
+        "results": [
+          {
+            "concept_id": "diagnostics/beam_position_monitors",
+            "title": "Beam Position Monitors",
+            "description": "Button pickups that report the transverse position of the stored beam.",
+            "score": null,
+            "snippet": "# Beam Position Monitors\n\nA position monitor is a set of four button electrodes flush with the chamber wall.\nThe beam's image charge induces a signal on each button; the normalized difference\nbetween",
+            "url": "panel/okf#diagnostics/beam_position_monitors"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "tool": "search",
+      "args": {
+        "query": "how do we keep the stored current constant during user shifts"
+      },
+      "answer": {
+        "query": "how do we keep the stored current constant during user shifts",
+        "results": [],
+        "count": 0
+      }
+    }
+  ]
+}

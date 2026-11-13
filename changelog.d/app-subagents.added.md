@@ -1,0 +1,1 @@
+An app can carry subagents: `agents:` in `app.yml` lists each `agents/<name>.md`, which `osprey app check` checks and the build installs, with its delegation note in the brief and `model:` from `claude_code.agent_models`, into every login that shows the app.

@@ -807,14 +807,12 @@ def _setup(members: Sequence[Mapping[str, Any]], indices: Mapping[str, int]) -> 
     }
 
 
-def _signal_descriptions() -> dict[str, str]:
+def _signal_descriptions(records: FacilityRecords) -> dict[str, str]:
+    """Each signal role's description: the vocabulary's and the facility-added ones."""
     from osprey.facility.validate import vocabulary
 
-    return {
-        str(row["name"]): str(row["description"])
-        for row in vocabulary()["signal_roles"]
-        if row.get("description")
-    }
+    rows = [*vocabulary()["signal_roles"], *(records.document.get("signals") or [])]
+    return {str(row["name"]): str(row["description"]) for row in rows if row.get("description")}
 
 
 def _common_description(channels: Sequence[Mapping[str, Any]]) -> str | None:
@@ -937,7 +935,7 @@ def middle_layer_document(records: FacilityRecords) -> tuple[dict[str, Any], int
     """
     indices = _place_indices(records)
 
-    signal_texts = _signal_descriptions()
+    signal_texts = _signal_descriptions(records)
     in_family: set[str] = set()
     listed: set[str] = set()
     document: dict[str, Any] = {"schema": CHANNEL_FINDER_SCHEMA}

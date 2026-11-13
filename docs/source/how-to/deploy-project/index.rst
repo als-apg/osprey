@@ -184,9 +184,9 @@ Container Runtime Selection
   daemon answers, and Podman otherwise. A host where no runtime answers
   records ``auto``.
 - An explicit ``docker`` or ``podman`` in the profile's ``config:`` block is
-  taken as written. A tier or app file may not state one.
+  taken as written. A login file may not state one.
 
-Every render of the build (each tier, app and image copy) records the same
+Every render of the build (each login and image copy) records the same
 answer. Every later verb reads the recorded runtime and talks only to it. That
 covers ``up``, ``down``, ``restart``, ``reset`` and the port preflight. If that
 runtime says it is not running, or does not answer within two minutes, the verb

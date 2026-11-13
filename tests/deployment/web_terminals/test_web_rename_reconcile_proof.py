@@ -55,11 +55,13 @@ def _render(compose_file: Path, names: dict[str, str]) -> None:
 
 
 def _running_names() -> set[str]:
+    # Waited on until the listing exits, with no wall-clock budget: a daemon
+    # busy with the sweep's other containers answers late, not never, and the
+    # per-test timeout is the hang breaker.
     result = subprocess.run(
         ["docker", "ps", "-a", "--format", "{{.Names}}"],
         capture_output=True,
         text=True,
-        timeout=60,
         check=True,
     )
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
@@ -89,14 +91,15 @@ def test_first_up_under_project_names_leaves_no_old_named_container(tmp_path):
 
     try:
         _render(compose_file, old_names)
-        subprocess.run(base + ["up", "-d"], capture_output=True, timeout=180, check=True)
+        # Every compose and docker call waits on its exit, as _running_names does.
+        subprocess.run(base + ["up", "-d"], capture_output=True, check=True)
         assert set(old_names.values()) <= _running_names()
 
         # The upgrade: eve has left the roster, every survivor is renamed. The
         # web stack's `up` never passes --remove-orphans (it shares the compose
         # project with the services stack), exactly as here.
         _render(compose_file, new_names)
-        subprocess.run(base + ["up", "-d"], capture_output=True, timeout=180, check=True)
+        subprocess.run(base + ["up", "-d"], capture_output=True, check=True)
         removed = lifecycle.remove_orphan_terminals(config)
 
         names = _running_names()
@@ -104,6 +107,6 @@ def test_first_up_under_project_names_leaves_no_old_named_container(tmp_path):
         assert not {name for name in names if name.startswith(f"{prefix}-")}, names
         assert set(new_names.values()) <= names
     finally:
-        subprocess.run(base + ["down", "--timeout", "5"], capture_output=True, timeout=120)
+        subprocess.run(base + ["down", "--timeout", "5"], capture_output=True)
         for name in (*old_names.values(), *new_names.values()):
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True)

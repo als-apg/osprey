@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 import pytest
 from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 
-from tests.interfaces._browser import rail_entry
+from tests.interfaces._browser import rail_entry, wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import live_chat_server
 from tests.interfaces.web_terminal._surface import open_terminal
 from tests.interfaces.web_terminal.test_artifact_sessions_browser import (
@@ -124,8 +124,9 @@ def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[s
     expect(menu).to_have_count(1, timeout=5_000)
     if aria is not None:
         expect(menu).to_have_attribute("aria-label", aria)
-    assert page.evaluate("(sel) => document.activeElement?.closest(sel) != null", _MENU), (
-        "focus is not on the menu"
+    # The menu takes the focus once it is drawn: waited on, not read at once.
+    page.wait_for_function(
+        "(sel) => document.activeElement?.closest(sel) != null", arg=_MENU, timeout=5_000
     )
     labels = _labels(menu)
     page.keyboard.press("Escape")
@@ -181,6 +182,7 @@ def _send(box: Locator, prompt: str) -> None:
 
 def _boot_hermetic(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_AGENT_TILE} .tile-tab-more")).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -189,6 +191,7 @@ def _detach_agent(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(f"{_AGENT_TILE} .tile-tab-window").click()
     popup = info.value
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 
@@ -316,6 +319,7 @@ def test_a_right_click_on_the_terminal_body_opens_the_terminal_menu(tmp_path, ch
     with live_chat_server(tmp_path) as (base_url, _app):
         page = chromium_browser.new_page(viewport={"width": 1400, "height": 900})
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".op-session-bar")).to_be_visible(timeout=_TIMEOUT_MS)
         open_terminal(page)
         screen = page.locator("#terminal-container .xterm-screen")
@@ -365,6 +369,7 @@ def test_a_pop_out_reload_keeps_the_chat_menus(hub, page):
     _boot_hermetic(page, hub)
     popup = _detach_agent(page)
     popup.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(popup.locator(f"{_POP_BAR} button.tile-tab-reattach")).to_be_visible(timeout=_TIMEOUT_MS)
     _converse(popup, "after the reload")
@@ -457,14 +462,12 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         labels = _menu_key(page, page.locator(f"{_AGENT_TILE} .agent-bar-new"))
         assert "Close Agent pane" in labels, labels
 
-        # Close every tile: the dock is one empty slot.
+        # Close every tile, one at a time, each close seen before the next: the
+        # dock is one empty slot.
         tiles = page.locator("#dock-root .tile-tab")
-        for _ in range(10):
-            if tiles.count() == 0:
-                break
+        for left in range(tiles.count() - 1, -1, -1):
             tiles.first.locator('.tile-tab-actions button[aria-label^="Close"]').click()
-            page.wait_for_timeout(300)
-        expect(tiles).to_have_count(0, timeout=5_000)
+            expect(tiles).to_have_count(left, timeout=5_000)
         labels = _menu_key(page, page.locator("#dock-root"), aria="Dock")
         assert labels == ["Open panel", "Reset layout"], labels
         assert dock.errors == []

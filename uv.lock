@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -27,9 +27,9 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-accelerator-middle-layer-apg = "2026-10-11T00:00:00Z"
-lume-pva-apg = "2026-11-11T00:00:00Z"
 lume-pyat = "2026-09-18T00:00:00Z"
+lume-pva-apg = "2026-11-11T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-17T00:00:00Z"
 
 [manifest]
 members = [
@@ -65,7 +65,7 @@ wheels = [
 
 [[package]]
 name = "accelerator-middle-layer-apg"
-version = "0.3.1.post1"
+version = "0.3.1.post2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "accelerator-commissioning" },
@@ -78,9 +78,9 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/94/e1b4e808c570f9f139c214f3897607b4ae8391b553a79bc87063430d7288/accelerator_middle_layer_apg-0.3.1.post1.tar.gz", hash = "sha256:d77956193d91892cb0f37bf6c66888d35ace2fcfeb3e29498001e90f65994070", size = 4572861, upload-time = "2026-10-10T17:38:00.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/d6/be50570c87530bc3b684d7e7bd5984df4db8b189aba4e9d7b83cda2274cb/accelerator_middle_layer_apg-0.3.1.post2.tar.gz", hash = "sha256:83f86c08e23e6902aeefdff92e6897030436de79dc298afa397e21d9d96c5082", size = 4585800, upload-time = "2026-10-16T19:43:03.52Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/af/65b6aaa816bfaec7fcb4f720762e34b64c134d43948dc8e84ccf02e6205f/accelerator_middle_layer_apg-0.3.1.post1-py3-none-any.whl", hash = "sha256:495a7f2c1ad9ee6ca9d8ca56a035b7c7393d1e381c454f9890ed835a770cc651", size = 211352, upload-time = "2026-10-10T17:37:58.655Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/21/031778b1974114f9fd86090bf8157532de74a06f142bda7f5144e9584628/accelerator_middle_layer_apg-0.3.1.post2-py3-none-any.whl", hash = "sha256:cca5bd1032372d83a476c76fb366e5223231f129ff54a6a305b06ece4dac8e00", size = 224222, upload-time = "2026-10-16T19:43:01.598Z" },
 ]
 
 [[package]]
@@ -5672,7 +5672,7 @@ virtual-accelerator = [
 [package.metadata]
 requires-dist = [
     { name = "accelerator-commissioning", specifier = "==1.5.3" },
-    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" },
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post2" },
     { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.8.0" },
     { name = "actionlint-py", marker = "extra == 'all'", specifier = "==1.7.12.25" },
     { name = "actionlint-py", marker = "extra == 'dev'", specifier = "==1.7.12.25" },
@@ -6667,7 +6667,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" },
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post2" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
 ]
 
@@ -8246,23 +8246,23 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "83.0.0"
+version = "84.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz", hash = "sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef", size = 1154254, upload-time = "2026-07-04T15:31:22.699Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/eb/7e5f628ee2eb168fecbf8026de7856b2543d6d609cc85f086b9a91ac93d6/setuptools-84.1.0.tar.gz", hash = "sha256:23657205b63d4d31395ab917815247f694aafad28cd21316bf5fd45a51048ea0", size = 1171783, upload-time = "2026-10-19T20:11:43.489Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl", hash = "sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3", size = 1008090, upload-time = "2026-07-04T15:31:20.885Z" },
+    { url = "https://files.pythonhosted.org/packages/18/02/b4bbb90f8f29e334898ff45c6d9b1fffaa6f378017052b3023a06262b5f7/setuptools-84.1.0-py3-none-any.whl", hash = "sha256:5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9", size = 819380, upload-time = "2026-10-19T20:11:41.684Z" },
 ]
 
 [[package]]
 name = "setuptools-dso"
-version = "2.12.3"
+version = "2.12.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/eb/cd5d9e2894606d62e08edcfb52dcf20ff66c697ec36c47d44c397feeab01/setuptools_dso-2.12.3.tar.gz", hash = "sha256:9effb7bc38f87ff9aed33cc69e860320804ca6c69af8896dbba10996a49b5d7e", size = 21510, upload-time = "2026-02-11T01:16:01.139Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/16/3193318f3012890c3499a74c58b6ba27c9b9bad793479852f2f21508e6c2/setuptools_dso-2.12.4.tar.gz", hash = "sha256:5b665849c0b37c019dee72c8b8b4cfbae131d06d49364bc90444e8596942ed6f", size = 21729, upload-time = "2026-08-28T17:17:56.847Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/6b/3feec8016ab2263946c4480510d2d1a7924a5400c455974a7a0344bb4304/setuptools_dso-2.12.3-py2.py3-none-any.whl", hash = "sha256:5040be8628bd6cb82653391cf59f22126b261941cdbc9c36becca87e09c011c3", size = 23950, upload-time = "2026-02-11T01:16:00.295Z" },
+    { url = "https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl", hash = "sha256:fce70c8b6fb58f1ba609e455355776ddaa53363b84d1b7f0ec2c820e63544033", size = 24201, upload-time = "2026-08-28T17:17:55.895Z" },
 ]
 
 [[package]]

@@ -229,7 +229,7 @@ try:
 
     # Runtime state lives under agent_data.base_dir on the repo: a project's
     # data/ tree is build-owned and checksummed into the manifest, and build/ is
-    # wiped and re-rendered by every build. The channel-finder app's
+    # wiped and re-rendered by every build. The channel finder's
     # pending-review store reads this file, and the two ends resolve it from the
     # same key.
     store_path = os.path.join(repo_agent_data_root(hook_input), "feedback", "pending_reviews.json")

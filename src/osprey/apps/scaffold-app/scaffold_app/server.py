@@ -27,6 +27,7 @@ from osprey.apps.sdk import (
     OWNER_STATE_KEY,
     bind_owner,
     configure_app,
+    launch_token_env,
     owner_from_header,
     owner_target,
     verify_launch_token,
@@ -45,8 +46,6 @@ from scaffold_app import APP_NAME, CHANNEL_KEY, CHANNEL_SETTING, STATE_ROUTE, WR
 
 #: Where the deployment hands this application its rendered ``apps.<name>.config``.
 APP_CONFIG_ENV = "OSPREY_APP_CONFIG"
-#: Where the deployment hands this application its launch token.
-LAUNCH_TOKEN_ENV = APP_NAME.upper().replace("-", "_") + "_LAUNCH_TOKEN"
 #: What the state and the write say when the deployment names no channel.
 NO_CHANNEL = f"no channel is configured: set {CHANNEL_SETTING} in the deployment's profile"
 
@@ -195,7 +194,7 @@ def create_app(
 
     @app.post(WRITE_ROUTE)
     async def write(body: WriteRequest, request: Request) -> dict[str, Any]:
-        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), LAUNCH_TOKEN_ENV)
+        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), launch_token_env())
         if channel is None:
             raise HTTPException(409, NO_CHANNEL)
         current = await read(channel, body.target)

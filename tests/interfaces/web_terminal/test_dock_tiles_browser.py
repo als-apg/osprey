@@ -62,7 +62,12 @@ from pathlib import Path
 import pytest
 import requests
 
-from tests.interfaces._browser import open_hub_page, rail_entry, wait_for_dock_settled
+from tests.interfaces._browser import (
+    open_hub_page,
+    rail_entry,
+    wait_for_dock_settled,
+    wait_for_page_ready,
+)
 from tests.interfaces.web_terminal.test_panels_browser import _live_server
 
 try:
@@ -1254,6 +1259,7 @@ def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser
         before = _settle(page)
 
         page.reload()
+        wait_for_page_ready(page)
         wait_for_dock_settled(page)
         for key in (a, b, c):
             expect(_iframe(page, key)).to_be_visible(timeout=10_000)
@@ -1318,6 +1324,7 @@ def test_a_stored_tile_holding_several_panels_comes_back_with_the_one_it_showed(
         assert page.evaluate(_STORE_LAYOUT_JS, crowded), "no stored layout to rewrite"
 
         page.reload()
+        wait_for_page_ready(page)
         wait_for_dock_settled(page)
         for key in (b, c):
             expect(_iframe(page, key)).to_be_visible(timeout=10_000)
@@ -1687,6 +1694,7 @@ def test_maximize_is_not_stored_and_a_reload_comes_back_restored(tmp_path, chrom
         assert stored and all("maximized" not in json.dumps(v).lower() for v in stored), stored
 
         page.reload()
+        wait_for_page_ready(page)
         wait_for_dock_settled(page)
         for key in (a, b, c):
             expect(_iframe(page, key)).to_be_visible(timeout=10_000)
