@@ -625,8 +625,16 @@ and <strong>×</strong>.</p>
 <p><strong>⋯</strong>, or a right-click on the header, opens the tile’s menu. <strong>This panel</strong>
 lists the panel’s own actions and any icons a narrow tile has no room for.
 <strong>Tile</strong> lists the tile’s actions, among them <strong>Open panel</strong> (▸ <strong>Right</strong>,
-<strong>Down</strong>, <strong>Replace here</strong>), <strong>Reload</strong> and, when the panel has a
+<strong>Down</strong>, <strong>Replace here</strong>), <strong>Zoom</strong>, <strong>Reload</strong> and, when the panel has a
 documentation page, <strong>Help</strong>. Shift+right-click shows the browser’s own menu.</p>
+<p>To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
+macOS, hold Cmd. A pinch on a trackpad does the same. <strong>Zoom</strong> in the tile’s
+menu sets a level from 75% to 200%. While a pane is not at 100%, its header
+shows the level; click the level to go back to 100%. The Agent pane and each
+panel keep one zoom, and each artifact keeps its own. The browser remembers
+them. Over content that the page cannot listen to (a plot, a table or a
+notebook in an artifact), Ctrl+scroll zooms the page; use <strong>Zoom</strong> in the menu
+there.</p>
 <p>A panel you open — from its sidebar row, from a link, from the <strong>+</strong> menu,
 or one the agent opens for you — takes the service tile you used last and
 replaces the panel it showed. Nothing resizes,
@@ -1098,7 +1106,7 @@ scrolls. The other groups and the footer always stay on the screen.</p>
 <span id="web-terminal-sessions"></span><h3>Sessions and artifacts<a class="headerlink" href="#sessions-and-artifacts" title="Link to this heading">#</a></h3>
 <p>The <strong>Sessions</strong> row lists your sessions, newest first. A session is named
 from your first prompt (“naming…” until the name arrives); <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts a
-new one. Under a session, its artifacts are grouped by day; <strong>Group by Kind</strong>
+new one. Under a session, its artifacts are grouped by day; <strong>Artifacts by</strong> ▸ <strong>Kind</strong>
 sorts them into <strong>Runs</strong>, <strong>Plots</strong>, <strong>Trends</strong>, <strong>Tables</strong>, <strong>Documents</strong>,
 <strong>Dashboards</strong>, <strong>Images</strong>, <strong>Data</strong>, plus any kind the deployment registers.
 A script run is one row with a dot for <strong>succeeded</strong>, <strong>failed</strong> or <strong>not
@@ -1108,15 +1116,36 @@ opens on its proposed code. <strong>More sessions</strong> loads older ones.</p>
 <ul class="simple">
 <li><p>Click a session name to switch to it: its layout comes back as you left it
 (panels, tiles, sizes, the Agent pane, and each panel’s page where the hub
-can read it), with the artifact last open there (its newest if none). A new
-or older session keeps the layout on screen. The sidebar stays as it is.
+can read it), with the artifact last open there (its newest if none). An
+older session with no stored layout keeps the layout on screen. The sidebar
+stays as it is.
 Click the current session’s name to fold or unfold it. Only the current
 session shows its artifacts; the others stay folded until you switch to them.
 ⌥-click (Alt+click) a session or <strong>Sessions</strong> to expand every session, or
 collapse them all if all are open. The session the agent works in has a
 breathing accent bar.</p></li>
+<li><p>A new session starts with only the Agent pane. All the other tiles close,
+and a panel in a window of its own closes with its window. The panels keep
+their sidebar rows, so you can open them again. The session that you leave
+keeps its layout. Each way to start a session does this: the <strong>+</strong> in the
+Agent pane header, <strong>+ New session</strong> in the switcher, the <strong>+</strong> of
+<strong>Sessions</strong>, and <strong>New session</strong> in a menu. <code class="docutils literal notranslate"><span class="pre">/clear</span></code> and <strong>Restart
+terminal</strong> do not close tiles.</p></li>
 <li><p>Hover a folded session to see its artifacts; click one to show it.</p></li>
 <li><p>Click an artifact to show it. This never changes the session.</p></li>
+<li><p>Drag an artifact into the work pane to open it in a tile of its own
+(<a class="reference internal" href="#tiles">Tiles</a>). The tile always shows that artifact. The details icon in its
+header names the session that made the artifact. When that is not the
+current session, the icon has the warning colour until you click <strong>Got it</strong>
+in the details card.</p></li>
+<li><p>The view button beside <strong>+</strong> changes how the session list shows. <strong>Last
+activity</strong> keeps the sessions of today, of the last 3, 7 or 30 days, or all
+of them. <strong>Group by</strong> puts the sessions under date headings or state
+headings; the days are days on the facility clock. <strong>With artifacts only</strong>
+hides the sessions that made no artifact. <strong>Artifact counts</strong> shows or
+hides the count on each row. The current session always shows. A dot on
+the button means that the list is not at its defaults, and <strong>Reset to
+defaults</strong> restores them. The browser remembers your choices.</p></li>
 <li><p>The title in the agent tile’s header has its own ▾ switcher: your sessions
 with state, age and message count, and <strong>+ New session</strong>.</p></li>
 <li><p>While the agent is answering in chat, a switch from any of these asks
@@ -1124,8 +1153,8 @@ first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
 </ul>
 <p>Right-click a session to pin, rename, export or copy its ID, or delete a
 past session with its artifacts; a run, here or its row in chat, to open its
-result, approval preview or code; <strong>Sessions</strong> to start a session or <strong>Group by</strong> <strong>Kind</strong> or
-<strong>Activity</strong>. Runs and artifacts also have <strong>Delete…</strong>.</p>
+result, approval preview or code; <strong>Sessions</strong> to start a session or to pick
+<strong>Artifacts by</strong> <strong>Activity</strong> or <strong>Kind</strong>. Runs and artifacts also have <strong>Delete…</strong>.</p>
 <p>Pinned sessions (the pin button on a row) also show in the <strong>Pinned</strong> group
 above <strong>Sessions</strong>; right-click its heading to rename or hide it. <strong>Show pinned
 sessions</strong>, on the <strong>Sessions</strong> menu or on empty sidebar space, brings it back.</p>

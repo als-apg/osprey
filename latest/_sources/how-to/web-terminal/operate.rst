@@ -109,8 +109,17 @@ and **×**.
 **⋯**, or a right-click on the header, opens the tile's menu. **This panel**
 lists the panel's own actions and any icons a narrow tile has no room for.
 **Tile** lists the tile's actions, among them **Open panel** (▸ **Right**,
-**Down**, **Replace here**), **Reload** and, when the panel has a
+**Down**, **Replace here**), **Zoom**, **Reload** and, when the panel has a
 documentation page, **Help**. Shift+right-click shows the browser's own menu.
+
+To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
+macOS, hold Cmd. A pinch on a trackpad does the same. **Zoom** in the tile's
+menu sets a level from 75% to 200%. While a pane is not at 100%, its header
+shows the level; click the level to go back to 100%. The Agent pane and each
+panel keep one zoom, and each artifact keeps its own. The browser remembers
+them. Over content that the page cannot listen to (a plot, a table or a
+notebook in an artifact), Ctrl+scroll zooms the page; use **Zoom** in the menu
+there.
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
 or one the agent opens for you — takes the service tile you used last and
@@ -611,7 +620,7 @@ Sessions and artifacts
 
 The **Sessions** row lists your sessions, newest first. A session is named
 from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
-new one. Under a session, its artifacts are grouped by day; **Group by Kind**
+new one. Under a session, its artifacts are grouped by day; **Artifacts by** ▸ **Kind**
 sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
 **Dashboards**, **Images**, **Data**, plus any kind the deployment registers.
 A script run is one row with a dot for **succeeded**, **failed** or **not
@@ -621,15 +630,36 @@ opens on its proposed code. **More sessions** loads older ones.
 
 - Click a session name to switch to it: its layout comes back as you left it
   (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
-  can read it), with the artifact last open there (its newest if none). A new
-  or older session keeps the layout on screen. The sidebar stays as it is.
+  can read it), with the artifact last open there (its newest if none). An
+  older session with no stored layout keeps the layout on screen. The sidebar
+  stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
   ⌥-click (Alt+click) a session or **Sessions** to expand every session, or
   collapse them all if all are open. The session the agent works in has a
   breathing accent bar.
+- A new session starts with only the Agent pane. All the other tiles close,
+  and a panel in a window of its own closes with its window. The panels keep
+  their sidebar rows, so you can open them again. The session that you leave
+  keeps its layout. Each way to start a session does this: the **+** in the
+  Agent pane header, **+ New session** in the switcher, the **+** of
+  **Sessions**, and **New session** in a menu. ``/clear`` and **Restart
+  terminal** do not close tiles.
 - Hover a folded session to see its artifacts; click one to show it.
 - Click an artifact to show it. This never changes the session.
+- Drag an artifact into the work pane to open it in a tile of its own
+  (`Tiles`_). The tile always shows that artifact. The details icon in its
+  header names the session that made the artifact. When that is not the
+  current session, the icon has the warning colour until you click **Got it**
+  in the details card.
+- The view button beside **+** changes how the session list shows. **Last
+  activity** keeps the sessions of today, of the last 3, 7 or 30 days, or all
+  of them. **Group by** puts the sessions under date headings or state
+  headings; the days are days on the facility clock. **With artifacts only**
+  hides the sessions that made no artifact. **Artifact counts** shows or
+  hides the count on each row. The current session always shows. A dot on
+  the button means that the list is not at its defaults, and **Reset to
+  defaults** restores them. The browser remembers your choices.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
 - While the agent is answering in chat, a switch from any of these asks
@@ -637,8 +667,8 @@ opens on its proposed code. **More sessions** loads older ones.
 
 Right-click a session to pin, rename, export or copy its ID, or delete a
 past session with its artifacts; a run, here or its row in chat, to open its
-result, approval preview or code; **Sessions** to start a session or **Group by** **Kind** or
-**Activity**. Runs and artifacts also have **Delete…**.
+result, approval preview or code; **Sessions** to start a session or to pick
+**Artifacts by** **Activity** or **Kind**. Runs and artifacts also have **Delete…**.
 
 Pinned sessions (the pin button on a row) also show in the **Pinned** group
 above **Sessions**; right-click its heading to rename or hide it. **Show pinned
