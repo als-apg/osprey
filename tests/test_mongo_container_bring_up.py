@@ -46,7 +46,7 @@ class _BringUp:
     """Scripts the recipe's three collaborators and records what it did with them.
 
     ``waits`` is one entry per bring-up: an exception to raise from the readiness
-    wait, or ``None`` for a store that answered.
+    wait, or ``None`` for a store that answered. The runtime itself answers.
     """
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, waits: list[BaseException | None]) -> None:
@@ -59,7 +59,7 @@ class _BringUp:
         community.MongoDbContainer = object  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "testcontainers.community.mongodb", community)
         monkeypatch.setattr(_mongo_container, "start_or_skip", self._start)
-        monkeypatch.setattr(_mongo_container, "wait_until_ready", self._wait)
+        monkeypatch.setattr(_mongo_container, "require_container_runtime", self._wait)
         monkeypatch.setattr(_mongo_container, "stop_quietly", self.stopped.append)
 
     # The container helper this stands in for is asked for its label by keyword.
@@ -68,7 +68,12 @@ class _BringUp:
         self.started.append(container)
         return container
 
-    def _wait(self, _probe: object, _label: str, *, container: _FakeMongo) -> None:
+    def _wait(
+        self, probe: object = None, _label: str = "", *, container: _FakeMongo | None = None
+    ) -> None:
+        if probe is None:  # the runtime check before the first start
+            assert not self.started, "the runtime is asked before any container starts"
+            return
         assert container is self.started[-1], "the wait must watch the container just started"
         outcome = self.waits.pop(0)
         if outcome is not None:

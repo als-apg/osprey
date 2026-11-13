@@ -52,9 +52,9 @@ from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
     ForeignListenerError,
+    require_container_runtime,
     start_or_skip,
     stop_quietly,
-    wait_until_ready,
 )
 
 #: Server line every throwaway store in the suite runs. One pin, so a store one
@@ -110,13 +110,14 @@ def started_mongo(
         container = MongoDbContainer(MONGO_IMAGE, username=username, password=password)
         return container.with_command(_server_flags(command))
 
+    require_container_runtime()
     exits: list[str] = []
     for attempt in range(1, CONTAINER_START_ATTEMPTS + 1):
         container = start_or_skip(build, label=label)
         host = container.get_container_host_ip()
         port = int(container.get_exposed_port(MONGO_PORT))
         try:
-            wait_until_ready(
+            require_container_runtime(
                 lambda host=host, port=port: _ping(host, port, username, password),
                 label,
                 container=container,

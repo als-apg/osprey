@@ -51,6 +51,15 @@ def _not_answering(url: str, what: str, exc: BaseException) -> str:
     )
 
 
+def answers(url: str) -> None:
+    """Ask the server at *url* for ``SELECT 1``, raising while it does not answer.
+
+    The probe a readiness wait polls once the server's container has started.
+    """
+    with _connect(url) as conn:
+        conn.execute("SELECT 1")
+
+
 def dev_server_url() -> str | None:
     """The first running dev database server (5432, then 5433), or ``None``."""
     try:
@@ -61,8 +70,7 @@ def dev_server_url() -> str | None:
 
     for url in (DEV_SERVER_URL_5432, DEV_SERVER_URL_5433):
         try:
-            with _connect(url) as conn:
-                conn.execute("SELECT 1")
+            answers(url)
             return url
         except Exception as e:
             logger.debug(f"Dev database server at {url.split('@')[-1]} not available: {e}")

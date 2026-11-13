@@ -17,12 +17,16 @@ import requests
 from tests import _container_support
 from tests._container_support import (
     CONTAINER_STATE_TIMEOUT,
+    DOCKER_CLI_PROBE_TIMEOUT,
     ContainerExitedError,
+    ContainerRuntimeNotAnswering,
     ForeignListenerError,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
     ensure_image,
+    require_container_runtime,
+    runtime_command,
     start_or_skip,
     wait_until_ready,
 )
@@ -269,6 +273,88 @@ def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
+
+
+# ---------------------------------------------------------------------------
+# require_container_runtime — the one readiness check of a Docker-backed fixture
+# ---------------------------------------------------------------------------
+
+
+def _runtime_answers(monkeypatch, *answers: bool) -> list[float]:
+    """``docker info`` answers per *answers* in turn; returns the deadlines it was given."""
+    _docker_on_path(monkeypatch)
+    queue = list(answers)
+    deadlines: list[float] = []
+
+    def run(argv, **kwargs):
+        assert argv == ["docker", "info"], argv
+        deadlines.append(kwargs["timeout"])
+        if queue.pop(0):
+            return _completed(0)
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(_container_support.subprocess, "run", run)
+    return deadlines
+
+
+def test_a_runtime_that_does_not_answer_is_named_as_the_cause(monkeypatch):
+    deadlines = _runtime_answers(monkeypatch, False)
+
+    with pytest.raises(ContainerRuntimeNotAnswering) as caught:
+        require_container_runtime(deadline=7)
+
+    assert deadlines == [7]
+    assert "the container runtime is the cause" in str(caught.value)
+    assert "timed out after 7s" in str(caught.value)
+
+
+def test_a_runtime_that_answers_returns(monkeypatch):
+    deadlines = _runtime_answers(monkeypatch, True)
+
+    require_container_runtime()
+
+    assert deadlines == [DOCKER_CLI_PROBE_TIMEOUT]
+
+
+def test_a_service_that_answers_after_the_runtime_returns(monkeypatch):
+    _runtime_answers(monkeypatch, True)
+    probe = CountingProbe(failures=2)
+
+    require_container_runtime(probe, "postgres")
+
+    assert probe.calls == 3
+
+
+def test_a_silent_service_on_a_silent_runtime_is_the_runtimes_failure(monkeypatch):
+    _runtime_answers(monkeypatch, True, False)
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("port not published"))
+
+    with pytest.raises(ContainerRuntimeNotAnswering) as caught:
+        require_container_runtime(probe, "postgres", service_timeout=0.05)
+
+    assert "the container runtime is the cause" in str(caught.value)
+    assert "postgres did not answer meanwhile" in str(caught.value)
+
+
+def test_a_silent_service_on_an_answering_runtime_is_the_services_failure(monkeypatch):
+    _runtime_answers(monkeypatch, True, True)
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("port not published"))
+
+    with pytest.raises(AssertionError) as caught:
+        require_container_runtime(probe, "postgres", service_timeout=0.05)
+
+    assert not isinstance(caught.value, ContainerRuntimeNotAnswering)
+    assert "postgres" in str(caught.value)
+
+
+def test_a_runtime_command_carries_no_budget_of_its_own(monkeypatch):
+    calls = _recording_run(monkeypatch, _completed(0))
+
+    runtime_command("rm", "-f", "c1", capture_output=True)
+
+    assert calls == [(["docker", "rm", "-f", "c1"], {"capture_output": True})]
+    with pytest.raises(TypeError, match="takes no timeout"):
+        runtime_command("ps", timeout=60)
 
 
 _IMAGE = "example/image:1.0"

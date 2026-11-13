@@ -35,8 +35,13 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     TextEmbeddingModule,
 )
 from tests import _litellm_callbacks
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
-from tests._session_database import CONNECT_TIMEOUT_S, dev_server_url, own_database
+from tests._container_support import (
+    is_docker_available,
+    require_container_runtime,
+    start_or_skip,
+    stop_quietly,
+)
+from tests._session_database import CONNECT_TIMEOUT_S, answers, dev_server_url, own_database
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
@@ -349,6 +354,7 @@ def database_url(request: pytest.FixtureRequest) -> str:
     except ImportError:
         skip_or_fail("testcontainers[postgres] not installed")
 
+    require_container_runtime()
     # Use pgvector image for vector search support
     try:
         container = start_or_skip(
@@ -372,6 +378,7 @@ def database_url(request: pytest.FixtureRequest) -> str:
     if url.startswith("postgresql+psycopg2://"):
         url = url.replace("postgresql+psycopg2://", "postgresql://")
 
+    require_container_runtime(lambda: answers(url), "postgres", container=container)
     logger.info(f"Testcontainer started: {url.split('@')[-1]}")
     return url
 
