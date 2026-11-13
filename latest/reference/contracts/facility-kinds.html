@@ -515,9 +515,16 @@ kind’s package. A kind’s package should import OSPREY only through
 <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> (<a class="reference internal" href="#stability">Stability</a>).</p>
 <p>The build stops on:</p>
 <ul class="simple">
-<li><p>a measurement file listing a kind no installed package registers;</p></li>
+<li><p>a measurement file listing a kind no installed package registers, in a
+tree that mounts a machine root or lists an application or a dependency; a
+tree doing none of these is a machine tree on its own, where the kind is
+deferred with a <code class="docutils literal notranslate"><span class="pre">kind-deferred</span></code> warning and judged by the deployment that
+mounts it;</p></li>
 <li><p>a registered kind, listed or not, whose package the project image does not
-install;</p></li>
+install (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, which builds no wheel, reads the kinds
+of a local-path <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> entry or a listed <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> from the
+package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>; entry points a build backend computes are not
+read);</p></li>
 <li><p>two distributions declaring one name (a built-in name included);</p></li>
 <li><p>an entry point that loads anything but a declaration or a mapping of its
 fields, a mapping naming a field the declaration does not have, or a

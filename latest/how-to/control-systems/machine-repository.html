@@ -614,7 +614,10 @@ same) and name its facility directory in the root <code class="docutils literal 
 <p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> resolves and is folded into the profile hash like <code class="docutils literal notranslate"><span class="pre">data:</span></code>
 (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>), so a new machine commit reports the build out of date.
 Only the root <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> states it; every login drives the same
-machine. A machine builds to the same facility file standalone and mounted.</p>
+machine. A machine builds to the same facility file standalone and mounted,
+except for a measurement kind only the mounting deployment’s package registers:
+standalone, the kind is deferred with a <code class="docutils literal notranslate"><span class="pre">kind-deferred</span></code> warning and the
+deployment judges its block (<a class="reference internal" href="../register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a>).</p>
 <p>With <code class="docutils literal notranslate"><span class="pre">machine:</span></code> set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code> writes into the machine root,
 except the knowledge index, which goes under the deployment’s
 <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge/</span></code>. Commit the change in the machine repository, then

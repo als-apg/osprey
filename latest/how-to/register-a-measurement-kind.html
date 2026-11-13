@@ -653,7 +653,9 @@ unregistered.</p></li>
 its source at <code class="docutils literal notranslate"><span class="pre">./kinds/fixture_kind</span></code> in the deployment repository). The
 build turns a local path into a wheel in the same deployment-package install
 an application’s package gets (<a class="reference internal" href="apps/build-your-own-app.html"><span class="doc">Build Your Own App</span></a>), and
-the image installs it.</p></li>
+the image installs it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> builds no wheel: it reads
+the kinds a local-path entry or a listed <code class="docutils literal notranslate"><span class="pre">apps/&lt;name&gt;/</span></code> declares from the
+package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>.</p></li>
 </ul>
 </section>
 <section id="give-the-kind-its-block">
@@ -727,7 +729,9 @@ call that leads to it is its caller’s to check
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span> <span class="pre">fixture_kind</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">registered</span> <span class="pre">under</span> <span class="pre">osprey.facility.kinds</span> <span class="pre">by</span> <span class="pre">any</span>
 <span class="pre">installed</span> <span class="pre">package</span></code></p></td>
 <td><p>A measurement file lists the kind, and no package installed where
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs declares it.</p></td>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs declares it. A tree that mounts no machine root
+and lists no application and no dependency is a machine tree on its own
+and prints a <code class="docutils literal notranslate"><span class="pre">kind-deferred</span></code> warning instead (below).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">measurement</span> <span class="pre">kind</span> <span class="pre">'fixture_kind'</span> <span class="pre">(package</span> <span class="pre">fixture-kind-deployment):</span> <span class="pre">the</span>
 <span class="pre">kind's</span> <span class="pre">package</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">among</span> <span class="pre">the</span> <span class="pre">packages</span> <span class="pre">the</span> <span class="pre">project</span> <span class="pre">image</span> <span class="pre">installs</span></code></p></td>
@@ -766,6 +770,14 @@ channel.</p></td>
 </tbody>
 </table>
 </div>
+<p>A machine repository checked on its own cannot judge a kind whose package the
+mounting deployment brings. With no <code class="docutils literal notranslate"><span class="pre">machine:</span></code> root, no <code class="docutils literal notranslate"><span class="pre">apps:</span></code> entry and
+no <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> entry in its profile, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">facility</span> <span class="pre">validate</span></code> print <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">kind-deferred:</span> <span class="pre">measurement</span> <span class="pre">&lt;model&gt;</span> <span class="pre">—</span>
+<span class="pre">kind</span> <span class="pre">&lt;kind&gt;</span> <span class="pre">is</span> <span class="pre">registered</span> <span class="pre">by</span> <span class="pre">no</span> <span class="pre">installed</span> <span class="pre">package;</span> <span class="pre">its</span> <span class="pre">roles</span> <span class="pre">and</span> <span class="pre">`kind_blocks`</span>
+<span class="pre">entry</span> <span class="pre">are</span> <span class="pre">judged</span> <span class="pre">where</span> <span class="pre">its</span> <span class="pre">app</span> <span class="pre">is</span> <span class="pre">mounted</span></code>, write nothing for the kind, and
+leave the exit code unchanged. The deployment that mounts the machine and lists
+the kind’s package judges the block.</p>
 </section>
 </section>
 
