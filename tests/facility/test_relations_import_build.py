@@ -272,7 +272,6 @@ class TestAppendixRoundTrip:
             "top-level with no parent and no citation; fix: give it a parent or a "
             "citation in the layer's places table"
         ]
-        assert _lines(report, "place-parents-disagree") == []
         assert _lines(report, "relation-stub") == []
 
     def test_a_class_less_stub_is_reported(self, tmp_path: Path) -> None:
@@ -333,7 +332,6 @@ class TestTwoLayersEitherOrder:
             assert _layer_files(first, name) == _layer_files(second, name)
         reports = [_build(f) for f in facilities.values()]
         assert reports[0].validated.document == reports[1].validated.document
-        assert _lines(reports[0], "place-parents-disagree") == []
         assert _lines(reports[0], "place-unplaced") == [
             "facility: place-unplaced: place HALL — relations layers racks, schedule "
             "create it top-level with no parent and no citation; fix: give it a parent "

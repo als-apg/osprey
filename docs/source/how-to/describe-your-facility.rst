@@ -420,9 +420,8 @@ replaced. The rules:
 * **Places.** ``within`` names an authored place or one the places table
   creates, never one another imported layer creates, so where a layer puts a
   place does not depend on import order. A place's id is its path,
-  ``BR/RK01`` above. The build reports a place name that relations layers put
-  under two parents with ``place-parents-disagree``, and a place created
-  top-level with no citation with ``place-unplaced``.
+  ``BR/RK01`` above, so one name may repeat under several parents. The build
+  reports a place created top-level with no citation with ``place-unplaced``.
 * **Members.** The members table creates a group no other source has. A row
   for another source's group is accepted only when that group already holds
   the member, and changes nothing.

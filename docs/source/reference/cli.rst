@@ -1211,10 +1211,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``identity-ambiguous`` per imported layer holding two devices one
    ``same_as`` chain joins, one ``part-cycle`` per loop of ``part_of`` and
    ``runs_on`` claims, one ``relation-stub`` per imported layer with
-   ``Unidentified`` devices that claims name, one ``place-parents-disagree``
-   per place name that relations layers create under two or more parents, and
-   one ``place-unplaced`` per place a relations layer creates top-level with no
-   citation. This command alone then closes stderr with one summary line,
+   ``Unidentified`` devices that claims name, and one ``place-unplaced`` per
+   place a relations layer creates top-level with no citation. This command alone then closes stderr with one summary line,
    ``relations: <n> claims (<s> stated, <i> inferred); <a> accepted, <c> contested``,
    followed by ``, <x> superseded`` when any are; a claim without ``basis``
    counts as stated, and a file with no claims prints no line.
