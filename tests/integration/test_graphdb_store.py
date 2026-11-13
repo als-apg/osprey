@@ -10,7 +10,7 @@ demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
 that view (1017 binding owners / 4731 bindings / 674 write-only + 4052 read-only
 / 481 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 44141 triples.
+``terminationStatus`` and its 44145 triples.
 
 Beyond the counts, the seeded demo's ``PARTOF`` and ``LOCATEDIN`` edges must be
 exactly the pairs the facility records imply, and the two match strings the
@@ -80,7 +80,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # locatedIn and record names (40928 then); this test is what confirms it holds.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 44141
+EXPECTED_TRIPLES_LOADED = 44145
 #: Distinct resources carrying at least one channel binding: the 1016 devices
 #: and the top place ``SR``, which carries the tune, chromaticity, user
 #: beam mode and operation-mode channels.
@@ -364,12 +364,15 @@ def graph_seeder_session(store: WatchedStore) -> Iterator[WatchedSession]:
     """A watched driver session on ``store``."""
     from osprey.services.graph_store import seeder as graph_seeder
 
-    with graph_seeder.open_session(
-        store.uri,
-        GRAPHDB_TEST_USERNAME,
-        GRAPHDB_TEST_PASSWORD,
-        database=GRAPHDB_TEST_DATABASE,
-    ) as session:
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
         yield WatchedSession(session, store)
 
 
