@@ -57,7 +57,6 @@ from tests.facility._pyaml_trees import built_document, measured_tree
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-pytest.importorskip("pyaml")
 
 pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 

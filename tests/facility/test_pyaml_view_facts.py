@@ -28,8 +28,6 @@ from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.pyaml import RF_PLANT_TYPE, measurement_groups
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
-pytest.importorskip("pyaml")
-
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
 

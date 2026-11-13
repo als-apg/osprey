@@ -28,8 +28,6 @@ from osprey.facility.render import render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
-pytest.importorskip("pyaml")
-
 KIND = "turn_kind"
 
 

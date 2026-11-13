@@ -10,14 +10,13 @@ from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.facility.errors import FacilityBuildError  # noqa: E402
-from osprey.simulation.engines import ENTRY_POINT_GROUP  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
+from osprey.facility.errors import FacilityBuildError
+from osprey.simulation.engines import ENTRY_POINT_GROUP
+from osprey.simulation.engines import pyat as engine
 
 GAIN = 0.37
 OFFSET = -0.012

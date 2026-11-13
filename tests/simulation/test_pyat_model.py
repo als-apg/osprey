@@ -15,16 +15,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import at
+import numpy as np
 import pytest
+from pydantic import ValidationError
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
-
-from osprey.simulation.engines import pyat_model  # noqa: E402
-from osprey.simulation.engines.pyat_faults import supply_attribute  # noqa: E402
-from osprey.simulation.engines.pyat_model import (  # noqa: E402
+from osprey.simulation.engines import pyat_model
+from osprey.simulation.engines.pyat_faults import supply_attribute
+from osprey.simulation.engines.pyat_model import (
     BETA_AT_MONITORS,
     CHROMATICITY,
     ORBIT_AT_MONITORS,
@@ -32,7 +30,7 @@ from osprey.simulation.engines.pyat_model import (  # noqa: E402
     PyATLatticeModel,
     ReadbackVariable,
 )
-from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring  # noqa: E402
+from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
 
 ENGINES = Path(__file__).resolve().parents[2] / "src/osprey/simulation/engines"
 

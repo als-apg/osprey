@@ -18,9 +18,6 @@ from typing import Any
 
 import pytest
 import yaml
-
-pytest.importorskip("at")
-
 from fastapi.testclient import TestClient
 from orbit_bump import APP_NAME, ring
 from orbit_bump.plans import APPLIED, PARTIALLY_APPLIED, READY

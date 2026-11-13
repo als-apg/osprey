@@ -26,8 +26,6 @@ from typing import Any, NamedTuple
 
 import pytest
 
-pytest.importorskip("bluesky")
-
 from osprey.services.bluesky_bridge import plans_core
 from osprey.services.bluesky_bridge.figure import (
     REASON_NO_RENDER,

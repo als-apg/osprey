@@ -54,10 +54,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-pytest.importorskip("bluesky")
-pytest.importorskip("ophyd_async")
-
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
 from bluesky.utils import FailedStatus

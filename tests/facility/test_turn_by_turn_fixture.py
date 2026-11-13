@@ -16,17 +16,16 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 import yaml
 
-at = pytest.importorskip("at")
-
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines import pyat_turns as tracking  # noqa: E402
-from osprey.simulation.engines.pyat_turn_settings import TurnSettings  # noqa: E402
-from osprey_connectors.simulation.view import SimulatorView  # noqa: E402
-from tests.facility._turn_by_turn_fixture import (  # noqa: E402
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines import pyat_turns as tracking
+from osprey.simulation.engines.pyat_turn_settings import TurnSettings
+from osprey_connectors.simulation.view import SimulatorView
+from tests.facility._turn_by_turn_fixture import (
     ARMED,
     ARMS,
     CHAIN,
