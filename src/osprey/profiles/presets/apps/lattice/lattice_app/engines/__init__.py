@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -47,3 +47,49 @@ def run_engine(analyses: Mapping[str, Compute], argv: list[str] | None = None) -
     # NaN is written as NaN here; the backend turns it into null when it reads the result.
     Path(arguments[1]).write_text(json.dumps(result), encoding="utf-8")
     return 0
+
+
+def tune_vs_dp(
+    dp_pct: Sequence[float], tune_x: Sequence[float], tune_y: Sequence[float]
+) -> dict[str, Any]:
+    """The ``chromaticity`` result of a tune curve, whichever engine solved its points.
+
+    The chromatic orders are the derivatives of the tune at zero offset, from a cubic
+    fitted to the stable points: ``nu = nu0 + xi1 d + xi2 d^2 / 2 + xi3 d^3 / 6`` with
+    ``d`` the fractional momentum offset. ``chromaticity_<plane>`` is ``xi1``,
+    ``chromaticity2_<plane>`` is ``xi2`` and ``chromaticity3_<plane>`` is ``xi3``:
+    elegant's ``dnux/dp``, ``dnux/dp2`` and ``dnux/dp3``.
+
+    Args:
+        dp_pct: The momentum offsets, in percent.
+        tune_x: The horizontal tune at each offset; NaN where the optics are unstable.
+        tune_y: The vertical tune at each offset.
+
+    Returns:
+        The result document. Fewer than four stable points fit no orders.
+    """
+    import numpy as np
+
+    offsets = np.asarray(dp_pct, dtype=float)
+    tunes = np.column_stack([np.asarray(tune_x, dtype=float), np.asarray(tune_y, dtype=float)])
+    scalars: dict[str, float] = {}
+    stable = np.all(np.isfinite(tunes), axis=1)
+    if np.count_nonzero(stable) >= 4:
+        for plane, column in (("x", 0), ("y", 1)):
+            cubic, square, linear, _ = np.polyfit(offsets[stable] / 100.0, tunes[stable, column], 3)
+            scalars[f"chromaticity_{plane}"] = float(linear)
+            scalars[f"chromaticity2_{plane}"] = float(2.0 * square)
+            scalars[f"chromaticity3_{plane}"] = float(6.0 * cubic)
+    return {
+        "scalars": scalars,
+        "tables": {
+            "tune_vs_dp": {
+                "columns": {
+                    "dp_pct": offsets.tolist(),
+                    "tune_x": tunes[:, 0].tolist(),
+                    "tune_y": tunes[:, 1].tolist(),
+                },
+                "units": {"dp_pct": "%"},
+            }
+        },
+    }

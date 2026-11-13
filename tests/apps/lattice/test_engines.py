@@ -13,7 +13,7 @@ from typing import Any
 import lattice_app
 import pytest
 from lattice_app.catalog import ANALYSES, JOB_SCHEMA, normalize_result
-from lattice_app.engines import elegant, run_engine
+from lattice_app.engines import elegant, run_engine, tune_vs_dp
 
 DECK = Path(__file__).resolve().parents[2] / "fixtures/mml/spear3/spear3.storagering.lattice.mat"
 #: Settings small enough for a test; the catalog's defaults are a physicist's.
@@ -74,6 +74,43 @@ def test_pyat_answers_every_analysis_in_the_panels_shape(analysis: str) -> None:
 
     for table, columns in ANALYSES[analysis].tables.items():
         assert set(columns) <= set(result["tables"][table]["columns"])
+
+
+def test_the_chromatic_orders_are_derivatives() -> None:
+    offsets = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    # nu = nu0 + xi1 d + xi2 d^2 / 2 + xi3 d^3 / 6, with d the fractional offset.
+    curve = [
+        0.2 + 3.0 * d + 40.0 * d**2 / 2 + 6000.0 * d**3 / 6 for d in (o / 100 for o in offsets)
+    ]
+
+    result = tune_vs_dp(offsets, curve, [0.3] * 5)
+
+    assert result["scalars"]["chromaticity_x"] == pytest.approx(3.0)
+    assert result["scalars"]["chromaticity2_x"] == pytest.approx(40.0)
+    assert result["scalars"]["chromaticity3_x"] == pytest.approx(6000.0)
+    assert result["scalars"]["chromaticity_y"] == pytest.approx(0.0, abs=1e-9)
+    assert result["tables"]["tune_vs_dp"]["columns"]["tune_x"] == curve
+
+
+def test_an_offset_with_no_stable_optics_is_a_gap_and_too_few_points_fit_nothing() -> None:
+    nan = float("nan")
+
+    gap = tune_vs_dp([-2.0, -1.0, 0.0, 1.0, 2.0], [0.1, 0.2, 0.3, 0.4, nan], [0.3] * 5)
+    few = tune_vs_dp([-1.0, 0.0, 1.0], [0.1, 0.2, 0.3], [0.3] * 3)
+
+    assert gap["scalars"]["chromaticity_x"] == pytest.approx(10.0)
+    assert few["scalars"] == {}
+
+
+def test_pyat_reports_the_second_order_chromaticity_as_a_derivative() -> None:
+    result = _pyat().ANALYSES["chromaticity"](_job("chromaticity"))
+
+    dp, tune = (result["tables"]["tune_vs_dp"]["columns"][name] for name in ("dp_pct", "tune_y"))
+    assert dp == pytest.approx([-1.0, -0.5, 0.0, 0.5, 1.0])
+    # The even part of the curve: nu(+d) + nu(-d) - 2 nu(0) = xi2 d^2, up to d^4.
+    even = tune[4] + tune[0] - 2 * tune[2]
+    assert abs(even) > 1.0e-5
+    assert result["scalars"]["chromaticity2_y"] * 0.01**2 == pytest.approx(even, rel=0.05)
 
 
 def test_the_engine_runs_as_the_command_the_backend_starts(tmp_path: Path) -> None:

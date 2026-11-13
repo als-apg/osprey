@@ -26,7 +26,7 @@ from typing import Any
 import at
 import numpy as np
 
-from lattice_app.engines import run_engine
+from lattice_app.engines import run_engine, tune_vs_dp
 
 Job = Mapping[str, Any]
 
@@ -138,27 +138,7 @@ def chromaticity(job: Job) -> dict[str, Any]:
         except (at.AtError, np.linalg.LinAlgError, ValueError):
             continue  # no stable optics at this offset: the curve has a gap there
         tunes[index] = ringdata.tune
-    scalars: dict[str, float] = {}
-    stable = np.all(np.isfinite(tunes), axis=1)
-    if np.count_nonzero(stable) >= 4:
-        for plane, column in (("x", 0), ("y", 1)):
-            fitted = np.polyfit(offsets[stable] / 100.0, tunes[stable, column], 3)
-            scalars[f"chromaticity_{plane}"] = float(fitted[2])
-            scalars[f"chromaticity2_{plane}"] = float(fitted[1])
-            scalars[f"chromaticity3_{plane}"] = float(fitted[0])
-    return {
-        "scalars": scalars,
-        "tables": {
-            "tune_vs_dp": {
-                "columns": {
-                    "dp_pct": offsets.tolist(),
-                    "tune_x": tunes[:, 0].tolist(),
-                    "tune_y": tunes[:, 1].tolist(),
-                },
-                "units": {"dp_pct": "%"},
-            }
-        },
-    }
+    return tune_vs_dp(offsets.tolist(), tunes[:, 0].tolist(), tunes[:, 1].tolist())
 
 
 def da(job: Job) -> dict[str, Any]:
