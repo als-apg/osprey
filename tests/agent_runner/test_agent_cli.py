@@ -211,7 +211,14 @@ class TestVersionProbe:
         assert launcher.cli_version_of(exe) == "2.1.7"
 
     @pytest.mark.parametrize("body", ["exit 3", 'echo "not a version"'])
-    def test_a_failing_or_unreadable_executable_reports_no_version(self, tmp_path, body):
+    def test_a_failing_or_unreadable_executable_reports_no_version(
+        self, tmp_path, body, monkeypatch
+    ):
+        # What the stand-in answers, not how long its start takes: the probe
+        # waits for its exit with no budget (the timeout case below owns that),
+        # and the per-test timeout breaks a hang.
+        monkeypatch.setattr(launcher, "_VERSION_PROBE_TIMEOUT_S", None)
+
         assert launcher._probe_cli_version(self._script(tmp_path, body)) is None
 
     def test_a_missing_executable_reports_no_version_quietly(self, tmp_path, caplog):
