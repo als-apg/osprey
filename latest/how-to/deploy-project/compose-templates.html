@@ -862,7 +862,10 @@ deployment, so two deployments share one cache. The key is <code class="docutils
 project image and every web-terminal image (they share the project
 Dockerfile), <code class="docutils literal notranslate"><span class="pre">auth-sidecar</span></code> for the login sidecar, and a service’s build
 directory name, such as <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code>, for the rest.</p>
-<p>A cache that has never been written is a BuildKit warning, not an error. Writing
+<p>A cache that has never been written is a BuildKit warning, not an error. A cache
+whose registry fails to serve one of its layers fails BuildKit’s build, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds that image again once without <code class="docutils literal notranslate"><span class="pre">OSPREY_BUILD_CACHE_FROM</span></code>
+and logs a warning; the rebuild is slower, never wrong. Writing
 one needs Docker’s containerd image store or a <code class="docutils literal notranslate"><span class="pre">docker-container</span></code> builder;
 the classic overlay2 store refuses <code class="docutils literal notranslate"><span class="pre">OSPREY_BUILD_CACHE_TO</span></code>. Under Podman
 neither variable has any effect. With neither set, deploys build as they always
