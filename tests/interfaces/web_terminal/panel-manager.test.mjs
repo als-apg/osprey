@@ -3472,6 +3472,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuLabels()).toEqual([
       'Switch to chat',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -3517,6 +3518,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Switch to terminal',
       'Export conversation',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',

@@ -96,6 +96,7 @@ import { closeKeys, openPanel } from './dock-open.js';
 import { artifactTileStays } from './artifact-tiles.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { flashElement } from '/design-system/js/highlight.js';
+import { sizeFrame } from './pane-zoom.js';
 
 /**
  * One tracked service panel: its cached iframe (created/owned by panel-manager),
@@ -492,7 +493,8 @@ function applyGeometry() {
     const r = content.getBoundingClientRect();
     const w = Math.round(r.width);
     const h = Math.round(r.height);
-    place(shown, r, base);
+    // At its pane's zoom (pane-zoom.js), which scales the frame's own lengths.
+    sizeFrame(shown, r.left - base.left, r.top - base.top, r.width, r.height);
     // A body state (a sidecar starting or failed) stands in for the frame.
     shown.style.display = bodyStates.has(panelId) ? 'none' : '';
     // The notice spans the whole content rectangle: that is what the wash covers.

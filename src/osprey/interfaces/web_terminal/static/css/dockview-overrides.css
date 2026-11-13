@@ -578,6 +578,28 @@
   flex: 0 0 auto;
 }
 
+/* The zoom chip (pane-zoom.js): the pane's level while it is not 100%, a
+ * quiet pill a click resets. */
+.tile-tab .tile-tab-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tile-tab .tile-tab-zoom:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
 /* Open in new window while the pane cannot leave: the primitive's disabled
  * look, but it keeps its pointer events, so the next hover or click reads the
  * gate again once the panel has loaded (dock-tab.js buildWindowButton). */

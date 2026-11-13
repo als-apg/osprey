@@ -193,6 +193,7 @@ describe('the Agent tile header', () => {
     expect(menuLabels()).toEqual([
       'Switch to chat',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -219,6 +220,7 @@ describe('the Agent tile header', () => {
       'Desktop notifications',
       'Tile',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       '—',
@@ -242,6 +244,7 @@ describe('the Agent tile header', () => {
     items = policy.buildTerminalMenuItems();
     expect(items.map((i) => i.heading ?? i.label).filter(Boolean)).toEqual([
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -453,6 +456,7 @@ describe('the Agent bar in its own window', () => {
         'Desktop notifications',
         'Tile',
         'Reattach',
+        'Zoom',
         '—',
         'Close window',
       ]);
@@ -465,6 +469,7 @@ describe('the Agent bar in its own window', () => {
     paneWindow.isDetached.mockReturnValue(true);
     expect(rows(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
       'Reattach',
+      'Zoom',
       '—',
       'Close window',
     ]);
@@ -498,6 +503,7 @@ describe('a service tile ⋯', () => {
     expect(rows(items)).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',
@@ -506,6 +512,7 @@ describe('a service tile ⋯', () => {
     expect(items.map((/** @type {any} */ i) => (i.divider ? '—' : i.label))).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',
@@ -558,6 +565,7 @@ describe('a service tile ⋯', () => {
     expect(rows(policy.buildTileMenuItems('ariel'))).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Pin to rail',
@@ -581,6 +589,7 @@ describe('a service tile ⋯', () => {
     expect(rows(policy.buildTileMenuItems('artifact:a1'))).toEqual([
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Close tile',
@@ -596,6 +605,7 @@ describe('a service tile ⋯', () => {
       'Tile',
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Help',
@@ -629,6 +639,7 @@ describe('a service tile ⋯', () => {
       'Show server log',
       'Tile',
       'Reattach',
+      'Zoom',
       'Reload',
       'Help',
       '—',
@@ -656,6 +667,7 @@ describe('a service tile ⋯', () => {
     const items = policy.buildTileMenuItems('ariel', { mode: 'detached' });
     expect(items.map((i) => i.heading ?? i.label ?? (i.divider ? '—' : ''))).toEqual([
       'Reattach',
+      'Zoom',
       'Reload',
       'Pin to rail',
       '—',
@@ -788,6 +800,7 @@ describe('a service tile ⋯', () => {
       'Show server log',
       'Open panel',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reload',
       'Reveal in sidebar',

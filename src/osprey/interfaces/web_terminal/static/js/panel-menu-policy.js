@@ -91,6 +91,7 @@ import { showUndoNotice } from './undo-notice.js';
 import { closeDetached, detach, detachBlocker, focusWindow, reattach } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
 import { isArtifactTileKey } from './artifact-tiles.js';
+import { zoomMenuRow } from './pane-zoom.js';
 import {
   NEW_GROUP_LABEL,
   addGroup,
@@ -550,8 +551,8 @@ function stateRows(id, member, noticeIn) {
  * and a right-click on the bar: "This panel" — the panel's contributed menu
  * entries, the rows registered through {@link setServiceMenuExtras}, and the
  * controls the narrow bar folded — then "Tile": Open panel ▸
- * ({@link openPanelRow}), Maximize / Restore ({@link maximizeRow}),
- * {@link paneWindowRow},
+ * ({@link openPanelRow}), Maximize / Restore ({@link maximizeRow}), Zoom ▸
+ * (pane-zoom.js), {@link paneWindowRow},
  * Reload, Help (only when the panel has a docs page, panel-help.js), Reveal
  * in sidebar ({@link revealInSidebar}) — or Pin to rail in its place on a
  * tile an agent's focus opened off the rail — and Close tile last.
@@ -562,7 +563,7 @@ function stateRows(id, member, noticeIn) {
  * its sidebar row.
  *
  * In the pane's own window (`mode: 'detached'`) — the panel's only bar
- * there, so "This panel" is as docked — the Tile section is Reattach, Reload,
+ * there, so "This panel" is as docked — the Tile section is Reattach, Zoom ▸, Reload,
  * Help, Pin to rail (off-rail panels), then Close window under a divider
  * ({@link closeWindowRows}); on the no-dockview fallback
  * bar (`mode: 'fallback'`) it is Reload, Help and Pin to rail. Neither acts
@@ -581,7 +582,13 @@ export function buildTileMenuItems(id, { mode = 'tile', noticeIn } = {}) {
   ];
   const pin = member || isArtifactTileKey(id) ? [] : [membershipRow(id, false)];
   if (mode === 'detached') {
-    const tile = [paneWindowRow(id, noticeIn), ...reloadHelp, ...pin, ...closeWindowRows(id)];
+    const tile = [
+      paneWindowRow(id, noticeIn),
+      zoomMenuRow(id),
+      ...reloadHelp,
+      ...pin,
+      ...closeWindowRows(id),
+    ];
     return composeTileMenu({ thisPanel, tile });
   }
   if (mode === 'fallback') return composeTileMenu({ thisPanel, tile: [...reloadHelp, ...pin] });
@@ -591,6 +598,7 @@ export function buildTileMenuItems(id, { mode = 'tile', noticeIn } = {}) {
   const tile = [
     openPanelRow(id),
     maximizeRow(id),
+    zoomMenuRow(id),
     paneWindowRow(id, noticeIn),
     ...reloadHelp,
     ...revealOrPin,
@@ -836,7 +844,7 @@ function tilelessAgentRows() {
  * the deployment offers no terminal), then the rows registered through
  * {@link setServiceMenuExtras} under TERMINAL_RAIL_ID (agent-menu.js: Export
  * conversation in chat, Desktop notifications). Section "Tile":
- * Maximize / Restore ({@link maximizeRow}), {@link paneWindowRow}, Reveal in sidebar (the Sessions row), Close Agent
+ * Maximize / Restore ({@link maximizeRow}), Zoom ▸ (pane-zoom.js), {@link paneWindowRow}, Reveal in sidebar (the Sessions row), Close Agent
  * pane, and Restart terminal on the terminal surface — the two destructive
  * rows last. The layout lives on the empty dock slot, not here. The Agent row
  * in the sidebar heads the session tree and has its own menu
@@ -848,7 +856,7 @@ function tilelessAgentRows() {
  * it).
  *
  * In the pane's own window (`mode: 'detached'`) the "Agent" section holds the
- * registered rows alone, and "Tile" is Reattach, then Close window under a
+ * registered rows alone, and "Tile" is Reattach, Zoom ▸, then Close window under a
  * divider. On the no-dockview fallback bar there is no sidebar row to reveal
  * and no dock to maximize in.
  * @param {MenuSurface} [surface]
@@ -883,7 +891,9 @@ function surfaceSwitchRows() {
  */
 function terminalTileRows({ mode = 'tile', noticeIn }) {
   const windowRow = paneWindowRow(TERMINAL_RAIL_ID, noticeIn);
-  if (mode === 'detached') return [windowRow, ...closeWindowRows(TERMINAL_RAIL_ID)];
+  if (mode === 'detached') {
+    return [windowRow, zoomMenuRow(TERMINAL_RAIL_ID), ...closeWindowRows(TERMINAL_RAIL_ID)];
+  }
   const restart = isTerminalSurface()
     ? [
         // restartTerminal tears the PTY down but does NOT reconnect — pairing
@@ -902,6 +912,7 @@ function terminalTileRows({ mode = 'tile', noticeIn }) {
   const docked = mode !== 'fallback';
   return [
     ...(docked ? [maximizeRow(TERMINAL_RAIL_ID)] : []),
+    zoomMenuRow(TERMINAL_RAIL_ID),
     windowRow,
     ...(docked ? [revealRow(TERMINAL_RAIL_ID)] : []),
     { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },

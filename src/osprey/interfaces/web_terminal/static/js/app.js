@@ -34,6 +34,7 @@ import { attachSessionSwitcher } from './session-switcher.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
 import { installPlaceMenus } from './place-menu.js';
+import { fillFrame, initPaneZoom, installZoomWheel } from './pane-zoom.js';
 import { initPaneWindow } from './pane-window.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
@@ -157,9 +158,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // window, which pane-window wires as it dresses one.
   try {
     installPlaceMenus(document);
-    initPaneWindow({ installPlaceMenus });
+    initPaneWindow({ installPlaceMenus, installZoomWheel, fillFrame });
   } catch (err) {
     console.error('Failed to init the place menus:', err);
+  }
+  // Ctrl+wheel and pinch zoom one pane (pane-zoom.js), not the page.
+  try {
+    initPaneZoom();
+  } catch (err) {
+    console.error('Failed to init the pane zoom:', err);
   }
   // The empty dock slot's menu. After the panel manager and the dock: it reads
   // the rail and the layout holder. panel-manager's verbs are injected, since

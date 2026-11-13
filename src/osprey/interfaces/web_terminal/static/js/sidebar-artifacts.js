@@ -100,11 +100,12 @@ import { createArtifactFrames } from './sidebar-artifact-frames.js';
 import * as viewer from './sidebar-artifact-viewer.js';
 import { ARTIFACTS_PANEL_ID, panelOnView, showArtifactsPanel } from './sidebar-artifact-viewer.js';
 import { downloadArtifact, headerItems, showArtifactInfo } from './artifacts-pane-header.js';
-import { holdArtifactTile, onArtifactChanged } from './artifact-tiles.js';
+import { artifactTileKey, holdArtifactTile, onArtifactChanged } from './artifact-tiles.js';
 import { needsOriginNotice, onOriginChange } from './artifact-origin.js';
 import { railDragStart } from './rail-drag.js';
 import * as model from './session-model.js';
 import * as pins from './sidebar-session-pins.js';
+import { setGalleryArtifact } from './pane-zoom.js';
 import { sessionListNodes, watchViewButton } from './sidebar-session-view.js';
 
 /**
@@ -485,6 +486,8 @@ function render() {
   const shown = served ? resolveShown() : null;
   const changed = (shown?.id ?? null) !== state.shownId;
   state.shownId = shown?.id ?? null;
+  // The Artifacts tile zooms as the artifact it shows (pane-zoom.js).
+  setGalleryArtifact(ARTIFACTS_PANEL_ID, state.shownId && artifactTileKey(state.shownId));
   panelWasOnView = served && panelOnView();
   pins.paintPinnedGroup(model.pinnedRows().length);
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
