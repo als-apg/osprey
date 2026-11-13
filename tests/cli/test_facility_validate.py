@@ -21,10 +21,12 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey.cli.facility_cmd import _relation_summary
 from osprey.cli.main import cli
 from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import Restorable, init_project, run_build
+from tests.facility._appendix_a import VARIANTS, Variant, appendix_a_tree
 
 pytestmark = pytest.mark.slow
 
@@ -382,3 +384,67 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
     result = CliRunner().invoke(cli, ["facility", "validate", "--json", "--repo", str(repo)])
 
     assert result.exit_code == 2
+
+
+def _add_appendix_a(repo: Path, variant: Variant) -> None:
+    """Add the Appendix A fragment to the demo repo's ``data/facility``.
+
+    The demo facility already holds the records Appendix A reuses; every
+    other entry is appended to the demo's file of its kind, or written as a
+    new file.
+    """
+    facility_dir = repo / "data" / "facility"
+    for relpath, entries in appendix_a_tree(variant).items():
+        path = facility_dir / relpath
+        if path.exists():
+            existing = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+            ids = {entry["id"] for entry in existing}
+            entries = existing + [entry for entry in entries if entry["id"] not in ids]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(entries, sort_keys=False), encoding="utf-8")
+
+
+#: The summary line per Appendix A variant: two contested ``located_in``
+#: claims without a policy; the policy supersedes one and settles the other.
+RELATION_SUMMARIES: dict[str, str] = {
+    "no_policy": "relations: 18 claims (16 stated, 2 inferred); 16 accepted, 2 contested",
+    "located_in_precedence": (
+        "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded"
+    ),
+}
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_a_facility_with_claims_closes_with_the_relation_summary(
+    repo: Path, variant: Variant
+) -> None:
+    """The summary counts claims by basis and standing, after every warning."""
+    _add_appendix_a(repo, variant)
+
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    lines = result.stderr.splitlines()
+    assert lines[-1] == RELATION_SUMMARIES[variant]
+    assert [line for line in lines if line.startswith("relations:")] == [lines[-1]]
+
+
+def test_the_summary_names_superseded_only_when_a_claim_is() -> None:
+    claims = [
+        {"standing": "accepted"},
+        {"standing": "accepted", "basis": "inferred"},
+        {"standing": "contested", "basis": "stated"},
+    ]
+
+    assert _relation_summary({"relations": claims}) == (
+        "relations: 3 claims (2 stated, 1 inferred); 2 accepted, 1 contested"
+    )
+    assert _relation_summary({"relations": [*claims, {"standing": "superseded"}]}) == (
+        "relations: 4 claims (3 stated, 1 inferred); 2 accepted, 1 contested, 1 superseded"
+    )
+
+
+def test_a_facility_without_claims_prints_no_summary() -> None:
+    assert _relation_summary({}) is None
+    assert _relation_summary({"relations": []}) is None
