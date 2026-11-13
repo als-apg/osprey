@@ -3114,7 +3114,13 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('ariel'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Open', 'Open in new window', 'Move to', 'Remove from rail']);
+    expect(menuLabels()).toEqual([
+      'Open',
+      'Open in new window',
+      'Open in new session',
+      'Move to',
+      'Remove from rail',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
   });
 
@@ -3127,6 +3133,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Focus tile',
       'Open in a new tile',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);
@@ -3168,6 +3175,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Restart server',
       'Open',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);

@@ -472,7 +472,9 @@ export function setServiceMenuExtras(panelId, fn) {
  * verbs of the row's state:
  * - docked (a tile shows it): Focus tile, Open in a new tile, Open in new window;
  * - in its window: Show window, Reattach;
- * - tile closed: Open, Open in new window.
+ * - tile closed: Open, Open in new window;
+ * each followed by Open in new session (tile-new-session.js), which works in
+ * every state: the new session starts with no pane but the Agent.
  * Then, for a member, "Move to ▸" (a submenu of the other groups and "New
  * group…"), and Remove from rail last.
  *
@@ -532,18 +534,24 @@ function thisPanelSection(id) {
  */
 function stateRows(id, member, noticeIn) {
   if (isDetached(id)) {
-    return [{ label: 'Show window', run: () => focusWindow(id) }, paneWindowRow(id, noticeIn)];
+    return [
+      { label: 'Show window', run: () => focusWindow(id) },
+      paneWindowRow(id, noticeIn),
+      openInNewSessionRow(id, noticeIn),
+    ];
   }
   if (hasDockedTile(id) || ctx().getActiveTabId() === id) {
     return [
       { label: 'Focus tile', run: () => focusTile(id) },
       newTileRow(id),
       paneWindowRow(id, noticeIn),
+      openInNewSessionRow(id, noticeIn),
     ];
   }
   return [
     { label: 'Open', run: () => ctx().activateTab(id, { userInitiated: member }) },
     paneWindowRow(id, noticeIn),
+    openInNewSessionRow(id, noticeIn),
   ];
 }
 

@@ -15,17 +15,17 @@ const model = vi.hoisted(() => ({
   switchTo: vi.fn(async () => true),
 }));
 const placement = vi.hoisted(() => ({
-  openPanelBeside: vi.fn(),
+  openPanelLeftOfAgent: vi.fn(),
   hasDockedTile: vi.fn(() => true),
 }));
 const tiles = vi.hoisted(() => ({
   artifactIdOf: vi.fn((/** @type {string} */ key) =>
     key.startsWith('artifact:') ? key.slice('artifact:'.length) : null
   ),
-  artifactTileTitle: vi.fn((/** @type {string} */ key) =>
-    key.startsWith('artifact:') ? 'Beam plot' : null
+  artifactTileKey: vi.fn((/** @type {string} */ id) => `artifact:${id}`),
+  holdArtifactTile: vi.fn(
+    (/** @type {{id: string}} */ { id }) => /** @type {string | null} */ (`artifact:${id}`)
   ),
-  holdArtifactTile: vi.fn(),
 }));
 const notice = vi.hoisted(() => ({ showUndoNotice: vi.fn() }));
 
@@ -37,9 +37,8 @@ vi.mock(
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/artifact-tiles.js', () => tiles);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/undo-notice.js', () => notice);
 
-const { openInNewSession, openInNewSessionRow, OPEN_FAILED_MESSAGE } = await import(
-  `${JS}/tile-new-session.js`
-);
+const { openInNewSession, openArtifactInNewSession, openInNewSessionRow, OPEN_FAILED_MESSAGE } =
+  await import(`${JS}/tile-new-session.js`);
 
 /** @type {ReturnType<typeof vi.spyOn>} */
 let errors;
@@ -51,8 +50,8 @@ beforeEach(() => {
     calls.push('switchTo');
     return true;
   });
-  placement.openPanelBeside.mockImplementation(() => {
-    calls.push('openPanelBeside');
+  placement.openPanelLeftOfAgent.mockImplementation(() => {
+    calls.push('openPanelLeftOfAgent');
   });
   placement.hasDockedTile.mockReturnValue(true);
   errors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -66,7 +65,7 @@ describe('the row', () => {
     expect(row.label).toBe('Open in new session');
     expect(row.glyph).toBeTruthy();
     await /** @type {() => unknown} */ (row.run)();
-    await vi.waitFor(() => expect(placement.openPanelBeside).toHaveBeenCalledWith('ariel'));
+    await vi.waitFor(() => expect(placement.openPanelLeftOfAgent).toHaveBeenCalledWith('ariel'));
   });
 });
 
@@ -74,30 +73,31 @@ describe('openInNewSession', () => {
   test('starts a new session, then opens the service pane by its panel id', async () => {
     await expect(openInNewSession('ariel')).resolves.toBe(true);
     expect(model.switchTo).toHaveBeenCalledExactlyOnceWith({ new: true });
-    expect(placement.openPanelBeside).toHaveBeenCalledExactlyOnceWith('ariel');
-    expect(calls).toEqual(['switchTo', 'openPanelBeside']);
+    expect(placement.openPanelLeftOfAgent).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(calls).toEqual(['switchTo', 'openPanelLeftOfAgent']);
     expect(tiles.holdArtifactTile).not.toHaveBeenCalled();
     expect(notice.showUndoNotice).not.toHaveBeenCalled();
   });
 
   test('opens an artifact tile for the same artifact, held before it is placed', async () => {
-    tiles.holdArtifactTile.mockImplementation(() => {
+    tiles.holdArtifactTile.mockImplementation(({ id }) => {
       calls.push('hold');
+      return `artifact:${id}`;
     });
     await expect(openInNewSession('artifact:a1')).resolves.toBe(true);
     expect(tiles.holdArtifactTile).toHaveBeenCalledExactlyOnceWith({
       id: 'a1',
       entry: null,
-      title: 'Beam plot',
+      title: '',
     });
-    expect(placement.openPanelBeside).toHaveBeenCalledExactlyOnceWith('artifact:a1');
-    expect(calls).toEqual(['switchTo', 'hold', 'openPanelBeside']);
+    expect(placement.openPanelLeftOfAgent).toHaveBeenCalledExactlyOnceWith('artifact:a1');
+    expect(calls).toEqual(['switchTo', 'hold', 'openPanelLeftOfAgent']);
   });
 
   test('does nothing when the switch resolves false: the live turn was kept', async () => {
     model.switchTo.mockResolvedValueOnce(false);
     await expect(openInNewSession('ariel')).resolves.toBe(false);
-    expect(placement.openPanelBeside).not.toHaveBeenCalled();
+    expect(placement.openPanelLeftOfAgent).not.toHaveBeenCalled();
     expect(tiles.holdArtifactTile).not.toHaveBeenCalled();
     expect(notice.showUndoNotice).not.toHaveBeenCalled();
   });
@@ -107,7 +107,7 @@ describe('openInNewSession', () => {
     model.switchTo.mockRejectedValueOnce(failure);
     await expect(openInNewSession('artifact:a1')).resolves.toBe(false);
     expect(errors).toHaveBeenCalledWith('Failed to start new session:', failure);
-    expect(placement.openPanelBeside).not.toHaveBeenCalled();
+    expect(placement.openPanelLeftOfAgent).not.toHaveBeenCalled();
     expect(tiles.holdArtifactTile).not.toHaveBeenCalled();
   });
 
@@ -123,7 +123,7 @@ describe('openInNewSession', () => {
 
   test('an open that throws is caught: a notice, no rejection', async () => {
     const failure = new Error('no dock');
-    placement.openPanelBeside.mockImplementation(() => {
+    placement.openPanelLeftOfAgent.mockImplementation(() => {
       throw failure;
     });
     await expect(openInNewSession('ariel')).resolves.toBe(false);
@@ -139,7 +139,45 @@ describe('openInNewSession', () => {
       throw new Error('bad tile');
     });
     await expect(openInNewSession('artifact:a1')).resolves.toBe(false);
-    expect(placement.openPanelBeside).not.toHaveBeenCalled();
+    expect(placement.openPanelLeftOfAgent).not.toHaveBeenCalled();
+    expect(notice.showUndoNotice).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('openArtifactInNewSession', () => {
+  const entry = { id: 'a1', title: 'Beam plot', filename: 'beam.png' };
+
+  test('holds the tile with the row’s entry and title, then opens its key', async () => {
+    tiles.holdArtifactTile.mockImplementation(({ id }) => {
+      calls.push('hold');
+      return `artifact:${id}`;
+    });
+    await expect(openArtifactInNewSession({ id: 'a1', entry, title: 'Beam plot' })).resolves.toBe(
+      true
+    );
+    expect(model.switchTo).toHaveBeenCalledExactlyOnceWith({ new: true });
+    expect(tiles.holdArtifactTile).toHaveBeenCalledExactlyOnceWith({
+      id: 'a1',
+      entry,
+      title: 'Beam plot',
+    });
+    expect(placement.openPanelLeftOfAgent).toHaveBeenCalledExactlyOnceWith('artifact:a1');
+    expect(calls).toEqual(['switchTo', 'hold', 'openPanelLeftOfAgent']);
+  });
+
+  test('a declined switch holds and opens nothing', async () => {
+    model.switchTo.mockResolvedValueOnce(false);
+    await expect(openArtifactInNewSession({ id: 'a1', entry, title: 't' })).resolves.toBe(false);
+    expect(tiles.holdArtifactTile).not.toHaveBeenCalled();
+    expect(placement.openPanelLeftOfAgent).not.toHaveBeenCalled();
+  });
+
+  test('an id no tile can carry opens nothing and says so', async () => {
+    tiles.holdArtifactTile.mockReturnValue(null);
+    await expect(openArtifactInNewSession({ id: 'a b', entry: null, title: 't' })).resolves.toBe(
+      false
+    );
+    expect(placement.openPanelLeftOfAgent).not.toHaveBeenCalled();
     expect(notice.showUndoNotice).toHaveBeenCalledTimes(1);
   });
 });

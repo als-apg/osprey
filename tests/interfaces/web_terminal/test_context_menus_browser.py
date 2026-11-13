@@ -443,7 +443,9 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         page = _open_dock_hub(chromium_browser, dock)
         expect(rail_entry(page, "svc-a", enabled_only=True)).to_have_count(1, timeout=10_000)
 
-        assert _menu_key(page, rail_entry(page, "svc-a"))[0] == "Open"
+        labels = _menu_key(page, rail_entry(page, "svc-a"))
+        assert labels[0] == "Open", labels
+        assert labels[labels.index("Open in new window") + 1] == "Open in new session", labels
 
         page.evaluate(
             """async () => {
@@ -514,11 +516,13 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
 
     labels = _menu_key(page, page.locator("#sidebar-agent-row"), aria="Sessions actions")
     assert labels[0] == "New session", labels
+    assert "Open in new session" not in labels, labels
 
     labels = _menu_key(page, page.locator("#sidebar-toggle"), aria="Sidebar")
     assert "Collapse sidebar" in labels and "Reset layout" in labels, labels
 
     labels = _menu_key(page, tree_session)
+    assert "Open in new session" not in labels, labels
     assert "Rename…" in labels, labels
 
     # An artifact row: the seeded session holding the beam profile, opened.
@@ -534,7 +538,8 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
     # Pinned by its id: `.first` is re-run on every use, and a redraw can put
     # another row first.
     artifact = page.locator(f'{_TREE} .osprey-list-row[data-id="{first.get_attribute("data-id")}"]')
-    assert _menu_key(page, artifact), "the artifact row's menu has rows"
+    labels = _menu_key(page, artifact)
+    assert labels[:2] == ["Open", "Open in new session"], labels
 
     # A pinned session draws the Pinned group, whose heading has a menu.
     page.evaluate(

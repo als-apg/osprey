@@ -3241,13 +3241,14 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         assert _menu_labels(page) == [
             "Open",
             "Open in new window",
+            "Open in new session",
             "Move to",
             "Remove from rail",
         ], _menu_labels(page)
         expect(menu).to_have_attribute("role", "menu")
         expect(menu).to_have_attribute("aria-label", f"{_title_case('DATA VIZ')} actions")
         expect(menu.locator(".rail-context-divider")).to_have_count(1)
-        expect(menu.locator(".rail-context-glyph")).to_have_count(2)
+        expect(menu.locator(".rail-context-glyph")).to_have_count(3)
         expect(_menu_row(page, "Move to")).to_have_attribute("aria-haspopup", "menu")
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
@@ -3488,6 +3489,7 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         assert _menu_labels(page) == [
             "Open",
             "Open in new window",
+            "Open in new session",
             "Move to",
             "Remove from rail",
         ], _menu_labels(page)

@@ -113,11 +113,13 @@ lists the panel's own actions and any icons a narrow tile has no room for.
 when the panel has a documentation page, **Help**. Shift+right-click shows the
 browser's own menu.
 
-**Open in new session** starts a new session and opens that pane in it, beside
-the Agent pane. The new session has no other pane. The pane opens at its start
-page, not at the page it showed. An artifact opened this way shows the notice
-that it comes from another session. If the agent is working, OSPREY asks
-before it ends the turn. If you keep the turn, nothing changes.
+**Open in new session** starts a new session and opens that pane in it, on the
+left of the Agent pane. The new session has no other pane. The pane opens at
+its start page, not at the page it showed. The same row is in the menu of a
+panel's row in the sidebar, whether or not the panel is open, and in the menu
+of an artifact under a session in the sidebar. An artifact opens as a tile that
+shows the notice that it comes from another session. If the agent is working,
+OSPREY asks before it ends the turn. If you keep the turn, nothing changes.
 
 To zoom one pane and not the page, hold Ctrl and scroll over the pane. On
 macOS, hold Cmd. A pinch on a trackpad does the same. **Zoom** in the tile's
@@ -675,7 +677,8 @@ opens on its proposed code. **More sessions** loads older ones.
 Right-click a session to pin, rename, export or copy its ID, or delete a
 past session with its artifacts; a run, here or its row in chat, to open its
 result, approval preview or code; **Sessions** to start a session or to pick
-**Artifacts by** **Activity** or **Kind**. Runs and artifacts also have **Delete…**.
+**Artifacts by** **Activity** or **Kind**. An artifact also has **Open in new
+session** (`Tiles`_). Runs and artifacts also have **Delete…**.
 
 Pinned sessions (the pin button on a row) also show in the **Pinned** group
 above **Sessions**; right-click its heading to rename or hide it. **Show pinned
