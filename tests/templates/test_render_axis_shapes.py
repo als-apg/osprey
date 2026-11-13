@@ -259,26 +259,25 @@ _BRIDGES = ("gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge")
 
 SCENARIOS: tuple[Scenario, ...] = (
     # The pair on the dispatch bus (`dispatch.transport: bus`) on the compose
-    # bridge: the dispatcher binds the bus, two workers connect to it by its
-    # service name with no port of their own, and every chat bridge reads runs
-    # through the dispatcher's /worker facade. Two workers, because each must
-    # name its own key file and its own bus name.
+    # bridge: the dispatcher binds the bus and two workers connect to it by its
+    # service name with no port of their own. Two workers, because each must
+    # name its own key file and its own bus name. The bus moves one line of each
+    # chat bridge's render (WORKER_URL), which
+    # test_bridges_on_the_bus_read_runs_through_the_dispatcher_facade pins
+    # instead of a full bridge render per topology.
     Scenario(
         name="pair-on-bus",
         services=_pair_blocks(on_host=False, worker_count=2, bus=True),
-        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
-        templates=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        deployed=("event_dispatcher", "dispatch_worker"),
+        templates=("event_dispatcher", "dispatch_worker"),
     ),
-    # The same on the host network, where the bus is a host socket on loopback
-    # and the bridges reach the facade at localhost.
+    # The same on the host network, where the bus is a host socket on loopback.
+    # One worker: the per-worker key file and bus name are pinned above.
     Scenario(
         name="pair-on-bus-on-host",
-        services={
-            **_pair_blocks(on_host=True, worker_count=2, bus=True),
-            **{bridge: {"network": "host"} for bridge in _BRIDGES},
-        },
-        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
-        templates=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        services=_pair_blocks(on_host=True, bus=True),
+        deployed=("event_dispatcher", "dispatch_worker"),
+        templates=("event_dispatcher", "dispatch_worker"),
     ),
     # The pair itself on the host namespace, with the archiver store deployed so
     # the worker's address rewrite is in the render rather than merely possible.
@@ -782,6 +781,31 @@ def test_bridges_on_host_address_the_pair_at_the_host() -> None:
         environment = _service_env("bridge-on-host", key, compose_name)
         assert environment["DISPATCHER_URL"] == f"http://localhost:{dispatch.dispatcher_port}"
         assert environment["WORKER_URL"] == f"http://localhost:{dispatch.worker_port_base}"
+
+
+@pytest.mark.parametrize("on_host", [False, True], ids=["compose-network", "host"])
+def test_bridges_on_the_bus_read_runs_through_the_dispatcher_facade(on_host: bool) -> None:
+    """On the bus every bridge's WORKER_URL is the dispatcher's ``/worker`` facade.
+
+    The workers listen on no port there, so a bridge left on a worker address
+    would fail its first status poll. The bridges are twins by intent, so all
+    four are checked, in both topologies.
+    """
+    dispatch = _dispatch_defaults()
+    services = _pair_blocks(on_host=on_host, bus=True)
+    if on_host:
+        services |= {bridge: {"network": "host"} for bridge in _BRIDGES}
+    scenario = Scenario(
+        name="bridges-on-bus",
+        services=services,
+        deployed=("event_dispatcher", "dispatch_worker", *_BRIDGES),
+        templates=_BRIDGES,
+    )
+    host = "localhost" if on_host else "event-dispatcher"
+    expected = f"http://{host}:{dispatch.dispatcher_port}/worker"
+    for name, text in _render_scenario(scenario).items():
+        (service,) = yaml.safe_load(text)["services"].values()
+        assert service["environment"]["WORKER_URL"] == expected, name
 
 
 def test_two_workers_on_host_fan_out_across_ports() -> None:
