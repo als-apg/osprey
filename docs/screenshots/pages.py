@@ -11,22 +11,31 @@ the code that serves it, on state that never changes between runs.
   the build gives it. No container starts.
 * :func:`history_app` — the history page on a canned agent record, behind a
   stand-in for the web tier that signs the request in as ``alice``.
+
+:func:`activity_hub` is the one context manager here, for a ``hermetic_hub``
+recipe: the web terminal with one recorded session behind its Activity page.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest import mock
 
-from docs.screenshots.recipes import HISTORY_SESSION
+from docs.screenshots.recipes import ACTIVITY_SESSION, HISTORY_SESSION
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
 
+    from docs.screenshots.contact_sheet import HermeticHub
     from fastapi import FastAPI
 
 # The demo pins the light theme; a theme family lets both pages follow the
@@ -279,3 +288,129 @@ def history_app() -> Any:
         await app(scope, receive, send)
 
     return web_tier
+
+
+# ---------------------------------------------------------------------------
+# The Activity page, on one recorded session
+# ---------------------------------------------------------------------------
+
+ACTIVITY_FIXTURE = Path(__file__).parent / "activity_session.json"
+"""One session of the ``demo`` preset as its agent record answered it: a
+Bluesky grid scan on the virtual accelerator, with one operator approval, one
+failed call and a plotting subagent. ``timeline`` is the record's joined
+timeline without its debug entries; a result longer than the Activity route
+keeps is cut one character past that cap, so the route still marks it cut.
+A usage entry's key ends in a counter where the record has a hash.
+``artifacts`` are the index rows of what the session saved, without the files."""
+
+
+@cache
+def activity_fixture() -> dict[str, Any]:
+    """The recorded session: ``{session, artifacts, timeline}``."""
+    fixture = json.loads(ACTIVITY_FIXTURE.read_text(encoding="utf-8"))
+    if fixture["session"]["id"] != ACTIVITY_SESSION:
+        raise ValueError(f"{ACTIVITY_FIXTURE.name} is not the session the recipe opens")
+    return fixture
+
+
+class _ActivityRecord:
+    """The record reads the Activity page causes, answered from the fixture."""
+
+    def list_sessions(self, **_: Any) -> Any:
+        from osprey.agent_record.client import ClientAnswer
+
+        fixture = activity_fixture()
+        nodes = fixture["timeline"]
+        person = fixture["session"]["identity"]
+        asked = next(n for n in nodes if n["kind"] == "prompt")
+        row = {
+            "session_id": ACTIVITY_SESSION,
+            "persons": [person],
+            "identities": [person],
+            "first_ts": nodes[0]["ts"],
+            "last_ts": nodes[-1]["ts"],
+            "message_count": len(nodes),
+            "prompt": asked["body"]["text"],
+            "run_ids": [],
+            "terminal_session": "",
+            "truncated": False,
+        }
+        return ClientAnswer(data=[row], complete=True)
+
+    def timeline(self, session_id: str, **_: Any) -> Any:
+        from osprey.agent_record.client import ClientAnswer
+
+        nodes = activity_fixture()["timeline"] if session_id == ACTIVITY_SESSION else []
+        return ClientAnswer(data=nodes, complete=True)
+
+
+def seed_activity(project_dir: Path, session_dir: Path) -> None:  # noqa: ARG001 - the hub's seed signature
+    """Give the hub what it keeps beside the record: ledger row, title, artifacts.
+
+    The two artifacts are saved through the store under the ids, times and
+    saving calls the session's own had; the files are stand-ins, since the page
+    lists artifacts and never opens one.
+    """
+    from osprey.interfaces.web_terminal import session_meta
+    from osprey.stores import session_ledger
+    from osprey.stores.artifact_store import ArtifactStore
+
+    fixture = activity_fixture()
+    started = datetime.fromisoformat(fixture["timeline"][0]["ts"])
+    state_dir = session_meta.ledger_state_dir()
+    meta_path = session_meta.store_path()
+    if state_dir is None or meta_path is None:
+        raise RuntimeError("the hub's agent-data root is not stamped")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    session_ledger.append(state_dir, ACTIVITY_SESSION, ACTIVITY_SESSION, started)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    titled = {"title": fixture["session"]["title"], "title_source": "auto"}
+    meta_path.write_text(
+        json.dumps(
+            {
+                "sessions": {ACTIVITY_SESSION: titled},
+                "last_active": None,
+                "naming_since": started.isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = ArtifactStore(workspace_root=project_dir, auto_launch=False)
+    for row in fixture["artifacts"]:
+        store.save_file(
+            b"{}",
+            row["filename"],
+            row["artifact_type"],
+            row["title"],
+            mime_type=row["mime_type"],
+            tool_source=row["tool_source"],
+            metadata={"call_id": row["call_id"]},
+            session_id=ACTIVITY_SESSION,
+            at=datetime.fromisoformat(row["timestamp"]),
+            entry_id=row["id"],
+        )
+
+
+@contextmanager
+def activity_hub() -> Iterator[HermeticHub]:
+    """The hermetic web terminal with the recorded session behind its Activity page.
+
+    The hub runs as the session's operator, and its session routes read
+    :class:`_ActivityRecord` in place of the hub's own embedded record: the
+    route, its reading of the timeline and the page are the product's.
+    """
+    from docs.screenshots.contact_sheet import hermetic_hub
+
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV
+
+    person = activity_fixture()["session"]["identity"]
+    record = _ActivityRecord()
+    with (
+        mock.patch.dict(os.environ, {AUDIT_IDENTITY_ENV: person}),
+        hermetic_hub(seed=seed_activity) as hub,
+        mock.patch(
+            "osprey.interfaces.web_terminal.routes.session.record_client", new=lambda: record
+        ),
+    ):
+        yield hub
