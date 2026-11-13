@@ -449,7 +449,9 @@ def test_a_cell_names_each_family_as_the_index_files_it_under_each_system():
             {"id": "MAG/QF", "members": ["M/S1"], "signals": {"SP": "the setpoint"}},
             {"id": "M/ALL", "members": ["M/Q1", "M/S1"]},
         ],
-        "channels": [],
+        "channels": [
+            {"id": f"{device}:SP", "on": {"device": device}} for device in ("M/Q1", "N/Q1", "M/S1")
+        ],
     }
 
     assert _middle_layer_families(facility) == {
