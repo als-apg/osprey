@@ -11,6 +11,12 @@ a Cypher ``n.uri`` result compares directly.
   place;
 - :func:`expected_name_holders` — the places, devices and channels one of whose
   ``names`` equals a name, compared lower-cased as whole entries;
+- :func:`expected_relation_edges` — each relation claim the ``basis`` setting
+  keeps (``stated`` drops ``inferred`` claims) is one edge from the node its
+  subject end names to the node its object end names, under the camelCase of
+  its type when ``accepted``, that name plus ``Contested`` when
+  ``contested``, and none when ``superseded``; a symmetric type's edge is one
+  per unordered pair of ends, directed as the smallest-id claim states it;
 - :func:`strip` — a graph without what the view added beside the base writer:
   ``partOf``, ``locatedIn``, their two ``owl:ObjectProperty`` declarations and
   the ``skos:altLabel`` of places, devices and channels (a class keeps its
@@ -23,6 +29,9 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility.records import FacilityRecords
+from osprey.facility.relations import end_identity
+from osprey.facility.validate import relation_types
+from osprey.facility.views.graph import GraphSettings
 from osprey.facility.views.graph_iri import iri, namespace
 
 if TYPE_CHECKING:
@@ -86,6 +95,47 @@ def expected_name_holders(
         for record in read.of_kind(kind)
         if any(str(entry).lower() == wanted for entry in record.get("names") or ())
     )
+
+
+def relation_predicate(relation_type: str) -> str:
+    """The camelCase ``narad_p:`` local name of a snake_case relation type."""
+    head, *rest = relation_type.split("_")
+    return head + "".join(word.capitalize() for word in rest)
+
+
+def expected_relation_edges(
+    records: FacilityRecords | Mapping[str, Any],
+    settings: GraphSettings | tuple[str, str] = GraphSettings(),
+) -> frozenset[tuple[str, str, str]]:
+    """Each ``(subject, predicate, object)`` IRI triple the claims should become."""
+    read = _records(records)
+    code = _code(read)
+    basis = GraphSettings(*settings).basis
+    symmetric = {name for name, row in relation_types().items() if row.get("symmetric")}
+    edges: set[tuple[str, str, str]] = set()
+    pairs: dict[tuple[str, frozenset[str]], tuple[str, str, str]] = {}
+    for claim in read.document.get("relations") or []:
+        if basis == "stated" and claim.get("basis") == "inferred":
+            continue
+        name = relation_predicate(claim["type"])
+        if claim["standing"] == "contested":
+            name += "Contested"
+        elif claim["standing"] != "accepted":
+            continue
+        subject_end = end_identity(claim["subject"])
+        object_end = end_identity(claim["object"])
+        assert subject_end is not None and object_end is not None
+        subject = iri(code, *subject_end)
+        obj = iri(code, *object_end)
+        predicate = f"{NARAD_P}{name}"
+        if claim["type"] in symmetric:
+            key = (predicate, frozenset((subject, obj)))
+            if key not in pairs or claim["id"] < pairs[key][0]:
+                pairs[key] = (claim["id"], subject, obj)
+        else:
+            edges.add((subject, predicate, obj))
+    edges.update((subject, key[0], obj) for key, (_id, subject, obj) in pairs.items())
+    return frozenset(edges)
 
 
 def strip(graph: Graph | str) -> Graph:
