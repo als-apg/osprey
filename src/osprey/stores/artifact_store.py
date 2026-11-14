@@ -744,7 +744,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         try:
             from osprey.infrastructure.server_launcher import ensure_web_server
 
-            ensure_web_server("artifact")
+            # A save can come from any of a session's MCP servers, and none of
+            # them can hand the others the token the gallery it starts verifies.
+            ensure_web_server("artifact", share_panel_token=True)
         except Exception as exc:
             logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
 
