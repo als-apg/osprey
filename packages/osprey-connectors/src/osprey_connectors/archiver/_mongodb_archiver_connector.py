@@ -15,10 +15,12 @@ import os
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiveExtent, ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._field_names import _RESERVED_FIELDS, _address_of, field_name
 from osprey_connectors.archiver._mongo_client import (
@@ -28,6 +30,7 @@ from osprey_connectors.archiver._mongo_client import (
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
+    SampleSeries,
     aggregate_series,
     long_frame,
     resolve_processing,
@@ -201,7 +204,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._waveforms: Collection[_Document] | None = None
         self._timeout: float = 60
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Initialize MongoDB connection.
 
@@ -396,6 +401,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
             raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup MongoDB connection."""
         client = self._client
@@ -468,6 +474,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     f"{channel!r}: only processing='raw' is defined for waveforms"
                 )
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -560,7 +567,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             if not found:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
 
-            series: dict[str, pd.Series] = {}
+            series: dict[str, SampleSeries] = {}
             for channel in channels:
                 s = pd.Series(
                     values[channel],
@@ -604,6 +611,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
@@ -670,6 +678,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             description=f"MongoDB archived channel: {channel}",
         )
 
+    @override
     async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived in the MongoDB collection or its
@@ -706,6 +715,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.warning(f"Error checking channel availability: {e}")
             return dict[str, bool | None].fromkeys(channels, None)
 
+    @override
     async def store_extent(self) -> ArchiveExtent:
         """The channels the store records now, and its oldest and newest sample.
 

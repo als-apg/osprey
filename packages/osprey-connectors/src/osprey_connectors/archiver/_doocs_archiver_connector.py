@@ -10,12 +10,14 @@ Date: 2026-07-01
 import asyncio
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Protocol, TypedDict
+from typing import Protocol, TypedDict
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
@@ -92,7 +94,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
         self._doocs4py: _Doocs4py | None = None
         self._timeout: float = 60
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure DOOCS environment and test connection.
 
@@ -142,12 +146,14 @@ class DOOCSArchiverConnector(ArchiverConnector):
         self._connected = True
         logger.debug("DOOCS archiver connector initialized")
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup archiver."""
         self._connected = False
         self._doocs4py = None
         logger.debug("DOOCS archiver connector disconnected")
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -194,8 +200,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
         start_utc, end_utc = utc_window(start_date, end_date)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
-        def fetch_all() -> dict[str, pd.Series]:
-            data: dict[str, pd.Series] = {}
+        # Quoted: ``pd.Series`` is not subscriptable at runtime.
+        def fetch_all() -> "dict[str, pd.Series[float]]":
+            data: dict[str, pd.Series[float]] = {}
             for add in channels:
                 hist_data_dict = self._read_history(
                     add,
@@ -223,6 +230,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         except TimeoutError as e:
             raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Get archiver metadata; membership is unknown (``None``), nothing is asked."""
         return ArchiverMetadata(
@@ -234,6 +242,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             ),
         )
 
+    @override
     async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """Check availability based on .HIST property name extension.
 

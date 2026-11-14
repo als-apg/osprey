@@ -9,10 +9,12 @@ active scenario set. An address outside the view is refused.
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
@@ -71,7 +73,9 @@ class MockArchiverConnector(ArchiverConnector):
         self._state_file: Path | None = None
         self._state_signature: tuple[int, int] | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Build the archive composite of the simulator view.
 
@@ -158,6 +162,7 @@ class MockArchiverConnector(ArchiverConnector):
                 raise ChannelNotFoundError(channel)
         return archive
 
+    @override
     async def disconnect(self) -> None:
         """Close the archive composite and stop serving."""
         if self._archive is not None:
@@ -166,13 +171,14 @@ class MockArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("Mock archiver connector disconnected")
 
+    @override
     async def get_data(
         self,
         channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,  # noqa: ARG002 - ArchiverConnector.get_data signature; generated samples never wait on a transport
+        timeout: int | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -236,6 +242,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         return data
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Mock archiver metadata for a channel of the simulator view.
 
@@ -254,6 +261,7 @@ class MockArchiverConnector(ArchiverConnector):
             description=f"Mock archived channel: {channel}",
         )
 
+    @override
     async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """Whether the simulator view holds each channel.
 

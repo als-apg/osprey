@@ -12,13 +12,16 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, TypeGuard
+from typing import TypeGuard
 
 import pandas as pd
+from typing_extensions import override
 
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
+    SampleSeries,
     long_frame,
     reject_non_numeric,
     resolve_processing,
@@ -111,7 +114,8 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._login_key: str | None = None
         self._login_env: str | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: Mapping[str, object]) -> None:
         """
         Initialize archiver connection.
 
@@ -155,6 +159,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             f"EPICS Archiver connector initialized: {self._url} (retrieval at {self._retrieval_path})"
         )
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup archiver connection."""
         self._url = None
@@ -164,7 +169,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
-    def _fetch_single_pv(self, pv: str, start_str: str, end_str: str) -> pd.Series:
+    def _fetch_single_pv(self, pv: str, start_str: str, end_str: str) -> SampleSeries:
         """
         Fetch archived data for a single PV via direct HTTP.
 
@@ -254,6 +259,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             "`auth.username` and `auth.password_env`."
         )
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -318,7 +324,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         # A None operator here can only mean full resolution.
         operator = resolved.epics_operator
 
-        def fetch_all() -> dict[str, pd.Series]:
+        def fetch_all() -> dict[str, SampleSeries]:
             return {
                 pv: self._fetch_single_pv(
                     f"{operator}({pv})" if operator else pv, start_str, end_str
@@ -356,6 +362,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 ) from e
             raise
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
@@ -379,6 +386,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             ),
         )
 
+    @override
     async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which PVs are archived.
