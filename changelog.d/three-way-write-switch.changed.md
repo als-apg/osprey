@@ -10,8 +10,8 @@ admin `allowed`.
   (`channel_write`, write-mode `execute`/`execute_file`, `pyaml_measure`,
   `queue_add`, `queue_start`, hooked facility write tools); `skip` now prompts
   at `asked` and `approval.enabled: false` no longer silences them. Such a
-  policy warns now and is refused from 2026.12.0; `osprey init --revalidate`
-  removes it.
+  policy warns now and is refused in the next stable release; `osprey init
+  --revalidate` removes it.
 - Upgrade order: install the connectors package, rebuild the lane and dispatch
   containers, then rebuild the project. An old connectors container that meets
   an `asked` login-tier map refuses every login, not just the asked ones; an

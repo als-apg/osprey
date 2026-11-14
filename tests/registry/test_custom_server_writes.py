@@ -212,7 +212,7 @@ class TestPresetChecks:
         msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         hit = [m for m in msgs if "declare `writes:`" in m and "my-plc" in m]
         assert hit, msgs
-        assert RETIRED_WRITE_KEYS_REFUSED_FROM in hit[0]
+        assert f"refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}" in hit[0]
 
     def test_unknown_preset_warns_with_the_sunset(self, caplog):
         with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
@@ -221,7 +221,7 @@ class TestPresetChecks:
         msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         hit = [m for m in msgs if "bogus" in m and "my-plc" in m]
         assert hit, msgs
-        assert RETIRED_WRITE_KEYS_REFUSED_FROM in hit[0]
+        assert f"refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}" in hit[0]
 
     def test_declaring_server_without_writes_check_does_not_warn(self, caplog):
         with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
