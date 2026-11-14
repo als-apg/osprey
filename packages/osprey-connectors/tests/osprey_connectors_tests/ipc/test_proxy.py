@@ -534,10 +534,12 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
 
 
 async def test_a_reply_the_parent_cannot_rebuild_fails_that_call_and_keeps_the_proxy(teardown):
-    unrebuildable = ChannelWriteResult("SR:SP", 1.0, WriteOutcome.CONFIRMED)
-    # Set after construction, so the child encodes a value the parent's own
-    # constructor refuses.
-    unrebuildable.outcome = "not-an-outcome"
+    unrebuildable = ChannelWriteResult(
+        channel_address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
+    )
+    # Set after construction, past the model's validated assignment, so the
+    # child encodes a value the parent's own constructor refuses.
+    object.__setattr__(unrebuildable, "outcome", "not-an-outcome")
     proxy, child = await _proxy_with_child(_echo_handler([unrebuildable, _channel_value(2.5)]))
     teardown.append((proxy, child))
 

@@ -50,11 +50,13 @@ import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, TypeAlias
 
+from pydantic import ConfigDict
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -217,12 +219,22 @@ def active_set_sha256(active: Sequence[str]) -> str:
 _JOURNAL_FILE_MODE = 0o600
 
 
-class _JournalDocument(TypedDict):
-    """A session-writes journal: what :func:`_is_journal` admits."""
+class _JournalDocument(FrozenModel):
+    """A session-writes journal, as the file holds it.
 
-    active_set_sha256: NotRequired[object]
+    A document with an integer ``seq`` and a list of ``writes`` is a journal,
+    whatever else it carries: a key the reader does not use is ignored, as it
+    always has been. Each write is checked on its own when the journal is
+    replayed (:func:`_journal_entry`), so one malformed write rejects the
+    journal rather than making it no journal at all. An absent
+    ``active_set_sha256`` matches no active set, as ``None`` does.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    active_set_sha256: ContractAny = None
     seq: int
-    writes: list[object]
+    writes: list[ContractAny]
 
 
 #: One journalled write, ``[seq, address, value]``.
@@ -246,15 +258,20 @@ class _Journal:
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def read(self) -> tuple[object, str]:
-        """The parsed document and its text; ``(None, "")`` when there is none."""
+    def read(self) -> tuple[_JournalDocument | None, str]:
+        """The journal and its text; ``None`` for a file that is not a journal.
+
+        ``(None, "")`` when there is no file.
+        """
         try:
             text = self.path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None, ""
         try:
-            return json.loads(text), text
+            return _JournalDocument.model_validate(json.loads(text)), text
         except ValueError:
+            # Not JSON (an over-long integer included), or JSON that is not a
+            # journal: a ValidationError is a ValueError.
             return None, text
 
     def stamp(self) -> tuple[int, int, int] | None:
@@ -274,19 +291,6 @@ class _Journal:
         )
 
 
-def _seq(document: object) -> int | None:
-    """A journal document's ``seq``, or ``None`` when it is not a journal."""
-    if not isinstance(document, dict) or not isinstance(document.get("writes"), list):
-        return None
-    seq = document.get("seq")
-    return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
-
-
-def _is_journal(document: object) -> TypeGuard[_JournalDocument]:
-    """Whether ``document`` is a journal: :func:`_seq` finds its ``seq``."""
-    return _seq(document) is not None
-
-
 def _journal_entry(entry: object) -> _JournalEntry | None:
     """One journalled ``[seq, address, value]`` write, or ``None`` when it is malformed."""
     if not isinstance(entry, list) or len(entry) != 3:
@@ -297,10 +301,9 @@ def _journal_entry(entry: object) -> _JournalEntry | None:
     return seq_no, address, value
 
 
-def _mark(document: object, text: str) -> int | str:
+def _mark(document: _JournalDocument | None, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
-    seq = _seq(document)
-    return (text or 0) if seq is None else seq
+    return (text or 0) if document is None else document.seq
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -451,7 +454,7 @@ class VAInProcessConnector(ControlSystemConnector):
         if mark == self._journal_mark:
             return
         self._journal_mark = mark
-        self._replay(document if _is_journal(document) else None, text)
+        self._replay(document, text)
 
     def _state_stamp(self) -> int | None:
         """The ``active_scenarios`` file's mtime, ``None`` when there is none."""
@@ -472,7 +475,7 @@ class VAInProcessConnector(ControlSystemConnector):
             if text:
                 self._reject(JOURNAL_FILE, "not a journal")
             return
-        writes = document["writes"]
+        writes = document.writes
         if not writes:
             return
         rejection = self._rejection(document)
@@ -504,12 +507,12 @@ class VAInProcessConnector(ControlSystemConnector):
     def _rejection(self, document: _JournalDocument) -> tuple[str, str] | None:
         """The first address and reason that keep a journal from being replayed."""
         entries: list[_JournalEntry] = []
-        for entry in document["writes"]:
+        for entry in document.writes:
             parsed = _journal_entry(entry)
             if parsed is None:
                 return JOURNAL_FILE, f"malformed entry {entry!r}"
             entries.append(parsed)
-        if document.get("active_set_sha256") != self._active_sha:
+        if document.active_set_sha256 != self._active_sha:
             return entries[0][1], "written under another active scenario set"
         for _seq_no, address, value in entries:
             record = self._records.get(address)
@@ -540,11 +543,11 @@ class VAInProcessConnector(ControlSystemConnector):
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
-            seq = _seq(document)
+            seq = None if document is None else document.seq
             synced = seq == self._journal_mark or (seq is None and self._journal_mark == 0)
             writes: list[object] = []
-            if _is_journal(document) and document.get("active_set_sha256") == self._active_sha:
-                writes = list(document["writes"])
+            if document is not None and document.active_set_sha256 == self._active_sha:
+                writes = list(document.writes)
             seq = (seq or 0) + 1
             writes.append([seq, address, value])
             self._journal.write(
@@ -566,13 +569,13 @@ class VAInProcessConnector(ControlSystemConnector):
             document, text = self._journal.read()
             if (
                 unless_current
-                and _is_journal(document)
-                and document.get("active_set_sha256") == self._active_sha
+                and document is not None
+                and document.active_set_sha256 == self._active_sha
             ):
                 return False
             if unless_moved and _mark(document, text) != self._journal_mark:
                 return False
-            seq = (_seq(document) or 0) + 1
+            seq = (0 if document is None else document.seq) + 1
             self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})
         self._journal_mark = seq
         self._journal_seen = None

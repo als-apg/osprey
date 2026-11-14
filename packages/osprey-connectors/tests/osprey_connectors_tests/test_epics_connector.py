@@ -17,6 +17,7 @@ import asyncio
 import os
 import sys
 import time
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
@@ -400,7 +401,7 @@ class TestReadChannel:
     @pytest.mark.asyncio
     async def test_read_multiple_drops_failures(self, monkeypatch):
         """read_multiple_channels returns only the channels that read successfully."""
-        good = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
+        good = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
 
         async def fake_read(addr, timeout=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
@@ -1176,7 +1177,7 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_get_metadata_returns_read_metadata(self, monkeypatch):
         meta = ChannelMetadata(units="kV")
-        value = ChannelValue(value=1.0, timestamp=None, metadata=meta)
+        value = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=meta)
         connector = _connector()
         monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=value))
 
@@ -1185,7 +1186,7 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_validate_channel_probes_with_the_configured_timeout(self, monkeypatch):
         """The probe uses the connector's own ``timeout``, not a literal of its own."""
-        value = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
+        value = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
         read = AsyncMock(return_value=value)
         connector = _connector(timeout=17.0)
         monkeypatch.setattr(connector, "read_channel", read)

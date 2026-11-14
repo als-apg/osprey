@@ -147,13 +147,13 @@ class TestTheModeIsPerConnectorType:
     def test_a_per_type_block_answers_for_its_type(self) -> None:
         posture = type_limits_posture(self.SECTION, VA)
 
-        assert posture == LimitsPosture(True, "optional", VA)
+        assert posture == LimitsPosture(enabled=True, mode="optional", connector_type=VA)
         assert posture.key("mode") == VA_MODE_KEY
 
     def test_a_type_with_no_block_reads_the_deployment_wide_mode(self) -> None:
         posture = type_limits_posture(self.SECTION, "epics")
 
-        assert posture == LimitsPosture(True, "exclusive", None)
+        assert posture == LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
         assert posture.key("mode") == MODE_KEY
 
     def test_strict_is_enabled_and_exclusive(self) -> None:

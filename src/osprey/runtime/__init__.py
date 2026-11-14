@@ -68,7 +68,6 @@ Control Target:
 import asyncio
 import atexit
 import contextlib
-import dataclasses
 import json
 import os
 import threading
@@ -1288,7 +1287,8 @@ def channel_limits(address: str) -> "ChannelLimitsConfig | None":
     config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
     if config is None:
         return None
-    return dataclasses.replace(config)
+    # Rebuilt from its fields, and validated like a new one.
+    return type(config)(**config.model_dump())
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
