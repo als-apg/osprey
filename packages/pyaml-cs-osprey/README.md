@@ -1,7 +1,7 @@
 # pyaml-cs-osprey
 
 A pyAML control-system backend for OSPREY. pyAML installs from
-`accelerator-middle-layer-apg`, the ALS-APG staging distribution (upstream
+`accelerator-middle-layer-apg`, the staging distribution (upstream
 0.3.2 plus the first-turn trajectory tool), and imports as `pyaml`. The
 backend implements pyAML's `ControlSystem`, `DeviceAccess` and
 `DeviceAccessList` on top of `osprey.runtime`, so every pyAML read and write

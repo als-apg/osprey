@@ -240,7 +240,7 @@ dependencies = [
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
     "pyaml-cs-osprey>=2026.6.2",
-    # pyAML itself (imports as `pyaml`): the ALS-APG staging distribution, upstream
+    # pyAML itself (imports as `pyaml`): the staging distribution, upstream
     # 0.3.2 plus the first-turn trajectory tool not yet in an upstream release. Never
     # installed beside `accelerator-middle-layer`, which writes the same `pyaml/`.
     # String-equal to the pin in packages/pyaml-cs-osprey/pyproject.toml (a test
