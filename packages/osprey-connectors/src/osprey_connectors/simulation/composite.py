@@ -117,7 +117,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from lume.exceptions import ReadOnlyError
@@ -240,7 +240,7 @@ def _plain(value: object) -> Any:
     return value
 
 
-def _for_variable(variable: Variable, value: object) -> Any:
+def _for_variable(variable: Variable, value: object) -> object:
     """A stored value as ``variable`` takes it: a waveform as an array of its dtype and shape."""
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
@@ -286,6 +286,24 @@ def _producers_first(children: Mapping[str, _Child]) -> list[str]:
     return order
 
 
+class _Engine(Protocol):
+    """An engine plug-in, as the ``osprey.simulation.engines`` group names it.
+
+    Its optional functions (``error_text``, ``readout``, ``take_inputs`` and
+    the time contract) are looked up by name.
+    """
+
+    def build(
+        self,
+        model: str,
+        wiring: Sequence[Mapping[str, object]],
+        deck: Path | None,
+        settings: Mapping[str, object],
+        *,
+        active: Mapping[str, object],
+    ) -> LUMEModel: ...
+
+
 class WriteRefusedError(ValueError):
     """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
 
@@ -301,14 +319,14 @@ class _Child:
     name: str
     source: Model
     owned: list[str]
-    defaults: dict[str, Any]
+    defaults: dict[str, object]
     setpoints: frozenset[str]
     partners: dict[str, tuple[str, ...]]
-    engine: Any = None
+    engine: _Engine | None = None
     model: LUMEModel | None = None
     status: str = STATUS_OK
-    active: dict[str, Any] = field(default_factory=dict)
-    inputs: dict[str, Any] = field(default_factory=dict)
+    active: dict[str, object] = field(default_factory=dict)
+    inputs: dict[str, values.StoredValue] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
     starts: dict[str, Any] = field(default_factory=dict)
     #: The active scenarios that fault this child or override one of its
@@ -471,10 +489,10 @@ class Composite(LUMEModel):
             takes=takes,
         )
 
-    def _start_value(self, child: _Child, address: str) -> Any:
+    def _start_value(self, child: _Child, address: str) -> values.StoredValue:
         """A physics channel's start value: its active write, its wiring default, or zero."""
         channel = self._channels[address]
-        value_type = channel.get("value_type")
+        value_type: str | None = channel.get("value_type")
         if address in child.active:
             return values.coerce(
                 child.active[address], value_type, channel.get("options"), channel.get("shape")
@@ -484,12 +502,12 @@ class Composite(LUMEModel):
             return values.coerce(default, value_type, channel.get("options"), channel.get("shape"))
         return values.zero(value_type, channel.get("options"), channel.get("shape"))
 
-    def _start_inputs(self, child: _Child) -> dict[str, Any]:
+    def _start_inputs(self, child: _Child) -> dict[str, values.StoredValue]:
         """A child's setpoints at their start values."""
         return {address: self._start_value(child, address) for address in child.setpoints}
 
     @staticmethod
-    def _engine(name: str) -> Any:
+    def _engine(name: str) -> _Engine:
         """The plug-in module registered for engine ``name``.
 
         Raises:
@@ -497,7 +515,8 @@ class Composite(LUMEModel):
         """
         found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
         for entry in found:
-            return entry.load()
+            engine: _Engine = entry.load()
+            return engine
         raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
@@ -564,7 +583,7 @@ class Composite(LUMEModel):
         function = getattr(child.engine, name, None)
         return function if callable(function) else None
 
-    def _call_time(self, child: _Child, name: str, *args: Any) -> Any:
+    def _call_time(self, child: _Child, name: str, *args: object) -> Any:
         """Call ``child``'s time-contract function ``name`` on its model with ``args``.
 
         Returns what it returns, or ``None`` when the child states no such
@@ -600,7 +619,7 @@ class Composite(LUMEModel):
         for name in child.consumers:
             self._children[name].baseline = True
 
-    def _input_value(self, producer: str, address: str) -> tuple[bool, Any]:
+    def _input_value(self, producer: str, address: str) -> tuple[bool, object]:
         """A producer's plain value of ``address``: ``(False, None)`` when it failed."""
         if producer == TEXTURE_OWNER:
             return True, _plain(self._texture.get([address])[address])
@@ -621,7 +640,7 @@ class Composite(LUMEModel):
         take = getattr(child.engine, "take_inputs", None)
         if not callable(take):
             return
-        pairs: list[tuple[Mapping[str, Any], Any]] = []
+        pairs: list[tuple[Mapping[str, Any], object]] = []
         for record, producer in child.takes:
             ok, value = self._input_value(producer, str(record["address"]))
             if ok:
@@ -676,7 +695,7 @@ class Composite(LUMEModel):
                 self._fail(child, exc)
         return frozenset(fired)
 
-    def _client_write(self, forwarded: Mapping[str, Mapping[str, Any]], t_s: float) -> None:
+    def _client_write(self, forwarded: Mapping[str, Mapping[str, object]], t_s: float) -> None:
         """Hand each child the client writes that reached its model."""
         for model, written in forwarded.items():
             if written:
@@ -785,9 +804,9 @@ class Composite(LUMEModel):
     def _child_active(
         self,
         child: _Child,
-        overrides: Mapping[str, Any],
-        faults: Mapping[str, Mapping[str, Any]],
-    ) -> dict[str, Any]:
+        overrides: Mapping[str, object],
+        faults: Mapping[str, Mapping[str, object]],
+    ) -> dict[str, object]:
         """A child's active writes and fault seeds."""
         active = {
             address: value for address, value in overrides.items() if address in child.setpoints
@@ -923,7 +942,7 @@ class Composite(LUMEModel):
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
 
-    def _ioc_health_value(self, signal: str) -> Any:
+    def _ioc_health_value(self, signal: str) -> str | int | float:
         """The value an IOC health signal serves at this instant."""
         if signal == ENGINEER:
             return _DEMO_ENGINEER
@@ -1081,7 +1100,9 @@ class Composite(LUMEModel):
             return (address,)
         return self._children[owner].partners.get(address, (address,))
 
-    def readings(self, levels: Mapping[str, Any], t_s: object) -> dict[str, np.ndarray]:
+    def readings(
+        self, levels: Mapping[str, float | np.ndarray], t_s: object
+    ) -> dict[str, np.ndarray]:
         """Float channels as served at epoch seconds, from levels in place of held values.
 
         A moving channel, a texture float or a physics float readback, reads
@@ -1436,7 +1457,7 @@ class Composite(LUMEModel):
 
     # -- the model log -------------------------------------------------------
 
-    def log_event(self, event: str, **fields: Any) -> None:
+    def log_event(self, event: str, **fields: object) -> None:
         """Append one event record to every physics model's log.
 
         A view with no physics model logs nothing here.
@@ -1448,7 +1469,7 @@ class Composite(LUMEModel):
         for name in self._children:
             self._log(name, {**fields, "event": event})
 
-    def _log(self, model: str, record: Mapping[str, Any]) -> None:
+    def _log(self, model: str, record: Mapping[str, object]) -> None:
         """Append one record to ``model``'s log, and hand it to the process logger."""
         entry = {"instance": self._instance, "pid": os.getpid(), "model": model, **record}
         line = self._log_line(entry)
@@ -1473,7 +1494,7 @@ class Composite(LUMEModel):
             logger.warning(f"cannot append to the {model} log in {self._log_dir}: {exc}")
 
     @staticmethod
-    def _log_line(entry: Mapping[str, Any]) -> str:
+    def _log_line(entry: Mapping[str, object]) -> str:
         """One JSON line, its ``error`` cut so the line and its newline stay under the bound."""
         line = json.dumps(entry, sort_keys=True, ensure_ascii=False)
         error = entry.get("error")

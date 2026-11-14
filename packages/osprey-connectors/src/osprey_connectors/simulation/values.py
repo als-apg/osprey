@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import numbers
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal, TypeAlias, TypeGuard, overload
 
 _VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
 #: The value types whose channels carry labels.
@@ -30,11 +30,15 @@ DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
 #: The value type of a channel that carries a flat ``list[float]`` trace.
 _WAVEFORM = "waveform"
 
+#: A channel value in its stored representation.
+StoredValue: TypeAlias = float | int | str | list[float]
+
 __all__ = [
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
     "GATED_TYPES",
     "LABELLED_TYPES",
+    "StoredValue",
     "channel_labels",
     "coerce",
     "is_waveform",
@@ -55,7 +59,7 @@ def _is_number(value: object) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
-def _is_integer(value: object) -> bool:
+def _is_integer(value: object) -> TypeGuard[numbers.Integral]:
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 
 
@@ -93,7 +97,7 @@ def _flatten(value: object, out: list[Any]) -> None:
         out.append(value)
 
 
-def _coerce_label(value: Any, value_type: str, labels: list[str]) -> str:
+def _coerce_label(value: object, value_type: str, labels: list[str]) -> str:
     if isinstance(value, str):
         if value in labels:
             return value
@@ -107,12 +111,47 @@ def _coerce_label(value: Any, value_type: str, labels: list[str]) -> str:
     raise _refuse(value, value_type, f"index outside 0..{len(labels) - 1}")
 
 
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["float"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> float: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["int"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> int: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["bool", "enum", "string"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> str: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["waveform"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> list[float]: ...
+@overload
+def coerce(
+    value: object,
+    value_type: str | None,
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> StoredValue: ...
 def coerce(
     value: Any,
     value_type: str | None,
     options: Sequence[str] | None = None,
     shape: Sequence[int] | None = None,
-) -> Any:
+) -> StoredValue:
     """Coerce ``value`` to the stored representation of ``value_type``.
 
     Args:
@@ -166,7 +205,7 @@ def zero(
     value_type: str | None,
     options: Sequence[str] | None,
     shape: Sequence[int] | None,
-) -> Any:
+) -> StoredValue:
     """Return the zero value of ``value_type`` in its stored representation.
 
     Args:

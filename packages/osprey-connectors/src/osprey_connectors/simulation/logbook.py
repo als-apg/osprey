@@ -11,7 +11,6 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from osprey_connectors.relative_time import RelativeTimestamp
 
@@ -105,7 +104,7 @@ class ScenarioLogEntry:
     tags: tuple[str, ...]
     categories: tuple[str, ...]
     loto_tag: str | None
-    extra: dict[str, Any]
+    extra: dict[str, object]
     attachments: tuple[Path | PlotSpec, ...] = ()
 
 
