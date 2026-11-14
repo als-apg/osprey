@@ -142,16 +142,17 @@ def stub_agent_cli(request, monkeypatch):
 
 @pytest.fixture
 def real_host_trust_seed():
-    """Opt a test out of :func:`no_host_trust_seed`: the web app seeds trust for real."""
+    """Opt a test out of :func:`no_host_trust_seed`: trust is seeded for real."""
 
 
 @pytest.fixture(autouse=True, scope="function")
 def no_host_trust_seed(request, monkeypatch):
-    """Keep the web app's startup off the developer's own ``~/.claude.json``.
+    """Keep the web app's startup and ``osprey chat`` off the developer's own ``~/.claude.json``.
 
-    On a host, web-terminal startup marks its render trusted in Claude Code's
-    state file under ``CLAUDE_CONFIG_DIR`` or ``HOME``. Every test that runs the
-    app's lifespan would otherwise add a ``tmp_path`` entry to the real file.
+    On a host, web-terminal startup and an ``osprey chat`` launch mark their
+    render trusted in Claude Code's state file under ``CLAUDE_CONFIG_DIR`` or
+    ``HOME``. Every test that runs the app's lifespan or the chat verb would
+    otherwise add a ``tmp_path`` entry to the real file.
     A test that points ``CLAUDE_CONFIG_DIR`` at its own directory and needs the
     real seed requests ``real_host_trust_seed``.
     """
