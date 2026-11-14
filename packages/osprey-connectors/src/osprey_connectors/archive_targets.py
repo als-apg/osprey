@@ -57,7 +57,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any
 
 from osprey_connectors.simulator import virtual_accelerator_port
 from osprey_connectors.types import (
@@ -109,7 +108,7 @@ __all__ = [
 ]
 
 
-def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
+def archive_targets(config: Mapping[str, object]) -> frozenset[str]:
     """The control targets whose history this deployment's ``archiver`` block holds.
 
     Args:
@@ -141,7 +140,7 @@ def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
     return APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
 
 
-def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
+def archive_withheld(config: Mapping[str, object], target: str) -> bool:
     """Whether a session on *target* must be told it has no archive.
 
     The agent's reader of the one ``archiver:`` block asks this before it
@@ -163,7 +162,7 @@ def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
     return target not in archive_targets(config)
 
 
-def _names_an_address(archiver_type: str, settings: Mapping[str, Any]) -> bool:
+def _names_an_address(archiver_type: str, settings: Mapping[str, object]) -> bool:
     """Whether a facility archive's *settings* state where it is.
 
     A non-blank string under the type's :data:`_ADDRESS_SETTINGS` entry, or

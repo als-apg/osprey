@@ -40,7 +40,7 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 __all__ = [
     "ConnectionSettings",
@@ -192,7 +192,7 @@ class ConnectionSettings:
 
 
 def read_connection_settings(
-    block: Mapping[str, Any] | None,
+    block: Mapping[str, object] | None,
     *,
     where: str,
     logins: frozenset[LoginKind] = _ALL_LOGINS,
@@ -244,8 +244,8 @@ def read_connection_settings(
 
 
 def read_credential_env_names(
-    block: Mapping[str, Any] | None, *, where: str
-) -> tuple[tuple[str, Any], ...]:
+    block: Mapping[str, object] | None, *, where: str
+) -> tuple[tuple[str, object], ...]:
     """The credential variables a block names under ``auth:``, with the key naming each.
 
     Returns ``(dotted key, name as written)`` pairs, ``auth.token_env`` before
@@ -277,7 +277,7 @@ def read_credential_env_names(
     return tuple((f"auth.{key}", auth[key]) for key in ("token_env", "password_env") if key in auth)
 
 
-def read_ca_bundle(block: Mapping[str, Any] | None, *, where: str) -> Path | None:
+def read_ca_bundle(block: Mapping[str, object] | None, *, where: str) -> Path | None:
     """The CA file a block names under ``tls.ca_bundle``, as the connector will open it.
 
     The path follows the rules :func:`read_connection_settings` applies: it must
