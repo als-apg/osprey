@@ -46,14 +46,14 @@ _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
 
 
-def _number(value: Any) -> float | None:
+def _number(value: object) -> float | None:
     """``value`` as a float when it is a real number, else None."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
 
 
-def _noise_sigma(noise: Mapping[str, Any] | None, nominal: Any = None) -> float:
+def _noise_sigma(noise: Mapping[str, Any] | None, nominal: object = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:

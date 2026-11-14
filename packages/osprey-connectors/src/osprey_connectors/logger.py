@@ -34,7 +34,6 @@ Usage:
 """
 
 import logging
-from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -76,7 +75,7 @@ class ComponentLogger:
         base_logger: logging.Logger,
         component_name: str,
         color: str = "white",
-        state: Any = None,
+        state: object = None,
     ):
         """
         Initialize component logger.
@@ -301,7 +300,7 @@ def get_logger(
     component_name: str | None = None,
     level: int = logging.INFO,
     *,
-    state: Any = None,
+    state: object = None,
     name: str | None = None,
     color: str | None = None,
 ) -> ComponentLogger:

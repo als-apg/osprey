@@ -257,7 +257,7 @@ class _Journal:
         )
 
 
-def _seq(document: Any) -> int | None:
+def _seq(document: object) -> int | None:
     """A journal document's ``seq``, or ``None`` when it is not a journal."""
     if not isinstance(document, dict) or not isinstance(document.get("writes"), list):
         return None
@@ -265,7 +265,7 @@ def _seq(document: Any) -> int | None:
     return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
 
 
-def _mark(document: Any, text: str) -> int | str:
+def _mark(document: object, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
     seq = _seq(document)
     return (text or 0) if seq is None else seq
@@ -499,7 +499,7 @@ class VAInProcessConnector(ControlSystemConnector):
                     return address, f"{value!r} is outside [{low}, {high}]"
         return None
 
-    def _append(self, address: str, value: Any) -> None:
+    def _append(self, address: str, value: object) -> None:
         """Append one write the composite took, under the journal's lock."""
         assert self._journal is not None
         with self._journal.locked():
@@ -679,7 +679,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
     # -- writes ----------------------------------------------------------------
 
-    def _refused(self, address: str, value: Any, message: str) -> ChannelWriteResult:
+    def _refused(self, address: str, value: object, message: str) -> ChannelWriteResult:
         logger.warning(f"In-process write refused: {address}: {message}")
         return ChannelWriteResult(
             channel_address=address,
@@ -689,7 +689,7 @@ class VAInProcessConnector(ControlSystemConnector):
             error_message=message,
         )
 
-    def _coerce(self, address: str, value: Any) -> Any:
+    def _coerce(self, address: str, value: object) -> Any:
         """``value`` in the stored representation of the channel's ``value_type``.
 
         Raises:
@@ -705,7 +705,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _write_precheck(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
         """Refuse an address outside the view and a channel that is no writable setpoint."""
         if self._composite is None:
@@ -740,7 +740,7 @@ class VAInProcessConnector(ControlSystemConnector):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; an in-process write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -870,7 +870,7 @@ class VAInProcessConnector(ControlSystemConnector):
             notes=f"Observed {observed.value}, sent {value} (in process)",
         )
 
-    def _put(self, channel_address: str, value: Any) -> None:
+    def _put(self, channel_address: str, value: object) -> None:
         """Set ``value`` in the composite; raises whatever the composite raises."""
         self._require(channel_address).set({channel_address: value})
 

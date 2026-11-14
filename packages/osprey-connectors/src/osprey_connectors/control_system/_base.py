@@ -123,7 +123,7 @@ _LIMIT_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _limit_bound(value: Any) -> float | None:
+def _limit_bound(value: object) -> float | None:
     """One limit as a finite ``float``, or ``None`` for anything else.
 
     Bools are excluded (``True`` is not a limit), as is every non-numeric value —
@@ -139,7 +139,7 @@ def _limit_bound(value: Any) -> float | None:
     return bound if math.isfinite(bound) else None
 
 
-def normalise_limit_pair(low: Any, high: Any) -> tuple[float | None, float | None]:
+def normalise_limit_pair(low: object, high: object) -> tuple[float | None, float | None]:
     """Normalise one ``(low, high)`` limit pair the way :class:`ChannelMetadata` stores it.
 
     Each bound that is missing, non-numeric or non-finite becomes ``None``. When
@@ -153,7 +153,7 @@ def normalise_limit_pair(low: Any, high: Any) -> tuple[float | None, float | Non
     return low_bound, high_bound
 
 
-def _writable_flag(value: Any) -> bool | None:
+def _writable_flag(value: object) -> bool | None:
     """A reported write-access right as ``bool``, or ``None`` when not reported.
 
     A client may report access rights as ``bool`` or ``0``/``1``; anything that
@@ -201,7 +201,7 @@ class WriteOutcome(StrEnum):
     UNREQUESTED = "unrequested"
 
 
-def _is_sequence(value: Any) -> bool:
+def _is_sequence(value: object) -> bool:
     """True when ``value`` is a vector rather than a scalar, for comparison.
 
     Admits list, tuple and ndarray. Excluded, in order:
@@ -235,7 +235,7 @@ def _unwrap_length_one(value: Any) -> Any:
     return value
 
 
-def _scalars_match(sent: Any, observed: Any) -> bool:
+def _scalars_match(sent: object, observed: object) -> bool:
     """Compare two scalars: floats by relative closeness, everything else by ``==``."""
     if (
         isinstance(sent, numbers.Real)
@@ -302,7 +302,7 @@ def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> 
         return False
 
 
-def as_number(value: Any) -> float | None:
+def as_number(value: object) -> float | None:
     """``value`` as a float, or ``None`` when it is not a number.
 
     A reading that is not a number — a string, an enum label, a waveform — has
@@ -578,7 +578,7 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
 
 
 def _verdict_refusal(
-    channel_address: str, value: Any, verdict: "WriteVerdict"
+    channel_address: str, value: object, verdict: "WriteVerdict"
 ) -> ChannelWriteResult:
     """The REFUSED result the monitor returns for a write *verdict* refused.
 
@@ -748,7 +748,7 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
     return results
 
 
-def _limits_refusal(channel_address: str, value: Any, error: BaseException) -> ChannelWriteResult:
+def _limits_refusal(channel_address: str, value: object, error: BaseException) -> ChannelWriteResult:
     """The REFUSED result a batch answers for a write the limits refused.
 
     One line per channel, the violation's type and reason, where a single
@@ -791,7 +791,7 @@ def _refused_batch(
     ]
 
 
-def _repeated_refusal(channel_address: str, value: Any, times: int) -> ChannelWriteResult:
+def _repeated_refusal(channel_address: str, value: object, times: int) -> ChannelWriteResult:
     """The refusal of one write to a channel its batch names more than once."""
     return ChannelWriteResult(
         channel_address=channel_address,
@@ -806,7 +806,7 @@ def _repeated_refusal(channel_address: str, value: Any, times: int) -> ChannelWr
     )
 
 
-def _batch_send_verdict(channel_address: str, value: Any, error: Exception) -> ChannelWriteResult:
+def _batch_send_verdict(channel_address: str, value: object, error: Exception) -> ChannelWriteResult:
     """The result of one write of a batch whose send raised, or the raise itself.
 
     A limits refusal at send time is a ``LIMITS`` refusal. A channel that

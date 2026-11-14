@@ -525,7 +525,7 @@ def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: boo
     return _selected_role(gateways, writes_enabled=writes_enabled, readonly_run=readonly_run)
 
 
-def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: Any) -> bool:
+def _endpoint_matches(gateway: object, mode: str | None, host: str | None, port: object) -> bool:
     """Whether a gateway block describes the endpoint that was installed.
 
     A block with no ``port`` matches on address and mode alone: an unset port
@@ -549,7 +549,7 @@ def _installed_role(
     gateways: dict[str, Any],
     mode: str | None,
     host: str | None,
-    port: Any,
+    port: object,
     writes_enabled: bool,
     readonly_run: bool,
 ) -> str | None:
@@ -573,7 +573,7 @@ def _installed_role(
 
 
 def _post_connect_report(
-    connector: Any, connector_type: str, target: str, section: dict[str, Any]
+    connector: object, connector_type: str, target: str, section: dict[str, Any]
 ) -> dict[str, Any]:
     """Describe what ``connect()`` configured, for the parent to verify."""
     connector_block = (section.get("connector") or {}).get(connector_type) or {}
@@ -804,7 +804,7 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
-async def _invoke(connector: Any, method: str, kwargs: dict[str, Any]) -> Any:
+async def _invoke(connector: object, method: str, kwargs: dict[str, Any]) -> Any:
     """Run one request against the connector."""
     if method == "ping":
         return os.getpid()
@@ -830,7 +830,7 @@ async def _dispatch(connector: Any, frame: Any, writer: _FrameWriter) -> None:
     await writer.send(payload)
 
 
-async def _serve(connector: Any, stream: _FrameStream, writer: _FrameWriter) -> int:
+async def _serve(connector: object, stream: _FrameStream, writer: _FrameWriter) -> int:
     """Dispatch requests until the pipe closes or a disconnect is served."""
     inflight: set[asyncio.Task[None]] = set()
     while True:

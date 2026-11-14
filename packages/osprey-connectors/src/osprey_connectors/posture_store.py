@@ -649,7 +649,7 @@ def _control_context_tree() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def parse_posture_value(value: Any) -> dict[str, str]:
+def parse_posture_value(value: object) -> dict[str, str]:
     """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
 
     The grammar of the mirror field (rule 2), in one place:
@@ -1076,7 +1076,7 @@ def owner_tier_term(
 
 
 def write_ceiling(
-    section: Any, owner: str | NoOwner | None, *, tree_bound: bool | None = None
+    section: object, owner: str | NoOwner | None, *, tree_bound: bool | None = None
 ) -> Literal["never", "asked", "allowed", "unknown"]:
     """The highest position a write by *owner* runs at: the verdict's ceiling.
 
@@ -1134,7 +1134,7 @@ class WriteVerdict:
 
 
 def write_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -1221,7 +1221,7 @@ class _RecordSeen:
 
 
 def _write_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
@@ -1243,7 +1243,7 @@ def _write_verdict(
     )
 
 
-def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+def _verdict_kind(section: object, target: object) -> Literal["real", "rehearsal", "simulator"] | None:
     """The machine kind a verdict on *target* names, or ``None``. Never raises.
 
     The name decides whether the target resolves at all; the published report
@@ -1257,7 +1257,7 @@ def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "si
         return None
 
 
-def backstop_verdict(section: Any) -> WriteVerdict:
+def backstop_verdict(section: object) -> WriteVerdict:
     """The verdict for a write no target or owner can be named for.
 
     The floor under every write path that cannot be traced to one machine: it
@@ -1346,7 +1346,7 @@ def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
 
 
 def execution_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -1378,7 +1378,7 @@ def execution_verdict(
 
 
 def _with_hold(
-    section: Any, verdict: WriteVerdict, session_keys: Sequence[str] | None
+    section: object, verdict: WriteVerdict, session_keys: Sequence[str] | None
 ) -> WriteVerdict:
     """*verdict* as :func:`execution_verdict` answers it: the hold after the backstop."""
     if not backstop_verdict(section).allowed:

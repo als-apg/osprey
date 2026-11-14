@@ -163,7 +163,7 @@ def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     return readings.pop(), None
 
 
-def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
+def _finite_real_or_reason(value: object) -> tuple[float | None, str | None]:
     """The value as a finite ``float``, or why it cannot be held to a numeric limit.
 
     A real number is accepted as is: ``int``, ``float``, ``bool`` and anything
@@ -254,7 +254,7 @@ def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:
         mappings and answers *default* for any segment that is not there.
     """
 
-    def lookup(path: str, default: Any = None) -> Any:
+    def lookup(path: str, default: object = None) -> Any:
         value: Any = config
         for key in path.split("."):
             if not isinstance(value, Mapping) or key not in value:
@@ -846,7 +846,7 @@ class LimitsValidator:
     def validate(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         *,
         read_current: CurrentValueReader | None = None,
     ) -> None:
@@ -986,7 +986,7 @@ class LimitsValidator:
         # All checks passed!
         logger.debug(f"Validated write: {channel_address}={value}")
 
-    def validate_without_step_check(self, channel_address: str, value: Any) -> None:
+    def validate_without_step_check(self, channel_address: str, value: object) -> None:
         """Every limits check that can be made without reading the machine.
 
         For a caller that is *not* the one performing the write, and so has no
@@ -1008,7 +1008,7 @@ class LimitsValidator:
         self._validate_without_step(channel_address, value)
 
     def _validate_without_step(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[ChannelLimitsConfig | None, float | None]:
         """Checks 1-3, shared by both entry points.
 

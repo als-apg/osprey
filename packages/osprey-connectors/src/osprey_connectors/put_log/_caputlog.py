@@ -138,7 +138,7 @@ def _recorded(hit: Mapping[str, Any], name: str) -> Any:
     return value["raw"] if isinstance(value, dict) and "raw" in value else value
 
 
-def _is_write_to(recorded: Any, pv: str) -> bool:
+def _is_write_to(recorded: object, pv: str) -> bool:
     return isinstance(recorded, str) and (recorded == pv or recorded.startswith(f"{pv}."))
 
 

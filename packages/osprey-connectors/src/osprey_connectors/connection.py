@@ -302,7 +302,7 @@ def read_ca_bundle(block: Mapping[str, Any] | None, *, where: str) -> Path | Non
     return _read_tls(block.get("tls"), where, True, "")
 
 
-def _read_url(value: Any, where: str) -> str | None:
+def _read_url(value: object, where: str) -> str | None:
     # A blank url reads as unset, so the consumer's own "url is required" applies.
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
@@ -317,7 +317,7 @@ def _read_url(value: Any, where: str) -> str | None:
     return value
 
 
-def _read_timeout(value: Any, where: str) -> float | None:
+def _read_timeout(value: object, where: str) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
@@ -326,7 +326,7 @@ def _read_timeout(value: Any, where: str) -> float | None:
 
 
 def _read_auth(
-    value: Any,
+    value: object,
     where: str,
     logins: frozenset[LoginKind],
     unsupported_because: str,
@@ -378,7 +378,7 @@ def _read_auth(
     return Login(kind="password", username=username, password_env=value["password_env"])
 
 
-def _read_tls(value: Any, where: str, tls: bool, unsupported_because: str) -> Path | None:
+def _read_tls(value: object, where: str, tls: bool, unsupported_because: str) -> Path | None:
     if value is None:
         return None
     key = f"`{where}.tls`"

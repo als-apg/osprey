@@ -197,7 +197,7 @@ class DOOCSConnector(ControlSystemConnector):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:

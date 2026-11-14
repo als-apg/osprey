@@ -229,7 +229,7 @@ def _default_log_dir() -> Path | None:
     return log_dir()
 
 
-def _plain(value: Any) -> Any:
+def _plain(value: object) -> Any:
     """A child's output in its stored representation: a waveform as a flat list."""
     if isinstance(value, np.ndarray):
         if value.ndim == 0:
@@ -240,7 +240,7 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _for_variable(variable: Variable, value: Any) -> Any:
+def _for_variable(variable: Variable, value: object) -> Any:
     """A stored value as ``variable`` takes it: a waveform as an array of its dtype and shape."""
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
@@ -1081,7 +1081,7 @@ class Composite(LUMEModel):
             return (address,)
         return self._children[owner].partners.get(address, (address,))
 
-    def readings(self, levels: Mapping[str, Any], t_s: Any) -> dict[str, np.ndarray]:
+    def readings(self, levels: Mapping[str, Any], t_s: object) -> dict[str, np.ndarray]:
         """Float channels as served at epoch seconds, from levels in place of held values.
 
         A moving channel, a texture float or a physics float readback, reads

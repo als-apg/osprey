@@ -136,9 +136,9 @@ def _copied(settings: Mapping[str, Any]) -> dict[str, Any]:
     return {key: list(v) if isinstance(v, list) else v for key, v in settings.items()}
 
 
-def _mapping(value: Any) -> Mapping[str, Any]:
+def _mapping(value: object) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _text(value: Any) -> str | None:
+def _text(value: object) -> str | None:
     return value if isinstance(value, str) and value.strip() else None

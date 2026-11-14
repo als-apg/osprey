@@ -1418,7 +1418,7 @@ class PooledConnector:
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -1439,7 +1439,7 @@ class PooledConnector:
         return result
 
     async def write_channel_checked(
-        self, channel_address: str, value: Any, **kwargs: Any
+        self, channel_address: str, value: object, **kwargs: Any
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 

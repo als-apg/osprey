@@ -158,7 +158,7 @@ class ViewSchemaError(ValueError):
     """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
 
 
-def _freeze(value: Any) -> Any:
+def _freeze(value: object) -> Any:
     """A read-only copy of a JSON value: mappings as proxies, lists as tuples."""
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -167,7 +167,7 @@ def _freeze(value: Any) -> Any:
     return value
 
 
-def _schema_error(path: Path, found: Any, expected: str) -> ViewSchemaError:
+def _schema_error(path: Path, found: object, expected: str) -> ViewSchemaError:
     return ViewSchemaError(
         f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build"
     )

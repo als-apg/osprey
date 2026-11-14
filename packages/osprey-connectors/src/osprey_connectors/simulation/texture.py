@@ -261,13 +261,13 @@ class TextureModel(LUMEModel):
                     defaults.setdefault(str(record["address"]), record["default"])
         return defaults
 
-    def _coerce(self, address: str, value: Any) -> Any:
+    def _coerce(self, address: str, value: object) -> Any:
         channel = self._channels[address]
         return values.coerce(
             value, channel_value_type(channel), channel.get("options"), channel.get("shape")
         )
 
-    def _nominal(self, address: str, wiring_default: Any) -> Any:
+    def _nominal(self, address: str, wiring_default: object) -> Any:
         channel = self._channels[address]
         seed = self._seeds.get(address, {})
         held = topoff.held_value(seed, self._seeds.get)
@@ -424,7 +424,7 @@ class TextureModel(LUMEModel):
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
 
-    def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
+    def motion(self, address: str, t_s: object, base: object = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
 
         Drift, then the held couplings, then a ``topoff`` seed's tooth
@@ -510,7 +510,7 @@ class TextureModel(LUMEModel):
         return term, float(record.get(term) or 0.0), subkeys[term]
 
     @staticmethod
-    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: Any) -> np.ndarray:
+    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: object) -> np.ndarray:
         """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``."""
         tau, period = topoff.tau_period(record)
         unit = np.exp(-np.mod(times, period) / tau)

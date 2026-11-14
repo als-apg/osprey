@@ -87,7 +87,7 @@ class ChannelLimitsViolationError(ChannelError):
     def __init__(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         violation_type: str,
         violation_reason: str,
         min_value: float | None = None,
@@ -341,8 +341,8 @@ class ChannelWriteFailedError(ChannelError):
         message: str | None = None,
         *,
         outcome: "WriteOutcome | None" = None,
-        value_written: Any = None,
-        observed_value: Any = None,
+        value_written: object = None,
+        observed_value: object = None,
     ):
         if outcome is not None:
             from osprey_connectors.control_system import WriteOutcome

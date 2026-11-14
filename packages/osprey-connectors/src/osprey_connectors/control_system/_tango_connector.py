@@ -83,7 +83,7 @@ def _split_address(channel_address: str) -> tuple[str, str]:
     return prefix + "/".join(parts[:3]), parts[3]
 
 
-def _quality_fields(quality: Any) -> tuple[str | None, int | None]:
+def _quality_fields(quality: object) -> tuple[str | None, int | None]:
     """Alarm name and severity for a TANGO attribute quality, or ``(None, None)``.
 
     ``None`` means "not reported" — deliberately distinct from a reported
@@ -109,7 +109,7 @@ def _attribute_timestamp(attr: Any, tz: Any) -> datetime:
     return datetime.fromtimestamp(tv_sec + tv_usec / 1e6, tz)
 
 
-def _enum_label_for(labels: list[str] | None, index: Any) -> str | None:
+def _enum_label_for(labels: list[str] | None, index: object) -> str | None:
     """The label this reading's index resolves to, or ``None``.
 
     Fails soft on anything unresolvable: the integer index alone is still a
@@ -343,7 +343,7 @@ class TangoConnector(ControlSystemConnector):
         return read_current
 
     def _write_precheck(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
         """In a batch an address that names no device and attribute is a refusal."""
         try:
@@ -355,7 +355,7 @@ class TangoConnector(ControlSystemConnector):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -540,7 +540,7 @@ class TangoConnector(ControlSystemConnector):
         loop = asyncio.get_event_loop()
         tz = get_facility_timezone()
 
-        def tango_callback(event: Any) -> None:
+        def tango_callback(event: object) -> None:
             """Wrapper converting a TANGO change event to OSPREY format."""
             if getattr(event, "err", False):
                 return

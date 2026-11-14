@@ -205,7 +205,7 @@ def _alarm_name(code: Any) -> str:
     return _ALARM_NAMES[index] if 0 <= index < len(_ALARM_NAMES) else "UNKNOWN"
 
 
-def _ca_type_name(datatype: Any) -> str | None:
+def _ca_type_name(datatype: object) -> str | None:
     """The field type of a reading, spelled ``time_<type>`` as pyepics spelled it.
 
     Readings are requested in the ``TIME`` form, and ``raw_metadata["type"]``
@@ -216,7 +216,7 @@ def _ca_type_name(datatype: Any) -> str | None:
     return None
 
 
-def _is_enum_type(pv_type: Any) -> bool:
+def _is_enum_type(pv_type: object) -> bool:
     """True when a Channel Access field type names an enumeration.
 
     The type of an ``mbbi``/``bi``/``bo`` is spelled ``"enum"`` or, in the
@@ -226,7 +226,7 @@ def _is_enum_type(pv_type: Any) -> bool:
     return "enum" in str(pv_type)
 
 
-def _ca_plain(value: Any) -> Any:
+def _ca_plain(value: object) -> Any:
     """An aioca reading as a plain Python value.
 
     aioca hands back subclasses of ``str``/``int``/``float`` and of
@@ -286,7 +286,7 @@ def _whole_number(element: Any, field_type: int) -> int:
     return int(number)
 
 
-def _whole_numbers(value: Any, field_type: int) -> Any:
+def _whole_numbers(value: object, field_type: int) -> Any:
     """``value`` as the whole number, or list of them, a whole-number field holds."""
     if isinstance(value, list | tuple):
         return [_whole_number(element, field_type) for element in value]
@@ -341,7 +341,7 @@ def _ca_put_form(value: Any, field_type: Any, count: Any) -> tuple[Any, bool]:
     return value, False
 
 
-def _char_text(value: Any) -> Any:
+def _char_text(value: object) -> Any:
     """A char array read back as the text it holds, up to its first NUL."""
     if hasattr(value, "__array__") and not isinstance(value, str):
         import numpy
@@ -351,7 +351,7 @@ def _char_text(value: Any) -> Any:
     return value
 
 
-def _ca_failure(channel_address: str, failure: Any, action: str) -> Exception:
+def _ca_failure(channel_address: str, failure: object, action: str) -> Exception:
     """The exception a failed aioca call is raised as: the channel did not answer.
 
     A Channel Access failure is about the one channel: the CA context belongs
@@ -410,7 +410,7 @@ def _severity_int(severity: Any) -> int | None:
         return None
 
 
-def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
+def _readback_alarm_fields(readback: object) -> tuple[str | None, int | None]:
     """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
 
     ``None`` means "the readback carried no alarm metadata" and is deliberately
@@ -441,7 +441,7 @@ _CA_CTRL_LIMITS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _ca_ctrl_limits(ctrl: Any, writable: bool | None) -> dict[str, Any]:
+def _ca_ctrl_limits(ctrl: object, writable: bool | None) -> dict[str, Any]:
     """The CTRL limits of a channel and this client's write access, as metadata kwargs.
 
     Read off the channel's CTRL-form reading; an absent reading (its fetch
@@ -467,7 +467,7 @@ _NT_NDARRAY_ID = "epics:nt/NTNDArray:"
 _PVA_METADATA_REQUEST = "field(alarm,timeStamp,display,control,valueAlarm)"
 
 
-def _pva_type_id(value: Any) -> str:
+def _pva_type_id(value: object) -> str:
     """Return the normative-type id of a p4p Value, or "" when it has none."""
     get_id = getattr(value, "getID", None)
     if not callable(get_id):
@@ -501,7 +501,7 @@ def _pva_field(container: Any, name: str, default: Any = None) -> Any:
     return default if found is None else found
 
 
-def _pva_color_mode(value: Any) -> Any:
+def _pva_color_mode(value: object) -> Any:
     """Extract the areaDetector ColorMode NTAttribute, or None when absent."""
     for entry in _pva_field(value, "attribute", []) or []:
         if _pva_field(entry, "name", "") == "ColorMode":
@@ -1161,7 +1161,7 @@ class EPICSConnector(ControlSystemConnector):
         return fields
 
     def _ca_channel_value(
-        self, reading: Any, ctrl: Any, writable: bool | None = None
+        self, reading: object, ctrl: object, writable: bool | None = None
     ) -> ChannelValue:
         """Build the connector's ChannelValue from a TIME-form reading and its CTRL fields.
 
@@ -1200,7 +1200,7 @@ class EPICSConnector(ControlSystemConnector):
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @staticmethod
-    def _ca_ctrl_metadata(ctrl: Any, writable: bool | None) -> ChannelMetadata:
+    def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
         """Metadata of a subscribed channel that has delivered control data but no value yet."""
         return ChannelMetadata(
             units=getattr(ctrl, "units", "") or "",
@@ -1210,7 +1210,7 @@ class EPICSConnector(ControlSystemConnector):
         )
 
     async def _put_ca(
-        self, channel_address: str, value: Any, wait: bool, deadline: tuple[float]
+        self, channel_address: str, value: object, wait: bool, deadline: tuple[float]
     ) -> tuple[str, Any]:
         """Put ``value`` within ``deadline``; say whether it was sent, acknowledged, or refused.
 
@@ -1385,7 +1385,7 @@ class EPICSConnector(ControlSystemConnector):
         value = self._pva_get(channel_address, timeout)
         return self._pva_channel_value(channel_address, value)
 
-    def _pva_channel_value(self, channel_address: str, value: Any) -> ChannelValue:
+    def _pva_channel_value(self, channel_address: str, value: object) -> ChannelValue:
         """Map a p4p Value onto :class:`ChannelValue` by normative type."""
         type_id = _pva_type_id(value)
         timestamp = self._pva_timestamp(value)
@@ -1411,7 +1411,7 @@ class EPICSConnector(ControlSystemConnector):
         return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
-        self, value: Any, timestamp: datetime, raw_metadata: dict[str, Any]
+        self, value: object, timestamp: datetime, raw_metadata: dict[str, Any]
     ) -> ChannelMetadata:
         """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
 
@@ -1447,7 +1447,7 @@ class EPICSConnector(ControlSystemConnector):
             raw_metadata=raw_metadata,
         )
 
-    def _pva_timestamp(self, value: Any) -> datetime:
+    def _pva_timestamp(self, value: object) -> datetime:
         """Channel timestamp from the NT timeStamp field, else now()."""
         stamp = _pva_field(value, "timeStamp")
         seconds = _pva_field(stamp, "secondsPastEpoch", 0) or 0
@@ -1457,7 +1457,7 @@ class EPICSConnector(ControlSystemConnector):
             return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
         return datetime.now(get_facility_timezone())
 
-    def _pva_alarm_metadata(self, value: Any) -> dict[str, Any]:
+    def _pva_alarm_metadata(self, value: object) -> dict[str, Any]:
         """Alarm fields, recorded raw so nothing about the alarm state is lost."""
         alarm = _pva_field(value, "alarm")
         if alarm is None:
@@ -1469,7 +1469,7 @@ class EPICSConnector(ControlSystemConnector):
             "alarm_message": str(message),
         }
 
-    def _pva_scalar_value(self, value: Any) -> dict[str, Any]:
+    def _pva_scalar_value(self, value: object) -> dict[str, Any]:
         """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
         scalar = _pva_field(value, "value")
         dtype = getattr(scalar, "dtype", None)
@@ -1478,7 +1478,7 @@ class EPICSConnector(ControlSystemConnector):
             "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
         }
 
-    def _pva_enum_value(self, value: Any) -> dict[str, Any]:
+    def _pva_enum_value(self, value: object) -> dict[str, Any]:
         """NTEnum: the INDEX is the value; the choices become enum metadata.
 
         Both halves of a state reading reach the operator, and each in the place
@@ -1509,7 +1509,7 @@ class EPICSConnector(ControlSystemConnector):
             },
         }
 
-    def _pva_ndarray_value(self, channel_address: str, value: Any) -> dict[str, Any]:
+    def _pva_ndarray_value(self, channel_address: str, value: object) -> dict[str, Any]:
         """NTNDArray: the carried array, reshaped per its dimension list.
 
         The array is taken from the selected union member exactly as p4p decoded
@@ -1613,7 +1613,7 @@ class EPICSConnector(ControlSystemConnector):
         """No write gateway is configured, or ``connect()`` selected it."""
         return not self._write_gateway_configured or self._selected_role == "write_access"
 
-    def _role_refusal(self, channel_address: str, value: Any) -> ChannelWriteResult | None:
+    def _role_refusal(self, channel_address: str, value: object) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.
 
         Called only for a write the verdict allowed. The block configures a
@@ -1639,7 +1639,7 @@ class EPICSConnector(ControlSystemConnector):
         return _verdict_refusal(channel_address, value, verdict)
 
     def _write_precheck(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
         """The record a write names, and the refusal that needs no I/O to make."""
         # One name for the whole write, decided before any check runs. ``X``,
@@ -1680,7 +1680,7 @@ class EPICSConnector(ControlSystemConnector):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -1752,7 +1752,7 @@ class EPICSConnector(ControlSystemConnector):
         return await self._put_and_verify(channel_address, value, timeout, confirm)
 
     async def _put_and_verify(
-        self, channel_address: str, value: Any, timeout: float, confirm: bool
+        self, channel_address: str, value: object, timeout: float, confirm: bool
     ) -> ChannelWriteResult:
         """Put one value that passed every check, and confirm it when asked.
 
@@ -1949,7 +1949,7 @@ class EPICSConnector(ControlSystemConnector):
             return [_verdict_refusal(name, value, refused) for name, value in batch]
         timeout = timeout or self._timeout
 
-        async def send(name: str, value: Any) -> ChannelWriteResult:
+        async def send(name: str, value: object) -> ChannelWriteResult:
             confirmed = self._resolve_confirm(name) if confirm is None else confirm
             try:
                 return await self._put_and_verify(name, value, timeout, confirmed)
@@ -2246,7 +2246,7 @@ class EPICSConnector(ControlSystemConnector):
         connected = False
         slot = _PvaMetadataSlot(channel_address)
 
-        def pva_callback(update: Any) -> None:
+        def pva_callback(update: object) -> None:
             """Wrapper to convert a p4p monitor update to our format."""
             nonlocal connected
             if isinstance(update, Exception):

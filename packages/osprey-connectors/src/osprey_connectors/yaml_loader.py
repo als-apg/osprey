@@ -60,14 +60,14 @@ def _safe_dumper() -> type[Any]:
 
 
 @overload
-def safe_dump(data: Any, stream: None = None, **kwargs: Any) -> str: ...
+def safe_dump(data: object, stream: None = None, **kwargs: Any) -> str: ...
 
 
 @overload
-def safe_dump(data: Any, stream: IO[str], **kwargs: Any) -> None: ...
+def safe_dump(data: object, stream: IO[str], **kwargs: Any) -> None: ...
 
 
-def safe_dump(data: Any, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
+def safe_dump(data: object, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
     """Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.
 
     Args:

@@ -168,7 +168,7 @@ def _read_no_follow(path: Path) -> str:
     return text
 
 
-def _valid_flag(entry: Any) -> bool:
+def _valid_flag(entry: object) -> bool:
     if not isinstance(entry, dict):
         return False
     if not all(isinstance(entry.get(name), str) for name in _STR_FIELDS):

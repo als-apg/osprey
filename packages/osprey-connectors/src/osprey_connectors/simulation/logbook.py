@@ -109,7 +109,7 @@ class ScenarioLogEntry:
     attachments: tuple[Path | PlotSpec, ...] = ()
 
 
-def parse_log_attachments(prefix: str, raw: Any, bundle: Path) -> tuple[Path | PlotSpec, ...]:
+def parse_log_attachments(prefix: str, raw: object, bundle: Path) -> tuple[Path | PlotSpec, ...]:
     """Resolve a logbook entry's ``attachments`` list to the pictures it carries.
 
     Each item holds exactly one key. ``{"path": "<relative path>"}`` names a
@@ -149,7 +149,7 @@ def parse_log_attachments(prefix: str, raw: Any, bundle: Path) -> tuple[Path | P
     return tuple(pictures)
 
 
-def _bundle_file(prefix: str, key: str, rel: Any, root: Path) -> Path:
+def _bundle_file(prefix: str, key: str, rel: object, root: Path) -> Path:
     """Resolve an attachment item's relative path, which must stay inside ``root``."""
     if not isinstance(rel, str) or not rel:
         raise ValueError(f"{prefix}: attachment {key!r} must be a non-empty string, got {rel!r}")
@@ -193,7 +193,7 @@ def _plot_spec(prefix: str, rel: str, path: Path) -> PlotSpec:
     return parse_plot_spec(raw, f"{prefix}: plot spec {rel!r}")
 
 
-def parse_plot_spec(raw: Any, where: str = "plot spec") -> PlotSpec:
+def parse_plot_spec(raw: object, where: str = "plot spec") -> PlotSpec:
     """Validate a decoded plot spec and return it as a :class:`PlotSpec`.
 
     The schema is closed: ``filename`` (a ``.png`` file name, no directory),
@@ -278,7 +278,7 @@ def parse_plot_spec(raw: Any, where: str = "plot spec") -> PlotSpec:
     )
 
 
-def _finite_numbers(where: str, key: str, raw: Any) -> tuple[float, ...]:
+def _finite_numbers(where: str, key: str, raw: object) -> tuple[float, ...]:
     """``raw`` as a tuple of floats, refusing anything but a list of finite numbers."""
     if not isinstance(raw, list) or not all(
         isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) for v in raw

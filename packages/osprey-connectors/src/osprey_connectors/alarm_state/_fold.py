@@ -177,7 +177,7 @@ def _parse_value(value: str | bytes | Mapping[str, Any] | None) -> Any:
     return parsed if isinstance(parsed, dict) else _UNPARSEABLE
 
 
-def _recorded_time(recorded: Any) -> str | None:
+def _recorded_time(recorded: object) -> str | None:
     """The alarm server's ``{seconds, nano}`` as ISO-8601; a string stays as recorded."""
     if isinstance(recorded, str):
         return recorded

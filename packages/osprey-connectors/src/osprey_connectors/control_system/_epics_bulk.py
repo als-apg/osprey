@@ -272,7 +272,7 @@ class CABulk:
             for handle in (record.ctrl_monitor, record.time_monitor)
         )
 
-    def _guarded(self, record: _Record, handler: Callable[[_Record, Any], None], reading: Any):
+    def _guarded(self, record: _Record, handler: Callable[[_Record, Any], None], reading: object):
         """Run a monitor handler so nothing it raises reaches aioca.
 
         aioca closes a subscription whose callback raises, and nothing would
@@ -428,7 +428,7 @@ class CABulk:
 
     # -- delivery ----------------------------------------------------------
 
-    def _deliver(self, record: _Record, reading: Any) -> None:
+    def _deliver(self, record: _Record, reading: object) -> None:
         value = self._value_factory(reading, record.ctrl, record.writable)
         record.last_value = value
         for sub_id, subscriber in list(record.subscribers.items()):
@@ -459,7 +459,7 @@ class CABulk:
             return record.last_value.metadata
         return self._metadata_factory(record.ctrl, record.writable)
 
-    def _settle_waiters(self, record: _Record, result: Any) -> None:
+    def _settle_waiters(self, record: _Record, result: object) -> None:
         waiters, record.waiters = record.waiters, []
         for waiter in waiters:
             if not waiter.done():

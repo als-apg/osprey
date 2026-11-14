@@ -174,7 +174,7 @@ class Verification:
         }
 
 
-def config_section(config: Any, name: str) -> dict[str, Any]:
+def config_section(config: object, name: str) -> dict[str, Any]:
     """One top-level section of a rendered config, or an empty mapping.
 
     Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
@@ -192,7 +192,7 @@ def subsection(section: dict[str, Any], name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def connector_block(config: Any, connector_type: str) -> Any:
+def connector_block(config: object, connector_type: str) -> Any:
     """The ``control_system.connector.<type>`` block, as written."""
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
@@ -202,7 +202,7 @@ def _mode(gateway: dict[str, Any], key: str) -> str:
     return MODE_NAME_SERVER if name_server else MODE_ADDR_LIST
 
 
-def _row(gateway: Any, default_port: int | None, key: str) -> Endpoint | None:
+def _row(gateway: object, default_port: int | None, key: str) -> Endpoint | None:
     """One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.
 
     ``connect()`` guards its environment derivation with ``if gateway_config:``,
@@ -229,7 +229,7 @@ def _pva_globs(block: dict[str, Any]) -> list[str]:
 
 
 def derive_endpoints(
-    config: Any,
+    config: object,
     target: str,
     *,
     writes_enabled: bool | None = None,
@@ -339,7 +339,7 @@ def derive_endpoints(
     )
 
 
-def declared_gateways(block: Any) -> str:
+def declared_gateways(block: object) -> str:
     """How a connector *block* spells its ``gateways`` table: the one reader of that fact.
 
     Only the explicit empty list is :data:`GATEWAYS_NONE_DECLARED`. A block that
@@ -373,7 +373,7 @@ def _ports_equal(expected: Any, got: Any) -> bool:
         return str(expected) == str(got)
 
 
-def _host_key(host: Any) -> str:
+def _host_key(host: object) -> str:
     """*host* as two rows must both spell it to name the same machine.
 
     Stripped and case-folded, and nothing more: no name is resolved, and no two
@@ -417,7 +417,7 @@ class LiveCollision:
 
 
 def live_collision(
-    config: Any, derivation: TargetDerivation, *, config_path: str | None = None
+    config: object, derivation: TargetDerivation, *, config_path: str | None = None
 ) -> LiveCollision | None:
     """The live gateway *derivation*'s selected endpoint lands on, or ``None``.
 

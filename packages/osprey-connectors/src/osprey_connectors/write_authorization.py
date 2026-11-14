@@ -451,7 +451,7 @@ def _load_json(raw: str | bytes) -> Any:
     return json.loads(raw, parse_constant=_reject_constant, object_pairs_hook=_no_repeated_keys)
 
 
-def _exact_keys(payload: Any, keys: frozenset[str], what: str) -> dict[str, Any]:
+def _exact_keys(payload: object, keys: frozenset[str], what: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{what} is not an object")
     if set(payload) != keys:
@@ -459,19 +459,19 @@ def _exact_keys(payload: Any, keys: frozenset[str], what: str) -> dict[str, Any]
     return payload
 
 
-def _name(value: Any, what: str) -> str:
+def _name(value: object, what: str) -> str:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError(f"{what} is not a name")
     return value
 
 
-def _integer(value: Any, what: str, minimum: int) -> int:
+def _integer(value: object, what: str, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{what} is not an integer of at least {minimum}")
     return int(value)
 
 
-def _finite(value: Any, what: str) -> float:
+def _finite(value: object, what: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{what} is not a number")
     number = float(value)
@@ -498,7 +498,7 @@ def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float)
         raise ValueError(f"lease_s {lease_s:g} is above the ceiling of {_MAX_LEASE_S:g}")
 
 
-def _authorization_id(value: Any) -> str:
+def _authorization_id(value: object) -> str:
     if not isinstance(value, str) or _ID.fullmatch(value) is None:
         raise ValueError("the id is not a 32-digit lowercase hex string")
     return value
@@ -531,7 +531,7 @@ _LEDGER_KEYS: Final = frozenset(
 _STEP_KEYS: Final = frozenset({"n", "at_ns", "channels"})
 
 
-def _parse_channels(value: Any) -> dict[str, ChannelRange]:
+def _parse_channels(value: object) -> dict[str, ChannelRange]:
     if not isinstance(value, dict) or not value:
         raise ValueError("channels is not a non-empty object")
     channels: dict[str, ChannelRange] = {}
@@ -547,7 +547,7 @@ def _parse_channels(value: Any) -> dict[str, ChannelRange]:
     return channels
 
 
-def _parse_grant(raw: Any) -> Grant:
+def _parse_grant(raw: object) -> Grant:
     """A grant out of its JSON text, bytes or decoded object.
 
     Every field must be present with its type, and nothing else may be: an
@@ -607,13 +607,13 @@ def _parse_grant(raw: Any) -> Grant:
     )
 
 
-def _optional_str(value: Any, what: str) -> str | None:
+def _optional_str(value: object, what: str) -> str | None:
     if value is not None and not isinstance(value, str):
         raise ValueError(f"{what} is neither a string nor null")
     return value
 
 
-def _parse_ledger(raw: Any) -> Ledger:
+def _parse_ledger(raw: object) -> Ledger:
     """A ledger out of its JSON text, bytes or decoded object.
 
     The same strictness as :func:`_parse_grant`; the steps must be numbered
@@ -681,7 +681,7 @@ class _Place:
         return self.root.joinpath(*self.segments)
 
 
-def _safe_segment(name: Any) -> bool:
+def _safe_segment(name: object) -> bool:
     return (
         isinstance(name, str)
         and name.strip() not in {"", ".", ".."}
@@ -991,7 +991,7 @@ def _resolved_owner(owner: str | NoOwner | None) -> str | None:
     return resolved.strip()
 
 
-def _operations(operations: Any) -> list[tuple[Any, Any]] | None:
+def _operations(operations: object) -> list[tuple[Any, Any]] | None:
     """*operations* as a list of pairs, or ``None`` when it is not a batch of pairs."""
     if isinstance(operations, Mapping):
         return list(operations.items())
@@ -1006,10 +1006,10 @@ def _operations(operations: Any) -> list[tuple[Any, Any]] | None:
 
 
 def _judge(
-    section: Any,
-    target: Any,
-    operations: Any,
-    authorization: Any,
+    section: object,
+    target: object,
+    operations: object,
+    authorization: object,
     owner: str | NoOwner | None,
     now_ns: int,
     basis: _Basis | None = None,
@@ -1115,7 +1115,7 @@ def _judge(
     )
 
 
-def _unreachable(target: Any, authorization: Any, what: str) -> WriteVerdict:
+def _unreachable(target: object, authorization: object, what: str) -> WriteVerdict:
     logger.warning("The write authorization verdict could not be reached; refusing (%s)", what)
     return WriteVerdict(
         allowed=False,
@@ -1127,10 +1127,10 @@ def _unreachable(target: Any, authorization: Any, what: str) -> WriteVerdict:
 
 
 def _verdict(
-    section: Any,
-    target: Any,
-    operations: Any,
-    authorization: Any,
+    section: object,
+    target: object,
+    operations: object,
+    authorization: object,
     owner: str | NoOwner | None,
     basis: _Basis | None,
 ) -> WriteVerdict:
@@ -1288,10 +1288,10 @@ def _lapse(place: _Place, authorization: str) -> None:
 
 
 def _spend(
-    section: Any,
-    target: Any,
-    operations: Any,
-    authorization: Any,
+    section: object,
+    target: object,
+    operations: object,
+    authorization: object,
     owner: str | NoOwner | None,
     basis: _Basis | None,
 ) -> WriteVerdict:
@@ -1315,18 +1315,19 @@ def _spend(
     if operations is _ANY_WRITE:
         return _unreachable(target, authorization, "spend without a write")
     try:
-        place = _checked_ledger_place(authorization)
+        authorization_id = _authorization_id(authorization)
+        place = _checked_ledger_place(authorization_id)
     except Exception:  # no ledger to spend from: the read-only verdict names why
         verdict = _verdict(section, target, operations, authorization, owner, basis)
         return _unreachable(target, authorization, "ledger") if verdict.allowed else verdict
     try:
         # Taken once: a one-shot iterable is judged and recorded as the same batch.
         batch = _operations(operations)
-        with _locked(_ledger_lock_path(place, authorization)):
+        with _locked(_ledger_lock_path(place, authorization_id)):
             now = _now_ns()
-            judged = _judge(section, target, batch, authorization, owner, now, basis)
+            judged = _judge(section, target, batch, authorization_id, owner, now, basis)
             if judged.ends:
-                _lapse(place, authorization)
+                _lapse(place, authorization_id)
             if not judged.verdict.allowed or judged.ledger is None:
                 return judged.verdict
             ledger = judged.ledger
@@ -1342,7 +1343,7 @@ def _spend(
 
 
 def authorized_execution_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     operations: Sequence[tuple[str, object]] | Mapping[str, object],
     *,
@@ -1394,7 +1395,7 @@ def authorized_execution_verdict(
 
 
 def authorized_write_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     *,
     authorization: str | None,
@@ -1764,7 +1765,7 @@ def _channel_ranges(channels: Mapping[str, Any]) -> dict[str, ChannelRange]:
 
 
 def self_issue(
-    section: Any,
+    section: object,
     target: str,
     channels: Mapping[str, ChannelRange | tuple[float, float]],
     *,
@@ -2171,7 +2172,7 @@ class WriteRequest:
         )
 
 
-def _parse_request(raw: Any) -> WriteRequest:
+def _parse_request(raw: object) -> WriteRequest:
     """A request out of its JSON text, bytes or decoded object.
 
     The grant's strictness (:func:`_parse_grant`): every field present with its

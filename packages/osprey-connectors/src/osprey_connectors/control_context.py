@@ -464,7 +464,7 @@ def record_path() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def _positive_int(value: Any) -> int | None:
+def _positive_int(value: object) -> int | None:
     """*value* as a positive integer, or ``None``.
 
     ``bool`` is excluded on purpose: it is an ``int`` in Python, and a payload
@@ -475,7 +475,7 @@ def _positive_int(value: Any) -> int | None:
     return int(value)
 
 
-def _parse_owner(value: Any) -> Owner | None:
+def _parse_owner(value: object) -> Owner | None:
     """One ``owner`` object as an :class:`Owner`, or ``None`` when ownerless.
 
     Rule 2 of the module contract for this field: an owner has to name a kind
@@ -492,7 +492,7 @@ def _parse_owner(value: Any) -> Owner | None:
     return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
 
 
-def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
+def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
     """One stored ``switch`` value as the word it arms with, or ``None`` for off.
 
     Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
@@ -509,7 +509,7 @@ def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
     return None
 
 
-def _parse_switch(value: Any) -> dict[str, str]:
+def _parse_switch(value: object) -> dict[str, str]:
     """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
@@ -526,14 +526,14 @@ def _parse_switch(value: Any) -> dict[str, str]:
     }
 
 
-def _parse_epoch(value: Any) -> int | None:
+def _parse_epoch(value: object) -> int | None:
     """One ``switch_epoch`` as a non-negative integer, or ``None`` (epoch-less)."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def parse_record(raw: Any) -> ControlContext | None:
+def parse_record(raw: object) -> ControlContext | None:
     """Decode a record, or ``None`` when it states no usable context.
 
     Accepts the decoded JSON object or the raw text/bytes of one, so a reader
@@ -1334,7 +1334,7 @@ def terminus(
     *,
     request_id: str,
     target: str,
-    requested_at: Any,
+    requested_at: object,
     requested_by: str,
     status: str,
     reason: str | None,
@@ -1511,14 +1511,14 @@ class ServerReport:
         return payload
 
 
-def _non_negative_int(value: Any) -> int | None:
+def _non_negative_int(value: object) -> int | None:
     """*value* as a non-negative integer, or ``None``. ``bool`` excluded."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def _text(value: Any) -> str | None:
+def _text(value: object) -> str | None:
     """*value* as a non-empty string, or ``None``.
 
     An empty string states nothing, and a reader that compared one to a session
@@ -1527,7 +1527,7 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _child_pids(value: Any) -> tuple[int, ...]:
+def _child_pids(value: object) -> tuple[int, ...]:
     """*value* as the positive child PIDs it names, in order, without repeats."""
     if not isinstance(value, list | tuple):
         return ()
@@ -1539,7 +1539,7 @@ def _child_pids(value: Any) -> tuple[int, ...]:
     return tuple(pids)
 
 
-def _mapping(value: Any) -> dict[str, Any]:
+def _mapping(value: object) -> dict[str, Any]:
     """*value* as a mapping, or an empty one. Anything else states nothing."""
     return dict(value) if isinstance(value, dict) else {}
 
@@ -1580,7 +1580,7 @@ def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
     }
 
 
-def _reachable_statement(value: Any) -> dict[str, Any] | None:
+def _reachable_statement(value: object) -> dict[str, Any] | None:
     """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
     if not isinstance(value, dict) or value.get("state") not in _REACHABLE_STATES:
         return None
@@ -1592,7 +1592,7 @@ def _reachable_statement(value: Any) -> dict[str, Any] | None:
     return {"state": value["state"], "since": since, "reason": reason}
 
 
-def _writes_statement(value: Any) -> dict[str, Any] | None:
+def _writes_statement(value: object) -> dict[str, Any] | None:
     """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
     if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
         return None
@@ -1604,7 +1604,7 @@ def _writes_statement(value: Any) -> dict[str, Any] | None:
     return {key: value.get(key) for key in _WRITES_STATEMENT_KEYS}
 
 
-def _statement(value: Any) -> dict[str, Any] | None:
+def _statement(value: object) -> dict[str, Any] | None:
     """*value* as a machine statement, or ``None`` when it is not one.
 
     A statement is a mapping holding both ``reachable`` and ``writes``, each
@@ -1626,7 +1626,7 @@ def _statement(value: Any) -> dict[str, Any] | None:
     return {"reachable": reachable, "writes": writes}
 
 
-def _parse_report(raw: Any) -> ServerReport | None:
+def _parse_report(raw: object) -> ServerReport | None:
     """Decode one server report, or ``None`` when it describes no server.
 
     Rule 5. ``server_pid`` is the identity and the only field that can make the

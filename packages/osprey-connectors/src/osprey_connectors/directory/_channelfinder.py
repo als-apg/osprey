@@ -125,7 +125,7 @@ def _searched(query: DirectoryQuery) -> str:
     return " · ".join(parts) or "every PV"
 
 
-def _channels(body: Any) -> list[Mapping[str, Any]] | Unavailable:
+def _channels(body: object) -> list[Mapping[str, Any]] | Unavailable:
     if isinstance(body, Unavailable):
         return body
     if not isinstance(body, list) or not all(
@@ -135,13 +135,13 @@ def _channels(body: Any) -> list[Mapping[str, Any]] | Unavailable:
     return body
 
 
-def _total(body: Any) -> int | Unavailable:
+def _total(body: object) -> int | Unavailable:
     if isinstance(body, Unavailable):
         return body
     return _MALFORMED if isinstance(body, bool) or not isinstance(body, int) or body < 0 else body
 
 
-def _names_of(entries: Any) -> list[str]:
+def _names_of(entries: object) -> list[str]:
     if not isinstance(entries, list):
         return []
     return [

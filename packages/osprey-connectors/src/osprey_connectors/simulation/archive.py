@@ -538,7 +538,7 @@ class ArchiveComposite:
     def _stepped(
         self,
         channel: Mapping[str, Any],
-        held: Any,
+        held: object,
         events: Sequence[Mapping[str, Any]],
         times: np.ndarray,
     ) -> list[Any]:

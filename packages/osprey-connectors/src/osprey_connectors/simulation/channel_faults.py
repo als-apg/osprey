@@ -54,12 +54,12 @@ _FLOAT = "float"
 _UNDEFINED = "udf"
 
 
-def _snapshot(value_type: str, snapshot: Any) -> Any:
+def _snapshot(value_type: str, snapshot: object) -> Any:
     del value_type
     return snapshot
 
 
-def _not_a_number(value_type: str, snapshot: Any) -> Any:
+def _not_a_number(value_type: str, snapshot: object) -> Any:
     return math.nan if value_type == _FLOAT else snapshot
 
 

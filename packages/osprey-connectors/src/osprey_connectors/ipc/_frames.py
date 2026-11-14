@@ -253,7 +253,7 @@ def _encode_value(value: Any, blobs: list[bytes]) -> Any:
     raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
 
 
-def _decode_value(node: Any, blobs: list[bytes]) -> Any:
+def _decode_value(node: object, blobs: list[bytes]) -> Any:
     """Inverse of :func:`_encode_value`."""
     if node is None or isinstance(node, (bool, int, float, str)):
         return node
@@ -283,7 +283,7 @@ def _decode_value(node: Any, blobs: list[bytes]) -> Any:
         raise _UnrebuildableValueError(tag, exc) from exc
 
 
-def _blob(blobs: list[bytes], index: Any) -> bytes:
+def _blob(blobs: list[bytes], index: object) -> bytes:
     if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(blobs):
         raise FrameDecodeError(f"blob index {index!r} outside the frame's {len(blobs)} segments")
     return blobs[index]
@@ -316,7 +316,7 @@ def encode_request(request_id: str, method: str, kwargs: dict[str, Any] | None =
     return _pack(header, blobs)
 
 
-def encode_result(request_id: str, value: Any) -> bytes:
+def encode_result(request_id: str, value: object) -> bytes:
     """Encode a successful reply carrying ``value``."""
     blobs: list[bytes] = []
     header = {

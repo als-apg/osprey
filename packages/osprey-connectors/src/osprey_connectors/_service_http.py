@@ -126,7 +126,7 @@ class ReadOnlyTransport:
         path: str,
         *,
         params: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
-        json_body: Any = None,
+        json_body: object = None,
         deadline: float,
     ) -> Any:
         """One request, finished within *deadline* seconds or the block's ``timeout_s``.

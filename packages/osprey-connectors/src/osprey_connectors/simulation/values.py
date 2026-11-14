@@ -47,15 +47,15 @@ def is_waveform(value_type: str | None) -> bool:
     return value_type == _WAVEFORM
 
 
-def _refuse(value: Any, value_type: str, reason: str) -> ValueError:
+def _refuse(value: object, value_type: str, reason: str) -> ValueError:
     return ValueError(f"value {value!r} is not a valid {value_type}: {reason}")
 
 
-def _is_number(value: Any) -> bool:
+def _is_number(value: object) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
-def _is_integer(value: Any) -> bool:
+def _is_integer(value: object) -> bool:
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 
 
@@ -85,7 +85,7 @@ def _size(shape: Sequence[int] | None) -> int:
     return math.prod(shape)
 
 
-def _flatten(value: Any, out: list[Any]) -> None:
+def _flatten(value: object, out: list[Any]) -> None:
     if isinstance(value, (list, tuple)):
         for item in value:
             _flatten(item, out)

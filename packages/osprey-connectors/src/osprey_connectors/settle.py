@@ -111,7 +111,7 @@ class SettleTimeoutError(TimeoutError):
         last: Its readback's last reading.
     """
 
-    def __init__(self, landing: Landing, last: Any, timeout_s: float) -> None:
+    def __init__(self, landing: Landing, last: object, timeout_s: float) -> None:
         self.landing = landing
         self.last = last
         super().__init__(
@@ -193,7 +193,7 @@ async def settle(
         await sleep(_POLL_INTERVAL_S)
 
 
-def _within(value: Any, landing: Landing) -> bool:
+def _within(value: object, landing: Landing) -> bool:
     """Whether ``value`` is a finite number within the landing's bound of its demand."""
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return False

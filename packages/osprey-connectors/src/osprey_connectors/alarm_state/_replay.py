@@ -195,7 +195,7 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
     return snapshot, stopped, _iso(loaded_at)
 
 
-def _message(parsed: Any) -> _Message:
+def _message(parsed: object) -> _Message:
     if not isinstance(parsed, dict):
         raise ValueError("a message is a JSON object")
     value = parsed.get("value")
