@@ -270,7 +270,6 @@ Web terminal:
   Migration: choose `token`, `password` or `oidc`, or stop selecting
     `jupyter` in the renders the message names, and rebuild.
 
-
 Facility description and build:
 
 - **Breaking change:** channel limits are authored in
