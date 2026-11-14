@@ -10,6 +10,7 @@ Date: 2026-07-01
 import asyncio
 from datetime import datetime
 from operator import itemgetter
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -50,10 +51,10 @@ class DOOCSArchiverConnector(ArchiverConnector):
         >>> )
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
-        self._avg_window = None
-        self._doocs4py = None
+        self._avg_window: float | None = None
+        self._doocs4py: ModuleType | None = None
         self._timeout: float = 60
 
     async def connect(self, config: dict[str, Any]) -> None:

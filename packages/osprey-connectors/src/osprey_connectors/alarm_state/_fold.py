@@ -14,7 +14,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from enum import Enum
+from typing import Literal
 
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
@@ -22,6 +23,7 @@ from osprey_connectors.alarm_state._contract import (
     AlarmStateRow,
     severity_rank,
 )
+from osprey_connectors.service_answers import _flag, _text
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"
@@ -36,14 +38,14 @@ class FeedSnapshot:
     """Every message folded so far; each PV maps its tree paths to their latest value."""
 
     messages: int = 0
-    states: dict[str, dict[str, Mapping[str, Any]]] = field(default_factory=dict)
-    configs: dict[str, dict[str, Mapping[str, Any]]] = field(default_factory=dict)
+    states: dict[str, dict[str, Mapping[str, object]]] = field(default_factory=dict)
+    configs: dict[str, dict[str, Mapping[str, object]]] = field(default_factory=dict)
 
 
 def fold_message(
     snapshot: FeedSnapshot,
     key: str | bytes | None,
-    value: str | bytes | Mapping[str, Any] | None,
+    value: str | bytes | Mapping[str, object] | None,
     *,
     time: str | None = None,
 ) -> FeedSnapshot:
@@ -103,7 +105,7 @@ def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, .
     return tuple(rows)
 
 
-def _state_of(body: Mapping[str, Any], *, stale: bool) -> AlarmStateRecord:
+def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
     recorded = body.get("severity")
     if recorded is not None:
         recorded = str(recorded)
@@ -111,11 +113,11 @@ def _state_of(body: Mapping[str, Any], *, stale: bool) -> AlarmStateRecord:
     acknowledged = severity != recorded
     return AlarmStateRecord(
         severity=severity,
-        status=body.get("current_message"),
+        status=_text(body.get("current_message")),
         latched=not acknowledged
         and severity_rank(body.get("current_severity")) < severity_rank(severity),
         acknowledged=acknowledged,
-        message=body.get("message"),
+        message=_text(body.get("message")),
         time=_recorded_time(body.get("time")),
         stale=stale,
     )
@@ -140,8 +142,8 @@ def config_record(snapshot: FeedSnapshot, channel: str) -> AlarmConfigRecord:
         path=path,
         guidance=body.get("guidance"),
         displays=body.get("displays"),
-        enabled=body.get("enabled"),
-        latching=body.get("latching"),
+        enabled=_flag(body.get("enabled")),
+        latching=_flag(body.get("latching")),
     )
 
 
@@ -150,7 +152,13 @@ def pv_name(tree_name: str) -> str:
     return _PV_SCHEME.sub("", tree_name.replace("\\/", "/"))
 
 
-_UNPARSEABLE: Any = object()
+class _Unparseable(Enum):
+    """A value that is neither a mapping nor a tombstone."""
+
+    VALUE = "unparseable"
+
+
+_UNPARSEABLE = _Unparseable.VALUE
 
 
 def _split_key(key: str | bytes | None) -> tuple[str | None, str | None]:
@@ -164,7 +172,9 @@ def _split_key(key: str | bytes | None) -> tuple[str | None, str | None]:
     return kind, path
 
 
-def _parse_value(value: str | bytes | Mapping[str, Any] | None) -> Any:
+def _parse_value(
+    value: str | bytes | Mapping[str, object] | None,
+) -> Mapping[str, object] | Literal[_Unparseable.VALUE] | None:
     """The value as a mapping, ``None`` for a tombstone, ``_UNPARSEABLE`` otherwise."""
     if isinstance(value, Mapping):
         return value

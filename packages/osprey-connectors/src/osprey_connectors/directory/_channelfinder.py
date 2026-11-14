@@ -30,9 +30,9 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Literal, NotRequired, TypedDict
 
-from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
     DirectoryPage,
@@ -81,7 +81,15 @@ _PROBE_SAMPLE_SIZE = 20
 
 _SEPARATORS = str.maketrans(dict.fromkeys(",|;", "?"))
 
-_Params = list[tuple[str, Any]]
+_Params = list[tuple[str, str | int]]
+
+
+class _Channel(TypedDict):
+    """A channel as the service answers it, once its ``name`` is checked a string."""
+
+    name: str
+    properties: NotRequired[object]
+    tags: NotRequired[object]
 
 
 def _one_value(text: str) -> str:
@@ -125,7 +133,7 @@ def _searched(query: DirectoryQuery) -> str:
     return " · ".join(parts) or "every PV"
 
 
-def _channels(body: object) -> list[Mapping[str, Any]] | Unavailable:
+def _channels(body: object) -> list[_Channel] | Unavailable:
     if isinstance(body, Unavailable):
         return body
     if not isinstance(body, list) or not all(
@@ -145,22 +153,22 @@ def _names_of(entries: object) -> list[str]:
     if not isinstance(entries, list):
         return []
     return [
-        entry["name"]
+        name
         for entry in entries
-        if isinstance(entry, Mapping) and isinstance(entry.get("name"), str)
+        if isinstance(entry, Mapping) and isinstance(name := entry.get("name"), str)
     ]
 
 
-def _properties_of(channel: Mapping[str, Any]) -> dict[str, str]:
+def _properties_of(channel: _Channel) -> dict[str, str]:
     entries = channel.get("properties")
     if not isinstance(entries, list):
         return {}
     return {
-        entry["name"]: str(entry["value"])
+        name: str(value)
         for entry in entries
         if isinstance(entry, Mapping)
-        and isinstance(entry.get("name"), str)
-        and entry.get("value") is not None
+        and isinstance(name := entry.get("name"), str)
+        and (value := entry.get("value")) is not None
     }
 
 
@@ -187,8 +195,8 @@ class ChannelFinderDirectory(ChannelDirectory):
         spec: BackendSpec,
         *,
         project_dir: Path | None = None,
-        transport: Any = None,
-        **seams: Any,
+        transport: Transport | None = None,
+        **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         self._transport = transport or ReadOnlyTransport(
@@ -245,7 +253,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             [*(("~name", _pattern(word)) for word in plain), *narrowing],
         ]
 
-    def _record(self, channel: Mapping[str, Any]) -> DirectoryRecord:
+    def _record(self, channel: _Channel) -> DirectoryRecord:
         properties = _properties_of(channel)
         return DirectoryRecord(
             row=DirectoryRow(
@@ -261,7 +269,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             tags=_names_of(channel.get("tags")),
         )
 
-    async def _get(self, path: str, params: _Params | None, deadline: float) -> Any:
+    async def _get(self, path: str, params: _Params | None, deadline: float) -> object:
         return await self._transport.request("GET", path, params=params, deadline=deadline)
 
     async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
@@ -272,19 +280,31 @@ class ChannelFinderDirectory(ChannelDirectory):
         searches = self._searches(query)
         sent: list[str] = []
 
-        def answer(outcome: Outcome, **fields: Any) -> DirectoryPage:
+        def answer(
+            outcome: Outcome,
+            *,
+            total: int | None = None,
+            rows: list[DirectoryRow] | None = None,
+            truncated: bool = False,
+            partial: list[Mapping[str, str]] | None = None,
+            reason: str | None = None,
+        ) -> DirectoryPage:
             return DirectoryPage(
                 outcome=outcome,
                 searched=searched,
                 request=" · ".join(sent),
                 source=self.source,
-                **fields,
+                total=total,
+                rows=rows or [],
+                truncated=truncated,
+                partial=partial or [],
+                reason=reason,
             )
 
         while True:
             narrowing = searches.pop(0)
             left = deadline - (time.monotonic() - started)
-            params = [*narrowing, ("~size", size), ("~from", start)]
+            params: _Params = [*narrowing, ("~size", size), ("~from", start)]
             sent.append(_literal(_CHANNELS, params))
             body, counted = await asyncio.gather(
                 self._get(_CHANNELS, params, left), self._get(_COUNT, narrowing, left)
@@ -328,7 +348,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     async def describe(
         self, name: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        params = [("~name", _one_value(name)), ("~size", _DESCRIBE_SIZE)]
+        params: _Params = [("~name", _one_value(name)), ("~size", _DESCRIBE_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, deadline))
         if isinstance(channels, Unavailable):
             return channels
@@ -347,7 +367,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         self, name: str, prefix: str | None, deadline: float
     ) -> list[str] | Unavailable:
         wanted = f"{_one_value(prefix)}*" if prefix else "*"
-        params = [(name, wanted), ("~size", _VALUES_SIZE)]
+        params: _Params = [(name, wanted), ("~size", _VALUES_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, deadline))
         if isinstance(channels, Unavailable):
             return channels

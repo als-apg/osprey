@@ -28,12 +28,18 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
-from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
-from osprey_connectors.service_answers import BackendSpec, HistoryPage, Outcome, Unavailable
+from osprey_connectors.service_answers import (
+    BackendSpec,
+    HistoryPage,
+    Outcome,
+    Unavailable,
+    _flag,
+    _text,
+)
 
 _SEARCH_PATH = "/search/alarm"
 _CONFIG_PATH = "/search/alarm/config"
@@ -59,8 +65,8 @@ class PhoebusAlarmLogger(AlarmLog):
         spec: BackendSpec,
         *,
         project_dir: Path | None = None,
-        transport: Any = None,
-        **seams: Any,
+        transport: Transport | None = None,
+        **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
@@ -119,8 +125,8 @@ class PhoebusAlarmLogger(AlarmLog):
 
     async def _search(
         self, pv: str, size: int, since: datetime | None, deadline: float
-    ) -> list[Any] | Unavailable:
-        params: dict[str, Any] = {"pv": pv, "size": size}
+    ) -> list[object] | Unavailable:
+        params: dict[str, str | int] = {"pv": pv, "size": size}
         if since is not None:
             params.update(start=_days_since(since), end="now")
         answer = await self._transport.request(
@@ -130,15 +136,28 @@ class PhoebusAlarmLogger(AlarmLog):
             return answer
         return Unavailable(_MALFORMED_REASON)
 
-    def _page(self, outcome: Outcome, **fields: Any) -> HistoryPage[AlarmHistoryRow]:
-        return HistoryPage(outcome=outcome, source=self.source, **fields)
+    def _page(
+        self,
+        outcome: Outcome,
+        *,
+        rows: list[AlarmHistoryRow] | None = None,
+        truncated: bool = False,
+        reason: str | None = None,
+    ) -> HistoryPage[AlarmHistoryRow]:
+        return HistoryPage(
+            outcome=outcome,
+            source=self.source,
+            rows=rows or [],
+            truncated=truncated,
+            reason=reason,
+        )
 
 
-def _rows_of(answer: list[Any], pv: str) -> list[Mapping[str, Any]]:
+def _rows_of(answer: list[object], pv: str) -> list[Mapping[str, object]]:
     return [row for row in answer if isinstance(row, Mapping) and _belongs_to(row, pv)]
 
 
-def _belongs_to(row: Mapping[str, Any], pv: str) -> bool:
+def _belongs_to(row: Mapping[str, object], pv: str) -> bool:
     path = _tree_path(row)
     name = _UNESCAPED_SLASH.split(path)[-1] if path else row.get("pv")
     return isinstance(name, str) and _pv_name(name) == _pv_name(pv)
@@ -148,21 +167,21 @@ def _pv_name(tree_name: str) -> str:
     return _PV_SCHEME.sub("", tree_name.replace("\\/", "/"))
 
 
-def _tree_path(row: Mapping[str, Any]) -> str | None:
+def _tree_path(row: Mapping[str, object]) -> str | None:
     config = row.get("config")
     return (config.partition(":")[2] or None) if isinstance(config, str) else None
 
 
-def _is_config_row(row: Mapping[str, Any]) -> bool:
+def _is_config_row(row: Mapping[str, object]) -> bool:
     config = row.get("config")
     return isinstance(config, str) and config.startswith("config:")
 
 
-def _newest_config_row(rows: list[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+def _newest_config_row(rows: list[Mapping[str, object]]) -> Mapping[str, object] | None:
     return next((row for row in rows if _is_config_row(row)), None)
 
 
-def _config_record(row: Mapping[str, Any]) -> AlarmConfigRecord:
+def _config_record(row: Mapping[str, object]) -> AlarmConfigRecord:
     """What a ``config:`` row says; one that cannot be read leaves the answer unknown."""
     path = _tree_path(row)
     body = _config_body(row)
@@ -175,12 +194,12 @@ def _config_record(row: Mapping[str, Any]) -> AlarmConfigRecord:
         path=path,
         guidance=body.get("guidance"),
         displays=body.get("displays"),
-        enabled=body.get("enabled"),
-        latching=body.get("latching"),
+        enabled=_flag(body.get("enabled")),
+        latching=_flag(body.get("latching")),
     )
 
 
-def _config_body(row: Mapping[str, Any]) -> Mapping[str, Any] | None:
+def _config_body(row: Mapping[str, object]) -> Mapping[str, object] | None:
     text = row.get("config_msg")
     if not isinstance(text, str | bytes | bytearray):
         return None
@@ -191,26 +210,26 @@ def _config_body(row: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return body if isinstance(body, Mapping) else None
 
 
-def _history_row(row: Mapping[str, Any]) -> AlarmHistoryRow:
+def _history_row(row: Mapping[str, object]) -> AlarmHistoryRow:
     if _is_config_row(row):
         body = _config_body(row) or {}
         return AlarmHistoryRow(
-            time=row.get("message_time"),
-            message=body.get("delete", body.get("description")),
-            user=row.get("user"),
+            time=_text(row.get("message_time")),
+            message=_text(body.get("delete", body.get("description"))),
+            user=_text(row.get("user")),
             kind="config",
         )
     return AlarmHistoryRow(
-        time=row.get("time") or row.get("message_time"),
-        severity=row.get("severity"),
-        status=row.get("current_message"),
-        message=row.get("message"),
-        user=row.get("user"),
+        time=_text(row.get("time") or row.get("message_time")),
+        severity=_text(row.get("severity")),
+        status=_text(row.get("current_message")),
+        message=_text(row.get("message")),
+        user=_text(row.get("user")),
         kind="state",
     )
 
 
-def _in_window(row: Mapping[str, Any], since: datetime | None) -> bool:
+def _in_window(row: Mapping[str, object], since: datetime | None) -> bool:
     """A row whose time cannot be read stays: nothing shows it fell outside the window."""
     if since is None:
         return True

@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from osprey_connectors.types import ControlTarget
 
@@ -52,6 +52,16 @@ def _require_reason(outcome: Outcome, reason: str | None) -> None:
         raise ValueError("an unavailable outcome carries its reason")
 
 
+def _text(recorded: object) -> str | None:
+    """A recorded value a record holds as a string; any other is not that field's."""
+    return recorded if isinstance(recorded, str) else None
+
+
+def _flag(recorded: object) -> bool | None:
+    """A recorded value a record holds as a flag; any other is not that field's."""
+    return recorded if isinstance(recorded, bool) else None
+
+
 @dataclass(frozen=True)
 class Unavailable:
     """The service gave no answer, and why, in words a reader can act on."""
@@ -79,7 +89,7 @@ class BackendSpec:
     kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
     type: str
     target: ControlTarget
-    settings: Mapping[str, Any]
+    settings: Mapping[str, object]
     rehearsal: bool
 
 
@@ -104,7 +114,9 @@ class HistoryPage(Generic[_RowT]):
 class _Backend:
     """The construction and the source every backend kind shares."""
 
-    def __init__(self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any) -> None:
+    def __init__(
+        self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
+    ) -> None:
         self.spec = spec
         self.project_dir = project_dir
 
