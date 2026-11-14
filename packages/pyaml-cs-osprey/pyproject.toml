@@ -13,7 +13,9 @@ license = {text = "BSD-3-Clause"}
 # package, so declaring it back would be a cycle. The package is not meant to be
 # installed without the framework, whose `osprey.runtime` it calls.
 dependencies = [
-    "accelerator-middle-layer==0.3.2",
+    # pyAML (imports as `pyaml`): the ALS-APG staging distribution, upstream 0.3.2
+    # plus the trajectory tool; never installed beside `accelerator-middle-layer`.
+    "accelerator-middle-layer-apg==0.3.2.post1",
     # The backend raises and catches the connectors' own errors (device.py,
     # devices.py, _run.py, errors.py). The same floor as the framework's
     # `osprey-connectors` dependency (a test holds them together).

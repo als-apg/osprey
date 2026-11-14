@@ -29,7 +29,7 @@ resolution-markers = [
 [options.exclude-newer-package]
 lume-pyat = "2026-09-18T00:00:00Z"
 lume-pva-apg = "2026-11-11T00:00:00Z"
-accelerator-middle-layer = "2026-10-17T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-18T00:00:00Z"
 
 [manifest]
 members = [
@@ -64,8 +64,8 @@ wheels = [
 ]
 
 [[package]]
-name = "accelerator-middle-layer"
-version = "0.3.2"
+name = "accelerator-middle-layer-apg"
+version = "0.3.2.post1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "accelerator-commissioning" },
@@ -78,9 +78,9 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/50/82963d30b5c810e85297da71241ca6e2f75c8836cb267a2695ee77adaf8e/accelerator_middle_layer-0.3.2.tar.gz", hash = "sha256:d00820c656d9bb743a5357931a4ac46f421703b3c81adde57e3a3dde087b1085", size = 4575749, upload-time = "2026-10-16T14:58:46.896Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/91/85c0aa05cc43c8e832af28eec60b58ff00ce9d88f34756e40570a2aacb46/accelerator_middle_layer_apg-0.3.2.post1.tar.gz", hash = "sha256:b38eb9a4a47f6d40c6368d863b82aff5c26cec5091b39c2af1ad26e8f23133bb", size = 4589873, upload-time = "2026-10-17T20:41:20.177Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/4e/a73b0e654c284de4de8241858d31686c533fb6838d962c76e79873bea39a/accelerator_middle_layer-0.3.2-py3-none-any.whl", hash = "sha256:8b6718f273a7efdf886e9ab29d0d10dac2fd7c979f04046f61a7408f6dfab1a6", size = 225566, upload-time = "2026-10-16T14:58:44.932Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/4e/8e3f2361cc8354251df534bcc263c15483d9de4318edc663efd354a26d53/accelerator_middle_layer_apg-0.3.2.post1-py3-none-any.whl", hash = "sha256:84d1df834a0c8712a27ffa07010aefae22bdcd2bb2a417e219d9c5caac4bc043", size = 238803, upload-time = "2026-10-17T20:41:18.3Z" },
 ]
 
 [[package]]
@@ -5477,7 +5477,7 @@ name = "osprey-framework"
 source = { editable = "." }
 dependencies = [
     { name = "accelerator-commissioning" },
-    { name = "accelerator-middle-layer" },
+    { name = "accelerator-middle-layer-apg" },
     { name = "accelerator-toolbox", extra = ["plot"] },
     { name = "aiohttp" },
     { name = "aiohttp-socks" },
@@ -5675,7 +5675,7 @@ virtual-accelerator = [
 [package.metadata]
 requires-dist = [
     { name = "accelerator-commissioning", specifier = "==1.5.3" },
-    { name = "accelerator-middle-layer", specifier = "==0.3.2" },
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.2.post1" },
     { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.8.0" },
     { name = "actionlint-py", marker = "extra == 'all'", specifier = "==1.7.12.25" },
     { name = "actionlint-py", marker = "extra == 'dev'", specifier = "==1.7.12.25" },
@@ -6660,13 +6660,13 @@ memory = [
 name = "pyaml-cs-osprey"
 source = { editable = "packages/pyaml-cs-osprey" }
 dependencies = [
-    { name = "accelerator-middle-layer" },
+    { name = "accelerator-middle-layer-apg" },
     { name = "osprey-connectors" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerator-middle-layer", specifier = "==0.3.2" },
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.2.post1" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
 ]
 

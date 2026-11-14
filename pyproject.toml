@@ -240,9 +240,12 @@ dependencies = [
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
     "pyaml-cs-osprey>=2026.6.2",
-    # pyAML itself (imports as `pyaml`). String-equal to the pin in
-    # packages/pyaml-cs-osprey/pyproject.toml (a test holds them together).
-    "accelerator-middle-layer==0.3.2",
+    # pyAML itself (imports as `pyaml`): the ALS-APG staging distribution, upstream
+    # 0.3.2 plus the first-turn trajectory tool not yet in an upstream release. Never
+    # installed beside `accelerator-middle-layer`, which writes the same `pyaml/`.
+    # String-equal to the pin in packages/pyaml-cs-osprey/pyproject.toml (a test
+    # holds them together).
+    "accelerator-middle-layer-apg==0.3.2.post1",
     # pySC, the measurement engine pyAML's tuning tools drive.
     "accelerator-commissioning==1.5.3",
 ]
@@ -542,7 +545,7 @@ chromaticity_monitor = "osprey.facility.kinds:CHROMATICITY_MONITOR"
 # package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-11-11T00:00:00Z", accelerator-middle-layer = "2026-10-17T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-11-11T00:00:00Z", accelerator-middle-layer-apg = "2026-10-18T00:00:00Z" }
 # soupsieve 3+ needs Python 3.11.5. Without these floors, the lock's Python 3.11.0–3.11.4
 # fork keeps the newest soupsieve preference and backs beautifulsoup4 (via nbconvert) off to
 # 4.6.3 from 2018 instead; with them, that fork takes soupsieve 2.10 and a current bs4.

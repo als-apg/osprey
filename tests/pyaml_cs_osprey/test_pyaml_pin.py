@@ -1,6 +1,6 @@
 """What holds about the pyAML release OSPREY pins.
 
-``osprey-framework`` declares ``accelerator-middle-layer`` (pyAML, imported
+``osprey-framework`` declares ``accelerator-middle-layer-apg`` (pyAML, imported
 as ``pyaml``) directly, next to ``pyaml-cs-osprey``, because the framework's own
 code imports pyAML. ``pyaml-cs-osprey`` declares the same package for its
 control-system backend.
@@ -29,11 +29,11 @@ from packaging.utils import canonicalize_name
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 FRAMEWORK_PYPROJECT = REPO_ROOT / "pyproject.toml"
 MEMBER_PYPROJECT = REPO_ROOT / "packages" / "pyaml-cs-osprey" / "pyproject.toml"
-AML_PACKAGE = "accelerator-middle-layer"
+AML_PACKAGE = "accelerator-middle-layer-apg"
 
 
 def _aml_requirement(pyproject: pathlib.Path) -> str | None:
-    """Return the ``accelerator-middle-layer`` entry of ``project.dependencies``.
+    """Return the ``accelerator-middle-layer-apg`` entry of ``project.dependencies``.
 
     ``None`` when the package is not declared; several entries come back joined,
     so the comparison below fails with every one of them in its message.
@@ -153,3 +153,15 @@ def test_pyaml_still_round_trips_no_mixed_thin_thick_magnet() -> None:
         "the pinned pyAML drives a magnet whose slices mix zero-length and thick elements "
         f"with its set strength: {gone}"
     )
+
+
+def test_pinned_pyaml_ships_the_trajectory_tool() -> None:
+    """Deployment applications drive first-turn trajectory correction through pyAML.
+
+    ``pyaml.tuning_tools.trajectory`` is not in an upstream release yet, so the
+    pin is the staging distribution that carries it; a pin without it would build
+    an image whose trajectory application cannot import its solver.
+    """
+    from pyaml.tuning_tools.trajectory import Trajectory
+
+    assert Trajectory is not None
