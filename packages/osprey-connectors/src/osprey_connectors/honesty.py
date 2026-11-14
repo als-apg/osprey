@@ -78,7 +78,6 @@ real machine, ``va`` is the served container and is judged served.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from .types import (
     INVENTED_HISTORY_TYPES,
@@ -133,7 +132,7 @@ def invents_history(control_system_section: object) -> bool:
         return True
 
 
-def target_section(control_system_section: object, connector_type: str) -> dict[str, Any]:
+def target_section(control_system_section: object, connector_type: str) -> dict[str, object]:
     """The section a target builds from: the deployment's own, with its type replaced."""
     section = control_system_section if isinstance(control_system_section, dict) else {}
     return {**section, "type": connector_type}
@@ -268,14 +267,14 @@ def pairing_for_target(config: object, target: str) -> ArchiverPairing:
     return _rendered_pairing(config, invents_history(section))
 
 
-def _sections(config: object) -> dict[Any, Any]:
+def _sections(config: object) -> dict[object, object]:
     """The config's top-level sections, or none when it is not a mapping."""
     return config if isinstance(config, dict) else {}
 
 
-def _profile_section(type_value: object, serving_value: object) -> dict[str, Any]:
+def _profile_section(type_value: object, serving_value: object) -> dict[str, object]:
     """The one-key ``control_system:`` section a profile's spellings render to."""
-    section: dict[str, Any] = {}
+    section: dict[str, object] = {}
     if type_value is not _ABSENT:
         section["type"] = type_value
     if serving_value is not _ABSENT:
@@ -298,7 +297,7 @@ def _rendered_pairing(config: object, invented: bool) -> ArchiverPairing:
     )
 
 
-def _spellings(config: object, dotted: str, *, nested_only: bool) -> list[Any]:
+def _spellings(config: object, dotted: str, *, nested_only: bool) -> list[object]:
     """The values this config sets for *dotted*, in every spelling that is live.
 
     Returned exactly as written, never normalized: the resolvers in
@@ -315,14 +314,14 @@ def _spellings(config: object, dotted: str, *, nested_only: bool) -> list[Any]:
     return [value for value in values if value is not _ABSENT]
 
 
-def _flat_value(config: object, dotted: str) -> Any:
+def _flat_value(config: object, dotted: str) -> object:
     """The value of the whole dotted key written as one top-level key."""
     if not isinstance(config, dict) or dotted not in config:
         return _ABSENT
     return config[dotted]
 
 
-def _nested_value(config: object, dotted: str) -> Any:
+def _nested_value(config: object, dotted: str) -> object:
     """The value of *dotted* walked as nested sections."""
     node = config
     for part in dotted.split("."):
@@ -332,12 +331,12 @@ def _nested_value(config: object, dotted: str) -> Any:
     return node
 
 
-def _stated(values: list[Any]) -> list[str]:
+def _stated(values: list[object]) -> list[str]:
     """The values that actually say something, as text for a message."""
     return sorted({str(value) for value in values if value})
 
 
-def _profile_phrase(archiver: list[Any]) -> str:
+def _profile_phrase(archiver: list[object]) -> str:
     if not archiver:
         return f"unset (which the connector factory resolves to {MOCK_ARCHIVER!r})"
     stated = _stated(archiver)
@@ -352,7 +351,7 @@ def _profile_phrase(archiver: list[Any]) -> str:
     return repr(stated[0])
 
 
-def _rendered_phrase(archiver: list[Any], flat: object) -> str:
+def _rendered_phrase(archiver: list[object], flat: object) -> str:
     stated = _stated(archiver)
     if stated:
         return repr(stated[0])

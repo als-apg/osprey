@@ -80,7 +80,7 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
-def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
+def dotted_config_str(config: Mapping[str, object] | None, key: str) -> str | None:
     """Read a dotted config key, or ``None`` if it does not name a real string.
 
     ``None`` is returned for every way the key can fail to answer — a missing
@@ -99,7 +99,7 @@ def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
         config: Loaded config mapping, or ``None``.
         key: Dotted path, e.g. ``simulation.state_dir``.
     """
-    value: Any = config or {}
+    value: object = config or {}
     for part in key.split("."):
         if not isinstance(value, Mapping) or part not in value:
             return None
@@ -127,7 +127,7 @@ def rendered_config_path(repo_root: Path | str) -> Path:
     return Path(repo_root) / RENDERED_CONFIG_RELPATH
 
 
-def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
+def agent_data_base_dir(config: Mapping[str, object] | None) -> str:
     """Read the agent-data root out of an already-loaded config mapping.
 
     ``agent_data.base_dir`` is the only key that names this directory. Callers
@@ -148,7 +148,7 @@ def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     return str(section.get("base_dir") or DEFAULT_AGENT_DATA_BASE_DIR)
 
 
-def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root: Path) -> Path:
+def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_root: Path) -> Path:
     """Resolve the directory holding the mutable ``active_scenarios`` state file.
 
     The state file is the one piece of simulation state that changes after a
@@ -223,7 +223,7 @@ def resolve_config_path() -> Path:
     return rendered if rendered.is_file() else cwd / "config.yml"
 
 
-def load_osprey_config() -> dict:
+def load_osprey_config() -> dict[str, Any]:
     """Load OSPREY configuration (delegates to ConfigBuilder singleton).
 
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
@@ -279,7 +279,7 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
+def resolve_project_root(config: Mapping[str, object] | None = None) -> Path:
     """Resolve the repo root that relative configured paths anchor against.
 
     ``project_root`` names the deployment repo — the directory holding
@@ -357,7 +357,7 @@ def resolve_agent_data_root() -> Path:
     return resolved
 
 
-def resolve_shared_data_root(config: Mapping[str, Any] | None = None) -> Path:
+def resolve_shared_data_root(config: Mapping[str, object] | None = None) -> Path:
     """Resolve the agent data root WITHOUT session-path isolation.
 
     Use for stores whose data must be visible to long-lived daemons

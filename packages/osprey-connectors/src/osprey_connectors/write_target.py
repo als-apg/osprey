@@ -22,7 +22,7 @@ switch covers the call.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -115,7 +115,7 @@ class Unresolved:
 UNRESOLVED = Unresolved()
 
 
-def _is_write_tool(tool_name: str, write_tools: Any) -> bool:
+def _is_write_tool(tool_name: str, write_tools: Iterable[object] | None) -> bool:
     """Whether *tool_name* is covered by *write_tools*: exact names and ``.*`` matchers."""
     for entry in write_tools or ():
         if not isinstance(entry, str):
@@ -138,7 +138,7 @@ def _is_write_call(tool_input: object, short_name: str) -> bool:
     return bool(tool_input.get("execution_mode", "readonly") != "readonly")
 
 
-def _short_tool_name(tool_name: str, prefixes: Any) -> str:
+def _short_tool_name(tool_name: str, prefixes: Iterable[object]) -> str:
     """*tool_name* without its server prefix; the longest matching prefix wins.
 
     With no prefix matching, the ``mcp__<server>__<tool>`` shape decides, and a
@@ -153,7 +153,7 @@ def _short_tool_name(tool_name: str, prefixes: Any) -> str:
     return tool_name
 
 
-def _hook_prefixes(hook_config: Mapping[str, Any]) -> list[str]:
+def _hook_prefixes(hook_config: Mapping[str, object]) -> list[str]:
     """Every server prefix *hook_config* names."""
     prefixes: list[str] = []
     for key in _PREFIX_KEYS:
@@ -186,11 +186,11 @@ def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 
 
-def _section(config: object) -> Any:
+def _section(config: object) -> object:
     return config.get("control_system") if isinstance(config, Mapping) else None
 
 
-def _lane_block(config: object, lane_key: str) -> Mapping[str, Any]:
+def _lane_block(config: object, lane_key: str) -> Mapping[str, object]:
     services = config.get("services") if isinstance(config, Mapping) else None
     block = services.get(lane_key) if isinstance(services, Mapping) else None
     return block if isinstance(block, Mapping) else {}
