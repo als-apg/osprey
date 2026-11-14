@@ -20,10 +20,11 @@ runtime.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import NotRequired, Required, TypedDict
+from typing import Literal, NotRequired, Required, TypedDict
 
 __all__ = [
     "AddressesDocument",
+    "ArchiverEvent",
     "ChannelRecord",
     "CouplingTerm",
     "DriveRecord",
@@ -38,6 +39,7 @@ __all__ = [
     "SeedRecord",
     "SeedsDocument",
     "ServedModelsDocument",
+    "TopoffRecord",
     "VariablesDocument",
     "WiringRecord",
 ]
@@ -79,7 +81,7 @@ class ResolvedCoupling(CouplingTerm):
     drive: DriveRecord
 
 
-class _TopoffRecord(TypedDict):
+class TopoffRecord(TypedDict):
     """A ``topoff`` seed: a stored current that decays and refills."""
 
     ceiling: float
@@ -123,7 +125,7 @@ class SeedRecord(TypedDict, total=False):
     linear: Mapping[str, float | LinearTerm]
     gate: GateRecord
     pulse: PulseRecord
-    topoff: _TopoffRecord
+    topoff: TopoffRecord
     topoff_lifetime: _LifetimeRecord
 
 
@@ -176,16 +178,46 @@ class ModelEntry(TypedDict):
 
 
 class _When(TypedDict):
-    """A calendar placement, ``{days_ago, time}``, read in the facility timezone."""
+    """A calendar placement, ``{days_ago, time}``, read in the facility timezone.
+
+    ``days_ago`` is an ``int`` of 0 or more, never a ``bool``; ``time`` is an
+    ``HH:MM[:SS]`` time of day without a timezone offset.
+    """
 
     days_ago: int
     time: str
 
 
-class _ArchiverEvent(TypedDict, total=False):
-    """One event of a scenario's ``archiver`` entry."""
+class ArchiverEvent(TypedDict, total=False):
+    """One event of a scenario's ``archiver`` entry.
 
-    shape: Required[str]
+    The facility schema leaves a scenario's ``archiver`` block free-form;
+    ``osprey build`` checks each event with
+    :func:`osprey.facility.scenarios.check_scenario_events` and writes it to
+    ``scenarios.json`` as stated, so an event of the view has this shape:
+
+    * ``shape`` is one of the five shapes, and the event states exactly one
+      position key: ``at`` (a window fraction from 0 to 1), ``at_offset``
+      (seconds from the activation anchor), ``at_time`` (an ``HH:MM[:SS]``
+      time of day) or ``at_when``.
+    * A ``step`` or ``ramp`` states ``to``; a ``spike`` ``amplitude`` and
+      ``width``; a ``burst`` ``amplitude`` and ``decay_s``, and ``tail_share``
+      with ``tail_decay_s`` or neither; a ``loss`` ``amount``.
+    * A ``ramp`` placed by ``at`` states ``until``, one placed by ``at_offset``
+      ``until_offset``; a ``step`` may state the end its position pairs with
+      (``until``, ``until_offset``, ``until_when``), but not on an ``at_time``
+      step. ``until`` is a fraction from 0 to 1.
+    * Every key read as a number is an ``int`` or a ``float``, never a
+      ``bool``; ``width``, ``decay_s``, ``tail_decay_s`` and ``amount`` are
+      above 0 and ``tail_share`` lies between 0 and 1.
+    * ``to`` is whatever the channel's value type coerces: a number on a
+      ``float`` or ``int`` channel; a label, an option index or a ``bool`` on a
+      ``bool`` or ``enum`` channel; a string on a ``string`` channel; on a
+      ``waveform`` channel a list of numbers, nested to the channel's
+      ``shape``. A shape other than ``step`` is on a ``float`` channel only.
+    """
+
+    shape: Required[Literal["step", "ramp", "spike", "burst", "loss"]]
     at: float
     at_offset: float
     at_when: _When
@@ -193,7 +225,7 @@ class _ArchiverEvent(TypedDict, total=False):
     until: float
     until_offset: float
     until_when: _When
-    to: float | str
+    to: float | str | Sequence[object]
     amplitude: float
     width: float
     decay_s: float
@@ -206,7 +238,7 @@ class _ArchiverEntry(TypedDict):
     """One entry of a scenario's ``archiver`` block: a channel and its events."""
 
     channel: str
-    events: NotRequired[Sequence[_ArchiverEvent]]
+    events: NotRequired[Sequence[ArchiverEvent]]
 
 
 class _FaultRecord(TypedDict):

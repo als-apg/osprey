@@ -62,7 +62,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -88,7 +88,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pymongo.collection import Collection
 
     from osprey_connectors.simulation.composite import Composite
-    from osprey_connectors.simulation.records import ChannelRecord, PulseRecord, ScenarioRecord
+    from osprey_connectors.simulation.records import (
+        ArchiverEvent,
+        ChannelRecord,
+        PulseRecord,
+        ScenarioRecord,
+        TopoffRecord,
+    )
 
 logger = get_logger("archive")
 
@@ -327,14 +333,14 @@ class ArchiveComposite:
         self,
         channels: Mapping[str, ChannelRecord],
         held: Mapping[str, object],
-        events: Mapping[str, Sequence[Mapping[str, Any]]],
+        events: Mapping[str, Sequence[ArchiverEvent]],
         composite: Composite,
         *,
         anchor_s: float,
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
         pulses: Mapping[str, PulseRecord] | None = None,
-        topoffs: Mapping[str, Mapping[str, Any]] | None = None,
+        topoffs: Mapping[str, TopoffRecord] | None = None,
     ) -> None:
         self._channels = dict(channels)
         self._topoffs = dict(topoffs or {})
@@ -356,7 +362,7 @@ class ArchiveComposite:
         self._anchor_s = anchor_s
         self._tz = tz
 
-    def topoff_record(self, address: str) -> Mapping[str, Any] | None:
+    def topoff_record(self, address: str) -> TopoffRecord | None:
         """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
         return self._topoffs.get(address)
 
@@ -543,7 +549,7 @@ class ArchiveComposite:
         self,
         channel: ChannelRecord,
         held: object,
-        events: Sequence[Mapping[str, Any]],
+        events: Sequence[ArchiverEvent],
         times: np.ndarray,
     ) -> list[object]:
         """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
@@ -571,8 +577,8 @@ class ArchiveComposite:
 
 
 def scenario_events(
-    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
-) -> dict[str, list[dict[str, Any]]]:
+    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str]
+) -> dict[str, list[ArchiverEvent]]:
     """The archiver events a scenario set writes, by channel.
 
     Args:
@@ -584,10 +590,13 @@ def scenario_events(
         Each channel's events in set order; a channel an ``archiver`` entry
         names with no events maps to an empty list.
     """
-    events: dict[str, list[dict[str, Any]]] = {}
+    events: dict[str, list[ArchiverEvent]] = {}
     for name in names:
-        for entry in scenarios.get(name, {}).get("archiver") or []:
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+        scenario = scenarios.get(name)
+        if scenario is None:
+            continue
+        for entry in scenario.get("archiver") or ():
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or ())
     return events
 
 

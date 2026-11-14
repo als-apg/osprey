@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
-from typing import SupportsIndex, SupportsInt
+from typing import TYPE_CHECKING, SupportsIndex, SupportsInt
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -20,6 +20,9 @@ import numpy as np
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.simulation.values import _real
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 __all__ = [
     "anchored_instant",
@@ -383,7 +386,7 @@ def step_end(
 
 
 def event_positions(
-    event: Mapping[str, object],
+    event: "ArchiverEvent",
     t_frac: "np.ndarray",
     t_abs: "np.ndarray | None",
     anchor: float,
@@ -408,8 +411,8 @@ def event_positions(
         if t_abs is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, at) for at in daily_occurrences(str(event["at_time"]), t_abs, tz)]
-    return [(t_frac, _real(event["at"]))]
+        return [(t_abs, at) for at in daily_occurrences(event["at_time"], t_abs, tz)]
+    return [(t_frac, float(event["at"]))]
 
 
 def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = None) -> list[float]:
@@ -440,7 +443,7 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     return positions
 
 
-def _burst_profile(event: Mapping[str, object], dt: "np.ndarray") -> "np.ndarray":
+def _burst_profile(event: "ArchiverEvent", dt: "np.ndarray") -> "np.ndarray":
     """A ``burst``'s excursion at ``dt`` seconds after its instant.
 
     Zero before the instant, ``amplitude`` at it, then a fast exponential
@@ -456,19 +459,19 @@ def _burst_profile(event: Mapping[str, object], dt: "np.ndarray") -> "np.ndarray
     Returns:
         The excursion, same shape as ``dt``.
     """
-    amplitude = _real(event["amplitude"])
-    share = _real(event.get("tail_share", 0.0))
-    tail = _real(event.get("tail_decay_s", event["decay_s"]))
+    amplitude = event["amplitude"]
+    share = event.get("tail_share", 0.0)
+    tail = event.get("tail_decay_s", event["decay_s"])
     after = np.maximum(dt, 0.0)
-    shape = (1.0 - share) * np.exp(-after / _real(event["decay_s"])) + share * np.exp(-after / tail)
+    shape = (1.0 - share) * np.exp(-after / event["decay_s"]) + share * np.exp(-after / tail)
     return np.where(dt >= 0.0, amplitude * shape, 0.0)
 
 
 def _loss_deficit(
-    event: Mapping[str, object],
+    event: "ArchiverEvent",
     at: float,
     x: "np.ndarray",
-    topoff: Mapping[str, object] | None,
+    topoff: "TopoffRecord | None",
 ) -> "np.ndarray":
     """How far a ``loss`` holds a channel below its level at each instant of ``x``.
 
@@ -489,12 +492,12 @@ def _loss_deficit(
         The deficit, ``amount`` right after ``at`` and 0 before it and once
         refilled.
     """
-    amount = _real(event["amount"])
+    amount = event["amount"]
     deficit = np.where(x >= at, amount, 0.0)
     if topoff is None:
         return deficit
-    period = _real(topoff["period_s"])
-    shot = _REFILL_SHOT_FRACTION * abs(_real(topoff["ceiling"]))
+    period = topoff["period_s"]
+    shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
     refill = (np.floor(at / period) + 1.0) * period
     shots = np.where(x >= refill, np.floor((x - refill) * _REFILL_RATE_HZ) + 1.0, 0.0)
     return np.maximum(deficit - shot * shots, 0.0)
@@ -517,12 +520,12 @@ def loss_refill_bound(
 
 def apply_events(
     series: "np.ndarray",
-    events: Sequence[Mapping[str, object]],
+    events: "Sequence[ArchiverEvent]",
     n: int,
     t_abs: "np.ndarray | None",
     anchor: float,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, object] | None = None,
+    topoff: "TopoffRecord | None" = None,
 ) -> "np.ndarray":
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
@@ -537,6 +540,7 @@ def apply_events(
     t_frac = np.linspace(0.0, 1.0, n)
     series = series.copy()
     for event in events:
+        # A ``to`` is a number on the float channels whose series these events move.
         shape = event["shape"]
         offset_anchored = "at_offset" in event
         for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
@@ -545,11 +549,7 @@ def apply_events(
                 inside = x >= at if end is None else (x >= at) & (x < end)
                 series[inside] = _real(event["to"])
             elif shape == "ramp":
-                until = (
-                    anchor + _real(event["until_offset"])
-                    if offset_anchored
-                    else _real(event["until"])
-                )
+                until = anchor + event["until_offset"] if offset_anchored else float(event["until"])
                 to = _real(event["to"])
                 if until <= at:
                     series[x >= at] = to
@@ -564,7 +564,7 @@ def apply_events(
             elif shape == "loss":
                 series = series - _loss_deficit(event, at, x, topoff)
             else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
-                amplitude = _real(event["amplitude"])
-                width = _real(event["width"])
+                amplitude = event["amplitude"]
+                width = event["width"]
                 series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
     return series

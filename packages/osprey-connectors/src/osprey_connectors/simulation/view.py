@@ -427,7 +427,11 @@ class SimulatorView:
     # refuses one whose ``schema`` is not a schema this OSPREY reads, and
     # ``osprey build`` writes each file of a schema to that schema's shape: the
     # overloads below state that shape, the records of
-    # :mod:`osprey_connectors.simulation.records`, for each file by name.
+    # :mod:`osprey_connectors.simulation.records`, for each file by name. The
+    # facility schema leaves a scenario's ``archiver`` events free-form; the
+    # build checks each one with ``osprey.facility.scenarios.check_scenario_events``
+    # before it writes ``scenarios.json``, and ``ArchiverEvent`` states what
+    # that check guarantees.
     @overload
     def document(self, name: Literal["served_models.json"]) -> ServedModelsDocument: ...
     @overload

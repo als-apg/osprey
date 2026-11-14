@@ -35,8 +35,12 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, overload
 
 from osprey_connectors.simulation.values import _real
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
 
 __all__ = [
     "SHAPE_VERSION",
@@ -75,26 +79,39 @@ def _shape_version() -> str:
 SHAPE_VERSION = _shape_version()
 
 
+@overload
+def topoff_record(seed: SeedRecord | None) -> TopoffRecord | None: ...
+@overload
+def topoff_record(seed: Mapping[str, object] | None) -> Mapping[str, object] | None: ...
 def topoff_record(seed: Mapping[str, object] | None) -> Mapping[str, object] | None:
-    """The ``topoff`` record of a seed, or None when it has none."""
+    """The ``topoff`` record of a seed, or None when it has none.
+
+    A view's seed record answers its ``topoff`` record; any other seed mapping,
+    such as the facility build's seed before the view is written, answers the
+    mapping under ``topoff`` as it stands.
+    """
     if not seed:
         return None
     record = seed.get(_TOPOFF_KEY)
     return record if isinstance(record, Mapping) else None
 
 
-def tau_period(record: Mapping[str, object]) -> tuple[float, float]:
+def tau_period(record: TopoffRecord) -> tuple[float, float]:
     """``(tau, period_s)`` of a ``topoff`` record, both in seconds."""
-    return _real(record["lifetime_h"]) * _SECONDS_PER_HOUR, _real(record["period_s"])
+    return record["lifetime_h"] * _SECONDS_PER_HOUR, float(record["period_s"])
 
 
-def period_mean(record: Mapping[str, object]) -> float:
+def period_mean(record: TopoffRecord) -> float:
     """The mean ``m`` of the unit sawtooth over one period."""
-    tau, period = tau_period(record)
+    return _unit_mean(*tau_period(record))
+
+
+def _unit_mean(tau: float, period: float) -> float:
+    """The mean of ``exp(-(t mod period) / tau)`` over one period."""
     return (tau / period) * -math.expm1(-period / tau)
 
 
-def tooth_depth(record: Mapping[str, object]) -> float:
+def tooth_depth(record: TopoffRecord) -> float:
     """How far the sawtooth carries a reading from its held level ``ceiling * m``.
 
     Returns:
@@ -103,7 +120,7 @@ def tooth_depth(record: Mapping[str, object]) -> float:
     """
     tau, period = tau_period(record)
     mean = period_mean(record)
-    return abs(_real(record["ceiling"])) * max(1.0 - mean, mean - math.exp(-period / tau))
+    return abs(float(record["ceiling"])) * max(1.0 - mean, mean - math.exp(-period / tau))
 
 
 def held_value(
@@ -111,6 +128,9 @@ def held_value(
     lookup: Callable[[str], Mapping[str, object] | None] | None = None,
 ) -> float | None:
     """The value a ``topoff`` or ``topoff_lifetime`` seed holds.
+
+    The seeds are read as plain mappings, not as the view's seed records: the
+    facility build asks for a held value before it writes the view.
 
     Args:
         seed: A channel's seed, or None.
@@ -125,7 +145,8 @@ def held_value(
     """
     record = topoff_record(seed)
     if record is not None:
-        return _real(record["ceiling"]) * period_mean(record)
+        tau = _real(record["lifetime_h"]) * _SECONDS_PER_HOUR
+        return _real(record["ceiling"]) * _unit_mean(tau, _real(record["period_s"]))
     lifetime = (seed or {}).get(_LIFETIME_KEY)
     if not isinstance(lifetime, Mapping) or lookup is None:
         return None
