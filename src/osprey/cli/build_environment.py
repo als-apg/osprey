@@ -239,8 +239,9 @@ def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
             if not is_release():
                 raise BuildProfileError(
                     f"Cannot pin osprey-framework: {unreleased_pin_reason()} "
-                    "Set `osprey_install` in your profile to a source path or an "
-                    "explicit PEP 508 spec, or build from a released osprey."
+                    "From a clone, install it editable (`pip install -e <clone>`); or set "
+                    "`osprey_install` in your profile to a source path or an explicit "
+                    "PEP 508 spec, or build from a released osprey."
                 )
             spec = f"osprey-framework=={get_release_version()}"
             return spec, spec
