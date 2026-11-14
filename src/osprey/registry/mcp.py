@@ -2275,7 +2275,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
             logger.warning(
                 "Server %r attaches the 'writes_check' hook preset to every tool; "
                 "declare `writes:` with the tools that write instead. The "
-                "whole-server preset is refused from OSPREY %s",
+                "whole-server preset is refused in %s",
                 name,
                 sunset,
             )
@@ -2286,7 +2286,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
                 resolved.append(hook)
             else:
                 logger.warning(
-                    "Unknown hook preset %r for server %r — skipping; refused from OSPREY %s. "
+                    "Unknown hook preset %r for server %r — skipping; refused in %s. "
                     "Known presets: %s",
                     preset,
                     name,
@@ -2335,11 +2335,11 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
 
 
 def _write_keys_sunset() -> str:
-    """C-SUNSET: the release from which the retired write spellings are refused.
+    """C-SUNSET: the release in which the retired write spellings are refused.
 
     Imported lazily: the registry is loaded by the running servers and hooks'
     render side, and the build-profile loader is a CLI module it should not
-    pull in just to name a version in a warning.
+    pull in just to name a release in a warning.
     """
     from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM
 

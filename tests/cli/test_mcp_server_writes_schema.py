@@ -159,7 +159,7 @@ def test_an_unknown_per_server_key_warns_naming_the_server_and_the_sunset(caplog
     assert "'facility'" in warnings[0]
     assert "'write'" in warnings[0]
     assert "writes" in warnings[0]  # the closest known spelling
-    assert RETIRED_WRITE_KEYS_REFUSED_FROM in warnings[0]
+    assert f"refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}." in warnings[0]
 
 
 def test_the_unknown_key_warning_is_given_once_per_server_and_key(caplog):
