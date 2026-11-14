@@ -11,11 +11,8 @@ reached through the connector when asked.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Sequence
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import numpy as np
+from collections.abc import Awaitable, Iterable
+from typing import Protocol, SupportsInt, runtime_checkable
 
 __all__ = [
     "STATUS_NO_DECK",
@@ -47,7 +44,7 @@ class _Reading(Protocol):
     """What a read of a status channel returns: its text, or its char waveform."""
 
     @property
-    def value(self) -> str | Sequence[int] | np.ndarray: ...
+    def value(self) -> str | Iterable[SupportsInt]: ...
 
 
 @runtime_checkable

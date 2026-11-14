@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, SupportsIndex, SupportsInt
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import numpy.typing as npt
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
@@ -124,14 +125,14 @@ def _key_words(channel_key: bytes) -> tuple[np.uint64, np.uint64]:
     )
 
 
-def _mix64(z: "np.ndarray") -> "np.ndarray":
+def _mix64(z: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """splitmix64 avalanche finalizer over a uint64 array (wrapping arithmetic)."""
     z = (z ^ (z >> _SHIFT_30)) * _MIX_A
     z = (z ^ (z >> _SHIFT_27)) * _MIX_B
     return np.asarray(z ^ (z >> _SHIFT_31))
 
 
-def _as_counter_array(counters: "np.ndarray") -> "np.ndarray":
+def _as_counter_array(counters: npt.ArrayLike) -> npt.NDArray[np.uint64]:
     """Normalize counters to uint64, rounding floats to the nearest integer.
 
     Epoch-millisecond counters usually arrive as float64 (``epoch_s * 1000``);
@@ -146,7 +147,9 @@ def _as_counter_array(counters: "np.ndarray") -> "np.ndarray":
     return array
 
 
-def _keyed_words(channel_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.ndarray, np.ndarray]":
+def _keyed_words(
+    channel_key: bytes, counters_ms: npt.ArrayLike
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
     """The two uint64 words each sample consumes, as a pair of arrays.
 
     Exactly two words per sample, addressed by that sample's own counter — no
@@ -159,7 +162,7 @@ def _keyed_words(channel_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.nda
     return _mix64(base ^ k0), _mix64(base ^ k1)
 
 
-def keyed_normals(channel_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
+def keyed_normals(channel_key: bytes, counters_ms: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Standard normal draws addressed by ``(channel key, counter)``.
 
     Each sample's draw is a pure function of its own counter, so two windows
@@ -196,14 +199,14 @@ def keyed_normals(channel_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray"
     return np.sqrt(-2.0 * np.log(u1)) * np.cos(_TWO_PI * u2)
 
 
-def _unit_interval(words: "np.ndarray") -> "np.ndarray":
+def _unit_interval(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.float64]:
     """Map uint64 words onto float64 in the half-open interval ``[0, 1)``."""
     return np.asarray((words >> _SHIFT_11).astype(np.float64) * _TWO_POW_M53)
 
 
 def _wander_components(
     channel_key: bytes, period_s: float
-) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Periods, phases and normalized weights of one channel's texture stack.
 
     Periods are log-spaced downward from ``period_s`` (the slowest) across
@@ -232,8 +235,8 @@ def _wander_components(
 
 
 def wander(
-    channel_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: float
-) -> "np.ndarray":
+    channel_key: bytes, t_abs_s: npt.ArrayLike, amplitude: float, period_s: float
+) -> npt.NDArray[np.float64]:
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
 
     A seeded sum of :data:`_WANDER_COMPONENTS` sinusoids whose periods are
@@ -286,7 +289,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: "Iterable[object]") -> "np.ndarray | None":
+def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:
@@ -387,11 +390,11 @@ def step_end(
 
 def event_positions(
     event: "ArchiverEvent",
-    t_frac: "np.ndarray",
-    t_abs: "np.ndarray | None",
+    t_frac: npt.NDArray[np.float64],
+    t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
     tz: ZoneInfo | None = None,
-) -> "list[tuple[np.ndarray, float]]":
+) -> list[tuple[npt.NDArray[np.float64], float]]:
     """Coordinate axis and event position(s) for one event.
 
     Fraction-positioned (``at``) and anchored (``at_offset``, ``at_when``)
@@ -415,7 +418,9 @@ def event_positions(
     return [(t_frac, float(event["at"]))]
 
 
-def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = None) -> list[float]:
+def daily_occurrences(
+    at_time: str, t_abs: npt.NDArray[np.float64], tz: ZoneInfo | None = None
+) -> list[float]:
     """Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.
 
     Walks calendar dates from the window start to its end (in timezone ``tz``)
@@ -443,7 +448,7 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     return positions
 
 
-def _burst_profile(event: "ArchiverEvent", dt: "np.ndarray") -> "np.ndarray":
+def _burst_profile(event: "ArchiverEvent", dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """A ``burst``'s excursion at ``dt`` seconds after its instant.
 
     Zero before the instant, ``amplitude`` at it, then a fast exponential
@@ -470,9 +475,9 @@ def _burst_profile(event: "ArchiverEvent", dt: "np.ndarray") -> "np.ndarray":
 def _loss_deficit(
     event: "ArchiverEvent",
     at: float,
-    x: "np.ndarray",
+    x: npt.NDArray[np.float64],
     topoff: "TopoffRecord | None",
-) -> "np.ndarray":
+) -> npt.NDArray[np.float64]:
     """How far a ``loss`` holds a channel below its level at each instant of ``x``.
 
     The channel drops by ``amount`` in one step at ``at`` and nothing brings it
@@ -519,14 +524,14 @@ def loss_refill_bound(
 
 
 def apply_events(
-    series: "np.ndarray",
+    series: npt.NDArray[np.float64],
     events: "Sequence[ArchiverEvent]",
     n: int,
-    t_abs: "np.ndarray | None",
+    t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
     tz: ZoneInfo | None = None,
     topoff: "TopoffRecord | None" = None,
-) -> "np.ndarray":
+) -> npt.NDArray[np.float64]:
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
     A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``

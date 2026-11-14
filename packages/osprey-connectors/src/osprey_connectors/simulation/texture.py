@@ -54,9 +54,10 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import numpy as np
+import numpy.typing as npt
 from lume.model import LUMEModel
 from lume.variables import (
     EnumVariable,
@@ -66,6 +67,7 @@ from lume.variables import (
     StrVariable,
     Variable,
 )
+from typing_extensions import override
 
 from osprey_connectors.simulation import pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
@@ -176,7 +178,7 @@ def _gate_inputs(inputs: Mapping[str, object] | None) -> list[tuple[str, object]
     return pairs
 
 
-def channel_variable(channel: ChannelRecord, nominal: Any) -> Variable:
+def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Variable:
     """The LUME variable of one channel of the view's ``variables.json``.
 
     A setpoint the view marks writable is settable; every other channel is
@@ -202,8 +204,13 @@ def channel_variable(channel: ChannelRecord, nominal: Any) -> Variable:
         return EnumVariable(
             name=address, options=options, default_value=nominal, read_only=read_only
         )
+    # The start value is in the stored representation of the channel's value
+    # type, which the type checker does not see; ``model_validate`` validates
+    # it exactly as the constructor would.
     if value_type == "string":
-        return StrVariable(name=address, default_value=nominal, read_only=read_only)
+        return StrVariable.model_validate(
+            {"name": address, "default_value": nominal, "read_only": read_only}
+        )
     if value_type == "waveform":
         shape = tuple(int(size) for size in channel["shape"])
         return NDVariable(
@@ -214,19 +221,23 @@ def channel_variable(channel: ChannelRecord, nominal: Any) -> Variable:
             read_only=read_only,
         )
     if value_type == "int":
-        return IntVariable(
-            name=address,
-            default_value=nominal,
-            value_range=_int_range(channel),
-            unit=unit,
-            read_only=read_only,
+        return IntVariable.model_validate(
+            {
+                "name": address,
+                "default_value": nominal,
+                "value_range": _int_range(channel),
+                "unit": unit,
+                "read_only": read_only,
+            }
         )
-    return ScalarVariable(
-        name=address,
-        default_value=nominal,
-        value_range=_float_range(channel),
-        unit=unit,
-        read_only=read_only,
+    return ScalarVariable.model_validate(
+        {
+            "name": address,
+            "default_value": nominal,
+            "value_range": _float_range(channel),
+            "unit": unit,
+            "read_only": read_only,
+        }
     )
 
 
@@ -319,10 +330,12 @@ class TextureModel(LUMEModel):
         )
 
     @property
+    @override
     def supported_variables(self) -> dict[str, Variable]:
         """The texture-owned channels, by address."""
         return self._variables
 
+    @override
     def reset(self) -> None:
         """Return every texture-owned channel to its nominal, then apply the active writes."""
         self._held = {address: self._nominals[address] for address in self._variables}
@@ -464,7 +477,7 @@ class TextureModel(LUMEModel):
         self._noise = {str(address): {**entry} for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
 
-    def motion(self, address: str, t_s: object, base: object = 0.0) -> np.ndarray:
+    def motion(self, address: str, t_s: object, base: object = 0.0) -> npt.NDArray[np.float64]:
         """The motion of a channel at absolute epoch seconds.
 
         Drift, then the held couplings, then a ``topoff`` seed's tooth
@@ -552,8 +565,8 @@ class TextureModel(LUMEModel):
 
     @staticmethod
     def _tooth(
-        tau: float, period: float, mean: float, times: np.ndarray, base: object
-    ) -> np.ndarray:
+        tau: float, period: float, mean: float, times: npt.NDArray[np.float64], base: object
+    ) -> npt.NDArray[np.float64]:
         """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``.
 
         ``tau`` and ``period`` are a ``topoff`` record's, in seconds, and
@@ -561,11 +574,13 @@ class TextureModel(LUMEModel):
         """
         unit = np.exp(-np.mod(times, period) / tau)
         level = np.asarray(base, dtype=np.float64).reshape(-1)
-        tooth: np.ndarray = level * (unit / mean - 1.0)
+        tooth: npt.NDArray[np.float64] = level * (unit / mean - 1.0)
         return tooth
 
     @staticmethod
-    def _coupling(address: str, coupling: ResolvedCoupling, times: np.ndarray) -> np.ndarray:
+    def _coupling(
+        address: str, coupling: ResolvedCoupling, times: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
         """``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling."""
         driver = str(coupling["driver"])
         drive = coupling["drive"]
@@ -575,7 +590,7 @@ class TextureModel(LUMEModel):
             float(drive["amplitude"]),
             float(drive["period_s"]),
         )
-        gain: float | np.ndarray = float(coupling["gain"])
+        gain: float | npt.NDArray[np.float64] = float(coupling["gain"])
         envelope = coupling.get("gain_wander")
         if envelope:
             gain = gain * (
@@ -596,7 +611,9 @@ class TextureModel(LUMEModel):
             return None
         return (self._seeds.get(address) or {}).get("pulse") or None
 
-    def _pulse_trace(self, address: str, record: PulseRecord, t_s: float) -> np.ndarray:
+    def _pulse_trace(
+        self, address: str, record: PulseRecord, t_s: float
+    ) -> npt.NDArray[np.float64]:
         """The trace of a ``pulse`` channel at *t_s* from its driver and enable held values.
 
         A driver or enable channel the model does not hold counts as zero or
@@ -620,6 +637,7 @@ class TextureModel(LUMEModel):
             return value
         return series.clamp(value, band[0], band[1])
 
+    @override
     def _get(self, names: list[str]) -> dict[str, object]:
         t_s = float(self._clock())
         outputs: dict[str, object] = {}
@@ -639,7 +657,8 @@ class TextureModel(LUMEModel):
                 outputs[name] = held
         return outputs
 
-    def _set(self, values_by_name: dict[str, Any]) -> None:
+    @override
+    def _set(self, values_by_name: dict[str, object]) -> None:
         self._hold(values_by_name)
 
     def _hold(self, values_by_name: Mapping[str, object]) -> None:

@@ -22,21 +22,21 @@ channel that declares no motion, or that an active scenario stills, has an
 envelope of 0.0.
 
 The module imports only the standard library and the standard-library-only
-:mod:`~osprey_connectors.simulation.topoff`, so the build, the simulator
+:mod:`~osprey_connectors.simulation.topoff` and
+:mod:`~osprey_connectors.simulation.values`, so the build, the simulator
 view's reader and the texture model share one rule.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Final
+from collections.abc import Container, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Final
 
 from osprey_connectors.simulation import topoff
+from osprey_connectors.simulation.values import _real
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import (
-        CouplingTerm,
-        DriveRecord,
         NoiseRecord,
         ResolvedCoupling,
         SeedRecord,
@@ -62,7 +62,67 @@ def _number(value: object) -> float | None:
     return float(value)
 
 
-def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
+# A facility file's scenario blocks reach :func:`active_envelopes` as the
+# schema leaves them, untyped. These read a field the way the plain ``in``,
+# ``[]`` and ``.get`` of a mapping do, and raise what those raise on any other
+# value, so every block reads as it did before the reader was typed.
+
+
+def _get(record: object, key: str) -> object:
+    """``record.get(key)``."""
+    if isinstance(record, Mapping):
+        return record.get(key)
+    raise AttributeError(f"{type(record).__name__!r} object has no attribute 'get'")
+
+
+def _item(record: object, key: str) -> object:
+    """``record[key]``."""
+    if isinstance(record, Mapping):
+        return record[key]
+    raise TypeError(f"{type(record).__name__!r} object is not subscriptable")
+
+
+def _has(record: object, key: str) -> bool:
+    """``key in record``."""
+    if isinstance(record, Container):
+        return key in record
+    raise TypeError(f"argument of type {type(record).__name__!r} is not iterable")
+
+
+def _iterate(value: object) -> Iterable[object]:
+    """``value`` to iterate over."""
+    if isinstance(value, Iterable):
+        return value
+    raise TypeError(f"{type(value).__name__!r} object is not iterable")
+
+
+def _items(block: object) -> Iterable[tuple[object, object]]:
+    """``block.items()``."""
+    if isinstance(block, Mapping):
+        return block.items()
+    raise AttributeError(f"{type(block).__name__!r} object has no attribute 'items'")
+
+
+def _update(merged: dict[object, object], block: object) -> None:
+    """``merged.update(block)``: a mapping, or an iterable of key-value pairs."""
+    if isinstance(block, Mapping):
+        merged.update(block)
+        return
+    for index, pair in enumerate(_iterate(block)):
+        if not isinstance(pair, Iterable):
+            raise TypeError(
+                f"cannot convert dictionary update sequence element #{index} to a sequence"
+            )
+        items = tuple(pair)
+        if len(items) != 2:
+            raise ValueError(
+                f"dictionary update sequence element #{index} has length {len(items)}; "
+                "2 is required"
+            )
+        merged[items[0]] = items[1]
+
+
+def _noise_sigma(noise: object, nominal: object = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -78,9 +138,9 @@ def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
     """
     if not noise:
         return 0.0
-    if _ABSOLUTE in noise:
-        return abs(float(noise[_ABSOLUTE] or 0.0))
-    relative = abs(float(noise.get(_RELATIVE) or 0.0))
+    if _has(noise, _ABSOLUTE):
+        return abs(_real(_item(noise, _ABSOLUTE) or 0.0))
+    relative = abs(_real(_get(noise, _RELATIVE) or 0.0))
     if not relative:
         return 0.0
     base = _number(nominal)
@@ -128,18 +188,34 @@ def motion_envelope(
         |drive.amplitude| + _MOTION_SIGMAS x noise sigma + tooth depth``;
         0.0 for an absent seed with no couplings, and for a stilled channel.
     """
+    return _envelope(
+        seed,
+        noise,
+        (
+            (coupling.get("gain"), coupling.get("gain_wander"), coupling.get("drive"))
+            for coupling in couplings
+        ),
+        still,
+    )
+
+
+def _envelope(
+    seed: SeedRecord | None,
+    noise: object,
+    couplings: Iterable[tuple[object, object, object]],
+    still: bool,
+) -> float:
+    """:func:`motion_envelope`, each coupling as ``(gain, gain_wander, drive)``."""
     if still:
         return 0.0
     seed = seed or {}
     drift = seed.get("drift")
     envelope = abs(float(drift.get("amplitude") or 0.0)) if drift else 0.0
-    for coupling in couplings:
-        wander = coupling.get("gain_wander")
-        drive = coupling.get("drive")
+    for gain, wander, drive in couplings:
         envelope += (
-            abs(float(coupling.get("gain") or 0.0))
-            * (1.0 + (abs(float(wander.get("amplitude") or 0.0)) if wander else 0.0))
-            * (abs(float(drive.get("amplitude") or 0.0)) if drive else 0.0)
+            abs(_real(gain or 0.0))
+            * (1.0 + (abs(_real(_get(wander, "amplitude") or 0.0)) if wander else 0.0))
+            * (abs(_real(_get(drive, "amplitude") or 0.0)) if drive else 0.0)
         )
     shape = topoff.topoff_record(seed)
     if shape is not None:
@@ -152,7 +228,7 @@ def motion_envelope(
 
 def active_envelopes(
     seeds: Mapping[str, SeedRecord],
-    scenarios: Mapping[str, Mapping[str, Any]],
+    scenarios: Mapping[str, Mapping[str, object]],
     active: Sequence[str],
 ) -> dict[str, float]:
     """Every seeded, coupled or noise-replaced channel's envelope under ``active``.
@@ -176,33 +252,37 @@ def active_envelopes(
     """
     # The view copies a scenario's ``drivers``, ``couple`` and ``noise`` blocks
     # from the facility file verbatim, so either source states them as its
-    # schema does; its ``still`` and ``faults`` the view resolves first.
-    drivers: dict[str, DriveRecord] = {}
-    couple: dict[str, list[CouplingTerm]] = {}
-    noise: dict[str, NoiseRecord] = {}
+    # schema does; its ``still`` and ``faults`` the view resolves first. The
+    # facility file's blocks are unchecked here, so each is read through the
+    # helpers above, as a plain mapping read would.
+    drivers: dict[object, object] = {}
+    couple: dict[str, list[object]] = {}
+    noise: dict[str, object] = {}
     still: set[str] = set()
     for name in active:
-        scenario = scenarios.get(name) or {}
-        still.update(str(address) for address in scenario.get("still") or ())
-        drivers.update(scenario.get("drivers") or {})
-        for address, terms in (scenario.get("couple") or {}).items():
-            couple.setdefault(str(address), []).extend(terms)
-        for address, record in (scenario.get("noise") or {}).items():
+        scenario = scenarios.get(name)
+        if scenario is None:
+            continue
+        still.update(str(address) for address in _iterate(scenario.get("still") or ()))
+        _update(drivers, scenario.get("drivers") or {})
+        for address, terms in _items(scenario.get("couple") or {}):
+            couple.setdefault(str(address), []).extend(_iterate(terms))
+        for address, record in _items(scenario.get("noise") or {}):
             noise[str(address)] = record
-    resolved: dict[str, list[ResolvedCoupling]] = {}
+    resolved: dict[str, list[tuple[object, object, object]]] = {}
     for address, terms in couple.items():
         for term in terms:
-            drive = drivers.get(str(term["driver"]))
+            drive = drivers.get(str(_item(term, "driver")))
             if drive is not None:
-                coupling: ResolvedCoupling = {**term, "drive": drive}
+                coupling = (_get(term, "gain"), _get(term, "gain_wander"), drive)
                 resolved.setdefault(address, []).append(coupling)
     addresses = {str(address) for address in seeds} | set(couple) | set(noise)
     return {
-        address: motion_envelope(
+        address: _envelope(
             seeds.get(address),
-            noise=noise.get(address),
-            couplings=resolved.get(address, ()),
-            still=address in still,
+            noise.get(address),
+            resolved.get(address, ()),
+            address in still,
         )
         for address in sorted(addresses)
     }

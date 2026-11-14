@@ -25,6 +25,7 @@ import hashlib
 from collections.abc import Mapping
 
 import numpy as np
+import numpy.typing as npt
 
 from osprey_connectors.simulation import series
 
@@ -110,7 +111,7 @@ def _shape_version() -> str:
 SHAPE_VERSION = _shape_version()
 
 
-def _unit_shape(x: np.ndarray) -> np.ndarray:
+def _unit_shape(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """The noise-free pulse of unit height at sample offset ``x`` from its start."""
     flat_end = _RISE_SAMPLES + _FLAT_TOP_SAMPLES
     rise = 0.5 * (1.0 - np.cos(np.pi * np.clip(x, 0.0, _RISE_SAMPLES) / _RISE_SAMPLES))
@@ -129,7 +130,7 @@ def _edge_jitter(key: bytes, t_ms: float) -> float:
     return _EDGE_JITTER_SAMPLES * (2.0 * float(series._unit_interval(words)[0]) - 1.0)
 
 
-def _ringing(key: bytes, t_ms: float, x: np.ndarray) -> np.ndarray:
+def _ringing(key: bytes, t_ms: float, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """The shot's flat-top ringing, relative to the pulse, at sample offset ``x``.
 
     Each component's amplitude and phase are drawn from the shot's own counters,
@@ -150,7 +151,7 @@ def _ringing(key: bytes, t_ms: float, x: np.ndarray) -> np.ndarray:
     return np.asarray(_unit_shape(x) * np.exp(-since_rise / _RINGING_DAMPING_SAMPLES) * oscillation)
 
 
-def _clean(key: bytes, t_ms: float) -> np.ndarray:
+def _clean(key: bytes, t_ms: float) -> npt.NDArray[np.float64]:
     """The noise-free trace of unit driver level for the shot at epoch millisecond ``t_ms``."""
     t_abs = np.asarray(t_ms / _MS_PER_S, dtype=np.float64)
     gain = 1.0 + float(
@@ -165,7 +166,7 @@ def _clean(key: bytes, t_ms: float) -> np.ndarray:
     return np.asarray(gain * (_unit_shape(x) + _ringing(key, t_ms, x)))
 
 
-def trace(address: str, t_s: float, driver: float, enable: bool) -> np.ndarray:
+def trace(address: str, t_s: float, driver: float, enable: bool) -> npt.NDArray[np.float64]:
     """The captured pulse of ``address`` at epoch second ``t_s``.
 
     Pure: the result depends only on the arguments. Time is taken at whole
