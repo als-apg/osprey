@@ -173,7 +173,7 @@ class TestConnectorHostChild:
         )
         try:
             assert connector._control_target == "live"
-            assert report["target"] == "live"
+            assert report.target == "live"
         finally:
             await connector.disconnect()
 

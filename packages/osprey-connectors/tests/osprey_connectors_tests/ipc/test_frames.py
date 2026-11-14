@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import BaseModel
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -29,6 +30,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     RefusalReason,
 )
+from osprey_connectors.ipc import Endpoint, TargetDerivation
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
 
@@ -409,6 +411,112 @@ def test_numpy_scalar_round_trips_with_dtype():
 def test_unsupported_value_is_refused_at_encode_time():
     with pytest.raises(frames.FrameEncodeError, match="object"):
         frames.encode_result("req-bad", object())
+
+
+# ---------------------------------------------------------------- records as models
+
+
+def _header_of(payload: bytes) -> dict:
+    body = payload[8:]
+    (header_len,) = frames._HEADER_STRUCT.unpack_from(body, 0)
+    return json.loads(body[4 : 4 + header_len])
+
+
+def test_a_package_model_crosses_as_its_tag_and_its_fields_in_order():
+    endpoint = Endpoint(host="gw.example.org", port=5064, mode="name_server")
+
+    payload = frames.encode_result("req-m", endpoint)
+
+    # The layout a connector dataclass has always crossed in, so a dataclass
+    # and the model that replaces it put the same bytes on the wire.
+    assert _header_of(payload)["value"] == {
+        _TAG: "Endpoint",
+        "fields": {"host": "gw.example.org", "port": 5064, "mode": "name_server"},
+    }
+    frame = _round_trip(payload)
+    assert type(frame.value) is Endpoint
+    assert frame.value == endpoint
+
+
+def test_a_nested_package_model_rebuilds_from_its_own_node():
+    endpoint = Endpoint(host="gw.example.org", port="5064", mode="addr_list")
+    derivation = TargetDerivation(
+        target="live",
+        connector_type="epics",
+        endpoints={"read_only": endpoint},
+        selected_role="read_only",
+        transport="ca",
+    )
+
+    frame = _round_trip(frames.encode_result("req-n", derivation))
+
+    assert frame.value == derivation
+    assert type(frame.value.endpoints["read_only"]) is Endpoint
+
+
+def test_a_model_field_the_wire_flattens_is_restored_by_its_declared_type():
+    """A tuple crosses as a JSON list; the model's own field type makes it a tuple again."""
+    detail = exceptions._Detail(fields=("reason", "outcome"), message_kwarg="message")
+
+    frame = _round_trip(frames.encode_result("req-t", detail))
+
+    assert frame.value == detail
+    assert frame.value.fields == ("reason", "outcome")
+
+
+def test_a_model_defined_outside_the_package_is_refused_at_encode_time():
+    class Outsider(BaseModel):
+        name: str
+
+    with pytest.raises(frames.FrameEncodeError, match="'Outsider'"):
+        frames.encode_result("req-o", Outsider(name="x"))
+
+
+def test_a_subclass_of_a_package_model_is_refused_at_encode_time():
+    """Only the class the far side rebuilds crosses, as for the connector dataclasses."""
+
+    class MyEndpoint(Endpoint):
+        pass
+
+    with pytest.raises(frames.FrameEncodeError, match="'MyEndpoint'"):
+        frames.encode_result("req-s", MyEndpoint(host="h", port=1, mode="addr_list"))
+
+
+def test_a_tag_two_package_models_share_names_neither(monkeypatch):
+    monkeypatch.setattr(frames, "_package_models", lambda: {"Endpoint": None})
+    endpoint = Endpoint(host="h", port=1, mode="addr_list")
+
+    with pytest.raises(frames.FrameEncodeError, match="'Endpoint'"):
+        frames.encode_result("req-a", endpoint)
+
+
+def test_a_model_reply_its_class_refuses_fails_only_that_call():
+    reader = frames.FrameReader()
+    refused = _doctored(
+        _result(), _set("value", {_TAG: "Endpoint", "fields": {"host": "h", "mode": 7}})
+    )
+    follow_up = frames.encode_result("req-next", 2)
+
+    frame, next_frame = reader.feed(refused + follow_up)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-bad"
+    assert frame.class_tag == "Endpoint"
+    assert type(frame.exception) is ConnectorInternalError
+    assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
+
+
+def test_the_request_an_undecodable_frame_names_is_read_back():
+    unknown = _doctored(
+        frames.encode_request("req-u", "read_channel", {"channel_address": "SR:Q"}),
+        _set("kwargs", {_TAG: "Bogus", "fields": {}}),
+    )
+
+    with pytest.raises(frames.FrameDecodeError):
+        frames.decode_frame(unknown)
+    assert frames._request_id_of(unknown) == "req-u"
+    assert frames._request_id_of(_repack(b"{not json")) is None
+    assert frames._request_id_of(_doctored(_result(), _set("request_id", 7))) is None
 
 
 # ---------------------------------------------------------------- exceptions
