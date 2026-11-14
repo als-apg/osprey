@@ -38,7 +38,7 @@ from typing import Any, Literal
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS
 from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors.simulator import has_simulator
-from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA
+from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA, ControlTarget
 
 __all__ = ["service_targets"]
 
@@ -110,7 +110,9 @@ def _facility_row(
     }
 
 
-def _spec(kind: _Kind, service: str, target: str, settings: Mapping[str, Any]) -> BackendSpec:
+def _spec(
+    kind: _Kind, service: str, target: ControlTarget, settings: Mapping[str, Any]
+) -> BackendSpec:
     return BackendSpec(
         kind=kind,
         type=service,

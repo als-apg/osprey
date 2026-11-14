@@ -45,6 +45,7 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostError,
     ConnectorHostLostError,
     ConnectorHostPool,
+    ConnectorHostSlowCallError,
     ConnectorHostStartError,
     ConnectorHostUnresponsiveError,
     ConnectorHostWriteTimeoutError,
@@ -580,9 +581,10 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     # A write that outlasts its own timeout plus grace, in a child that still
     # answers: the batched/confirmed-write case. It must not be killed.
-    with pytest.raises(TimeoutError) as caught:
+    with pytest.raises(ConnectorHostSlowCallError) as caught:
         await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
 
+    assert isinstance(caught.value, TimeoutError)
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
     assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
@@ -810,7 +812,7 @@ async def test_the_pool_and_the_policy_table_agree(
     }
     assert list(raised.recovery) == [expected]
     if kept:
-        assert type(raised) is TimeoutError
+        assert type(raised) is ConnectorHostSlowCallError
         assert child.retired is None
     else:
         assert isinstance(raised, ConnectorHostLostError)

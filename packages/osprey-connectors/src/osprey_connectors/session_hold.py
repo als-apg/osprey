@@ -51,7 +51,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, TypeGuard
 
 from osprey_connectors.safety_file import atomic_replace
 
@@ -137,7 +137,7 @@ def hold_root(root: Path | str | None = None) -> Path | None:
     return Path(text)
 
 
-def is_safe_session_key(session_key: object) -> bool:
+def is_safe_session_key(session_key: object) -> TypeGuard[str]:
     """Whether *session_key* is one safe path segment (no separator, no dot-name)."""
     return isinstance(session_key, str) and _SAFE_KEY.fullmatch(session_key) is not None
 
@@ -145,7 +145,7 @@ def is_safe_session_key(session_key: object) -> bool:
 def _checked_key(session_key: object) -> str:
     if not is_safe_session_key(session_key):
         raise ValueError(f"unsafe session key {session_key!r}: not a safe file name")
-    return session_key  # type: ignore[return-value]
+    return session_key
 
 
 def _now() -> str:

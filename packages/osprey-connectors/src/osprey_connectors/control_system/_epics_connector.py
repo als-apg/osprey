@@ -666,7 +666,7 @@ class EPICSConnector(ControlSystemConnector):
         self._subscriptions: dict[str, Any] = {}
         # aioca, and the CA loop every call to it runs on; both set by connect().
         self._aioca: Any = None
-        self._ca: CaLoop = None  # type: ignore[assignment]
+        self._ca: CaLoop | None = None
         # Per channel, the CTRL-form reading that carries units, precision,
         # enum labels and limits for one-shot reads: fetched on a channel's
         # first read, then reused, since they describe the record rather than
@@ -871,8 +871,8 @@ class EPICSConnector(ControlSystemConnector):
         # gateway: a read-only run must never ride an earlier connector's write
         # gateway, and a notebook kernel that follows a target switch must
         # reach the new machine.
-        self._ca = get_ca_loop()
-        await self._ca.point_at(ca_env)
+        self._ca = ca = get_ca_loop()
+        await ca.point_at(ca_env)
         self._ca_bulk()
         self._selected_role = gateway_role if gateway_config else None
         self._write_gateway_configured = bool(write_gateway)
@@ -1074,7 +1074,7 @@ class EPICSConnector(ControlSystemConnector):
 
         name = normalise_address(channel_address)
         deadline = (time.time() + timeout,)
-        return await self._ca.run(self._read_channel_ca(name, deadline, timeout))
+        return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout))
 
     # ------------------------------------------------------------------
     # Channel Access (aioca). Every coroutine here runs on the CA loop.
@@ -1314,6 +1314,21 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address, f"Failed to connect to PVA channel '{channel_address}': {failure}"
             )
         return failure
+
+    @property
+    def _ca_loop(self) -> CaLoop:
+        """The CA loop connect() pointed at this connector's gateway.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so no Channel
+                Access call has a loop to run on.
+        """
+        ca = self._ca
+        if ca is None:
+            raise ConnectorUnavailableError(
+                "No Channel Access loop: connect() points one at the configured gateway."
+            )
+        return ca
 
     def _require_pva_context(self, channel_address: str, action: str) -> Any:
         """The PVA client context, or the connector's own unavailability.
@@ -1563,7 +1578,7 @@ class EPICSConnector(ControlSystemConnector):
                 # One budget S for connection and get together (aioca bounds
                 # both under one timeout); the extra second only backs up a
                 # CA loop that does not answer at all.
-                reading = self._ca.run_sync(
+                reading = self._ca_loop.run_sync(
                     aioca.caget(normalise_address(channel_address), timeout=budget, throw=False),
                     timeout=budget + 1.0,
                 )
@@ -1750,7 +1765,7 @@ class EPICSConnector(ControlSystemConnector):
         # phase has one deadline T, set here so the wait for the CA loop is
         # charged to it as well.
         put_deadline = (time.time() + timeout,)
-        put_result, payload = await self._ca.run(
+        put_result, payload = await self._ca_loop.run(
             self._put_ca(channel_address, value, wait=bool(confirm), deadline=put_deadline)
         )
 
@@ -1900,7 +1915,7 @@ class EPICSConnector(ControlSystemConnector):
 
         try:
             # The extra second only backs up a CA loop that does not answer at all.
-            readings = await asyncio.wait_for(self._ca.run(read_all()), budget + 1.0)
+            readings = await asyncio.wait_for(self._ca_loop.run(read_all()), budget + 1.0)
         except Exception as exc:
             logger.debug(f"max_step read of {len(channel_addresses)} channels failed: {exc}")
             return dict.fromkeys(channel_addresses)
@@ -1964,7 +1979,7 @@ class EPICSConnector(ControlSystemConnector):
         the same deadline.
         """
         deadline = (time.time() + timeout,)
-        return await self._ca.run(
+        return await self._ca_loop.run(
             self._read_channel_ca(
                 normalise_address(channel_address), deadline, timeout, ctrl="enum"
             )
@@ -2014,12 +2029,12 @@ class EPICSConnector(ControlSystemConnector):
             return self._subscribe_pva(channel_address, callback, loop, on_connection)
 
         bulk = self._ca_bulk()
-        subscription = _ChannelSubscription("ca", None, ca_loop=self._ca)
+        subscription = _ChannelSubscription("ca", None, ca_loop=self._ca_loop)
         sub_id = f"{channel_address}_{id(subscription)}"
         # Closing the subscription leaves the record, on the CA loop.
         subscription.handle = _BulkHandle(bulk, sub_id)
         try:
-            await self._ca.run(
+            await self._ca_loop.run(
                 bulk.subscribe(
                     channel_address,
                     sub_id,
@@ -2049,7 +2064,7 @@ class EPICSConnector(ControlSystemConnector):
             if self._bulk is None:
                 self._bulk = CABulk(
                     self._aioca,
-                    self._ca,
+                    self._ca_loop,
                     value_factory=self._ca_channel_value,
                     metadata_factory=self._ca_ctrl_metadata,
                     held_warning_s=self._timeout,
@@ -2069,7 +2084,7 @@ class EPICSConnector(ControlSystemConnector):
         async def create_context() -> None:
             aioca.get_channel_infos()
 
-        await self._ca.run(create_context())
+        await self._ca_loop.run(create_context())
 
     async def wait_stale(self) -> None:
         """Raise :class:`ConnectorUnavailableError` once this connector's Channel Access transport has gone stale.
@@ -2120,7 +2135,7 @@ class EPICSConnector(ControlSystemConnector):
         if self._name_server is None:
             await asyncio.get_running_loop().create_future()
         while True:
-            stale = await self._ca.run(self._stale_now())
+            stale = await self._ca_loop.run(self._stale_now())
             if stale:
                 names = sorted(stale)
                 reasons = ", ".join(sorted(set(stale.values())))
@@ -2341,7 +2356,7 @@ class EPICSConnector(ControlSystemConnector):
             return await asyncio.to_thread(self._read_metadata_pva, channel_address, self._timeout)
 
         if self._bulk is not None:
-            bulk_metadata: ChannelMetadata | None = await self._ca.run(
+            bulk_metadata: ChannelMetadata | None = await self._ca_loop.run(
                 self._bulk.metadata(channel_address, self._timeout)
             )
             if bulk_metadata is not None:

@@ -181,9 +181,12 @@ def _config_record(row: Mapping[str, Any]) -> AlarmConfigRecord:
 
 
 def _config_body(row: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    text = row.get("config_msg")
+    if not isinstance(text, str | bytes | bytearray):
+        return None
     try:
-        body = json.loads(row.get("config_msg"))  # type: ignore[arg-type]
-    except (TypeError, ValueError, RecursionError):
+        body = json.loads(text)
+    except (ValueError, RecursionError):
         return None
     return body if isinstance(body, Mapping) else None
 
@@ -211,9 +214,12 @@ def _in_window(row: Mapping[str, Any], since: datetime | None) -> bool:
     """A row whose time cannot be read stays: nothing shows it fell outside the window."""
     if since is None:
         return True
+    stamp = row.get("time") or row.get("message_time")
+    if not isinstance(stamp, str):
+        return True
     try:
-        recorded = datetime.fromisoformat(row.get("time") or row.get("message_time"))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+        recorded = datetime.fromisoformat(stamp)
+    except ValueError:
         return True
     return _aware(recorded) >= _aware(since)
 

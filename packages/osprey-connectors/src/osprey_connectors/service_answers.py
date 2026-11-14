@@ -23,6 +23,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
 
+from osprey_connectors.types import ControlTarget
+
 #: The row record a :class:`HistoryPage` holds.
 _RowT = TypeVar("_RowT")
 
@@ -65,7 +67,7 @@ class Source:
     """
 
     kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook", "archive"]
-    target: Literal["va", "live", "standin"]
+    target: ControlTarget
     service: str
     rehearsal: bool
 
@@ -76,7 +78,7 @@ class BackendSpec:
 
     kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
     type: str
-    target: str
+    target: ControlTarget
     settings: Mapping[str, Any]
     rehearsal: bool
 
@@ -110,7 +112,7 @@ class _Backend:
     def source(self) -> Source:
         return Source(
             kind=self.spec.kind,
-            target=self.spec.target,  # type: ignore[arg-type]
+            target=self.spec.target,
             service=self.spec.type,
             rehearsal=self.spec.rehearsal,
         )

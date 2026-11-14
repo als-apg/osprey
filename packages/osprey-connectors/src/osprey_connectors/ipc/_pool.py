@@ -212,7 +212,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -256,6 +256,7 @@ __all__ = [
     "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
+    "ConnectorHostSlowCallError",
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
@@ -509,6 +510,19 @@ class ConnectorHostLostError(ConnectorHostError):
 
 class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
+
+
+class ConnectorHostSlowCallError(TimeoutError):
+    """The child missed a call's deadline but still answered a ping, and was kept.
+
+    Not a :class:`ConnectorHostLostError`: the connector is not gone, and the
+    call may yet complete in the child. ``recovery`` holds the supervisor's
+    ``child_kept`` record, as on :class:`ConnectorUnavailableError`.
+    """
+
+    def __init__(self, message: str, *, recovery: Sequence[Mapping[str, str]] = ()) -> None:
+        super().__init__(message)
+        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
 
 
 class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
@@ -803,13 +817,12 @@ class ConnectorHostPool:
         if record is None:
             return
         if record.action is RecoveryAction.CHILD_KEPT:
-            slow = TimeoutError(
+            raise ConnectorHostSlowCallError(
                 f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
                 f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
-                "left running. The call may yet complete in the child; it was not retried."
-            )
-            slow.recovery = (record.as_dict(),)  # type: ignore[attr-defined]
-            raise slow from exc
+                "left running. The call may yet complete in the child; it was not retried.",
+                recovery=(record.as_dict(),),
+            ) from exc
         cause = child.retired or CAUSE_EXITED
         reason = self._replaced_reason(child, method, exc, cause)
         raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc

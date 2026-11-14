@@ -54,11 +54,12 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 __all__ = [
     "CLI_CONTROL_SYSTEM_TYPES",
     "CONTROL_TARGETS",
+    "ControlTarget",
     "DEFAULT_VA_PORT",
     "DOOCS",
     "DOOCS_ARCHIVER",
@@ -222,10 +223,11 @@ SET_CONTROL_SYSTEM_TYPES = [*CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN]
 # machine (the facility's own, the virtual accelerator, the stand-in soft IOC),
 # and which connector type reaches that machine is this module's job to answer,
 # not the caller's.
-TARGET_LIVE = "live"
-TARGET_VA = "va"
-TARGET_STANDIN = "standin"
-CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+ControlTarget = Literal["live", "va", "standin"]
+TARGET_LIVE: Final = "live"
+TARGET_VA: Final = "va"
+TARGET_STANDIN: Final = "standin"
+CONTROL_TARGETS: list[ControlTarget] = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
 #: The topology those three names bound, spelled once and quoted by every
 #: answer that runs into it. One deployment describes one real machine: the

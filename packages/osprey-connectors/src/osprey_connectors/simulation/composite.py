@@ -1253,14 +1253,17 @@ class Composite(LUMEModel):
                 raise WriteRefusedError(str(exc), address=name) from exc
         t_s = float(self._clock())
         self._advance(t_s)
-        forwarded = self._set(coerced)
+        forwarded = self._forward(coerced)
         if not self._evolve:
             for child in self._children.values():
                 self._deliver(child, t_s)
         if client:
             self._client_write(forwarded, t_s)
 
-    def _set(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+    def _set(self, values_by_name: dict[str, Any]) -> None:
+        self._forward(values_by_name)
+
+    def _forward(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Write the children, then the texture; returns what reached each child's model."""
         batches: dict[str, dict[str, Any]] = {}
         for name, value in values_by_name.items():

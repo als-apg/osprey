@@ -60,6 +60,11 @@ _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
     }
 )
 
+#: The ``pvStatus`` values a row reports; any other value reports no status.
+_STATUSES: Mapping[str, Literal["Active", "Inactive"]] = MappingProxyType(
+    {"Active": "Active", "Inactive": "Inactive"}
+)
+
 #: The description property RecSync records, for a section that names none.
 _DEFAULT_DESCRIPTION_PROPERTY = "recordDesc"
 
@@ -242,11 +247,10 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     def _record(self, channel: Mapping[str, Any]) -> DirectoryRecord:
         properties = _properties_of(channel)
-        status = properties.pop(_ROW_FIELD_PROPERTIES["status"], None)
         return DirectoryRecord(
             row=DirectoryRow(
                 name=channel["name"],
-                status=status if status in ("Active", "Inactive") else None,  # type: ignore[arg-type]
+                status=_STATUSES.get(properties.pop(_ROW_FIELD_PROPERTIES["status"], "")),
                 description=properties.pop(self._description_property, None),
                 channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
                 server=properties.pop(_ROW_FIELD_PROPERTIES["server"], None),
