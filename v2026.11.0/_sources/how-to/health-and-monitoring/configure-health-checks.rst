@@ -1,0 +1,263 @@
+.. _how-to-configure-health-checks:
+
+Configure Health Checks
+=======================
+
+``osprey health`` runs a suite of diagnostics over an OSPREY installation and
+prints a categorized report. The built-in checks always run; a ``health:``
+block in ``config.yml`` — set from the build profile — lets a facility *add*
+its own checks (HTTP endpoints, MCP servers, deployed containers,
+control-system channels, model providers) and tune the suite's timing.
+
+This guide shows how to put that surface to work. Every ``health:`` field is
+catalogued in :ref:`config-health`; the ``--json`` report and its exit codes
+are in :doc:`/reference/contracts/health-json`; the full flag list is
+``osprey health --help``.
+
+Rows reach one report from six independent places, and three surfaces read the
+result at different tiers:
+
+.. raw:: html
+   :file: ../../_diagrams/health-suite-composition.html
+
+Cost classes and ``--full``
+---------------------------
+
+Every category is either **poll** — cheap and side-effect-free, run on every
+``osprey health`` — or **on_demand** — costly or externally-visible (a live
+model-chat completion, a package download), run with ``--full`` or when you
+re-probe a row or tile.
+Without ``--full`` an on_demand category is reported as a single ``skip`` row
+(which still counts toward exit code 0). ``--category NAME`` scopes which
+categories run but never elevates cost class:
+
+.. code-block:: bash
+
+   osprey health                              # poll checks only
+   osprey health --full                       # poll + on_demand checks
+   osprey health --category providers         # just the providers category
+   osprey health --full --category model_chat # run the on_demand model-chat category
+
+Recipe: a control-system smoke test
+------------------------------------
+
+The single most useful facility check is a canary read of a channel that is
+always live on a healthy machine — a beam-current or RF-frequency readback.
+Declare it once and it appears as its own category in the CLI report and as a
+tile on the web dashboard, graded against the bands you choose:
+
+.. code-block:: yaml
+
+   # profile.yml
+   config:
+     health.categories.control_system.checks:
+       - name: beam_current
+         type: channel_read
+         address: SR:DCCT
+         ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
+       - name: rf_frequency
+         type: channel_read
+         address: SR:RF:FREQ
+       - name: archiver_data
+         type: archiver_freshness
+         channel: SR:DCCT
+         max_age_s: 300             # the archiver must have a sample < 5 min old
+
+Reads go through the same connector the agent itself uses (selected by
+``control_system.type``), so a green canary also proves the connector
+configuration end to end.
+
+Recipe: host health from the facility's own host IOC
+----------------------------------------------------
+
+The built-in suite reports on the deployment — containers, services,
+providers, the unit — and says exactly one thing about the machine underneath
+it: ``file_system.disk_space``, how full the filesystem holding the project
+directory is. There is no CPU load and no memory reading, so a deploy host
+that is merely saturated still reports healthy while every terminal on it
+crawls.
+
+Most control-system facilities already measure that. A small statistics IOC on
+each host publishes CPU load, free memory and uptime as ordinary channels, and
+where the machine OSPREY runs on is one of them, nothing new has to be
+installed to see those readings here — they are channels, and ``channel_read``
+grades a channel:
+
+.. code-block:: yaml
+
+   # profile.yml
+   config:
+     health.categories.host.checks:   # any name that is not a built-in category
+       - name: host_ioc      # no bands: the row grades reachability
+         type: channel_read
+         address: HOST01:CPU_CNT
+       - name: cpu_load
+         type: channel_read
+         address: HOST01:SYS_CPU_LOAD
+         ok_range: [0, 70]        # over 70 % busy is a warning
+         warn_range: [0, 90]      # over 90 % busy is an error
+         requires: [host_ioc]
+       - name: memory_free
+         type: channel_read
+         address: HOST01:MEM_FREE
+         requires: [host_ioc]
+
+Record names differ between facilities, so substitute the ones your host IOC
+publishes. The first check is the recipe's one piece of structure: it names a
+reading with no bands, and the graded rows ``requires:`` it. A row with no
+bands can only be ``ok`` or ``error``, so the values behind it are skipped when
+the IOC is unreachable and never merely because the host is busy — an IOC that
+is down costs one ``error`` row carrying the reason instead of three rows
+saying the same thing.
+
+Reads use the same connector the agent uses, so the channels have to be visible
+from the deployment: a gateway that does not export the statistics IOC's
+records makes the row an ``error``, because a read that cannot connect is a
+failure and not a skip — and one ``error`` row fails the whole run.
+
+Adopting the facility's reading beats measuring the host a second time here:
+the tile then carries the same number the facility's own displays, archiver and
+alarm handler carry, so the dashboard and the control room never disagree about
+whether the machine is busy. What it does not answer is *which* container is
+busy — the built-in ``containers`` category reports each service's state, not
+its share of the machine. A facility whose hosts publish no such statistics has
+to measure them itself, which is a ``health.plugins`` module rather than a YAML
+check.
+
+Recipe: a large shared volume
+-----------------------------
+
+``file_system.disk_space`` warns when the filesystem holding the project is at
+least 90 % full or has less than 1 GB free. On a multi-terabyte shared volume
+that runs at 91 % by design, hundreds of GB are still free, yet the row warns
+on every run and ``osprey health`` exits 1. Raise the limits from the build
+profile's ``config:`` block:
+
+.. code-block:: yaml
+
+   config:
+     health.disk.max_used_percent: 97
+     health.disk.min_free_gb: 50
+
+The rules for both keys are in :ref:`config-health`.
+
+Recipe: archive freshness, without declaring a check
+-----------------------------------------------------
+
+A project that deploys its own archive — one whose build profile carries a
+``va_archiver:`` block (see :doc:`../build-profiles`) — can have the freshness
+check written for it. The build derives its canary channel from the facility
+file, the channel the simulator's probe reads; to watch another, name it and
+nothing else:
+
+.. code-block:: yaml
+
+   # in the build profile, not config.yml
+   va_archiver:
+     freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+
+The build derives a complete ``archiver`` category from that, including the
+``max_age_s`` you would otherwise have to choose: **three times the recorder's
+own sample cadence**, floored at 60 seconds, so the threshold follows the
+recorder with no second number to re-tune. The channel is derived from the
+facility file; a stated value overrides it, and one the file does not hold is
+refused at build time (see :ref:`architecture-facility-settings`). Declare the
+check yourself *or* name a ``freshness_channel``, not both: a profile that does
+both is refused at build time, because the two would be one fact in two homes.
+
+.. note::
+
+   With the simulator served in process the recorder idles by design, so the check
+   reports the archive as **stale** — a ``warning``, never an ``error``, and
+   an honest answer: the store is reachable, it is simply not being written.
+
+Which account each card and worker writes as
+--------------------------------------------
+
+The control system records the account name a write arrives under. The built-in
+``web_terminals`` category needs no configuration: it asks every web-terminal
+card and every dispatch worker which name its process runs as (``ca_user`` on
+its ``/health``) and compares that with the name your config intends, one row
+each.
+
+- A card behind a login wall (``auth.method: password`` or ``oidc``) should run
+  as its roster ``control_identity``. Every other card runs as ``osprey``.
+- Dispatch worker *i* should run as ``osprey-dispatch-<i>``.
+
+A row is an ``error`` when the name differs, or when the image is too old to
+report one while a name other than ``osprey`` is expected — that image ignores
+the setting, so rebuild and redeploy. It is a ``warning`` when the container
+started without root and so could not apply the name (``/health`` then carries
+``control_identity_skipped``), or when the process does not answer. Workers on
+a bridge network publish no host port, so their rows are ``skip`` rows; check
+those with ``docker exec <worker> whoami``.
+
+Checks that need real Python
+----------------------------
+
+A check that has to query a facility service or compute a derived state cannot
+be written in YAML. For those, ``health.plugins`` names Python modules and loads
+each module's checks as a category of its own — writing that module is a
+developer task, covered in :doc:`/contributing/extending-osprey`.
+
+An entry is either a dotted module path, which has to be importable by every
+process that runs the suite, or a path to a ``.py`` file, which does not:
+
+.. code-block:: yaml
+
+   # profile.yml
+   config:
+     health.plugins:
+       - ./health/facility_checks.py   # a file in your project
+       - my_package.health_checks      # an installed module
+
+A relative file path is resolved against your project root — the directory
+holding ``profile.yml`` — the same way ``data/`` and ``plans/`` paths are, so a
+checks file kept beside your profile is found by the CLI, the dashboard and the
+health MCP server alike, with no ``PYTHONPATH`` to arrange. A plugin that will
+not load never takes the suite down: it reports one ``error`` row under the
+``plugins`` category, naming the entry and what went wrong.
+
+The web dashboard (Health panel)
+--------------------------------
+
+In a Web Terminal build that ships panels, the same **poll-class** results are
+served as a browser dashboard — the Health tab — one band per layer of the
+deployment, one tile per component. The poll never runs ``on_demand`` checks
+or spawns MCP servers; a click does: re-probing a row or tile (on_demand
+included), a provider's ping (one small completion), or first opening the MCP
+tile.
+The tab appears only when ``system-health`` is in the build's ``web_panels``
+list; its LED reflects sidecar liveness only.
+
+Title, host, port, and auto-launch live under ``health.title`` and
+``health.web`` (all optional):
+
+.. code-block:: yaml
+
+   # profile.yml
+   config:
+     health.title: "Beamline Health"   # dashboard heading (default "System Health")
+     health.web.host: 127.0.0.1        # default 127.0.0.1
+     # health.web.port: 10700          # default: deployment.port_base + 700
+     health.web.auto_launch: true      # default true
+
+The sidecar re-reads ``config.yml`` and the project ``.env`` on each refresh,
+so most edits are picked up on the next poll without a restart. The exception
+is ``control_system``: once a connector is open, that change is surfaced as a
+notice row rather than applied live — restart ``osprey web`` to pick it up.
+
+The agent surface
+-----------------
+
+The agent reads the same suite through two tools, mirroring the CLI's poll /
+``--full`` split: ``health_check`` (poll tier — cheap, read-only,
+auto-approved) and ``health_check_full`` (the ``on_demand`` tier — costly, so
+it asks for approval first, and always runs fresh).
+
+The poll tool serves its answer from a short-lived cache, and each response
+says how fresh it is: ``cached``, ``age_s``, and ``refresh_suppressed`` — the
+last one ``true`` only when a stuck run made the tool serve its last good
+result, in which case treat the answer as possibly stale and ask again
+shortly. Each agent session runs its own health server with its own cache;
+nothing is shared across sessions.

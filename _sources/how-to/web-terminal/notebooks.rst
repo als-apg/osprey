@@ -1,0 +1,383 @@
+Notebooks
+=========
+
+The **JUPYTER** tab is a JupyterLab served from inside the Web Terminal. Its
+kernels import ``osprey.runtime``, so a cell reads and writes the control
+system through the same connector the agent's own Python uses, under the same
+write gates and with the same refusal text. Notebooks are ordinary files on a
+durable path, so they outlive the container, and the OSPREY agent can edit
+them alongside you.
+
+The panel starts one kernel, **OSPREY**. A request for any other kernelspec,
+the interpreter's own ``python3`` included, is refused. A notebook that names no
+kernel gets the OSPREY one, so every cell runs under the gates below.
+
+Turning the panel on
+--------------------
+
+The panel is a built-in with the id ``jupyter``. The ``demo``
+preset selects it, so every tier of a standard build has the tab. The
+``hello-world`` preset and the bundled logbook, knowledge and channel-finder
+logins do not select it.
+
+Name it under ``web_panels`` to add it to a build profile of your own:
+
+.. code-block:: yaml
+
+   web_panels:
+     - jupyter         # JUPYTER tab
+
+In a hand-written ``config.yml`` it is enabled the way its peers are:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       jupyter: true
+
+.. note::
+
+   JupyterLab, ``jupyter-server`` and ``ipykernel`` are core OSPREY
+   dependencies, so an image grows by roughly 50 MB whether or not the panel
+   is selected. Selecting it costs nothing beyond that. Leaving it out starts
+   no process and opens no port.
+
+Where notebooks live
+--------------------
+
+Notebooks live in ``notebooks/`` under the deployment's agent-data root —
+``var/agent_data/notebooks/`` in a container build. That directory is on the
+durable volume, so notebooks survive ``osprey down && osprey up``. Kernels do
+not: stopping the deployment stops every kernel.
+
+JupyterLab opens on that directory and cannot see above it. A path that
+resolves outside it is refused with a ``404``, symlinks included — the check
+is against the resolved path, not the text of it. *Download* and *Copy
+Download Link* in the file browser obey the same rule: they serve files from
+``notebooks/`` and nothing else.
+
+*Delete* in the file browser removes the notebook from the volume. There is no
+trash to bring it back from.
+
+When the terminal starts the sidecar and ``notebooks/`` holds no notebook at
+all, it writes ``getting-started.ipynb``, a two-cell notebook holding one note
+and one code cell. The note reads *Cells read and write through the
+deployment's current control target and write posture.* Any existing ``.ipynb``
+suppresses it, and it is never rewritten once written, so it is yours to edit
+or delete.
+
+The code cell reads a channel where the deployment already names one it can
+serve, so running it returns a value rather than only importing two names.
+The channel comes from the deployment's own configuration, in this order: the
+``archiver_freshness`` health check's channel, which a facility declares is
+still moving, then a control target's ``probe_channel``. A deployment that
+names neither — the ``hello-world`` preset serves the simulator in process and
+declares no channel — gets the import line alone, because a cell naming a
+channel nothing serves would fail on its first run.
+
+Which machine a kernel writes to
+--------------------------------
+
+A kernel has no control-system identity of its own, and it follows no chat
+session. Cells read and write through the deployment's current control target
+and write posture, the same ones the control-target chip in the sidebar shows
+and the agent uses. The *write posture* is the position of the write switch on
+that chip, for example writes asked, allowed or off (see
+:ref:`web-terminal-session-posture` for every state the chip shows).
+
+The kernel re-reads that before **every cell**, so a switch made anywhere, by
+anyone, reaches the next cell you run. A cell can read back what it was routed
+with:
+
+.. code-block:: python
+
+   import os
+
+   os.environ["OSPREY_CONTROL_TARGET"]             # the machine this cell writes to
+   os.environ["OSPREY_CONTROL_TARGET_GENERATION"]  # which switch it belongs to
+   os.environ["OSPREY_LAUNCH_POSTURE"]             # what this cell may write
+
+**Nothing restarts.** Switch the control target from the chip, or move the
+write switch, and the next cell you run is routed by the new state.
+
+Inside the web terminal, the chip in the sidebar is the only place to do that;
+the JUPYTER tab carries no chip of its own. A notebook in a window of its own
+has no sidebar beside it, so that window shows the same chip in its top-right
+corner. It is the same switch either way: a change made from
+either place lands deployment-wide.
+
+A cell already running is not re-routed, but taking writes away still reaches
+it:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 30 30
+
+   * - Change
+     - Reaches the running cell?
+     - Reaches the next cell?
+   * - Turn writes off
+     - Yes, at its next write
+     - Yes
+   * - Widen writes, or switch the machine
+     - No
+     - Yes
+
+- **Turning writes off lands at once.** The connector re-reads the write
+  posture on every write, so the running cell's very next write is refused.
+- **Widening waits for the next cell.** A cell can never write more
+  than it was allowed when it started, so widening cannot reach it.
+- **Switching the machine waits for the next cell** as well, so a switch never
+  lands halfway through your work.
+
+Re-run the cell to pick up either of the last two, and the refusal says which
+one you are in:
+
+.. code-block:: text
+
+   The control target changed while this cell ran. Re-run the cell.
+   Writes are off for this cell. Set the machine to asked or allowed on the chip, then re-run the cell.
+
+A switch takes a moment to reach the machines, and a cell run in that window is
+routed nowhere rather than to a guess:
+
+.. code-block:: text
+
+   switch_in_progress:5150. A control-target switch is in progress on pid 5150; re-run the cell when the chip settles.
+
+It works the other way too. From a cell's first control-system call until that
+cell ends, a switch asked for anywhere in the deployment is refused and names
+the kernel holding the target. Whoever asked then knows to interrupt the kernel
+rather than wait on nothing. A cell that touches no channel holds nothing.
+
+In a multi-user deployment, a cell reads the chip settings of the user whose
+terminal the kernel belongs to, and nobody else's.
+
+.. dropdown:: Under the hood: whose record a kernel reads, and what a write leaves
+   :icon: gear
+
+   The record a cell reads is the one belonging to whoever the kernel's
+   terminal is acting as, and a kernel finds it without being told. The build
+   points each terminal's container at its own record directory through
+   ``OSPREY_CONTROL_CONTEXT_DIR``, and a kernel reads that. Where nothing names
+   one, it falls back to the agent-data root and the name it is acting as.
+
+   Where its own audit records are filed is a separate question, answered by
+   that name rather than by a directory. A kernel starts with most of the
+   environment around it stripped away, and ``OSPREY_AUDIT_IDENTITY`` (the name
+   the deployment gives the container it runs in) is what survives the
+   stripping. In a multi-user deployment both answers are the user whose
+   terminal the kernel belongs to.
+
+   Each channel a cell writes leaves one ``allowed`` record on the
+   ``notebook_kernel`` surface, filed after the put. Its reason says how the
+   write ended: ``write_landed`` when the write was verified,
+   ``write_unconfirmed`` when the value was sent but not verified. The record's
+   ``detail`` names the channel and the account and host the control system saw
+   the write come from. That is what joins it to a gateway's put-log. A refused
+   write reaches no channel and leaves only its refusal record. See
+   :ref:`audit-trail-attribution`.
+
+A cell carries no target at all in two cases: the deployment's control-context
+record is missing or unreadable, or it names a machine this deployment cannot
+build --- a target whose connector block was never rendered, or was removed
+under it. Reads then answer from the deployment's baseline target and every
+write is refused. The first case clears itself as soon as the web terminal has
+written the record; the second is a configuration gap and stays until somebody
+fixes it.
+
+.. _notebooks-write-channel:
+
+A cell reaches the machine through ``osprey.runtime``. Importing a
+control-system client library --- ``epics``, ``aioca``, ``epicscorelibs``,
+``caproto``, ``p4p``, ``pvaccess``, ``tango``, ``PyTango`` or ``doocs4py`` ---
+or loading one through ``ctypes`` or ``cffi`` is refused, for reads as for
+writes, whatever the chip says. It raises ``ClientLibraryRefusedError``,
+nothing is loaded, and the cell prints one line above the traceback:
+
+.. code-block:: text
+
+   Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
+
+No switch position changes that answer. Replace the import with the
+runtime's calls, which take the same address and value:
+
+.. code-block:: python
+
+   # Refused:
+   #   from epics import caget, caput
+
+   from osprey.runtime import read_channel, write_channel, write_channels
+
+   value = read_channel("DEMO:CORR1:SP")
+   write_channel("DEMO:CORR1:SP", 1.5)
+   write_channels({"DEMO:CORR1:SP": 1.5, "DEMO:CORR2:SP": -0.4})
+
+ophyd, and ophyd-async's EPICS modules such as ``ophyd_async.epics.core``, are
+refused with them, because they load a client library underneath; ``bluesky``
+and ``ophyd_async.core`` import. Submit a plan that drives devices to a Bluesky
+lane queue instead, where it runs unchanged. Each refusal is filed on the
+``notebook_kernel`` surface with reason ``raw_client_import``.
+
+The refusal keeps a cell on the connector path; it is not a sandbox. A shell
+escape or a subprocess starts a fresh interpreter without it, and what closes
+that route is the deployment's network; see :ref:`architecture-safety-chain`.
+
+A refusal for any other reason — a write ceiling, a limits violation — carries
+no extra line, because nothing you do in the notebook would change it.
+
+A page reload keeps the kernel running, but the notebook comes back as it was
+last saved. Output from cells that ran since that save is gone.
+
+What a cell's environment holds
+-------------------------------
+
+The notebook server and its kernels start with the fixed set of environment
+variables executed code gets (:ref:`config-python-executor`): paths, locale,
+the interpreter, TLS trust, proxies, the control-system client settings and
+the osprey names a cell reads. The terminal's provider key, its database
+passwords and its telemetry login are not in that set, so ``os.environ`` in a
+cell does not hold them. A cell that needs another variable gets it the way an
+executor run does, by name:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH]
+
+This keeps credentials out of a kernel's own environment and is not a sandbox.
+A kernel runs as the same user as the terminal's server and the agent, in the
+same container and on its network: what that user can read on disk or from
+another of its processes, a cell can read, and what the container can reach, a
+cell can reach (:ref:`architecture-safety-chain-residual`).
+
+For that reason the panel needs a login wall. A deployment on
+``auth.method: none`` trusts every request its proxy forwards, and a cell could
+send one; ``osprey up`` refuses to start such a deployment while a render shows
+this panel (:ref:`open posture <multi-user-open-mode>`).
+
+Notebooks the agent also edits
+------------------------------
+
+The OSPREY agent may edit a notebook under ``notebooks/`` (and, as before,
+under ``artifacts/``); an edit anywhere else is refused by the memory guard.
+When it edits one, the JUPYTER row in the sidebar badges and the history row reads
+*agent edited <notebook>*.
+
+What you see next depends on what the notebook was doing at the time:
+
+- **Not open** — it opens with the agent's change already in it.
+- **Open with no unsaved edits of yours** — pick *File → Reload Notebook from
+  Disk* to take the change.
+- **Open with unsaved edits of yours** — JupyterLab notices the file moved
+  under it and offers *Overwrite* or *Revert* when you save. Your work is
+  never silently replaced.
+
+Notebooks in a multi-user deployment
+------------------------------------
+
+The multi-user stack gives every user their own container and their own
+volumes, which a redeploy never touches (:doc:`multi-user/index`), so
+notebooks are per user. There is no shared notebook folder.
+Sharing a notebook means handing over the file.
+
+.. _notebooks-outputs-no-script:
+
+What a notebook output cannot run
+---------------------------------
+
+Output an agent or a kernel writes can no longer run script inside the
+console's JupyterLab. The page's policy admits only the scripts the terminal
+served itself, because script in an output would run on the console's origin
+and could move the write switch.
+
+No longer run:
+
+- ``IPython.display.Javascript`` and ``application/javascript`` outputs.
+- ``<script>`` in an HTML output, and inline handlers such as ``onerror``.
+- bokeh's in-notebook renderer (``output_notebook()``).
+- Vega and Altair outputs, whose renderer is disabled with
+  ``@jupyterlab/javascript-extension``.
+- Frontend code a kernel supplies for itself, which is unsupported.
+
+Still work: matplotlib, Plotly ``fig.show()``, standard ipywidgets, tables,
+markdown, math and images. Bokeh dashboards in the artifact gallery are
+unaffected.
+
+The policy keeps ``'unsafe-eval'``, because Plotly and JupyterLab's own
+settings need it. Script in outputs is blocked by the nonce, not by that
+keyword.
+
+.. _notebooks-theming:
+
+How the tab is themed
+---------------------
+
+The JUPYTER tab follows the light or dark side of the terminal's theme. A dark
+theme shows *JupyterLab Dark*, and a light theme shows *JupyterLab Light*.
+When you change the terminal theme (:doc:`theming`), the tab changes too. In
+the tab, the terminal theme replaces a theme that you pick from
+*Settings → Theme*.
+
+The tab changes its theme after JupyterLab starts. Until then, JupyterLab
+shows the theme that it stored last. If it has no stored theme, it shows the
+pinned theme of the deployment. A ``web.theme`` that names a dark or a light
+look pins the JupyterLab theme for that look. A family name on its own pins
+nothing.
+
+JupyterLab stores each theme change on the durable volume, so the theme comes
+back after a sidecar restart. A JupyterLab page that you open at its own
+address does not follow the terminal. It starts in the theme that the tab used
+last. A theme that you pick there from *Settings → Theme* stays until the tab
+follows the terminal again.
+
+When the tab fails to start
+---------------------------
+
+A dimmed JUPYTER entry whose tooltip reads *JUPYTER failed to start:
+<reason>* means the sidecar did not start. On a host where the first start is
+slow, the terminal gives up after 60 s. Set ``web.sidecar_ready_timeout_s``
+(:ref:`config-web`) to give the sidecar longer. The reason is one line: what
+went wrong, and the sidecar's last error line when it has one. If the Jupyter
+tile is open, it shows *JupyterLab did not start*, the reason, and a **Retry**
+button. To see the last lines of the sidecar's error output, open the tile's
+**⋯** menu and select **Show server log**. The terminal log has the full error
+output. The rest of the terminal is unaffected — only that one tab is
+unavailable.
+
+Click the entry, or **Retry** in the tile, to start the sidecar again. The
+terminal runs one attempt at a time and waits as long as it does at startup;
+the tooltip reads *JUPYTER is starting* and the tile shows *Starting
+JupyterLab…* until the attempt settles. A start that succeeds opens the tab;
+one that fails again shows its new reason.
+
+A sidecar that dies after it started turns the entry the same way within about
+ten seconds. JupyterLab reads *Disconnected* first and saves fail, with nowhere
+else to save to. Copy any unsaved cells out of the browser before you start it
+again.
+
+When JupyterLab stops answering but the sidecar still runs, click the **Reload**
+icon on the tile bar. This loads JupyterLab again; the kernels keep running. To
+stop the sidecar and start a new one, open the tile's **⋯** menu and select
+**Restart kernel server**. The terminal asks you to confirm first, because
+running kernels stop and their unsaved state is lost.
+
+``osprey health`` never fetches the panel. It shows the same *failed to start*
+sentence as a warning row when the terminal recorded a failure, and a skip row
+otherwise, so it never claims a panel is healthy on evidence it does not have.
+
+Limitations
+-----------
+
+- The agent cannot run cells. It edits notebook files; you run them.
+- No real-time collaborative editing. Two people in one notebook fall back to
+  the save-time dialog above.
+- No health probe of the sidecar; the row reports what the terminal recorded.
+
+.. seealso::
+
+   :doc:`panels`
+      The other tabs, and how the panel proxy treats credentials.
+
+   :doc:`operate`
+      Running the terminal that hosts them.

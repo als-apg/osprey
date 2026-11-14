@@ -1,7 +1,8 @@
-Installation & Setup
-====================
+Installation
+============
 
-Get OSPREY running in five steps. The whole process takes about 10 minutes.
+Get OSPREY running in six steps; the last one, a container runtime, is optional. The
+whole process takes about 10 minutes.
 
 .. dropdown:: **What you'll have when done**
    :color: info
@@ -10,13 +11,14 @@ Get OSPREY running in five steps. The whole process takes about 10 minutes.
    - Node.js, Claude Code, and ``uv`` installed
    - An API key configured for your AI provider
    - The ``osprey`` CLI installed and on your ``PATH``
-   - The ability to create projects with ``osprey build``
+   - The ability to create projects with ``osprey init``
+   - Optionally, Docker or Podman for ``osprey up``
 
 
 Step 1: Install Node.js
 ------------------------
 
-Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
+Claude Code requires `Node.js <https://nodejs.org/>`_ 22+.
 
 .. tab-set::
 
@@ -36,27 +38,28 @@ Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
 
       .. code-block:: bash
 
-         # Ubuntu/Debian
-         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-         sudo apt-get install -y nodejs
+         # Debian/Ubuntu — npm is a separate package here, and Claude Code needs it
+         sudo apt-get install -y nodejs npm
 
-         # Or use your distribution's package manager
+      Your distribution's own packages are the simplest route. Check what yours
+      ships (``node --version``): many current releases package a Node below the
+      22 floor, and there the cleanest fix is a current Node from
+      `nvm <https://github.com/nvm-sh/nvm>`_.
 
    .. tab-item:: Windows (WSL2)
 
-      Install Node.js inside your WSL2 environment:
+      Install Node.js inside your WSL2 environment, the same way as on Linux:
 
       .. code-block:: bash
 
-         curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-         sudo apt-get install -y nodejs
+         sudo apt-get install -y nodejs npm
 
 Verify:
 
 .. code-block:: bash
 
    node --version
-   # You should see v18.x.x or higher
+   # You should see v22.x.x or higher
 
 
 Step 2: Install Claude Code
@@ -64,7 +67,12 @@ Step 2: Install Claude Code
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code
+   npm install -g @anthropic-ai/claude-code@2.1.322
+
+The pinned version is the one OSPREY's generated projects run. Installing it
+exactly — rather than whatever was published most recently — means a brand-new
+CLI release can't change your setup the day it comes out. The pinned version is
+the one npm's ``stable`` channel for Claude Code names.
 
 Verify:
 
@@ -76,21 +84,24 @@ Verify:
 Pinning the Claude Code CLI version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Anthropic ships breaking changes to the Claude Code CLI from time to time. To
-insulate a project from upstream releases, pin a specific version in the
-project's ``config.yml``:
+Every OSPREY project runs one exact Claude Code version, and the install
+command above gives you the one new projects use. To run a different version
+in a project, set it under ``config:`` in ``profile.yml`` and run
+``osprey build``:
 
 .. code-block:: yaml
 
-   claude_code:
-     cli_version: "2.1.146"   # exact version, no semver ranges
+   config:
+     claude_code.cli_version: "2.1.322"   # one exact version
 
-When set, ``osprey claude chat`` and the web terminal launch the pinned
-version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
-globally-installed ``claude`` binary. The first run downloads the package;
-subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
-is being honored. To temporarily bypass the pin for debugging, run
-``osprey claude chat --no-pin``.
+Then install that same version, so the ``claude`` on your machine matches the
+project:
+
+.. code-block:: bash
+
+   npm install -g @anthropic-ai/claude-code@2.1.322
+
+``osprey health`` tells you whether the two agree.
 
 
 Step 3: Install Python tools
@@ -123,8 +134,9 @@ Verify:
 Step 4: Set up your API key
 -----------------------------
 
-The Osprey agent needs an API key for the AI provider. Set it in your shell profile
-so it's always available.
+The OSPREY agent needs an API key for the AI provider. Set it in your shell profile
+now: an exported key is what a host-local run reads, and it is what seeds the first
+project you build. Its durable home comes later — see the note below.
 
 .. tab-set::
 
@@ -165,10 +177,22 @@ so it's always available.
          # Google
          export GOOGLE_API_KEY="..."
 
-      See :doc:`/how-to/configure-providers` for the full list.
+      See :doc:`/how-to/llm-providers/configure-providers` for the full list.
 
 .. note::
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
+
+.. admonition:: Where the key lives once you create a deployment
+   :class: important
+
+   A shell export reaches a **deployment repository** once: when ``osprey init``
+   creates it. From then on the repository's own ``.env`` is the key's home —
+   builds and deploys read it and never re-read your shell, so a key exported
+   *after* the repository exists does not get in.
+
+   Keep the export for host-local runs and for seeding that first repository;
+   put the key in the repository's ``.env`` for anything you want to survive a
+   rebuild. See :ref:`profile-secrets`.
 
 
 Step 5: Install OSPREY
@@ -187,13 +211,31 @@ Step 5: Install OSPREY
 
       This is the right choice for most users. Your own projects stay separate
       from the tool — you'll create them in their own directories with
-      ``osprey build``.
+      ``osprey init``.
 
       To upgrade later:
 
       .. code-block:: bash
 
          uv tool upgrade osprey-framework
+
+      **Pre-releases.** Both commands resolve to the newest *stable* release
+      and skip pre-releases (versions ending in ``b1``, ``rc1``, …), so a beta
+      announced for testing is not what they install. Ask for it explicitly:
+
+      .. code-block:: bash
+
+         # The newest version, pre-releases included
+         uv tool install --prerelease allow osprey-framework
+
+         # One specific pre-release
+         uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
+
+      Pinning the version alone is not enough: the ``osprey-connectors``
+      release a pre-release framework is tested with can be a pre-release
+      too, and ``--prerelease allow`` is what lets the resolver take it.
+      ``uv tool upgrade --prerelease allow osprey-framework`` moves an
+      installation on to the next pre-release.
 
    .. tab-item:: From source
 
@@ -222,6 +264,47 @@ scheme (e.g. ``2026.5.1``; git tags carry a ``v`` prefix, e.g. ``v2026.5.1``)
 — the first two segments identify the release window and the patch segment
 increments for hotfixes. See ``CHANGELOG.md`` for details.
 
+Step 6: Install a container runtime (optional)
+------------------------------------------------
+
+``osprey up`` runs a project and its services (simulation IOCs, databases, the
+observability stack) in containers, and needs Docker or Podman for that. The core
+agent workflow does not require containers, so you can skip this step and come back
+to it when you deploy.
+
+.. tab-set::
+
+   .. tab-item:: Docker Desktop
+
+      Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
+      and verify:
+
+      .. code-block:: bash
+
+         docker --version
+         docker compose version
+         docker buildx version
+
+      OSPREY's service images need BuildKit: Docker Desktop includes it; on a
+      Linux Docker Engine install the ``docker-buildx-plugin`` package. Podman
+      needs nothing extra.
+
+   .. tab-item:: Podman
+
+      Install from the `Podman website <https://podman.io/docs/installation>`_
+      and verify:
+
+      .. code-block:: bash
+
+         podman --version
+
+      On macOS/Windows, also run:
+
+      .. code-block:: bash
+
+         podman machine init
+         podman machine start
+
 You're done! 🎉
 -----------------
 
@@ -234,11 +317,11 @@ OSPREY is installed and ready to use. Here's what to do next:
       :link: hello-world-tutorial
       :link-type: doc
 
-      Build your first agent with a mock control system. One MCP server, zero
-      complexity. Takes about 10 minutes.
+      Build your first agent with the simulator served in process. One MCP server, zero
+      complexity. Takes about five minutes.
 
-   .. grid-item-card:: **Guided Build Interview**
-      :link: osprey-build-interview
+   .. grid-item-card:: **Guided Facility Setup**
+      :link: osprey-install
       :link-type: doc
 
       Set OSPREY up for your own detector, beamline, or accelerator subsystem.
@@ -246,67 +329,33 @@ OSPREY is installed and ready to use. Here's what to do next:
       to your system. Takes about 10--15 minutes.
 
 
-.. dropdown:: **Advanced: Container runtime, services & detailed configuration**
+.. dropdown:: **Advanced: Services & detailed configuration**
    :color: secondary
    :icon: gear
 
    The steps above cover the core installation. The following are only needed for
    specific use cases.
 
-   **Container Runtime (Docker or Podman)**
-
-   A container runtime is only required if you plan to deploy containerized services
-   (Jupyter, simulation IOCs, databases). The core agent workflow does not require
-   containers.
-
-   .. tab-set::
-
-      .. tab-item:: Docker Desktop
-
-         Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
-         and verify:
-
-         .. code-block:: bash
-
-            docker --version
-            docker compose version
-
-      .. tab-item:: Podman
-
-         Install from the `Podman website <https://podman.io/docs/installation>`_
-         and verify:
-
-         .. code-block:: bash
-
-            podman --version
-
-         On macOS/Windows, also run:
-
-         .. code-block:: bash
-
-            podman machine init
-            podman machine start
-
    **Deploying Services**
 
-   See :doc:`/how-to/deploy-project` for setting up containerized services like Jupyter
-   notebooks, databases, or simulation IOCs.
+   See :doc:`/how-to/deploy-project/index` for setting up containerized services like
+   databases, simulation IOCs, or the observability stack.
 
    **Detailed Configuration**
 
-   See :doc:`/how-to/configure-providers` for provider setup and
+   See :doc:`/how-to/llm-providers/configure-providers` for provider setup and
    :doc:`/how-to/build-profiles` for the full build profile YAML reference.
 
 
 Troubleshooting
-~~~~~~~~~~~~~~~~
+---------------
 
 .. dropdown:: Common issues
    :color: warning
    :icon: alert
 
    **"claude: command not found"**
-      Install Claude Code: ``npm install -g @anthropic-ai/claude-code``
+      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.322``
 
    **"osprey: command not found"**
       If you installed via ``uv tool install osprey-framework``, make sure uv's
@@ -316,7 +365,9 @@ Troubleshooting
       from inside the clone.
 
    **MCP connection failed**
-      Ensure you're running ``claude`` from your project root where ``.mcp.json`` lives.
+      Start sessions with ``osprey chat`` or ``osprey web``, not a bare ``claude``.
+      They run Claude Code in the project's ``build/`` directory, where the
+      rendered ``.mcp.json`` lives.
 
    **Provider authentication error**
       Check that your API key is exported: ``echo $CBORG_API_KEY`` (or whichever key

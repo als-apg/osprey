@@ -1,0 +1,72 @@
+===============
+Control Systems
+===============
+
+A connector is OSPREY's single interface to a control system. The agent, the
+plans and the safety layers are all written against that one interface, so the
+machine underneath it is interchangeable. Use the simulator in process for
+development, the simulator served from its container for rehearsal, and the
+real hardware for production.
+
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: Use Connectors
+      :link: use-connectors
+      :link-type: doc
+      :shadow: md
+
+      The two-layer connector abstraction, the connectors that ship in-tree,
+      and where to register your own. Moving from simulator to production
+      changes ``control_system.type``, not code.
+
+   .. grid-item-card:: Use the Connectors Without the Framework
+      :link: use-connectors-standalone
+      :link-type: doc
+      :shadow: md
+
+      Read a control system and its archiver from a script of your own with
+      ``pip install osprey-connectors`` alone -- no agent, no built deployment.
+
+   .. grid-item-card:: Use the Virtual Accelerator
+      :link: use-virtual-accelerator
+      :link-type: doc
+      :shadow: md
+
+      Run against a containerized simulator serving real EPICS Channel Access,
+      with PyAT physics behind the storage-ring lattice channels, so correctors
+      move and BPMs respond.
+
+   .. grid-item-card:: Switch the Control Target at Run Time
+      :link: switch-control-target
+      :link-type: doc
+      :shadow: md
+
+      Rehearse a piece of work on the simulator, then run the same work on the
+      live machine without rebuilding the project or restarting anything.
+
+   .. grid-item-card:: Connect the Agent to Phoebus Displays
+      :link: phoebus-bridge
+      :link-type: doc
+      :shadow: md
+
+      Let the agent open, read and drive live Phoebus displays through the
+      agent bridge.
+
+   .. grid-item-card:: Review the Agent's Code
+      :link: code-review
+      :link-type: doc
+      :shadow: md
+
+      Have a model read the Python the agent writes for what it would do to
+      the machine, under rules you write, before it runs.
+
+.. toctree::
+   :hidden:
+
+   use-connectors
+   use-connectors-standalone
+   use-virtual-accelerator
+   switch-control-target
+   phoebus-bridge
+   code-review

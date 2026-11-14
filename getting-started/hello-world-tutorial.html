@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Hello World Tutorial &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>Hello World Tutorial &#8212; Osprey Framework 2026.11.0 documentation</title>
   
   
   
@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
+    <script src="../_static/documentation_options.js?v=c6593756"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,19 +53,20 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
-            false;
+            true;
         </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/getting-started/hello-world-tutorial.html" />
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Guided Project Setup" href="osprey-build-interview.html" />
-    <link rel="prev" title="Conceptual Tutorial" href="conceptual-tutorial.html" />
+    <link rel="next" title="The Demo Deployment" href="demo.html" />
+    <link rel="prev" title="Installation" href="installation.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  <meta name="docsearch:version" content="2026.11.0" />
+    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
   </head>
   
   
@@ -149,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -368,11 +383,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Hello World Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-build-interview.html">Guided Project Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demo.html">The Demo Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">How OSPREY works</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Guided Facility Setup</a></li>
 </ul>
 </div>
 </nav></div>
@@ -435,9 +450,21 @@
                   
   <section id="hello-world-tutorial">
 <h1>Hello World Tutorial<a class="headerlink" href="#hello-world-tutorial" title="Link to this heading">#</a></h1>
-<p>Build your first OSPREY agent. One MCP server, one mock control system, zero
-complexity. By the end of this tutorial, you’ll have an agent that reads
-control system channels using the Osprey agent.</p>
+<p>Build and run your first OSPREY agent in about five minutes, with no containers
+and no hardware. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset is the smallest deployment that
+still shows the whole write-safety chain: the simulator, served in this
+process, that answers for the channels of your facility file, eleven safety
+and bookkeeping hooks, and a browser interface.</p>
+<p>Three <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands take you from nothing to a running agent:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+<span class="nb">cd</span><span class="w"> </span>my-first-agent
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>The rest of this tutorial walks that path slowly, because the point is not the
+agent — it is the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> you get along the way, which doubles as the
+syllabus for everything OSPREY can grow into.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -453,237 +480,379 @@ control system channels using the Osprey agent.</p>
 </div>
 </details><section id="step-1-create-the-project">
 <h2>Step 1: Create the Project<a class="headerlink" href="#step-1-create-the-project" title="Link to this heading">#</a></h2>
-<p>Create a ready-to-run project in one command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
 <span class="nb">cd</span><span class="w"> </span>my-first-agent
 </pre></div>
 </div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>First run may take 1–2 minutes to create a virtual environment and install
-dependencies. Subsequent builds are near-instant.</p>
-</div>
-</section>
-<section id="step-2-understand-what-was-generated">
-<h2>Step 2: Understand What Was Generated<a class="headerlink" href="#step-2-understand-what-was-generated" title="Link to this heading">#</a></h2>
-<p>Your project has three key files that control everything:</p>
-<p><strong>config.yml</strong> — Project Configuration</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span><span class="w">    </span><span class="c1"># Change to &#39;epics&#39; for real hardware</span>
-<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># Read-only by default</span>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one git repository. Everything the preset configures is
+spelled out in files you own — nothing is hidden or inherited:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✓ Created my-first-agent
 
-<span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data/channel_limits.json&quot;</span>
-<span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-
-<span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">servers</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">controls</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># The one MCP server</span>
+  profile.yml   your assistant&#39;s settings; edit this
+  data/         channel lists and facility docs; edit these
+  .env          seeded: ANTHROPIC_API_KEY. Not in git
+  .env.shared   settings shared by every host; your .env wins
+  README.md     what everything here does
 </pre></div>
 </div>
-<p>This tells OSPREY to use the <strong>mock connector</strong>, which accepts any channel
-name and returns synthetic data. In production, you change <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code> to
-<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">epics</span></code> and point it at real hardware — your agent code stays the same.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> section enables the safety limits system. The limits
-database defines allowed ranges and read-only channels. With
-<code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span> <span class="pre">true</span></code>, channels not in the database can still be
-read freely.</p>
-<p><strong>.mcp.json</strong> — MCP Server Discovery</p>
-<p>This file is auto-generated by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> from your enabled servers in
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — you don’t need to write or edit it by hand. The rendered
-content looks roughly like:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;controls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-m&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;osprey.mcp_server.control_system&quot;</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;env&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;OSPREY_CONFIG&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;config.yml&quot;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
+<p>The repo has four zones, and knowing which is which is most of what there is
+to learn about OSPREY’s layout:</p>
+<ul class="simple">
+<li><p><strong>Source</strong> — <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">data/</span></code>: yours to edit, kept in git.</p></li>
+<li><p><strong>Secrets</strong> — <code class="docutils literal notranslate"><span class="pre">.env</span></code>: your API keys. Not in git; rebuilds never touch it.</p></li>
+<li><p><strong>Output</strong> — <code class="docutils literal notranslate"><span class="pre">build/</span></code>: generated by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Never edit it;
+deleting it is safe.</p></li>
+<li><p><strong>State</strong> — <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the agent’s memory and audit log. Not in git.</p></li>
+</ul>
+</section>
+<section id="step-2-read-profile-yml-it-is-the-curriculum">
+<h2>Step 2: Read profile.yml — It Is the Curriculum<a class="headerlink" href="#step-2-read-profile-yml-it-is-the-curriculum" title="Link to this heading">#</a></h2>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. This one file is the manifest for the whole deployment,
+and the preset deliberately leaves most of it unset — because every key it
+leaves unset is emitted into your copy as a <strong>commented block</strong> you can turn on
+later. The hello-world preset’s minimalism yields exactly <strong>17</strong> such blocks,
+covering everything from a channel database to event dispatch to a virtual
+accelerator. Growing this project into a production deployment is, quite
+literally, uncommenting one block at a time and rebuilding.</p>
+<p>The parts that <em>are</em> set are short. The agent’s capabilities are lists of named
+artifacts from the OSPREY library — eleven hooks (three of which form the
+write-safety chain), three rules, and one output style:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">hooks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error-guidance</span><span class="w"> </span><span class="c1"># Post-error hook that surfaces remediation hints</span>
+<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">  </span><span class="c1"># The next three are the write-safety chain, and no write reaches the control</span>
+<span class="w">  </span><span class="c1"># system until all three agree. Remove any one of them and `osprey build`</span>
+<span class="w">  </span><span class="c1"># refuses the render while writes are armed, naming the hook and the server</span>
+<span class="w">  </span><span class="c1"># whose write tools it guarded. Only a read-only deployment may drop them.</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write to a machine whose writes are off</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval</span><span class="w">       </span><span class="c1"># Gate hardware-write tool calls on human approval prompt</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/facility/limits.yaml</span>
 </pre></div>
 </div>
-<p>This is how the Osprey agent discovers the control system MCP server. When the
-agent starts, it launches this server and gains access to tools like
-<code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p>
-<p><strong>CLAUDE.md</strong> — Agent Behavior Instructions</p>
-<p>This file contains instructions that the Osprey agent reads on startup. It defines how
-the agent should behave, what safety rules to follow, and how to format
-responses. Edit this file to customize your agent’s personality and behavior.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> template also installs agent <strong>hooks</strong> for
-safety enforcement. These hooks run automatically before each tool call to
-check limits and require human approval for writes. You don’t need to
-configure them manually.</p>
+<p><code class="docutils literal notranslate"><span class="pre">build/.claude/hooks/</span></code> also holds five helper scripts. The hooks import
+them; they are not hooks themselves.</p>
+<p>And all remaining configuration lives in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, one dotted key
+per line:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Which control system to talk to. `virtual_accelerator` is the simulator of</span>
+<span class="w">  </span><span class="c1"># the built facility; `serving: in_process` runs it inside this process — the</span>
+<span class="w">  </span><span class="c1"># facility&#39;s channels, its seeds and scenarios, no hardware and no containers</span>
+<span class="w">  </span><span class="c1"># — and refuses any address outside the facility. `served` reaches the same</span>
+<span class="w">  </span><span class="c1"># simulator in its container over Channel Access. The demo</span>
+<span class="w">  </span><span class="c1"># preset shows the EPICS connector configuration,</span>
+<span class="w">  </span><span class="c1"># and `osprey config --defaults` lists every shipped connector type.</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
+<span class="w">  </span><span class="c1"># The FIRST guard in the write-safety chain: while `never`, every hardware</span>
+<span class="w">  </span><span class="c1"># write is refused before the limits check or the approval prompt is even</span>
+<span class="w">  </span><span class="c1"># consulted. Set it `asked`, rebuild, and the two hooks below take over.</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">never</span>
+<span class="w">  </span><span class="c1"># ...</span>
+<span class="w">  </span><span class="c1"># The SECOND guard: every write is checked against the records in</span>
+<span class="w">  </span><span class="c1"># data/facility/limits.yaml (per-channel min/max and writable flags).</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># ...</span>
+<span class="w">  </span><span class="c1"># The THIRD guard: a write that passed the master switch and the limits check</span>
+<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt, unless its slider stands at `allowed`.</span>
+<span class="w">  </span><span class="c1"># Applied by the approval hook, so it reaches only hook-wired tools;</span>
+<span class="w">  </span><span class="c1"># everything else is gated by the rendered settings.json permissions.</span>
+<span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># ...</span>
+</pre></div>
+</div>
+<p>That <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code> line is the one this tutorial
+comes back to in Step 7. For everything the profile can hold, see
+<a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the <strong>only durable edit surface</strong>. The <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>
+you are about to generate is output — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> wipes and
+re-renders it, so an edit made there is lost on the next build (and a
+session-start check warns you when the build has gone stale). Make changes
+in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuild.</p>
 </div>
 </section>
-<section id="step-3-start-the-agent">
-<h2>Step 3: Start the Agent<a class="headerlink" href="#step-3-start-the-agent" title="Link to this heading">#</a></h2>
-<p>From your project directory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
+<section id="step-3-build-it">
+<h2>Step 3: Build It<a class="headerlink" href="#step-3-build-it" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> takes no arguments: it walks up from wherever you run it to
+the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders that repo’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory —
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code> tree (rules, hooks, settings), the
+<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> that wires up the MCP servers the agent can call (the
+<code class="docutils literal notranslate"><span class="pre">controls</span></code> server among them), and a copy of your <code class="docutils literal notranslate"><span class="pre">data/</span></code> files. The render is complete and disposable: nothing durable lives
+in <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> is the recommended way to launch: it reads
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and points the agent at your configured LLM provider.
-Launching the bare agent CLI skips this, so it silently uses whatever
-provider your shell environment points at — see
-<a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>On first run, the Osprey agent will ask you to trust the MCP servers in this
-project. Accept to allow the agent to use the control system tools.</p>
-<p>The Osprey agent connects to the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> MCP server and is ready to accept
-queries.</p>
+<p>The first build may take 1–2 minutes to create a virtual environment and
+install dependencies. Subsequent builds are near-instant.</p>
 </div>
 </section>
-<section id="step-4-try-it-out">
-<h2>Step 4: Try It Out<a class="headerlink" href="#step-4-try-it-out" title="Link to this heading">#</a></h2>
-<p>Try these queries to see the mock control system in action:</p>
-<p><strong>Read a single channel:</strong></p>
+<section id="step-4-launch-the-web-terminal">
+<h2>Step 4: Launch the Web Terminal<a class="headerlink" href="#step-4-launch-the-web-terminal" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>This starts the OSPREY Web Terminal on <a class="reference external" href="http://127.0.0.1:10100">http://127.0.0.1:10100</a> — a browser
+interface with the agent in a terminal pane on the left and a live workspace
+viewer on the right, where plots and other artifacts the agent produces appear.
+The command prints a login URL (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>) once, at
+startup; opening it sets a session cookie and redirects to the clean address.
+The token is the server’s own secret, so treat that URL like a password.
+No containers are involved; it is a local process serving your <code class="docutils literal notranslate"><span class="pre">build/</span></code>.
+It refuses to start if there is no build yet, so run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first.</p>
+<p>Useful variations: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--port</span> <span class="pre">9000</span></code> picks another port,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--repo</span> <span class="pre">~/my-first-agent</span></code> serves the deployment from anywhere, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> stops a backgrounded (<code class="docutils literal notranslate"><span class="pre">--detach</span></code>) instance. See
+<a class="reference internal" href="../how-to/web-terminal/index.html"><span class="doc">Web Terminal</span></a> for the full tour.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Prefer to stay in your terminal? <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> starts the same agent
+against the same build as a plain CLI session — see
+<a class="reference internal" href="../how-to/agent-interfaces/cli-agent.html"><span class="doc">Run the Agent from the Command Line</span></a>. The remaining steps work
+identically there; this tutorial assumes the web terminal.</p>
+</div>
+</section>
+<section id="step-5-read-some-channels">
+<h2>Step 5: Read Some Channels<a class="headerlink" href="#step-5-read-some-channels" title="Link to this heading">#</a></h2>
+<p>The simulator serves the channels of <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>, inside this process — that is
+the whole trick behind a five-minute first session. The session is on the
+<code class="docutils literal notranslate"><span class="pre">va</span></code> target, and the control-target chip in the web terminal’s sidebar reads
+“Simulator”. Any other
+address is answered with <code class="docutils literal notranslate"><span class="pre">&lt;address&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>, for
+example <code class="docutils literal notranslate"><span class="pre">ANY:RANDOM:NAME</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>. Try:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
 </pre></div>
 </div>
-<p>Expected output (the exact wording depends on your <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> and the
-agent’s output style, but the channel, a value with units, and a status
-should all appear):</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Channel: SR:BEAM:CURRENT
-Value:   250.3 mA
-Status:  OK
+<p>The OSPREY agent calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool on the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server
+and reports back a value with units and a status. The exact wording varies with
+the agent’s output style, but it looks roughly like:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>SR:BEAM:CURRENT  250.3 mA  OK
 </pre></div>
 </div>
-<p>The mock connector returns synthetic beam current data. It generates
-realistic values based on the channel name.</p>
-<p><strong>Ask what’s available:</strong></p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: What channels are available?
+<p>Reads need no approval — only writes are gated. Ask for several at once:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read SR:BEAM:CURRENT and SR:MAG:QF:01:CURRENT:RB
 </pre></div>
 </div>
-<p>The agent explains it can read any channel name — the mock connector accepts
-all PV names without needing a real control system.</p>
-<p><strong>Read multiple channels:</strong></p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read SR:VAC:PRESSURE:01 and SR:MAG:QF:01:CURRENT:RB
-</pre></div>
-</div>
-<p>The Osprey agent calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool for each channel and presents the
-results together — vacuum pressure and magnet readback values.</p>
+<p>Historical questions work too — “plot the beam current over the last hour” —
+because a mock archiver backs the <code class="docutils literal notranslate"><span class="pre">archiver_read</span></code> tool with synthetic
+history, and the plot lands in the workspace pane beside the terminal.</p>
 </section>
-<section id="step-5-safety-limits">
-<h2>Step 5: Safety &amp; Limits<a class="headerlink" href="#step-5-safety-limits" title="Link to this heading">#</a></h2>
-<p>OSPREY enforces safety at two levels: <strong>limits checking</strong> (automatic) and
-<strong>human approval</strong> (interactive). This step walks through both.</p>
-<p><strong>1. Enable writes</strong></p>
-<p>Edit <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> to allow write operations:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
-<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># Changed from false</span>
+<section id="step-6-attempt-a-write-and-get-refused">
+<h2>Step 6: Attempt a Write — and Get Refused<a class="headerlink" href="#step-6-attempt-a-write-and-get-refused" title="Link to this heading">#</a></h2>
+<p>Now ask for a write:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is a <em>build-time</em> input. Safety-critical fields like
-<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> are baked into the agent’s generated configuration (the
-<code class="docutils literal notranslate"><span class="pre">.claude/</span></code> artifacts), so editing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> alone does not change the
-agent’s behavior. Regenerate the artifacts and relaunch:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>regen
-osprey<span class="w"> </span>claude<span class="w"> </span>chat
-</pre></div>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>You can check whether your artifacts are in sync at any time with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">status</span></code>. If you forget to regenerate, the agent warns you at
-startup that <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> has drifted from its generated configuration.</p>
-</div>
-<p><strong>2. Write within limits</strong> (succeeds with approval)</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 150.0 to SR:MAG:QF:01:CURRENT:SP
-</pre></div>
-</div>
-<p>The value 150.0 is within the allowed range for this channel (0–300 A in the
-limits database). The approval hook prompts you before executing:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>⚠ Write requested: SR:MAG:QF:01:CURRENT:SP = 150.0
-Approve? [y/N]
-</pre></div>
-</div>
-<p>Type <code class="docutils literal notranslate"><span class="pre">y</span></code> to approve. The mock connector accepts the write and confirms.</p>
-<p><strong>3. Write outside limits</strong> (blocked)</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 500.0 to SR:MAG:QF:01:CURRENT:SP
-</pre></div>
-</div>
-<p>The value 500.0 exceeds the maximum of 300.0 defined in
-<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>. The limits hook blocks the write before it
-reaches the connector — no approval prompt appears. The agent surfaces
-something like:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✗ Write blocked: 500.0 exceeds max=300.0 for SR:MAG:QF:01:CURRENT:SP
-</pre></div>
-</div>
-<p><strong>4. Write to a read-only channel</strong> (blocked)</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Write 1.0 to SR:BEAM:CURRENT
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is marked as read-only in <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>.
-The limits hook blocks the write regardless of the value, and the agent
-reports something like:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✗ Write blocked: SR:BEAM:CURRENT is read-only
-</pre></div>
-</div>
-</section>
-<section id="step-6-understand-the-flow">
-<h2>Step 6: Understand the Flow<a class="headerlink" href="#step-6-understand-the-flow" title="Link to this heading">#</a></h2>
-<p>Here’s what happens when you ask “Read channel SR:BEAM:CURRENT”:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You ──→ Osprey agent ──→ channel_read MCP tool
-                                 │
-                           Mock Connector
-                                 │
-                        Synthetic data ──→ Osprey agent formats response ──→ You
-</pre></div>
-</div>
+<p>The write is refused before it reaches the control system: the agent reports
+that writes are disabled in this deployment. The exact wording is the agent’s
+own, because the refusal happens a layer below it — with the tier at
+<code class="docutils literal notranslate"><span class="pre">never</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the write tool into the agent’s denied
+permissions, so the tool call is blocked before it even executes.</p>
+<p>This is the first of <strong>three guards</strong> that every write must pass:</p>
 <ol class="arabic simple">
-<li><p>You type a natural language query</p></li>
-<li><p>The Osprey agent decides to call the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> MCP tool</p></li>
-<li><p>The MCP server receives the call and routes it to the <strong>mock connector</strong></p></li>
-<li><p>The mock connector generates synthetic data (realistic noise, naming-based values)</p></li>
-<li><p>The Osprey agent formats the response and presents it to you</p></li>
+<li><p><strong>Who may write</strong> (<code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook) — the tier key
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is <code class="docutils literal notranslate"><span class="pre">never</span></code> here, so all writes are refused
+outright. This is what just fired: the build bakes the tier into the agent’s
+denied permissions. Once the tier allows writes, the hook asks your login’s
+write switch for the machine on every call. See
+<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>.</p></li>
+<li><p><strong>Limits</strong> (<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook) — the value is checked against per-channel
+bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>.</p></li>
+<li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — at <em>asked</em>, a write that passes both
+still pauses for your explicit yes/no before anything is executed.</p></li>
 </ol>
-<p><strong>This is the same flow in production</strong> — just with <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">epics</span></code> instead of
-<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code>. The connector handles the difference; your agent and queries
-stay the same.</p>
+<p>Safety is not optional equipment here: the three hooks are declared in your
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Remove any one of them and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses the render
+while writes are armed, naming the hook and the server whose write tools it
+guarded. Only a read-only deployment may drop them.</p>
 </section>
-<section id="step-7-customize">
-<h2>Step 7: Customize<a class="headerlink" href="#step-7-customize" title="Link to this heading">#</a></h2>
-<p><strong>Change agent behavior</strong> by editing <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>:</p>
-<p>Add a line like “Always report values with 4 decimal places” or “When reading
-magnet channels, also explain what the magnet does.” Restart the Osprey agent to see
-the effect.</p>
-<p><strong>Add new channels to the limits database</strong> by editing
-<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>:</p>
+<section id="step-7-enable-writes-tier-rebuild-chip">
+<h2>Step 7: Enable Writes — Tier, Rebuild, Chip<a class="headerlink" href="#step-7-enable-writes-tier-rebuild-chip" title="Link to this heading">#</a></h2>
+<p>Writes take two steps: the deployment allows them, then you turn them on.</p>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and allow writes:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">   </span><span class="c1"># ← was never</span>
+</pre></div>
+</div>
+<p>Then re-render and relaunch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>web
+</pre></div>
+</div>
+<p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> instead — that file is generated output,
+and your edit would vanish on the next build.</p>
+<p>The deployment now <em>may</em> write, but your switch is still off. Click the
+control-target chip in the sidebar (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and move the
+simulator to <em>asked</em> (<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). A write asked for
+with the switch off is refused with a line telling you to do exactly that.</p>
+</section>
+<section id="step-8-write-with-the-guards-watching">
+<h2>Step 8: Write with the Guards Watching<a class="headerlink" href="#step-8-write-with-the-guards-watching" title="Link to this heading">#</a></h2>
+<p>The limits file that ships with this preset, <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>,
+holds three records: two writable quadrupole setpoints with bounds, and one
+read-only measurement. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes them into the render’s limits
+database, <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, which is what the guards read.
+With the simulator at <em>asked</em>, all three remaining behaviors are now observable.</p>
+<p><strong>A write inside its limits</strong> — pauses for your approval:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
+</pre></div>
+</div>
+<p>150 sits inside the 0–300 range declared for this channel, so the limits
+check passes and the approval prompt appears in the terminal, naming the
+channel and value. Approve it, and the simulator accepts the write.
+At <em>asked</em>, nothing is ever written without this step.</p>
+<p><strong>A write outside its limits</strong> — blocked:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 500
+</pre></div>
+</div>
+<p>500 is above the channel’s maximum of 300, so the write is refused: the
+<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook denies it, and the connector checks the same limits database
+once more at execution time — so even an approved write cannot carry an
+out-of-range value to the (simulated) hardware. Approval is a gate on writes the
+limits allow; it is not a way around them.</p>
+<p><strong>A write to a read-only channel</strong> — blocked regardless of value:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:BEAM:CURRENT to 1.0
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is a measurement, marked <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> in the
+limits file, so the write is refused whatever the value.</p>
+</section>
+<section id="step-9-edit-the-limits-file">
+<h2>Step 9: Edit the Limits File<a class="headerlink" href="#step-9-edit-the-limits-file" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> is your first editable safety artifact. This is
+the shipped file:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Bundled with OSPREY: the hello_world facility. Delete this line to make the file yours.</span>
+<span class="c1"># The limits hook checks every write against these records. A channel not</span>
+<span class="c1"># listed here follows control_system.limits_checking.mode; hello-world runs</span>
+<span class="c1"># optional, so a channel with no record is written with no limits and listing</span>
+<span class="c1"># a channel is how you put bounds on it or block it.</span>
+<span class="c1">#</span>
+<span class="c1"># A setpoint record with min_value and max_value is writable within them.</span>
+<span class="c1"># writable: false blocks every write to the channel. confirm: false turns off</span>
+<span class="c1"># the re-read after a write.</span>
+<span class="nt">records</span><span class="p">:</span>
+<span class="c1"># Focusing quadrupole current: writable, but only within these bounds.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300.0</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="c1"># Defocusing quadrupole current: writable, with a tighter ceiling.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QD:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="c1"># Beam current: a measurement, so writes are refused outright.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:BEAM:CURRENT</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes one entry per record into
+<code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, each stating <code class="docutils literal notranslate"><span class="pre">writable</span></code> and <code class="docutils literal notranslate"><span class="pre">confirm</span></code>:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;SR:MAG:CORR:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-5.0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
-<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="nt">&quot;_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4.0&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;SR:BEAM:CURRENT&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QD:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">250.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QF:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">300.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>This lets you define safe operating ranges for additional channels. Any write
-to a channel listed here is checked against its <code class="docutils literal notranslate"><span class="pre">min_value</span></code>/<code class="docutils literal notranslate"><span class="pre">max_value</span></code>
-range before the approval prompt.</p>
+<p>That file is generated output: edit <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and rebuild. A profile
+that ships its own <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> stops the build. <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">true</span></code> may be
+left out, and it cannot stand in for the bounds: a setpoint record without both
+<code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is written <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code>, so a record is
+either bounded or a block. <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code>, the value a record gets when it does not state
+one, means every write is checked: the connector reads the channel back once
+and compares what it finds with the value that was sent, so a write that did
+not land is reported rather than assumed.</p>
+<p>Channels not listed here are written with no limits — the preset sets
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode:</span> <span class="pre">optional</span></code>. Under <code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">exclusive</span></code>
+only channels in the limits file can be written. Listing a channel is how you
+put bounds on it. Add one record:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:CORR:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-5.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+</pre></div>
+</div>
+<p>Then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to carry the change into the render, and try writes on
+either side of the new bounds. This edit-rebuild-observe loop — in <code class="docutils literal notranslate"><span class="pre">data/</span></code>
+or in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — is the same loop every real deployment is grown with.</p>
+</section>
+<section id="step-10-read-what-the-agent-recorded">
+<h2>Step 10: Read What the Agent Recorded<a class="headerlink" href="#step-10-read-what-the-agent-recorded" title="Link to this heading">#</a></h2>
+<p>Every prompt, answer, tool call and approval decision of your session went into
+the <strong>agent record</strong>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> runs as a local process beside the
+agent. The preset keeps it on the embedded backend, with no container:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agent_record</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">embedded</span>
+</pre></div>
+</div>
+<p>While <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> runs, the record answers its read API on
+<a class="reference external" href="http://127.0.0.1:10053">http://127.0.0.1:10053</a> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 53). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> minted
+an operator login for it into <code class="docutils literal notranslate"><span class="pre">.env.agent-record.login.operator</span></code> (mode 0600).
+List your sessions, then the approval decisions the safety chain made:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">LOGIN</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^OSPREY_AGENT_RECORD_LOGIN=//p&#39;</span><span class="w"> </span>.env.agent-record.login.operator<span class="k">)</span><span class="s2">&quot;</span>
+curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LOGIN</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:10053/v1/read/list_sessions?limit=5&quot;</span>
+curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LOGIN</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:10053/v1/read/entries?kind=decision&amp;limit=10&quot;</span>
+</pre></div>
+</div>
+<p>The record keeps an entry for 14 days. Each UTC day that has closed is also
+exported, whole, as <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/entries.parquet</span></code> the next
+time the record runs: the lasting copy, which outlives that window. This query
+counts what each identity wrote, by kind, across every exported day:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="c1">-- What the agent recorded, from the record&#39;s archive: every closed day the</span>
+<span class="c1">-- record has exported, counted by who wrote each entry and what kind it is,</span>
+<span class="c1">-- the most frequent first. Run it from the repo root.</span>
+<span class="k">SELECT</span>
+<span class="w">    </span><span class="k">identity</span><span class="p">,</span>
+<span class="w">    </span><span class="n">kind</span><span class="p">,</span>
+<span class="w">    </span><span class="k">count</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="k">key</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">entries</span><span class="p">,</span>
+<span class="w">    </span><span class="k">min</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">first_seen</span><span class="p">,</span>
+<span class="w">    </span><span class="k">max</span><span class="p">(</span><span class="n">ts</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">last_seen</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">read_parquet</span><span class="p">(</span><span class="s1">&#39;var/archive/*/agent_record/entries.parquet&#39;</span><span class="p">)</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">identity</span><span class="p">,</span><span class="w"> </span><span class="n">kind</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">entries</span><span class="w"> </span><span class="k">DESC</span><span class="p">,</span><span class="w"> </span><span class="k">identity</span><span class="p">,</span><span class="w"> </span><span class="n">kind</span>
+</pre></div>
+</div>
+<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and run it from there
+with DuckDB, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs into the build’s own Python
+environment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>build/.venv/bin/python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import duckdb; duckdb.sql(open(&#39;hello-world-tutorial.sql&#39;).read()).show()&quot;</span>
+</pre></div>
+</div>
+<p>On the first day the archive is still empty, and DuckDB reports that no file
+matches. See <a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">The Agent Record</span></a> for what the
+record and its archive hold. The demo preset adds a history page in the browser,
+described in <a class="reference internal" href="../how-to/web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
+<p>The commands you now know are the complete lifecycle, and they are the same
+for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> → <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> forever after.</p>
 <section id="next-steps">
 <h3>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h3>
-<p>You’ve built a working agent with one MCP server and a mock control system.
-Here’s where to go from here:</p>
+<p>You have a working agent, and — more importantly — a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> whose
+commented blocks map everything it can become.</p>
 <ul class="simple">
-<li><p><strong>Production deployment</strong>: The <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a> template adds channel
-finder, electronic logbook search, archiver access, and a web terminal</p></li>
-<li><p><strong>Architecture deep dive</strong>: The <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the
-MCP server architecture, connector system, and safety mechanisms</p></li>
-<li><p><strong>CLI reference</strong>: See <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands</p></li>
-<li><p><strong>Launch options &amp; providers</strong>: <a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a> explains what
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> sets up and how to point the agent at a non-default LLM
-provider via <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
+<li><p><strong>The production tutorial</strong>: <a class="reference internal" href="demo.html"><span class="doc">The Demo Deployment</span></a> builds the
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> preset, which adds natural-language channel finding
+over a facility knowledge graph, a seeded electronic logbook, a real
+archive, sub-agents, and operator skills — on the same safety model.</p></li>
+<li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">How OSPREY works</span></a> explains the MCP server
+architecture, the connector system, and the safety mechanisms in depth.</p></li>
+<li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
+those 17 commented blocks can hold.</p></li>
+<li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
+commands.</p></li>
 </ul>
+<p>The deployment repo that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created also contains
+<code class="docutils literal notranslate"><span class="pre">mcp_servers/example_server/</span></code>, a small working MCP server; its
+<code class="docutils literal notranslate"><span class="pre">example_status</span></code> tool is one the agent already has. Copying that directory
+is the quickest way to start your own. The repo’s <code class="docutils literal notranslate"><span class="pre">README.md</span></code> has a
+“Common questions” section that explains how to add your own server, panel,
+or volume.</p>
 </section>
 </section>
 </section>
@@ -699,20 +868,20 @@ provider via <code class="docutils literal notranslate"><span class="pre">config
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="conceptual-tutorial.html"
+       href="installation.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Conceptual Tutorial</p>
+        <p class="prev-next-title">Installation</p>
       </div>
     </a>
     <a class="right-next"
-       href="osprey-build-interview.html"
+       href="demo.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Guided Project Setup</p>
+        <p class="prev-next-title">The Demo Deployment</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -736,12 +905,15 @@ provider via <code class="docutils literal notranslate"><span class="pre">config
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-project">Step 1: Create the Project</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-understand-what-was-generated">Step 2: Understand What Was Generated</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-start-the-agent">Step 3: Start the Agent</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-try-it-out">Step 4: Try It Out</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-safety-limits">Step 5: Safety &amp; Limits</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-understand-the-flow">Step 6: Understand the Flow</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-customize">Step 7: Customize</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-read-profile-yml-it-is-the-curriculum">Step 2: Read profile.yml — It Is the Curriculum</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-build-it">Step 3: Build It</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-launch-the-web-terminal">Step 4: Launch the Web Terminal</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-read-some-channels">Step 5: Read Some Channels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-attempt-a-write-and-get-refused">Step 6: Attempt a Write — and Get Refused</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-tier-rebuild-chip">Step 7: Enable Writes — Tier, Rebuild, Chip</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-write-with-the-guards-watching">Step 8: Write with the Guards Watching</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-file">Step 9: Edit the Limits File</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-read-what-the-agent-recorded">Step 10: Read What the Agent Recorded</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>

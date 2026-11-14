@@ -1,27 +1,64 @@
 Osprey Framework Documentation
 ================================
 
-**An agentic interface for safety-critical control systems.**
+**An agentic interface to scientific control systems.**
 
-.. admonition:: New architecture (April 2026)
+The **Osprey Framework** is an agentic interface and harness for scientific
+facilities managing complex technical infrastructure, such as particle
+accelerators. The *harness* is the layer that stands between the agent and the
+machine. Osprey runs Claude Code as its agent and wraps it in an
+operator-facing safety policy, a hook-based approval chain, and an MCP-server
+multiplexer (MCP, the Model Context Protocol, is how the agent calls tools).
 
-   Osprey has transitioned from its legacy LangGraph orchestrator to a
-   coding-agent harness with MCP servers and hook-based
-   approval. If you're upgrading from a previous version, see
-   :doc:`getting-started/osprey-build-interview`. The last LangGraph-era release is archived at
-   `v0.11.5 docs <https://als-apg.github.io/osprey/v0.11.5/>`_ (also reachable
-   via the version picker in the top-right).
+The model behind the agent is a configuration choice, and the code specific to
+Claude Code sits in :ref:`one adapter package <extending-agent-harness>`. The
+current reference implementation is a browser-based operator workstation;
+other surfaces (control-room consoles, chat clients, headless services) are
+possible.
 
-The **Osprey Framework** is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.
+Osprey addresses challenges specific to control systems:
 
-Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks <how-to/add-connector>` (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), :doc:`intelligent logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
+- semantic addressing across large channel namespaces;
+- :doc:`protocol-agnostic integration with control stacks </how-to/control-systems/use-connectors>`:
+  EPICS, DOOCS, TANGO and the built-in simulator ship in-tree, and LabVIEW and
+  other stacks are supported via custom connectors;
+- :doc:`logbook search <how-to/ariel/index>` across facility electronic logbooks;
+- mandatory human oversight for safety-critical operations.
 
-.. figure:: _static/resources/architecture.png
-   :alt: Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
-   :align: center
-   :width: 100%
+A short demo of the operator workstation:
 
-   Osprey system architecture (for a detailed view, see :doc:`Architecture <architecture/index>`).
+.. raw:: html
+
+   <div class="osprey-demo">
+     <video id="osprey-demo" preload="metadata" muted loop playsinline controls
+            poster="_static/demo/osprey-demo-light-poster.jpg"
+            aria-label="Demo video of the Osprey operator workstation"
+            aria-describedby="osprey-demo-note">
+       <source src="_static/demo/osprey-demo-light.mp4" type="video/mp4">
+       <img src="_static/demo/osprey-demo-light-poster.jpg"
+            alt="The Osprey operator workstation with a 3D plot the agent made of three BPMs.">
+     </video>
+     <p class="osprey-demo-source">
+       Recorded on the OSPREY demo, which runs a simulated accelerator
+       rather than a real facility. To reproduce it, follow the
+       <a href="getting-started/demo.html">demo tutorial</a>.
+     </p>
+     <p class="osprey-demo-note" id="osprey-demo-note">
+       One unedited session of several minutes. The agent's working time is sped up
+       (marked ⏩&nbsp;with its factor); typing, clicks and the approval play in real time.
+       The clock in the corner shows the real elapsed time.
+     </p>
+     <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+       <span>Speed</span>
+       <button type="button" data-rate="1">1×</button>
+       <button type="button" data-rate="1.5">1.5×</button>
+       <button type="button" data-rate="2">2×</button>
+       <button type="button" data-rate="3">3×</button>
+     </div>
+   </div>
+   <script src="_static/js/doc-video.js"></script>
+
+For the system design, see :doc:`Architecture <architecture/index>`.
 
 Documentation Structure
 -----------------------
@@ -34,16 +71,8 @@ Documentation Structure
       :link-type: doc
       :class-header: sd-bg-primary sd-text-white
 
-      Install Osprey, create your first project, and deploy a control assistant
+      Install Osprey, create your first project, and deploy the demo
       with a coding agent and MCP servers.
-
-   .. grid-item-card:: Architecture
-      :link: architecture/index
-      :link-type: doc
-      :class-header: sd-bg-info sd-text-white
-
-      Core concepts: agentic orchestration, MCP servers, connectors,
-      human-in-the-loop safety, and the runtime API.
 
    .. grid-item-card:: How-To Guides
       :link: how-to/index
@@ -53,6 +82,22 @@ Documentation Structure
       Task-oriented recipes for adding connectors, configuring providers,
       deploying projects, and customising MCP servers.
 
+   .. grid-item-card:: Architecture
+      :link: architecture/index
+      :link-type: doc
+      :class-header: sd-bg-info sd-text-white
+
+      Core concepts: agentic orchestration, MCP servers, connectors,
+      human-in-the-loop safety, and the runtime API.
+
+   .. grid-item-card:: Reference
+      :link: reference/index
+      :link-type: doc
+      :class-header: sd-bg-secondary sd-text-white
+
+      The exact keys, shapes, and commands: the CLI, every configuration
+      file, and the contracts services exchange.
+
    .. grid-item-card:: Contributing
       :link: contributing/index
       :link-type: doc
@@ -60,12 +105,6 @@ Documentation Structure
 
       Development setup, coding standards, testing guidelines, and the
       contribution workflow.
-
-
-Proven in Production
---------------------
-
-Osprey is deployed at Lawrence Berkeley National Laboratory's Advanced Light Source, managing tens of thousands of control channels across accelerator operations.
 
 
 .. dropdown:: Citation
@@ -93,6 +132,7 @@ Osprey is deployed at Lawrence Berkeley National Laboratory's Advanced Light Sou
    :hidden:
 
    getting-started/index
-   architecture/index
    how-to/index
+   architecture/index
+   reference/index
    contributing/index

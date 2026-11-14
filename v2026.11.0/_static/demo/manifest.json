@@ -1,0 +1,109 @@
+{
+  "videos": {
+    "code-review": {
+      "release": "docs-media-v2026.11.0",
+      "themes": {
+        "dark": {
+          "duration_s": 57.52,
+          "mp4": {
+            "name": "code-review-dark.mp4",
+            "sha256": "014767f7f4aedd56ddc1772ffbeeef2acf3b3f81a0a8473df2c404495ea1e875"
+          },
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
+          "poster": {
+            "name": "code-review-dark-poster.jpg",
+            "sha256": "bf4abcbffa57d6dc81e1adec8a34c1034a492a88583898a6da8b9a712cd41f11"
+          },
+          "real_session_s": 129.1,
+          "recorded_at": "2026-11-11T16:14:51.732086+00:00",
+          "speed": 3.9
+        },
+        "light": {
+          "duration_s": 57.52,
+          "mp4": {
+            "name": "code-review-light.mp4",
+            "sha256": "5704310323e8205a457216cd0b9e1d56588d74bc7e9076de91d788c602b710c3"
+          },
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
+          "poster": {
+            "name": "code-review-light-poster.jpg",
+            "sha256": "871a50688e8967159225ef540161f85c8a758e863a7da0a06585b5a5d9bef8b3"
+          },
+          "real_session_s": 150.4,
+          "recorded_at": "2026-11-11T16:22:49.635832+00:00",
+          "speed": 4.54
+        }
+      }
+    },
+    "landing": {
+      "release": "docs-media-v2026.11.0",
+      "themes": {
+        "dark": {
+          "duration_s": 61.48,
+          "mp4": {
+            "name": "osprey-demo-dark.mp4",
+            "sha256": "37e8503d5472314f70cfc0a418d0c27e2a2ce7903d51bdf0439910ec38d04e8e"
+          },
+          "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111",
+          "poster": {
+            "name": "osprey-demo-dark-poster.jpg",
+            "sha256": "5929d332271334c504eebae458fc0121bc65b051dcf2e58ed14fc3289695226c"
+          },
+          "real_session_s": 250.0,
+          "recorded_at": "2026-11-11T17:55:04.344361+00:00",
+          "speed": 16.0
+        },
+        "light": {
+          "duration_s": 58.12,
+          "mp4": {
+            "name": "osprey-demo-light.mp4",
+            "sha256": "60a0fce83feeac9cee6ab7b2746a9767809ad85772b99785bef3534b2fe19f6e"
+          },
+          "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111",
+          "poster": {
+            "name": "osprey-demo-light-poster.jpg",
+            "sha256": "542172693bd5325af2c810efd4163b049a6067190037343588ec89af4e341bab"
+          },
+          "real_session_s": 317.3,
+          "recorded_at": "2026-11-11T18:03:47.792433+00:00",
+          "speed": 16.0
+        }
+      }
+    },
+    "watchdog": {
+      "release": "docs-media-v2026.11.0",
+      "themes": {
+        "dark": {
+          "duration_s": 15.8,
+          "mp4": {
+            "name": "osprey-watchdog-dark.mp4",
+            "sha256": "b7c260b420a99020b2becbebd93704ad879faec817e56b5ba7bb5b81c696f67d"
+          },
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5",
+          "poster": {
+            "name": "osprey-watchdog-dark-poster.jpg",
+            "sha256": "f649dfd3430abffa55b7653e5eefbd55055acc9d315bf89ba04249bcdc7c094e"
+          },
+          "real_session_s": 15.8,
+          "recorded_at": "2026-11-11T16:04:21.421223+00:00",
+          "speed": 1.0
+        },
+        "light": {
+          "duration_s": 15.84,
+          "mp4": {
+            "name": "osprey-watchdog-light.mp4",
+            "sha256": "6c34fde443dbcb5bae63145ae77a77e1c8e24e4257e71fe13660c8fd09b2d296"
+          },
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
+          "poster": {
+            "name": "osprey-watchdog-light-poster.jpg",
+            "sha256": "d23e814318f722f6e56506d5e47c8cae0aac78e43e3db69a33c8df801fe41513"
+          },
+          "real_session_s": 15.8,
+          "recorded_at": "2026-11-11T16:09:58.605598+00:00",
+          "speed": 1.0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,755 @@
+.. _reference-connectors:
+
+===================
+Connector Contracts
+===================
+
+Every connector -- the ones that ship with OSPREY and any you register yourself --
+has to behave the same way at its edges, because the agent, the plans and the
+safety layers on top of it are written against that behaviour rather than against any
+one control system. This page states those contracts: how large array values are
+returned, how a write reports whether it actually took effect and which gates it
+must pass first, where a connector makes its client put, and what an archiver's
+historical data has to look like. For the
+day-to-day task of picking and configuring a connector, see
+:doc:`/how-to/control-systems/use-connectors`.
+
+Reading Large Values
+--------------------
+
+Array-valued channels -- camera frames, waveforms, orbit vectors -- are often
+far too big to hand to the agent as raw numbers. ``channel_read`` applies a size
+rule to every read, whatever protocol answered it: values within an element
+budget come back inline as JSON lists, and anything larger is saved to the
+artifact gallery and reported as a summary plus a handle to it.
+
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-read-budget.yml
+   :language: yaml
+
+
+Only arrays are measured -- strings and single scalars are always inline. One
+``channel_read`` call also has an aggregate budget of four times
+``read_inline_max_elements``, spent in request order. Every withheld value
+names which limit it hit as ``artifact_reason``: ``per_value_threshold`` (the
+value alone is over budget; it will never come back inline) or
+``aggregate_budget`` (earlier channels in the same request spent the call's
+budget; a smaller batch returns it inline).
+
+The summary that replaces the value reports shape, dtype and element count,
+plus min/max/mean for numeric data, along with the artifact's id and its
+``data_file`` path -- the authoritative copy of the values. 1-D arrays are
+saved as JSON with an interactive chart in the gallery (x axis is sample
+index); 2-D and 3-D data with a color axis get an auto-scaled PNG preview
+beside a raw ``.npy``; shapes with no honest rendering are saved as ``.npy``
+alone. The agent reaches the numbers by loading ``data_file`` inside
+``execute`` (``numpy.load`` / ``json.load``). If the artifact store cannot
+write, the read still reports success with ``artifact_error`` in place of the
+handle -- the machine did answer.
+
+OSPREY never deletes a reading; keep or delete them in the gallery.
+
+Addresses Outside the Facility
+------------------------------
+
+A connector that holds the facility's whole address set -- the simulator
+served in process, and the mock archiver -- knows when an address is not one
+of its channels, and says so:
+
+- A read of such an address raises ``ChannelNotFoundError``, whose message is
+  ``<address> is not a channel of this facility``.
+- A write to such an address is not raised: it comes back with outcome
+  ``refused`` and ``refusal_reason`` ``CHANNEL_NOT_FOUND``. In a batch it is
+  one refused row, and no write of that batch is sent.
+
+The controls tools report both as error type ``not_found``, naming the address
+under ``details.channel``. A read that names several channels still succeeds
+for the ones that answered and names the unknown address under ``missing``
+(see :doc:`partial-answers`); a batch write reports the unknown address as its
+``refused`` row beside the rows it held back (``BATCH_REFUSED``).
+
+A Channel Access connector cannot tell an unknown name from an unreachable one
+-- a search that finds nothing times out -- so it reports
+``ChannelUnreachableError`` for both.
+
+Connection Failures
+-------------------
+
+A connector separates a failure about one channel from the loss of the
+connector itself, and the supervisor that owns the connector's lifetime acts
+on the difference:
+
+- ``ChannelUnreachableError`` -- one channel could not be reached, or did not
+  answer in time. It names the channel under ``channel_address`` and is no
+  ``ConnectionError``: the connector keeps serving every other channel, and
+  nothing is restarted. The controls tools report it as error type
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
+- ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
+  context, its service or its connector-host child. It is a
+  ``ConnectionError``. Its supervisor replaces the connector once per
+  instance or child, however many calls saw it fail, and attaches what it did
+  as the error's ``recovery``. A bare ``ConnectionError`` from a connector that
+  does not say which is treated the same way.
+
+A child that misses a call's deadline is pinged: one that answers is kept, one
+that does not is replaced. The controls tools report a lost connector as
+``connection_error`` and a missed deadline as ``timeout_error``, with the
+supervisor's records under ``details.recovery`` (see :doc:`partial-answers`).
+A call that finds the connector-host child already dead is refused, the
+refusal names the fresh child the supervisor started on the same target, and
+the next call is served by it.
+
+Every failure about one channel -- an unreachable or unknown channel, a
+refused, failed or limits-violating write -- is a ``ChannelError`` whose
+``channel_address`` names the channel, in process or across the connector
+host. The registry that carries failures across the host is derived from
+``osprey_connectors.errors``: each public class there crosses as itself, and a
+connector's own subclass crosses as the nearest public class it extends.
+
+Write Confirmation
+------------------
+
+A write is **confirmed** when the channel it wrote now holds the value that was
+sent. The connector establishes that itself: it re-reads the channel once the
+control system has accepted the put, and reports what it found as a single word
+on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
+``write_channel()`` call returns; ``write_multiple_channels()`` returns one per
+operation. The program in :ref:`how-to-write-from-a-program` reads it after a
+batch, with :class:`~osprey_connectors.control_system.WriteOutcome` imported
+from ``osprey_connectors.control_system``:
+
+.. literalinclude:: ../../how-to/control-systems/examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: outcome begins
+   :end-before: # docs: outcome ends
+   :dedent: 4
+
+Every write ends in exactly one of six outcomes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Outcome
+     - What it means
+   * - ``refused``
+     - Nothing was written. A gate stopped the write before it left OSPREY --
+       write posture, a limit, a channel marked not writable, an address that
+       is not a channel of the facility -- and ``refusal_reason`` names which
+       one.
+   * - ``failed``
+     - The value was sent and the control system did not take it.
+   * - ``confirmed``
+     - The re-read holds the value that was sent.
+   * - ``mismatch``
+     - The re-read holds a different value. A setpoint the machine clamped or
+       rounded is reported here, not smoothed over.
+   * - ``unconfirmed``
+     - The value was sent, but not acknowledged in time or the re-read itself
+       failed, so what the channel holds is unknown.
+   * - ``unrequested``
+     - Confirmation is switched off for this channel; nothing was checked.
+
+Beside the outcome, the result carries ``observed_value`` (what the re-read
+returned), ``alarm_status`` and ``alarm_severity`` (the channel's alarm state,
+which is reported with the write and is never itself a reason to fail one), and
+``notes`` -- a short display line such as ``observed 2.4, sent 2.5`` that is
+there to be shown, not parsed.
+
+**In Python, anything short of a confirmation raises.**
+``osprey.runtime.write_channel`` raises ``ChannelWriteBlockedError`` on
+``refused`` and ``ChannelWriteFailedError`` on ``failed``, ``mismatch`` and
+``unconfirmed``; the mismatch message names both the value sent and the value
+observed. The ``channel_write`` MCP tool reports the outcome for every channel
+instead of raising, so the agent can describe a batch in which some channels
+took the value and others did not. A call where no value reached any channel is
+refused, with the same rows under ``details.results`` (see
+:doc:`partial-answers`).
+
+Switching confirmation off
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``confirm`` is a per-channel boolean in the limits database, sitting beside
+``writable``, which every entry states:
+
+.. literalinclude:: examples/limits-confirm-off.json
+   :language: json
+
+A channel's own entry decides; an entry that does not state ``confirm``, or a
+channel with no entry, has confirmation on. The database holds no ``defaults``
+block: a top-level ``defaults`` key, or an entry without ``writable``, fails the
+load. Switch it off for the channels a re-read cannot answer
+for -- a command channel that resets itself, a register that cannot be read back
+-- so those writes report ``unrequested`` rather than ``unconfirmed``. A call
+site may pass ``confirm=True`` or ``confirm=False`` to decide for one call;
+passing nothing means "no opinion" and leaves the choice to the configuration.
+``write_multiple_channels()`` confirms each channel exactly as a single write
+would, which is why ``osprey.runtime.write_channels`` behaves like
+``osprey.runtime.write_channel``.
+
+What a batch means
+~~~~~~~~~~~~~~~~~~
+
+``write_multiple_channels()`` checks every write before it sends any, on every
+connector. The promise covers refusals known before the send:
+
+- **The checks are all-or-nothing.** Every write passes what a single write
+  passes before its put: the write verdict, the connector's own refusals and
+  the limits, ``max_step`` included (the stepped channels are read together,
+  once). If one write is refused, no write of the batch is sent. Every row is
+  ``refused``: a refused write with its own reason, each other write with
+  ``BATCH_REFUSED``, whose message names a refused one.
+- **Past the checks each write is sent and verified on its own.** A write that
+  fails, mismatches or stays unconfirmed does not recall the others, which may
+  already hold their values. The batch succeeded only if every row is
+  ``confirmed`` or ``unrequested``.
+- **A refusal given only at the send is a row, not a recall.** A control system
+  that refuses at the put (a connector with no precheck, a value the target
+  coerces, a read-only channel) can do so after earlier writes of the batch
+  went out. Each row says what happened to its own channel.
+
+A batch names a channel once; one that names a channel more than once is
+refused whole (``VALIDATION_ERROR`` on the repeated writes). The write verdict
+is asked again right before the send: a switch turned off, a hold or a stop
+that arrived during the checks refuses every write not yet sent.
+
+A batch does not raise ``ChannelLimitsViolationError``; a limits refusal is a
+``refused`` row with reason ``LIMITS``. The EPICS connector sends the puts of a
+batch together; the other connectors send them in the order given.
+
+A caller that must not proceed on a batch passes its results to
+``raise_for_write_results()``, which raises for a refused write before the
+writes its batch held back.
+
+How values are compared
+~~~~~~~~~~~~~~~~~~~~~~~
+
+One rule decides every outcome, on every connector, and there is nothing to
+configure. Two numbers agree when they are within a relative 1e-6 of each other
+-- enough to absorb the rounding of a float on its way through a control system,
+not enough to hide a clamped setpoint. A string written to an enum channel is
+compared against the label the connector resolved for the reading, since the
+channel itself reads back an index. A single-element array compares as the value
+it holds, because control systems disagree about whether such a channel reads
+back boxed. A scalar never matches a longer vector, and two vectors must be the
+same length and agree element by element. Everything else compares for equality.
+If the comparison cannot be made at all, the outcome is ``mismatch``: a write is
+confirmed only when the values are known to agree.
+
+.. _write-safety-config:
+
+Who May Write
+~~~~~~~~~~~~~
+
+Three facts decide a write. This section is the contract every other page
+points to.
+
+**The tier key** is the furthest position a login may put its switch at:
+
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-writes.yml
+   :language: yaml
+
+
+It is spelled in ``tiers/*.yml`` and, for the root or single-user render, in
+the deployment root; a shared login is always ``never``. A tier
+overrides the root. Only ``asked`` and ``allowed`` arm; any other value, and no
+key at all, reads ``never``. The tier is a ceiling, not a selection: an armed
+tier may write to every machine the deployment configures, and the switch picks
+which and how. Connector blocks carry transport facts only. On a ``never``
+render the build denies the write tools outright, so they are refused before
+any per-call check.
+
+**The switch** is one login's, per machine, set from :ref:`the control-target
+chip <web-terminal-session-posture>` to *off* (writes refused, the default),
+*asked* (every governed write prompts a person) or *allowed* (governed writes
+run unprompted). It is read on every write, so a move reaches a session already
+running. Moving it to off is never refused. A position past the tier acts as
+the tier, and arms again when the tier is restored.
+
+**The governed set** is the tools the position decides for: ``channel_write``,
+write-mode ``execute`` and ``execute_file``, ``pyaml_measure``, ``queue_add``,
+``queue_start``, and every declared facility write tool wired to both the
+writes check and the approval hook. ``approval.*`` keys have no say over them;
+every other tool keeps its ``approval.tools.<tool>`` policy.
+
+**The verdict** combines them. One total order of terms; the first that
+refuses names the reason:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 5 25 70
+
+   * - #
+     - Reason
+     - Refused when
+   * - 1
+     - ``readonly_run``
+     - the run is read-only.
+   * - 2
+     - ``tier_never``
+     - the render's tier is ``never``.
+   * - 3
+     - ``session_held``
+     - the session has an unanswered hold (:ref:`reference-watchdog`). A write
+       about to execute meets this term through ``execution_verdict``; a process
+       with no session or no hold store is never held.
+   * - 4
+     - ``target_unknown``
+     - the machine does not resolve in this deployment.
+   * - 5
+     - ``owner_unknown`` / ``owner_unscheduled`` / ``owner_foreign``
+     - no login can be named for the write; a scheduled or triggered job runs
+       for no login; or the owner is not the login this process acts for.
+   * - 6
+     - ``owner_unknown`` / ``tier_never``
+     - in a shared container, the owner is missing from the login→tier map,
+       or mapped ``never``.
+   * - 7
+     - ``record_unavailable``
+     - the owner's switch record cannot be read. An absent record is not
+       unavailable: it is every switch at ``off``.
+   * - 8
+     - ``switch_off``
+     - the owner's switch is at ``off`` for this machine.
+   * - 9
+     - ``launch_pinned``
+     - the run was started with writes held off for this machine.
+
+Two reasons come from outside the verdict: the EPICS connector refuses
+``switching`` while its write gateway has not yet followed the switch, and the
+chip refuses a widening with ``stopped_since`` when a stop landed after it
+began. The package's verdict, the connector and the stdlib hook twin share the
+order above, so a write is refused for the same reason on every side.
+
+**Refusal reasons and their trailer.** Every refusal a write path returns
+ends with a trailer line naming the reason, so a reader recovers it without
+parsing the words::
+
+   Writes are off; turn it on from the chip in the web terminal.
+   [osprey-refusal: switch_off]
+
+The phrase says what stopped the write and who can lift it. It never names a
+config key, a file, an environment variable or a build command: its reader is
+an operator or the agent. The reasons and phrases are one importable table,
+``osprey_connectors.refusals``.
+
+The connector applies **per-write mechanical safety** --- the verdict, limits
+validation, the fail-closed validation path --- on every put. That is a
+separate layer from the **per-intent human authorization** at the tool
+boundary (the approval hook, the launch token for plans), which gates the
+*intent* once rather than every put. Neither substitutes for the other. See
+:doc:`/architecture/safety-chain` for the order the layers run in.
+
+.. _write-authorization-contract:
+
+A Program's Write Authorization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A process that names an authorization (``OSPREY_WRITE_AUTHORIZATION``, set by
+the connector pool for a key that names one) has every write call judged
+against it by the connector's write guard, after the write verdict: the
+authorization is consulted whenever that verdict allows or refuses only
+``switch_off``, so it never lifts a tier, an owner, a record, a pin or a hold,
+and a switch moved to *asked* or *allowed* does not widen it. The how-to is
+:ref:`how-to-write-from-a-program`; the module is
+``osprey_connectors.write_authorization``.
+
+**Three files, three writers.** Each is read the fail-closed way: no symbolic
+link followed, a bounded read, a regular file, exactly the fields below, no
+repeated key, every number finite. A request or grant is written only inside
+three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at_ns``
+at most 24 hours after its ``requested_at_ns`` or ``issued_at_ns``
+(``MAX_EXPIRES_S``), and a ``lease_s`` of at most 600 seconds; a write past
+one raises ``ValueError`` and writes nothing. Reading does not apply them, so
+a file already on disk past a ceiling is honoured as before. A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(``switch_off``).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 48
+
+   * - File
+     - Where, written by
+     - Fields (``schema: 1``)
+   * - request
+     - ``<ledger dir>/requests/<id>.json``, the holder
+     - ``id``, ``owner``, ``holder``, ``target``, ``channels``
+       (``{address: {min, max}}``), ``steps``, ``requested_at_ns``,
+       ``expires_at_ns``, ``lease_s``, ``label``, ``completion``
+       (``none`` | ``apply_best`` | ``restore``)
+   * - grant
+     - ``<owner's state dir>/authorizations/<id>.json``, the approver (chip or
+       CLI); a self-issued one in the holder's ledger dir
+     - the request's fields but ``requested_at_ns`` and ``completion``, plus
+       ``switch_epoch``, ``issued_at_ns``, ``approver``
+       (``{identity, surface: chip | cli | write_switch, at_ns}``) and
+       ``revoked`` (``null`` or ``{at_ns, by}``)
+   * - ledger
+     - ``<ledger dir>/<id>.ledger.json``, the holder's connector child
+     - ``authorization``, ``holder_pid``, ``holder_start``, ``pid_ns``,
+       ``lease_until_ns``, ``steps`` (``[{n, at_ns, channels}]``)
+
+The grant's id is the request's, so a holder waits for exactly that id. The
+ledger directory is ``OSPREY_WRITE_LEDGER_DIR`` (on a deployment,
+``var/write_ledger/``). The ledger is written by the holder (it opens and
+renews the lease) and by its connector child (it appends one step per write
+call), so a holder's container needs ``OSPREY_WRITE_LEDGER_DIR`` bound
+writable and ``OSPREY_CONTROL_OWNER`` naming the login it stands in for. A web
+terminal reads the requests through a read-only bind,
+``OSPREY_WRITE_REQUESTS_DIR``, and the holders' self-issued grants and ledgers
+through a read-only bind of the whole ledger directory,
+``OSPREY_WRITE_LEDGER_VIEW_DIR``; it sees no other login's grants. A program
+run on the host with no ledger directory bound files its request and keeps its
+ledger in its owner's own ``authorizations`` directory, so every surface also
+reads the requests and ledgers there.
+``control_context.json`` is not touched and keeps its schema.
+
+**Approval.** The approver acts as the owner: the web terminal's login, or
+``osprey write-authorization approve`` (``approver.identity`` is the acting
+identity, ``surface`` the place). It takes the owner's record lock, then the
+grants directory's — the one lock order every writer of both keeps — stamps
+the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
+a live grant of another holder lists one of the channels on the same machine:
+one in the owner's own directory, or a self-issued one in the ledger directory
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed by more than a minute (its holder stopped renewing; the
+minute is a grace for the two clocks) does not count; one with no ledger in
+sight, or a ledger that cannot be read, does, until it expires. Another
+owner's directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both
+surfaces also refuse a target the deployment does not configure, a ceiling of
+``never`` or ``unknown``, a range outside the limits database, and a channel
+without a numeric range there; the chip also refuses in a read-only run. The
+ceiling is the one the program's own writes will meet: for a request in
+``var/write_ledger/requests`` (a program in a shared container), the login map
+the build staged for those containers; for one filed on the host, the rendered
+config, as the web terminal on the host reads it.
+A refusal names every channel that cannot be approved.
+
+An approval is the confirmation for every write the run makes inside it, a
+batch included, for a login whose ceiling is ``asked`` as much as ``allowed``:
+the person confirms the channels, ranges and step count once, and the
+program's writes are not prompted one by one.
+
+**What the bounds guard.** The channels, ranges and the grant itself are the
+approver's, written where the holder cannot write them. The step budget and
+the lease are the holder's own record: the ledger directory is writable by the
+holder, so they bound a program that runs as written, not one that sets out
+to forge its ledger. The boundary for a program that must not write at all is
+the gateway it can reach.
+
+**How a grant ends.** Every step spent (``auth_exhausted``); its expiry
+(``auth_expired``); its lease lapsing — not renewed in time, or its holder
+gone (``auth_lease_lapsed``); a stop (``auth_revoked``); for a self-issued
+grant, its owner's switch leaving ``allowed``. None of these is undone:
+nothing renews a budget or revives a lease, and the program asks again. The
+chip, ``osprey write-authorization list`` and ``osprey status`` read the
+holder's ledger and show a grant whose steps are spent or whose lease lapsed
+as ended, with its steps used of its total.
+
+**Stop.** :func:`~osprey_connectors.control_context.set_switch` with ``off``
+marks every grant on the named machines (every grant for ``"all"``) revoked
+inside its record lock; ``"all"`` also moves the epoch, which ends every grant
+issued under the old one. A stop whose marks cannot be written moves the epoch
+as well, so it ends every grant of that owner rather than none. A self-issued
+grant ends once its owner's switch leaves ``allowed``.
+
+**Reasons.** Each ``auth_*`` reason is a member of
+``osprey_connectors.refusals.REASONS`` with its phrase, and arrives as
+``verdict_reason`` on a refused write. In the order the terms are judged:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Reason
+     - Refused when
+   * - ``auth_unreadable``
+     - the named id is not an id, the grant or the ledger is there and cannot
+       be read, or the process has no ledger directory.
+   * - ``auth_holder``
+     - the grant names another owner, or another holder than the writing
+       process's acting identity.
+   * - ``auth_channel``
+     - the grant covers another machine, the write names no channel, or a
+       channel the grant does not list.
+   * - ``auth_revoked``
+     - the grant is marked revoked, the record's epoch has moved past it, or a
+       self-issued grant's switch is no longer at ``allowed``.
+   * - ``auth_expired``
+     - its expiry has passed.
+   * - ``auth_range``
+     - a value is not a finite number inside its channel's range.
+   * - ``auth_lease_lapsed``
+     - no lease was started, the lease ran out, or its holder is gone.
+   * - ``auth_exhausted``
+     - every step has been spent.
+   * - ``auth_overlap``
+     - (approval only) another program holds a listed channel on the machine,
+       under the same owner or self-issued.
+
+A grant that ended — revoked or expired — more than an hour ago is removed by
+the next listing (the chip's, or ``osprey write-authorization list``).
+
+.. _write-safety-upgrade:
+
+Upgrading from a deployment-wide write flag
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Earlier releases armed writes per connector type, with
+``control_system.writes_enabled`` and
+``control_system.connector.<type>.writes_enabled``. Those keys are retired.
+
+- **Run** ``osprey init --revalidate``. It rewrites every layer to the tier
+  key in place.
+- **Until you do**, each retired key builds with one warning naming the new
+  key. A layer with a literal ``true`` in its flat or any per-type key reads
+  ``writes: allowed`` --- for every machine, not only the type it named; any
+  other value reads ``never``. A shared login always reads ``never``. A file that
+  spells both the retired and the new key is refused. The retired keys are
+  refused in the next stable release.
+- **A render built before this release** is not reread with the old rule: at
+  run time it has no tier key and reads ``never`` until it is rebuilt.
+- **Every machine starts at off.** After the rebuild, nothing writes until a
+  login moves a machine's switch from the chip. A scheduled dispatch job or a
+  queue item with no owner no longer writes at all.
+- **A shell on a write tier is refused at build.** On an armed render, a
+  ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
+  fails the build: a shell reaches the switch and the connectors around every
+  gate. On a ``never`` render it stays a warning.
+- **Two countdowns, warn now, refused in the next stable release.** A facility
+  tool that
+  a server lists under ``permissions.ask``, or whose name carries a
+  destructive marker, and that is missing from that server's
+  ``mcp_servers.<server>.writes`` list, is a build warning.
+  ``control_system.write_tools`` still gates its entries per call, now on the
+  real machine's switch, and warns; move them to
+  ``mcp_servers.<server>.writes``.
+- **Shared containers read a login→tier map.** The Bluesky queue and dispatch
+  workers carry every login's job, so the build renders
+  ``control_system.login_tiers`` (``{login: never | asked | allowed}``) into their
+  config from the roster. A write there needs the container's tier, the
+  owner's mapped tier and the owner's switch; an owner the map does not name
+  is refused ``owner_unknown``. Nothing at run time writes the map: rebuild
+  after a roster change.
+
+.. _connector-write-door:
+
+The write door
+~~~~~~~~~~~~~~
+
+In a readwrite executor run, a client library's put entry points refuse a put
+that no connector is making (:ref:`python-executor-armed-block`). A notebook
+kernel refuses to load a client library at all
+(:ref:`what a cell may load <notebooks-write-channel>`), so the door opens
+only in the processes that hold a connector. A connector marks its own put by
+holding the **write door** open around it. The base class does that for every
+connector: it wraps ``write_channel`` and ``write_multiple_channels`` --- the
+latter is what ``write_channels`` reaches --- and, after the verdict has
+allowed the write, opens the door around the original method. A refused write
+never opens it.
+
+The door is a context variable
+(``osprey_connectors.control_system.write_door``), so it reaches only code
+that shares the context that opened it. That makes one rule for a connector's
+implementation:
+
+- **Make the client put in the calling context, inside**
+  ``asyncio.to_thread``, **or in a coroutine handed to another loop with**
+  ``asyncio.run_coroutine_threadsafe``. Each runs the put in a copy of the
+  calling context, and a task created while the door is open inherits it too.
+  The EPICS connector uses the last: its Channel Access puts run on the
+  process's single Channel Access loop.
+- **Not behind** ``loop.run_in_executor``, a raw executor ``submit`` or a bare
+  ``threading.Thread``. Each starts from a fresh context, sees the door
+  closed, and the put is refused with reason ``RAW_CLIENT_WRITE``.
+
+A put made from a client-library callback thread the library started itself
+--- libca's own callback threads, for one --- carries no door either, and is
+refused the same way.
+
+The door records who is making a put; it does not decide whether the put is
+allowed. The connector's own gates below do that. One path holds the door
+open for code that is not a shipped connector's own put, and is accepted as a
+**cooperative bypass**: a connector subclass written by the user is wrapped
+like a shipped one, so its ``write_channel`` puts inside the open door.
+
+``osprey_connectors`` imports nothing from ``osprey`` for this. The door
+module is standard-library only, because the guard that reads it runs in
+executor subprocesses and kernels where ``osprey`` may not be importable.
+
+.. _limits-checking-config:
+
+Limits Checking
+~~~~~~~~~~~~~~~
+
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-limits.yml
+   :language: yaml
+
+
+When enabled, every ``write_channel()`` call is validated against the limits
+database before the write reaches hardware. The database format is the
+per-channel configuration above.
+
+Limits are optional, and ``mode`` chooses between two ways of using the
+database:
+
+- ``mode: exclusive`` — only channels in the database can be written. A channel
+  with no record is refused.
+- ``mode: optional`` — channels in the database are held to their limits, and
+  every other channel is written with no limits.
+
+``enabled: false`` means no limits at all.
+
+The posture is per connector type. ``control_system.limits_checking`` is what a
+type inherits when it says nothing about itself, and
+``control_system.connector.<type>.limits_checking`` answers for that type
+instead — so one deployment can run ``exclusive`` on its live machine and
+``optional`` on a simulator. Three rules govern the per-type
+block:
+
+- **It replaces, it does not merge.** A per-type block must state both
+  ``enabled`` and ``mode``; neither is inherited. A block
+  stating one alone is refused by ``osprey build`` and ``osprey validate``,
+  naming the missing setting — and a half-written block that reaches a running
+  deployment anyway, by a hand-edited ``config.yml`` or an older render, blocks
+  every write until it is completed.
+- **The database stays deployment-wide.** ``database_path`` is not a per-type
+  setting: the deployment mounts one limits file, and every target is checked
+  against it. A profile that states it is refused by ``osprey build``,
+  ``osprey validate`` and ``osprey facility validate``: ``osprey build`` writes
+  ``data/channel_limits.json`` from ``data/facility/limits.yaml`` and sets
+  ``control_system.limits_checking.database_path`` to it in the rendered config.
+- **Only explicit values decide.** ``mode`` is ``exclusive``, ``optional``, or
+  unstated. With limits checking enabled, a ``mode`` that no key states refuses
+  a channel with no record — permission needs an explicit ``optional``. Any
+  other value, and any leaf the block does not define, is refused by ``osprey
+  build`` and ``osprey validate``. A deployment that states no limits posture
+  at all runs no limits checking, and nothing on that path refuses a channel
+  with no record.
+
+``max_step`` is the one limit that costs a read. It caps how far a single write
+may move a channel, which means measuring the channel's present value first —
+over the client the write is about to go through, not some other one. The
+connector performing the write supplies that read from its own client, so
+``max_step`` works on every control system rather than only over Channel
+Access. A connector with no synchronous read refuses a ``max_step`` channel
+rather than guessing: a step that cannot be measured cannot be approved. The
+layers above the connector — the ``channel_write`` tool and the limits hook —
+hold no client, so they apply every other limit and leave this one to the
+connector, which makes it on the write itself.
+
+That read is bounded: ``control_system.connector.<type>.step_read_timeout_s``
+(default 2.0 seconds) is how long it waits, beside the connector's own
+``timeout_s`` and for the same reason — a gateway two hops away answers more
+slowly than an IOC on the deploy host. The bound is fail-closed: a channel that
+does not answer inside it reads as "could not be measured", which refuses the
+write. Raising it buys a slow channel room, never a weaker check. The python
+executor's sandbox applies the same number, so a script's step check and the
+connector's wait the same length of time for the same channel.
+
+A refusal about a channel with no record names the key that answered, the
+per-type one where a block spoke and the deployment-wide one where none did, so
+an operator edits the line that decides rather than one it overrides. The
+``channel_limits`` tool reports ``mode`` for the target the deployment is on,
+including ``null`` where nothing states one, alongside ``mode_key`` naming the
+key it read.
+
+.. seealso::
+
+   :class:`~osprey_connectors.control_system.ChannelValue`
+       Channel read result data model
+
+   :class:`~osprey_connectors.control_system.ChannelWriteResult`
+       Complete write operation result
+
+   :class:`~osprey_connectors.control_system.WriteOutcome`
+       The six words a write can end in
+
+
+Archiver Connectors
+-------------------
+
+An archiver connector answers the same questions about the past that a
+control-system connector answers about the present.
+
+.. versionchanged:: Unreleased
+
+   ``get_data`` returns long-format data (below) instead of a shared-index wide
+   ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
+
+Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
+``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
+``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
+are ``None`` when the archiver cannot say; ``check_availability`` raises
+``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
+answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
+newest sample); the default answers every part unknown, with a reason.
+
+``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
+with exactly three columns, sorted by ``channel`` then ``timestamp``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 25 60
+
+   * - Column
+     - Dtype
+     - Contents
+   * - ``timestamp``
+     - ``datetime64[ns, UTC]``
+     - When the sample -- or, under a ``processing`` mode, the bin's aggregate --
+       occurred.
+   * - ``channel``
+     - ``str``
+     - The channel/PV name the row belongs to.
+   * - ``value``
+     - not dtype-constrained
+     - ``float64`` when every requested channel's samples are numeric; pandas'
+       natural mixed dtype (typically ``object``) once any channel is non-numeric.
+
+An empty result is an empty frame with these same three columns.
+
+**Nothing is manufactured.** Each channel contributes only its own real
+samples -- never forward-filled, never reindexed onto a shared grid, never
+padded with a row nothing was recorded at. A channel with no data in the range
+contributes no rows; it never appears as an all-NaN column. If a custom
+connector finds itself building a shared ``DatetimeIndex`` and reindexing
+per-channel series onto it, that is the bug.
+
+**Per-channel aggregation.** ``get_data`` takes ``processing: str = "raw"`` --
+one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``, ``count`` --
+applied independently to each channel's own samples:
+
+- ``raw`` decimates each ``precision_ms`` bin to its **last real sample**,
+  keeping that sample's own true timestamp (the Archiver Appliance's
+  ``lastSample_N`` semantics).
+- Every other mode aggregates the real samples in each bin. A bin with no
+  samples is dropped, not emitted as ``NaN``.
+- ``precision_ms <= 0`` means full resolution, valid only with
+  ``processing="raw"`` -- anything else must raise ``ValueError``.
+- Aggregating a non-numeric channel with anything but ``raw`` must raise
+  ``ValueError`` naming the channel -- never coerce, drop, or emit ``NaN``.
+- A bin width your backend cannot express must raise ``ValueError``, never
+  round to one it can (the Archiver Appliance connector rejects a positive
+  ``precision_ms`` that is not a multiple of 1000).
+- Bins are anchored on ``start_date``: one request cuts one lattice, the same
+  for every channel in it and every processing mode. A backend that bins on a
+  grid of its own is the documented exception -- the Archiver Appliance's
+  operators are epoch-anchored, and the window merely clips them.
+
+**The dtype rule for** ``value``\ **.** Enum/status channels carry string
+values, and ``get_data`` never coerces them: a channel's own dtype flows
+through, and only mixing non-numeric with numeric channels in one query promotes
+the shared ``value`` column. Forcing ``value`` to ``float64`` "for consistency"
+silently corrupts every enum/status channel. (This is deliberately not the live-read
+contract, where an enum reads as its index with the label in ``enum_label`` --
+an archiver reports what its backend recorded, and these backends recorded the
+string.)
+
+Query windows must be normalized to UTC before touching the wire: a naive
+``start_date``/``end_date`` is facility-local and must be converted -- not
+relabeled -- to your backend's UTC wire format.

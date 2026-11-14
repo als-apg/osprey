@@ -1,0 +1,255 @@
+.. _how-to-send-feedback:
+
+Send and Retrieve Feedback
+==========================
+
+Anyone using the Web Terminal can report a problem, or ask for something, from
+the terminal itself — no bug tracker account, no separate form. The **Feedback**
+control sits in the footer of the sidebar, next to the **Docs** link, and
+opens a dialog with a text box, a channel picker, and two attachment
+checkboxes.
+
+Every submission is recorded on the deployment it was sent from, whichever
+channel the sender picks. Facility staff read those records back with
+``osprey feedback list`` and ``osprey feedback export`` — see
+:ref:`feedback-retrieval` below.
+
+Choose a channel
+----------------
+
+Pick **Local** when the report is for this deployment's operators (the usual
+case in a control room). It keeps the report on this deployment, and it is the
+only channel that works with outbound access blocked.
+
+**Local** and **Email** are always offered. Between them sits one channel per
+issue tracker the facility configured (a GitHub repository or a GitLab
+project), captioned however the facility named it. Switching between channels
+keeps the typed text and both checkboxes as they were.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 40 46
+
+   * - Channel
+     - What it does
+     - Use it when
+   * - **Local**
+     - Writes the report to this deployment and nothing else. **Send** is the
+       only button.
+     - The report is for the people who run this deployment — the usual case in
+       a control room, and the only one that works with outbound access
+       blocked.
+   * - **An issue tracker** (GitHub or GitLab)
+     - Also opens a new-issue tab on that tracker. Without session context the
+       issue body arrives complete. With it, the whole report (text, metadata,
+       session context) is copied to the clipboard, and the issue body is a
+       single line saying to paste it there: the context is far too large to
+       prefill.
+     - The report belongs with the people who read that tracker, and the
+       sender has an account there.
+   * - **Email**
+     - Also opens a mail draft to the configured address, following the same
+       rule: complete when it fits, one paste when session context (or a very
+       long report) is attached.
+     - There is a maintainer address to write to and no issue tracker in the
+       loop.
+
+The tracker and Email channels never send anything by themselves. OSPREY
+prefills a tab or a draft in the sender's own browser and mail client; the
+sender still reviews it and presses send. The server posts nothing off the
+host, on any channel.
+
+Both outbound channels write the same record on the deployment as a Local send
+does, so the facility keeps its own copy of every report even when the
+conversation continues in a public issue.
+
+A tracker the deployment has not configured is not offered at all. If the
+Email channel has no address behind it, its radio button still appears, but the
+action is refused with a short explanation rather than aiming the report
+somewhere nobody reads. See :ref:`feedback-configuration`.
+
+What gets attached
+------------------
+
+The dialog's ``(?)`` control opens a plain-language disclosure of exactly what
+leaves the page — the same list as this section.
+
+**Always sent**, with no checkbox to turn it off:
+
+- the feedback text that was typed,
+- a timestamp,
+- the sender's username, when the deployment knows it (in a single-user or
+  development setup this falls back to the account the server runs under).
+
+**Deployment metadata** — the checkbox is **on** by default. It adds:
+
+- the OSPREY version,
+- the preset the deployment was built from, with a short prefix of its hash,
+- the channel-finder mode,
+- the application name,
+- the sender's browser,
+- an *escalate to OSPREY* link, when the deployment has one configured: a
+  prefilled upstream issue that carries the deployment's identity and none of
+  the report's text, for a maintainer who forwards a framework bug.
+
+Turning it off does not remove the text, the timestamp, or the username, which
+travel either way.
+
+**Session context** — the checkbox is **off** by default, and is greyed out with
+"no session yet" when there is no live session to attach. It adds:
+
+- the session's id — on the tracker and Email channels the issue title or
+  mail subject also carries a short prefix of it, so the message can be matched
+  to the deployment's own record even if the paste step is missed,
+- the session's tool-call and agent event log,
+- its chat history,
+- the terminal scrollback,
+- an artifact inventory listing **titles and ids only**, in two sections: the
+  artifacts this session owns (its row in the gallery sidebar), and artifacts
+  no session owns from the same time window.
+
+The second section is not this session's work: it may come from the chat panel
+or a CLI conversation. Only titles and ids appear — never contents — but a
+sender attaching context to a **public** issue should know it is there.
+
+Session context has a size budget. When a session is over it, the oldest
+content within each part is dropped first, so a long session is attached in
+part, with its most recent activity kept. The outbound copy (the clipboard payload behind a GitHub issue
+or a mail draft) is trimmed harder than the record kept on the deployment,
+which holds a much larger version.
+Where the session had no readable transcript, the dialog says so and the
+outbound copy carries the text, the metadata and a one-line note instead of a
+silently empty context.
+
+Copy session context
+--------------------
+
+A small **Copy** button on the session-context row puts the same trimmed
+context on the clipboard without sending anything and without writing a
+record. It is enabled whenever a session exists — the checkbox does not need
+to be ticked. Reach for it when the clipboard has been overwritten after a
+send, or when only the context itself is wanted — for a chat message, say,
+rather than a report.
+
+.. _feedback-retrieval:
+
+Read the feedback a deployment collected
+----------------------------------------
+
+Feedback is stored where the sender's own data lives, not in a central inbox.
+Two verbs read it back, both run from the deployment repository (or with
+``--repo DIRECTORY`` naming another one):
+
+.. code-block:: bash
+
+   osprey feedback list                        # one line per submission, newest first
+   osprey feedback export --output feedback.json
+   osprey feedback export > feedback.json      # same document, redirected
+
+``list`` prints one row per submission: the record id, who sent it, when (UTC),
+which channel it went out on, and the start of the message. It reads submission
+headers only, so it stays quick on a large store. A deployment nobody has
+written to yet prints one sentence rather than an empty table.
+
+``export`` writes the whole record — who sent it, when, from which session and
+which version of the application, how it went out, where it was truncated — and
+the captured session alongside it, as one JSON array with one object per
+submission. Records are written as they are read, so a large store never has to
+fit in memory. With ``--output``, the file holds the export and everything else
+stays on the terminal. Without it, stdout carries the JSON document and nothing
+else, and errors and the closing summary go to standard error.
+
+On a multi-user deployment, ``osprey feedback`` reads each person's
+workspace volume through a container, so **the deployment's container runtime
+has to be running**. A single-user deployment is read straight off disk.
+
+.. warning::
+
+   On a multi-user deployment, never give ``agent_data.base_dir`` a
+   ``~``-relative path: ``osprey feedback`` cannot see what is written there.
+   Use a path relative to the deployment repo, or an absolute one.
+
+   The feedback still gets written, but into a volume these commands do not
+   mount.
+
+The multi-user reader never consults ``agent_data.base_dir``: it mounts each
+person's workspace volume and reads a fixed path inside it. With a
+``~``-relative value, ``osprey feedback list`` exits ``0`` reporting that no
+feedback has been sent. Nothing detects that case, so do not read an empty
+listing as proof that nobody has written in.
+
+The single-user reader resolves the store through that key, so relocating it
+relocates the store and the reader together, and it refuses a ``~``-relative value loudly
+with that explanation.
+
+.. dropdown:: Where the records live
+   :icon: database
+
+   The two deployment shapes are read in two different ways, and the command
+   picks the right one for you. What decides is whether the deployment has a
+   web-terminal roster: a non-empty ``modules.web_terminals.users`` list.
+
+   **Multi-user deployment.** Each person on the roster has their own web
+   terminal and their own workspace volume, and their feedback stays in it.
+   Reading the deployment's feedback starts a short-lived, read-only container
+   on each person's workspace in turn and reads the store through it. **The
+   deployment's container runtime has to be running**. With it stopped, the
+   command fails loudly instead of reporting a deployment with no feedback in
+   it.
+
+   A workspace that cannot be read is named on screen, and the rest of the
+   deployment is still listed or exported, so one broken volume never hides
+   everybody else's reports. The export's closing summary distinguishes a
+   workspace that contributed nothing from one that was only partly readable.
+   If *nothing at all* could be read, the command stops rather than printing
+   "no feedback".
+
+   A roster user's workspace volume is created when their web terminal
+   container first starts. A repository that has been built but never brought
+   up with ``osprey up`` therefore has no volumes to read. Every user then reads
+   as unreadable, and the command stops with that rather than reporting an
+   empty deployment.
+
+   **Single-user deployment.** There is one store, on this machine, under the
+   deployment's own agent-data directory, and it is read straight off disk: no
+   container, nothing to start first. This is also the shape a development
+   setup has.
+
+Exit status is ``0`` when the read succeeded, including a deployment that has
+collected no feedback. It is non-zero when the repository has no build, when
+every workspace failed to read, and when an export stopped part-way. A part-way
+export still parses: it holds what was read, and the summary says how much that
+was.
+
+Point the channels at your facility
+-----------------------------------
+
+``web.feedback.trackers`` lists the issue trackers the dialog offers — a
+self-hosted GitLab, the upstream GitHub repository, both — and
+``web.feedback.email`` names the address behind the Email channel. The table,
+the shipped defaults, and what a blank value means are in :ref:`config-web`;
+the tracker list itself is described in :ref:`feedback-trackers`. The Local
+channel is always available and needs no configuration at all.
+
+.. note::
+
+   The feedback dialog is behind the terminal's own gate: only a browser
+   holding a session can open it, the same as for any other terminal action. It
+   draws no line *within* a session, though — anyone sitting at a signed-in
+   terminal can send a report — so read a stored report as coming from that
+   terminal, not from a named person.
+
+.. seealso::
+
+   :doc:`operate`
+      Running the terminal the feedback dialog lives in.
+
+   :ref:`config-web`
+      The full ``web`` settings table.
+
+   :doc:`multi-user/index`
+      Per-user web terminals and the roster that decides how feedback is stored
+      and read.
+
+   :doc:`/reference/cli`
+      ``osprey feedback list`` and ``osprey feedback export`` with every option.

@@ -1,7 +1,7 @@
 [
   {
-    "name": "v2026.6.2 (stable)",
-    "version": "2026.6.2",
+    "name": "v2026.11.0 (stable)",
+    "version": "2026.11.0",
     "url": "https://als-apg.github.io/osprey/",
     "preferred": true
   },
@@ -19,6 +19,11 @@
     "name": "v2026.9.0b1 (pre-release)",
     "version": "2026.9.0b1",
     "url": "https://als-apg.github.io/osprey/v2026.9.0b1/"
+  },
+  {
+    "name": "v2026.6.2",
+    "version": "2026.6.2",
+    "url": "https://als-apg.github.io/osprey/v2026.6.2/"
   },
   {
     "name": "v2026.6.1",

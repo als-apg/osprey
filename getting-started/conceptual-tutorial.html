@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Conceptual Tutorial &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>How OSPREY works &#8212; Osprey Framework 2026.11.0 documentation</title>
   
   
   
@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
+    <script src="../_static/documentation_options.js?v=c6593756"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,19 +53,20 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
-            false;
+            true;
         </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/getting-started/conceptual-tutorial.html" />
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Hello World Tutorial" href="hello-world-tutorial.html" />
-    <link rel="prev" title="Installation &amp; Setup" href="installation.html" />
+    <link rel="next" title="Guided Facility Setup" href="osprey-install.html" />
+    <link rel="prev" title="The Demo Deployment" href="demo.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  <meta name="docsearch:version" content="2026.11.0" />
+    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
   </head>
   
   
@@ -149,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -368,11 +383,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Conceptual Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-build-interview.html">Guided Project Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demo.html">The Demo Deployment</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">How OSPREY works</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Guided Facility Setup</a></li>
 </ul>
 </div>
 </nav></div>
@@ -416,7 +431,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Conceptual Tutorial</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">How OSPREY works</span></li>
   </ul>
 </nav>
 </div>
@@ -433,85 +448,104 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="conceptual-tutorial">
-<h1>Conceptual Tutorial<a class="headerlink" href="#conceptual-tutorial" title="Link to this heading">#</a></h1>
-<p>This page explains what OSPREY is, how it works, and why it is
-designed the way it is. You do not need to read this before starting
-the hands-on tutorials, but it will help you understand what is
-happening under the hood.</p>
+  <section id="how-osprey-works">
+<h1>How OSPREY works<a class="headerlink" href="#how-osprey-works" title="Link to this heading">#</a></h1>
+<p>This page explains what OSPREY is, how it works, and why it is designed this
+way. You do not need it for the hands-on tutorials. It helps you understand
+what happens under the hood.</p>
 <section id="what-is-osprey">
 <h2>What is OSPREY?<a class="headerlink" href="#what-is-osprey" title="Link to this heading">#</a></h2>
-<p>Operating a particle accelerator, beamline, or fusion experiment means
-juggling dozens of tools — archivers, logbooks, channel finders, OPI
-screens — while holding operational context in your head. Every task
-requires knowing which tool to open, which PV names to use, and what
-the safe operating ranges are.</p>
-<p>OSPREY puts an AI agent in front of those tools. You interact in
-natural language — “read the beam current”, “bump the horizontal
-corrector by 0.5 A”, “what happened to the vacuum last Tuesday” —
-and the agent figures out which tools to call, which channels to query,
-and how to present the results.</p>
-<p>The catch: the agent can never write to hardware on its own. Safety
-enforcement lives in code that the agent cannot modify or bypass, not
-in the agent’s own judgment. The agent proposes actions; the safety
-system and the operator decide whether they happen.</p>
+<p>Running a large scientific facility, such as a particle accelerator, means
+juggling dozens of tools: archivers, logbooks, channel finders, OPI screens.
+You also hold the operational context in your head. Every task requires
+knowing which tool to open, which PV names to use, and what the safe operating
+ranges are.</p>
+<p>OSPREY puts an AI agent in front of those tools. You ask in natural language:
+“read the beam current”, “bump the horizontal corrector by 0.5 A”, “what
+happened to the vacuum last Tuesday”. The agent works out which tools to call,
+which channels to query, and how to present the results.</p>
+<p>The catch: the agent cannot write to hardware on its own. Safety enforcement
+lives in the runtime, outside the agent’s reasoning. It runs in two places:</p>
+<ul class="simple">
+<li><p><strong>The hook chain.</strong> A hook is a small program that Claude Code runs before a
+tool call (its PreToolUse event). OSPREY installs a chain of these hooks. They
+check every write and can refuse it.</p></li>
+<li><p><strong>The MCP server</strong> that carries out the call.</p></li>
+</ul>
+<p>The agent has no credential to reach in and disable either one. The agent
+proposes actions; the safety system and the operator decide whether they
+happen.</p>
 </section>
 <section id="how-the-agent-works">
 <h2>How the Agent Works<a class="headerlink" href="#how-the-agent-works" title="Link to this heading">#</a></h2>
-<p>The agent is built on two components: <strong>a coding-agent harness</strong> and <strong>MCP tools</strong>.</p>
-<p><strong>The Osprey agent</strong> is an AI assistant that runs in your terminal (or behind
+<p>OSPREY gives you two parts that work together: <strong>the agent</strong> (Claude Code) and
+<strong>MCP tools</strong>.</p>
+<p><strong>The OSPREY agent</strong> is an AI assistant that runs in your terminal (or behind
 a web interface). It reads natural language, reasons about what to do,
 and calls tools to carry out actions. It does not connect to your
-control system directly — it has no knowledge of PV names, channel
+control system directly. It has no knowledge of PV names, channel
 addresses, or hardware protocols until you give it tools.</p>
-<p><strong>MCP tools</strong> are the interface between the agent and your
-infrastructure. OSPREY ships tools for reading and writing control
-system channels, querying archivers, searching logbooks, and finding
-channel addresses. When the agent starts, it discovers which tools are
-available and what each tool can do. When you ask a question, the Osprey agent
-decides which tools to call, calls them, and uses the results to form
-a response.</p>
-<p>This separation matters: the Osprey agent is the reasoning layer, and the tools
-are the execution layer. You control what the agent can do by choosing
-which tools to enable. If you only enable <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, the agent
-can read channels but has no way to write to them — regardless of
-what the user asks.</p>
+<p><strong>MCP tools</strong> are the interface between the agent and your infrastructure.
+OSPREY ships tools for reading and writing control system channels, querying
+archivers, searching logbooks, and finding channel addresses. When the agent
+starts, it discovers which tools are available and what each one can do. When
+you ask a question, the agent decides which tools to call, calls them, and uses
+the results to form a response.</p>
+<p>This separation matters. The agent is the reasoning layer, and the tools are
+the execution layer. You control what the agent can do by choosing which tools
+to enable. If you enable only <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, the agent can read channels but
+has no way to write to them, whatever you ask.</p>
 </section>
 <section id="the-safety-model">
 <h2>The Safety Model<a class="headerlink" href="#the-safety-model" title="Link to this heading">#</a></h2>
-<p>The agent can propose writes but cannot execute them alone. When a
-write is proposed, the operator sees the target channel and value and
-must explicitly approve before anything reaches hardware.</p>
-<p>Two automated checks run behind the scenes. The <strong>kill switch</strong>
-(<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) blocks all writes globally when
-off — no prompt appears. The <strong>limits system</strong> validates each value
-against per-channel safe ranges and read-only flags. If either check
-fails, the write is blocked before the operator is ever asked.</p>
-<p>These checks are enforced by the runtime. The agent cannot modify,
-skip, or influence them.</p>
+<p>The agent can propose writes but cannot execute them alone. When the agent
+proposes a write, you see the target channel and value. You must approve it
+before anything reaches hardware, unless you set that machine’s write switch to
+<em>allowed</em>.</p>
+<p>A channel write passes three guards, one hook each, in this order:</p>
+<ol class="arabic simple">
+<li><p><strong>Who may write.</strong> The hook asks for the <strong>write verdict</strong>: the runtime’s
+yes or no on this write to this machine. The verdict refuses the write, with
+no prompt, unless two things hold. First, the login’s tier allows writes.
+The <strong>tier</strong> is the most a login may do, set by <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code>:
+<code class="docutils literal notranslate"><span class="pre">never</span></code>, <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>. Second, that login has armed the
+machine’s write switch from the web terminal’s chip. The switch is per
+machine, so you can write to the simulator while the machine that has beam
+stays off (<a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>).</p></li>
+<li><p><strong>Limits.</strong> The limits system validates each value against per-channel safe
+ranges and read-only flags.</p></li>
+<li><p><strong>Approval.</strong> A write that passes both checks still waits for your yes or
+no, unless the switch is at <em>allowed</em>.</p></li>
+</ol>
+<p>The runtime enforces these checks in a layer that the agent’s tool calls pass
+through. They run whether or not the agent cooperates. The agent holds no
+credential for the operator interfaces that could change safety settings.</p>
 </section>
 <section id="the-connector-abstraction">
 <h2>The Connector Abstraction<a class="headerlink" href="#the-connector-abstraction" title="Link to this heading">#</a></h2>
 <p>OSPREY does not talk to your control system directly. It uses a
-<strong>connector</strong> — an adapter that translates tool calls into the
-appropriate protocol (EPICS Channel Access, mock data, or a custom
-backend).</p>
-<p>You select the connector in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> by setting
-<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>. Change <code class="docutils literal notranslate"><span class="pre">mock</span></code> to <code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same
-agent, tools, and safety hooks work against real hardware. No code
-changes, no reconfiguration — one setting.</p>
+<strong>connector</strong>: an adapter that translates tool calls into the right protocol
+(EPICS Channel Access, the built-in simulator, or a custom backend).</p>
+<p>You select the connector in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> by setting
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. Change
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> (the simulator, served in process or from its
+container) to <code class="docutils literal notranslate"><span class="pre">epics</span></code>, and the same agent, tools, and safety hooks work
+against real hardware. You change configuration, not code. A project that also
+runs an archiver changes the archiver settings in the same step:
+<a class="reference internal" href="demo.html"><span class="doc">The Demo Deployment</span></a> shows the three <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> lines that move its
+control system and archiver together.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
-<p>Now that you understand the core concepts, you’re ready to build:</p>
+<p>Put these concepts to work, or go deeper:</p>
 <dl class="simple">
-<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and a mock control system.
-One command to create, one command to run.</p>
+<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and the simulator served in process.
+Three commands: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
 </dd>
-<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Add channel finding, logbook search, archiver access, and a web
-terminal for production deployment.</p>
+<dt><strong>Then scale up:</strong> <a class="reference internal" href="demo.html"><span class="doc">The Demo Deployment</span></a></dt><dd><p>Add channel finding, logbook search, an archive of its own, and
+logbook and channel-finder panels in the web terminal.</p>
 </dd>
-<dt><strong>Go deeper:</strong> <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture Overview</span></a></dt><dd><p>Detailed diagrams of the safety chain, data flow, and the full MCP
+<dt><strong>Go deeper:</strong> <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a></dt><dd><p>Detailed diagrams of the safety chain, data flow, and the full MCP
 tool catalog.</p>
 </dd>
 </dl>
@@ -529,20 +563,20 @@ tool catalog.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="demo.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation &amp; Setup</p>
+        <p class="prev-next-title">The Demo Deployment</p>
       </div>
     </a>
     <a class="right-next"
-       href="hello-world-tutorial.html"
+       href="osprey-install.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Hello World Tutorial</p>
+        <p class="prev-next-title">Guided Facility Setup</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

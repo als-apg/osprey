@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &amp; Setup &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>Installation &#8212; Osprey Framework 2026.11.0 documentation</title>
   
   
   
@@ -35,7 +35,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
     <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
     <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
-    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
   
   <!-- So that users can add custom icons -->
   <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
@@ -43,7 +43,7 @@
   <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
 <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
 
-    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
+    <script src="../_static/documentation_options.js?v=c6593756"></script>
     <script src="../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -53,19 +53,20 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.11.0';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
-            false;
+            true;
         </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/getting-started/installation.html" />
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Conceptual Tutorial" href="conceptual-tutorial.html" />
+    <link rel="next" title="Hello World Tutorial" href="hello-world-tutorial.html" />
     <link rel="prev" title="Getting Started" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
-  <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 24, 2026"/>
+  <meta name="docsearch:version" content="2026.11.0" />
+    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
   </head>
   
   
@@ -149,15 +150,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -285,15 +293,22 @@
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../architecture/index.html">
-    Architecture Overview
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
   </a>
 </li>
 
 
 <li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
-    How-To Guides
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
   </a>
 </li>
 
@@ -368,11 +383,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation &amp; Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-build-interview.html">Guided Project Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demo.html">The Demo Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">How OSPREY works</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Guided Facility Setup</a></li>
 </ul>
 </div>
 </nav></div>
@@ -416,7 +431,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation &amp; Setup</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation</span></li>
   </ul>
 </nav>
 </div>
@@ -433,9 +448,10 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="installation-setup">
-<h1>Installation &amp; Setup<a class="headerlink" href="#installation-setup" title="Link to this heading">#</a></h1>
-<p>Get OSPREY running in five steps. The whole process takes about 10 minutes.</p>
+  <section id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h1>
+<p>Get OSPREY running in six steps; the last one, a container runtime, is optional. The
+whole process takes about 10 minutes.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-check-circle" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm1.5 0a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm10.28-1.72-4.5 4.5a.75.75 0 0 1-1.06 0l-2-2a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l1.47 1.47 3.97-3.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text"><strong>What you’ll have when done</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -443,12 +459,13 @@
 <li><p class="sd-card-text">Node.js, Claude Code, and <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed</p></li>
 <li><p class="sd-card-text">An API key configured for your AI provider</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">osprey</span></code> CLI installed and on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code></p></li>
-<li><p class="sd-card-text">The ability to create projects with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code></p></li>
+<li><p class="sd-card-text">The ability to create projects with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code></p></li>
+<li><p class="sd-card-text">Optionally, Docker or Podman for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code></p></li>
 </ul>
 </div>
 </details><section id="step-1-install-node-js">
 <h2>Step 1: Install Node.js<a class="headerlink" href="#step-1-install-node-js" title="Link to this heading">#</a></h2>
-<p>Claude Code requires <a class="reference external" href="https://nodejs.org/">Node.js</a> 18+.</p>
+<p>Claude Code requires <a class="reference external" href="https://nodejs.org/">Node.js</a> 22+.</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -464,54 +481,59 @@ macOS (Homebrew)</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Linux</label><div class="sd-tab-content docutils">
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ubuntu/Debian</span>
-curl<span class="w"> </span>-fsSL<span class="w"> </span>https://deb.nodesource.com/setup_22.x<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>-E<span class="w"> </span>bash<span class="w"> </span>-
-sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs
-
-<span class="c1"># Or use your distribution&#39;s package manager</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Debian/Ubuntu — npm is a separate package here, and Claude Code needs it</span>
+sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs<span class="w"> </span>npm
 </pre></div>
 </div>
+<p>Your distribution’s own packages are the simplest route. Check what yours
+ships (<code class="docutils literal notranslate"><span class="pre">node</span> <span class="pre">--version</span></code>): many current releases package a Node below the
+22 floor, and there the cleanest fix is a current Node from
+<a class="reference external" href="https://github.com/nvm-sh/nvm">nvm</a>.</p>
 </div>
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
 Windows (WSL2)</label><div class="sd-tab-content docutils">
-<p>Install Node.js inside your WSL2 environment:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://deb.nodesource.com/setup_22.x<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>-E<span class="w"> </span>bash<span class="w"> </span>-
-sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs
+<p>Install Node.js inside your WSL2 environment, the same way as on Linux:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs<span class="w"> </span>npm
 </pre></div>
 </div>
 </div>
 </div>
 <p>Verify:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>node<span class="w"> </span>--version
-<span class="c1"># You should see v18.x.x or higher</span>
+<span class="c1"># You should see v22.x.x or higher</span>
 </pre></div>
 </div>
 </section>
 <section id="step-2-install-claude-code">
 <h2>Step 2: Install Claude Code<a class="headerlink" href="#step-2-install-claude-code" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code@2.1.322
 </pre></div>
 </div>
+<p>The pinned version is the one OSPREY’s generated projects run. Installing it
+exactly — rather than whatever was published most recently — means a brand-new
+CLI release can’t change your setup the day it comes out. The pinned version is
+the one npm’s <code class="docutils literal notranslate"><span class="pre">stable</span></code> channel for Claude Code names.</p>
 <p>Verify:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>--version
 </pre></div>
 </div>
 <section id="pinning-the-claude-code-cli-version">
 <h3>Pinning the Claude Code CLI version<a class="headerlink" href="#pinning-the-claude-code-cli-version" title="Link to this heading">#</a></h3>
-<p>Anthropic ships breaking changes to the Claude Code CLI from time to time. To
-insulate a project from upstream releases, pin a specific version in the
-project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
+<p>Every OSPREY project runs one exact Claude Code version, and the install
+command above gives you the one new projects use. To run a different version
+in a project, set it under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.322&quot;</span><span class="w">   </span><span class="c1"># one exact version</span>
 </pre></div>
 </div>
-<p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> and the web terminal launch the pinned
-version via <code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">-y</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code> instead of the
-globally-installed <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary. The first run downloads the package;
-subsequent runs hit the npx cache. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to confirm the pin
-is being honored. To temporarily bypass the pin for debugging, run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
+<p>Then install that same version, so the <code class="docutils literal notranslate"><span class="pre">claude</span></code> on your machine matches the
+project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code@2.1.322
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> tells you whether the two agree.</p>
 </section>
 </section>
 <section id="step-3-install-python-tools">
@@ -541,8 +563,9 @@ Linux / WSL2</label><div class="sd-tab-content docutils">
 </section>
 <section id="step-4-set-up-your-api-key">
 <h2>Step 4: Set up your API key<a class="headerlink" href="#step-4-set-up-your-api-key" title="Link to this heading">#</a></h2>
-<p>The Osprey agent needs an API key for the AI provider. Set it in your shell profile
-so it’s always available.</p>
+<p>The OSPREY agent needs an API key for the AI provider. Set it in your shell profile
+now: an exported key is what a host-local run reads, and it is what seeds the first
+project you build. Its durable home comes later — see the note below.</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-5">
@@ -578,12 +601,22 @@ Other providers</label><div class="sd-tab-content docutils">
 <span class="nb">export</span><span class="w"> </span><span class="nv">GOOGLE_API_KEY</span><span class="o">=</span><span class="s2">&quot;...&quot;</span>
 </pre></div>
 </div>
-<p>See <a class="reference internal" href="../how-to/configure-providers.html"><span class="doc">Configure LLM Providers</span></a> for the full list.</p>
+<p>See <a class="reference internal" href="../how-to/llm-providers/configure-providers.html"><span class="doc">Configure LLM Providers</span></a> for the full list.</p>
 </div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Using <code class="docutils literal notranslate"><span class="pre">bash</span></code> instead of <code class="docutils literal notranslate"><span class="pre">zsh</span></code>? Replace <code class="docutils literal notranslate"><span class="pre">~/.zshrc</span></code> with <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code>.</p>
+</div>
+<div class="important admonition">
+<p class="admonition-title">Where the key lives once you create a deployment</p>
+<p>A shell export reaches a <strong>deployment repository</strong> once: when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+creates it. From then on the repository’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the key’s home —
+builds and deploys read it and never re-read your shell, so a key exported
+<em>after</em> the repository exists does not get in.</p>
+<p>Keep the export for host-local runs and for seeding that first repository;
+put the key in the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for anything you want to survive a
+rebuild. See <a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 </div>
 </section>
 <section id="step-5-install-osprey">
@@ -599,11 +632,26 @@ environment for OSPREY and puts the <code class="docutils literal notranslate"><
 </div>
 <p>This is the right choice for most users. Your own projects stay separate
 from the tool — you’ll create them in their own directories with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.</p>
 <p>To upgrade later:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>tool<span class="w"> </span>upgrade<span class="w"> </span>osprey-framework
 </pre></div>
 </div>
+<p><strong>Pre-releases.</strong> Both commands resolve to the newest <em>stable</em> release
+and skip pre-releases (versions ending in <code class="docutils literal notranslate"><span class="pre">b1</span></code>, <code class="docutils literal notranslate"><span class="pre">rc1</span></code>, …), so a beta
+announced for testing is not what they install. Ask for it explicitly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The newest version, pre-releases included</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="w"> </span>allow<span class="w"> </span>osprey-framework
+
+<span class="c1"># One specific pre-release</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="w"> </span>allow<span class="w"> </span><span class="s2">&quot;osprey-framework==2026.9.0b2&quot;</span>
+</pre></div>
+</div>
+<p>Pinning the version alone is not enough: the <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code>
+release a pre-release framework is tested with can be a pre-release
+too, and <code class="docutils literal notranslate"><span class="pre">--prerelease</span> <span class="pre">allow</span></code> is what lets the resolver take it.
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">upgrade</span> <span class="pre">--prerelease</span> <span class="pre">allow</span> <span class="pre">osprey-framework</span></code> moves an
+installation on to the next pre-release.</p>
 </div>
 <input id="sd-tab-item-9" name="sd-tab-set-3" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-9">
@@ -630,6 +678,43 @@ scheme (e.g. <code class="docutils literal notranslate"><span class="pre">2026.5
 — the first two segments identify the release window and the patch segment
 increments for hotfixes. See <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> for details.</p>
 </section>
+<section id="step-6-install-a-container-runtime-optional">
+<h2>Step 6: Install a container runtime (optional)<a class="headerlink" href="#step-6-install-a-container-runtime-optional" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs a project and its services (simulation IOCs, databases, the
+observability stack) in containers, and needs Docker or Podman for that. The core
+agent workflow does not require containers, so you can skip this step and come back
+to it when you deploy.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-10">
+Docker Desktop</label><div class="sd-tab-content docutils">
+<p>Download from the <a class="reference external" href="https://www.docker.com/products/docker-desktop/">Docker website</a>
+and verify:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>--version
+docker<span class="w"> </span>compose<span class="w"> </span>version
+docker<span class="w"> </span>buildx<span class="w"> </span>version
+</pre></div>
+</div>
+<p>OSPREY’s service images need BuildKit: Docker Desktop includes it; on a
+Linux Docker Engine install the <code class="docutils literal notranslate"><span class="pre">docker-buildx-plugin</span></code> package. Podman
+needs nothing extra.</p>
+</div>
+<input id="sd-tab-item-11" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-11">
+Podman</label><div class="sd-tab-content docutils">
+<p>Install from the <a class="reference external" href="https://podman.io/docs/installation">Podman website</a>
+and verify:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>--version
+</pre></div>
+</div>
+<p>On macOS/Windows, also run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>machine<span class="w"> </span>init
+podman<span class="w"> </span>machine<span class="w"> </span>start
+</pre></div>
+</div>
+</div>
+</div>
+</section>
 <section id="you-re-done">
 <h2>You’re done! 🎉<a class="headerlink" href="#you-re-done" title="Link to this heading">#</a></h2>
 <p>OSPREY is installed and ready to use. Here’s what to do next:</p>
@@ -640,8 +725,8 @@ increments for hotfixes. See <code class="docutils literal notranslate"><span cl
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 <strong>Hello World Tutorial</strong></div>
-<p class="sd-card-text">Build your first agent with a mock control system. One MCP server, zero
-complexity. Takes about 10 minutes.</p>
+<p class="sd-card-text">Build your first agent with the simulator served in process. One MCP server, zero
+complexity. Takes about five minutes.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></div>
 </div>
@@ -649,62 +734,35 @@ complexity. Takes about 10 minutes.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-<strong>Guided Build Interview</strong></div>
+<strong>Guided Facility Setup</strong></div>
 <p class="sd-card-text">Set OSPREY up for your own detector, beamline, or accelerator subsystem.
 A guided conversation generates a ready-to-build project profile tailored
 to your system. Takes about 10–15 minutes.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="osprey-install.html"><span class="doc">Guided Facility Setup</span></a></div>
 </div>
 </div>
 </div>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text"><strong>Advanced: Container runtime, services &amp; detailed configuration</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text"><strong>Advanced: Services &amp; detailed configuration</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text">The steps above cover the core installation. The following are only needed for
 specific use cases.</p>
-<p class="sd-card-text"><strong>Container Runtime (Docker or Podman)</strong></p>
-<p class="sd-card-text">A container runtime is only required if you plan to deploy containerized services
-(Jupyter, simulation IOCs, databases). The core agent workflow does not require
-containers.</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-4" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-10">
-Docker Desktop</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Download from the <a class="reference external" href="https://www.docker.com/products/docker-desktop/">Docker website</a>
-and verify:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>--version
-docker<span class="w"> </span>compose<span class="w"> </span>version
-</pre></div>
-</div>
-</div>
-<input id="sd-tab-item-11" name="sd-tab-set-4" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-11">
-Podman</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Install from the <a class="reference external" href="https://podman.io/docs/installation">Podman website</a>
-and verify:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>--version
-</pre></div>
-</div>
-<p class="sd-card-text">On macOS/Windows, also run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>machine<span class="w"> </span>init
-podman<span class="w"> </span>machine<span class="w"> </span>start
-</pre></div>
-</div>
-</div>
-</div>
 <p class="sd-card-text"><strong>Deploying Services</strong></p>
-<p class="sd-card-text">See <a class="reference internal" href="../how-to/deploy-project.html"><span class="doc">Container Deployment</span></a> for setting up containerized services like Jupyter
-notebooks, databases, or simulation IOCs.</p>
+<p class="sd-card-text">See <a class="reference internal" href="../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a> for setting up containerized services like
+databases, simulation IOCs, or the observability stack.</p>
 <p class="sd-card-text"><strong>Detailed Configuration</strong></p>
-<p class="sd-card-text">See <a class="reference internal" href="../how-to/configure-providers.html"><span class="doc">Configure LLM Providers</span></a> for provider setup and
+<p class="sd-card-text">See <a class="reference internal" href="../how-to/llm-providers/configure-providers.html"><span class="doc">Configure LLM Providers</span></a> for provider setup and
 <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile YAML reference.</p>
 </div>
-</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+</details></section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-warning sd-bg-text-warning">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-alert" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">Common issues</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <dl class="simple">
-<dt><strong>“claude: command not found”</strong></dt><dd><p class="sd-card-text">Install Claude Code: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code</span></code></p>
+<dt><strong>“claude: command not found”</strong></dt><dd><p class="sd-card-text">Install Claude Code: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;2.1.322</span></code></p>
 </dd>
 <dt><strong>“osprey: command not found”</strong></dt><dd><p class="sd-card-text">If you installed via <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span> <span class="pre">osprey-framework</span></code>, make sure uv’s
 tool bin directory is on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code> — run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">update-shell</span></code> once
@@ -712,7 +770,9 @@ and open a new terminal. If you installed from source, either activate the
 venv (<code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">.venv/bin/activate</span></code>) or prefix commands with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span></code>
 from inside the clone.</p>
 </dd>
-<dt><strong>MCP connection failed</strong></dt><dd><p class="sd-card-text">Ensure you’re running <code class="docutils literal notranslate"><span class="pre">claude</span></code> from your project root where <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> lives.</p>
+<dt><strong>MCP connection failed</strong></dt><dd><p class="sd-card-text">Start sessions with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, not a bare <code class="docutils literal notranslate"><span class="pre">claude</span></code>.
+They run Claude Code in the project’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory, where the
+rendered <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> lives.</p>
 </dd>
 <dt><strong>Provider authentication error</strong></dt><dd><p class="sd-card-text">Check that your API key is exported: <code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">$CBORG_API_KEY</span></code> (or whichever key
 you’re using). Re-source your shell profile if needed: <code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">~/.zshrc</span></code></p>
@@ -752,11 +812,11 @@ osprey<span class="w"> </span>--version<span class="w">     </span><span class="
       </div>
     </a>
     <a class="right-next"
-       href="conceptual-tutorial.html"
+       href="hello-world-tutorial.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Conceptual Tutorial</p>
+        <p class="prev-next-title">Hello World Tutorial</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -787,7 +847,9 @@ osprey<span class="w"> </span>--version<span class="w">     </span><span class="
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-install-python-tools">Step 3: Install Python tools</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-set-up-your-api-key">Step 4: Set up your API key</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-install-osprey">Step 5: Install OSPREY</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-install-a-container-runtime-optional">Step 6: Install a container runtime (optional)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#you-re-done">You’re done! 🎉</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
   </nav></div>
 

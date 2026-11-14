@@ -1,0 +1,70 @@
+{
+  "__metadata__": {
+    "current_task": "Plot beam current measurements over the last 24 hours",
+    "original_query": "plot the beam current over the last 24",
+    "created_at": "2025-11-10T07:04:26.750520",
+    "serialization_type": "pending_execution_plan"
+  },
+  "steps": [
+    {
+      "context_key": "beam_current_channels",
+      "capability": "channel_finding",
+      "task_objective": "Find all channel addresses for beam current measurements in the system",
+      "success_criteria": "Successfully identified one or more valid beam current channel addresses",
+      "expected_output": "CHANNEL_ADDRESSES",
+      "parameters": null,
+      "inputs": []
+    },
+    {
+      "context_key": "last_24_hours_timerange",
+      "capability": "time_range_parsing",
+      "task_objective": "Parse and convert 'last 24 hours' into absolute datetime range with start and end times",
+      "success_criteria": "Time range successfully converted to start_date and end_date datetime objects representing the last 24 hours",
+      "expected_output": "TIME_RANGE",
+      "parameters": null,
+      "inputs": []
+    },
+    {
+      "context_key": "beam_current_archiver_data",
+      "capability": "archiver_retrieval",
+      "task_objective": "Retrieve historical beam current measurements from the archiver for the last 24 hours using identified channels",
+      "success_criteria": "Time-series beam current data successfully retrieved with timestamps and values for all requested channels",
+      "expected_output": "ARCHIVER_DATA",
+      "parameters": null,
+      "inputs": [
+        {
+          "CHANNEL_ADDRESSES": "beam_current_channels"
+        },
+        {
+          "TIME_RANGE": "last_24_hours_timerange"
+        }
+      ]
+    },
+    {
+      "context_key": "beam_current_plot",
+      "capability": "python",
+      "task_objective": "Create a professional time-series plot of beam current measurements over the 24-hour period with appropriate labeling, legends, and formatting",
+      "success_criteria": "Plot successfully generated as an image file with clear visualization of beam current trends over the 24-hour period",
+      "expected_output": "PYTHON_RESULTS",
+      "parameters": null,
+      "inputs": [
+        {
+          "ARCHIVER_DATA": "beam_current_archiver_data"
+        }
+      ]
+    },
+    {
+      "context_key": "plot_delivery",
+      "capability": "respond",
+      "task_objective": "Deliver the beam current plot and summary to the user",
+      "success_criteria": "User receives the plot visualization and confirmation of the 24-hour data display",
+      "expected_output": null,
+      "parameters": null,
+      "inputs": [
+        {
+          "PYTHON_RESULTS": "beam_current_plot"
+        }
+      ]
+    }
+  ]
+}
