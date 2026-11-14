@@ -37,7 +37,6 @@ The config is read as nested sections only, because that is how the rendered
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from osprey_connectors._config_read import coerce_port, is_loopback, nested_value
 from osprey_connectors.types import TARGET_VA, configured_targets
@@ -55,7 +54,7 @@ __all__ = [
 ]
 
 
-def virtual_accelerator_port(config: Mapping[str, Any]) -> int | None:
+def virtual_accelerator_port(config: Mapping[str, object]) -> int | None:
     """The Channel Access port the deployment's simulator serves, if it built one.
 
     Args:
@@ -71,7 +70,7 @@ def virtual_accelerator_port(config: Mapping[str, Any]) -> int | None:
 
 
 def virtual_accelerator_active(
-    config: Mapping[str, Any], *, endpoint_host: str, endpoint_port: int | None
+    config: Mapping[str, object], *, endpoint_host: str, endpoint_port: int | None
 ) -> bool:
     """Whether *endpoint* is this deployment's own simulator rather than a real machine.
 
@@ -98,7 +97,7 @@ def virtual_accelerator_active(
     return is_loopback(endpoint_host)
 
 
-def has_simulator(config: Mapping[str, Any]) -> bool:
+def has_simulator(config: Mapping[str, object]) -> bool:
     """Whether the build has a simulator.
 
     The port alone answers no for an in-process virtual accelerator; the

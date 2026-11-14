@@ -212,7 +212,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -256,6 +256,7 @@ __all__ = [
     "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
+    "ConnectorHostSlowCallError",
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
@@ -300,7 +301,7 @@ _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_c
 
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
-_Key = tuple[Any, ...]
+_Key = tuple[str, str | None] | tuple[str, str | None, str | None, str | None]
 
 
 def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
@@ -511,6 +512,19 @@ class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
 
 
+class ConnectorHostSlowCallError(TimeoutError):
+    """The child missed a call's deadline but still answered a ping, and was kept.
+
+    Not a :class:`ConnectorHostLostError`: the connector is not gone, and the
+    call may yet complete in the child. ``recovery`` holds the supervisor's
+    ``child_kept`` record, as on :class:`ConnectorUnavailableError`.
+    """
+
+    def __init__(self, message: str, *, recovery: Sequence[Mapping[str, str]] = ()) -> None:
+        super().__init__(message)
+        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
+
+
 class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
     """A write missed its deadline and its child was killed for it.
 
@@ -532,10 +546,10 @@ class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
 @dataclass
 class _PoolChild:
     key: _Key
-    process: Any
+    process: asyncio.subprocess.Process
     proxy: ConnectorHostProxy
     reader: AttributedReader
-    report: dict[str, Any]
+    report: dict[str, object]
     #: Set once the pool has decided to drop this child, to the cause it named.
     retired: str | None = None
     #: The one teardown of this child, shared by everyone who asks for it.
@@ -750,12 +764,12 @@ class ConnectorHostPool:
     async def __aenter__(self) -> ConnectorHostPool:
         return self
 
-    async def __aexit__(self, *exc_info: Any) -> None:
+    async def __aexit__(self, *exc_info: object) -> None:
         await self.close()
 
     # -- calls -------------------------------------------------------------
 
-    async def _invoke(self, key: _Key, method: str, *args: Any, **kwargs: Any) -> Any:
+    async def _invoke(self, key: _Key, method: str, *args: object, **kwargs: object) -> Any:
         """Run one call on *key*'s child. Never retried."""
         child = await self._ensure(key)
         ticket = self._policy.begin()
@@ -803,13 +817,12 @@ class ConnectorHostPool:
         if record is None:
             return
         if record.action is RecoveryAction.CHILD_KEPT:
-            slow = TimeoutError(
+            raise ConnectorHostSlowCallError(
                 f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
                 f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
-                "left running. The call may yet complete in the child; it was not retried."
-            )
-            slow.recovery = (record.as_dict(),)  # type: ignore[attr-defined]
-            raise slow from exc
+                "left running. The call may yet complete in the child; it was not retried.",
+                recovery=(record.as_dict(),),
+            ) from exc
         cause = child.retired or CAUSE_EXITED
         reason = self._replaced_reason(child, method, exc, cause)
         raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc
@@ -1034,6 +1047,8 @@ class ConnectorHostPool:
             if process is None:
                 marks.close()
 
+        # spawn_host attaches both pipes.
+        assert process.stdout is not None and process.stdin is not None
         reader = AttributedReader(process.stdout)
         proxy = ConnectorHostProxy(
             reader,
@@ -1043,7 +1058,7 @@ class ConnectorHostPool:
         )
         child = _PoolChild(key=key, process=process, proxy=proxy, reader=reader, report={})
         pid = child.pid
-        init: dict[str, Any] = {"control_system": section, "target": target}
+        init: dict[str, object] = {"control_system": section, "target": target}
         if self._config_file:
             init["config_file"] = self._config_file
         if readonly:
@@ -1168,7 +1183,7 @@ class ConnectorHostPool:
         section: dict[str, Any],
         readonly_run: bool,
         writes: bool,
-        report: dict[str, Any],
+        report: dict[str, object],
     ) -> bool:
         """Whether a writes mismatch in *report* is a switch that moved, not a disagreement.
 
@@ -1254,8 +1269,8 @@ class ConnectorHostPool:
         derivation: TargetDerivation,
         readonly_run: bool,
         writes: bool,
-        report: dict[str, Any],
-        failure: Any,
+        report: dict[str, object],
+        failure: Callable[[str, str], ConnectorHostStartError],
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
         verification = verify_host_report(
@@ -1317,7 +1332,7 @@ class ConnectorHostPool:
             child.teardown = self._track(self._orderly_stop(child))
         await asyncio.shield(child.teardown)
 
-    def _track(self, teardown: Any) -> asyncio.Task[None]:
+    def _track(self, teardown: Coroutine[object, object, None]) -> asyncio.Task[None]:
         """Run a teardown as its own task, so a cancelled caller cannot cut it short."""
         task: asyncio.Task[None] = asyncio.get_running_loop().create_task(teardown)
         self._teardowns.add(task)
@@ -1381,7 +1396,7 @@ class PooledConnector:
         return child.pid if child is not None and child.usable() else None
 
     @property
-    def report(self) -> dict[str, Any]:
+    def report(self) -> dict[str, object]:
         """The current child's post-connect report, empty when none is running."""
         child = self._pool._children.get(self._key)
         return dict(child.report) if child is not None and child.usable() else {}
@@ -1405,7 +1420,7 @@ class PooledConnector:
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -1416,7 +1431,7 @@ class PooledConnector:
 
     async def write_multiple_channels(
         self,
-        operations: list[tuple[str, Any]],
+        operations: Sequence[tuple[str, object]],
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
@@ -1426,7 +1441,7 @@ class PooledConnector:
         return result
 
     async def write_channel_checked(
-        self, channel_address: str, value: Any, **kwargs: Any
+        self, channel_address: str, value: object, **kwargs: object
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 

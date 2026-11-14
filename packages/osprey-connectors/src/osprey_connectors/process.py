@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
 
 __all__ = [
     "DEFAULT_TERMINATE_GRACE_S",
@@ -34,7 +33,7 @@ DEFAULT_TERMINATE_GRACE_S = 2.0
 _REAP_WINDOW_S = 0.5
 
 
-async def reap_exit_code(process: Any, window_s: float) -> int | None:
+async def reap_exit_code(process: asyncio.subprocess.Process, window_s: float) -> int | None:
     """Wait up to *window_s* for the event loop to collect *process*'s exit.
 
     Returns the exit code, or ``None`` if the child is still running when the
@@ -43,11 +42,10 @@ async def reap_exit_code(process: Any, window_s: float) -> int | None:
     if process.returncode is None:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(process.wait(), window_s)
-    returncode: int | None = process.returncode
-    return returncode
+    return process.returncode
 
 
-async def terminate(process: Any, grace_s: float) -> int | None:
+async def terminate(process: asyncio.subprocess.Process, grace_s: float) -> int | None:
     """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises.
 
     A child that already exited is collected by the event loop before anything
@@ -77,6 +75,5 @@ async def terminate(process: Any, grace_s: float) -> int | None:
     return _returncode(process)
 
 
-def _returncode(process: Any) -> int | None:
-    returncode: int | None = process.returncode
-    return returncode
+def _returncode(process: asyncio.subprocess.Process) -> int | None:
+    return process.returncode

@@ -53,12 +53,14 @@ every write instead of waving them through unchecked.
 import json
 import logging
 import os
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Final, Literal, TypeGuard
 
 __all__ = [
     "CLI_CONTROL_SYSTEM_TYPES",
     "CONTROL_TARGETS",
+    "ControlTarget",
     "DEFAULT_VA_PORT",
     "DOOCS",
     "DOOCS_ARCHIVER",
@@ -222,10 +224,11 @@ SET_CONTROL_SYSTEM_TYPES = [*CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN]
 # machine (the facility's own, the virtual accelerator, the stand-in soft IOC),
 # and which connector type reaches that machine is this module's job to answer,
 # not the caller's.
-TARGET_LIVE = "live"
-TARGET_VA = "va"
-TARGET_STANDIN = "standin"
-CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+ControlTarget = Literal["live", "va", "standin"]
+TARGET_LIVE: Final = "live"
+TARGET_VA: Final = "va"
+TARGET_STANDIN: Final = "standin"
+CONTROL_TARGETS: list[ControlTarget] = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
 #: The topology those three names bound, spelled once and quoted by every
 #: answer that runs into it. One deployment describes one real machine: the
@@ -303,7 +306,7 @@ INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 _BASELINE_TARGETS = {VIRTUAL_ACCELERATOR: TARGET_VA, LIVE_STANDIN: TARGET_STANDIN}
 
 
-def _resolve_type(section: Any, fallback: str) -> str:
+def _resolve_type(section: object, fallback: str) -> str:
     """The connector type a factory builds from a config section.
 
     A section that is missing, is not a mapping, or carries no usable ``type``
@@ -320,7 +323,7 @@ def _resolve_type(section: Any, fallback: str) -> str:
     return str(value) if value else fallback
 
 
-def resolve_archiver_type(section: Any) -> str:
+def resolve_archiver_type(section: object) -> str:
     """The archiver an ``archiver:`` config section actually selects.
 
     Absent means the mock: a config that says nothing about its archiver is a
@@ -330,7 +333,7 @@ def resolve_archiver_type(section: Any) -> str:
     return _resolve_type(section, MOCK_ARCHIVER)
 
 
-def resolve_control_system_type(section: Any) -> str:
+def resolve_control_system_type(section: object) -> str:
     """The control system a ``control_system:`` config section actually selects.
 
     A section that states no type selects the simulator, and
@@ -341,11 +344,11 @@ def resolve_control_system_type(section: Any) -> str:
     return _resolve_type(section, VIRTUAL_ACCELERATOR)
 
 
-def _states_type(section: Any) -> bool:
+def _states_type(section: object) -> TypeGuard[dict[object, object]]:
     return isinstance(section, dict) and bool(section.get("type"))
 
 
-def resolve_serving(section: Any) -> str:
+def resolve_serving(section: object) -> str:
     """Where the simulator a ``control_system:`` section selects runs.
 
     A section that states no type is the fail-safe default, the simulator in
@@ -362,8 +365,8 @@ def resolve_serving(section: Any) -> str:
     if resolve_control_system_type(section) != VIRTUAL_ACCELERATOR:
         return SERVED
     connector = section.get("connector")
-    block = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
-    value = block.get(SERVING_LEAF) if isinstance(block, dict) else None
+    block: object = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
+    value: object = block.get(SERVING_LEAF) if isinstance(block, dict) else None
     if value is None:
         return SERVED
     if value not in SERVING_MODES:
@@ -371,7 +374,7 @@ def resolve_serving(section: Any) -> str:
     return str(value)
 
 
-def connector_transport(section: Any, connector_type: str | None = None) -> str | None:
+def connector_transport(section: object, connector_type: str | None = None) -> str | None:
     """The wire a connector built from *section* speaks.
 
     Computed once, here, from the type and the serving leaf, so every check that
@@ -395,7 +398,7 @@ def connector_transport(section: Any, connector_type: str | None = None) -> str 
     return _TRANSPORTS.get(connector_type)
 
 
-def speaks_channel_access(section: Any, connector_type: str | None = None) -> bool:
+def speaks_channel_access(section: object, connector_type: str | None = None) -> bool:
     """Whether a connector built from *section* speaks real Channel Access.
 
     The facility's own EPICS machine, the simulator served from its container,
@@ -410,7 +413,7 @@ def speaks_channel_access(section: Any, connector_type: str | None = None) -> bo
     return connector_transport(section, connector_type) == TRANSPORT_CA
 
 
-def talks_to_network(section: Any, connector_type: str | None = None) -> bool:
+def talks_to_network(section: object, connector_type: str | None = None) -> bool:
     """Whether a connector built from *section* dials anything at all.
 
     False only for the simulator served in process. A transport this module has
@@ -452,11 +455,11 @@ def _own_name_block(connector_type: str) -> str | None:
     return None if "." in connector_type else connector_type
 
 
-def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
+def _archiver_settings_homes(section: object) -> list[tuple[str, object]]:
     """Every block in *section* that configures the selected archiver, in order."""
     if not isinstance(section, dict):
         return []
-    homes: list[tuple[str, Any]] = []
+    homes: list[tuple[str, object]] = []
     if _ARCHIVER_SETTINGS_LEAF in section:
         homes.append((_ARCHIVER_SETTINGS_LEAF, section[_ARCHIVER_SETTINGS_LEAF]))
     own = _own_name_block(resolve_archiver_type(section))
@@ -472,14 +475,14 @@ def _two_homes(own: str) -> str:
     )
 
 
-def _not_a_block(key: str, value: Any) -> str:
+def _not_a_block(key: str, value: object) -> str:
     return (
         f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
         f"archiver's settings as a mapping"
     )
 
 
-def archiver_settings_key(section: Any) -> str:
+def archiver_settings_key(section: object) -> str:
     """The dotted key of the block that configures *section*'s archiver.
 
     ``archiver.<type>`` when a short-named archiver is configured by its own-name
@@ -491,7 +494,7 @@ def archiver_settings_key(section: Any) -> str:
     return f"archiver.{home}"
 
 
-def resolve_archiver_settings(section: Any) -> dict[str, Any]:
+def resolve_archiver_settings(section: object) -> dict[str, object]:
     """The settings block the selected archiver's ``connect()`` is handed.
 
     ``archiver.settings`` for every archiver; for a short-named one, its own-name
@@ -513,7 +516,7 @@ def resolve_archiver_settings(section: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def archiver_settings_errors(section: Any) -> list[str]:
+def archiver_settings_errors(section: object) -> list[str]:
     """Every block under a rendered ``archiver:`` section that no archiver reads, named.
 
     A lint, like :func:`incomplete_limits_blocks`, and read by the build over the
@@ -545,7 +548,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
     return errors
 
 
-def resolve_target(section: Any, target: Any) -> str:
+def resolve_target(section: object, target: object) -> str:
     """The connector type a session *target* selects, in a given deployment.
 
     The returned type is also the key of the block the factory reads its
@@ -611,7 +614,7 @@ def resolve_target(section: Any, target: Any) -> str:
     )
 
 
-def baseline_target(section: Any) -> str:
+def baseline_target(section: object) -> str:
     """The target a deployment's own ``control_system:`` section selects.
 
     ``va`` for the simulator, in whichever venue its leaf names (a section
@@ -627,7 +630,7 @@ def baseline_target(section: Any) -> str:
     return _BASELINE_TARGETS.get(resolve_control_system_type(section), TARGET_LIVE)
 
 
-def switch_capable(section: Any) -> bool:
+def switch_capable(section: object) -> bool:
     """Whether a deployment gives a session more than one target to be pointed at.
 
     The predicate itself, in the module that already owns "which connector type
@@ -672,7 +675,7 @@ def switch_capable(section: Any) -> bool:
         return False
 
 
-def target_configured(section: Any, target: Any) -> bool:
+def target_configured(section: object, target: object) -> bool:
     """Whether *section* carries the connector block *target* is served by.
 
     Both halves of "does this deployment have that machine", asked the way the
@@ -708,7 +711,7 @@ def target_configured(section: Any, target: Any) -> bool:
     return isinstance(block, dict) and bool(block)
 
 
-def configured_targets(section: Any) -> list[str]:
+def configured_targets(section: object) -> list[str]:
     """The targets a session on this deployment can actually be pointed at.
 
     In :data:`CONTROL_TARGETS` order, which is the order every render, roster
@@ -752,7 +755,7 @@ def configured_targets(section: Any) -> list[str]:
     ]
 
 
-def tier_writes(section: Any) -> Literal["never", "asked", "allowed"]:
+def tier_writes(section: object) -> Literal["never", "asked", "allowed"]:
     """The write ceiling this deployment's login tier sets: ``never``, ``asked`` or ``allowed``.
 
     :data:`WRITES_KEY` decides when the section carries it, and then only the
@@ -778,7 +781,7 @@ def tier_writes(section: Any) -> Literal["never", "asked", "allowed"]:
     return _TIER_NEVER
 
 
-def tier_allows(section: Any) -> bool:
+def tier_allows(section: object) -> bool:
     """Whether the tier arms anything: :func:`tier_writes` is not ``never``. Never raises.
 
     This reads the ceiling only: ``asked`` and ``allowed`` both answer true, so
@@ -806,7 +809,9 @@ _REHEARSAL: Literal["rehearsal"] = "rehearsal"
 _MACHINE_KIND_KEY = "machine_kind"
 
 
-def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+def machine_kind(
+    section: object, target: object
+) -> Literal["real", "rehearsal", "simulator"] | None:
     """The kind of machine *target* names by its name: ``real`` or ``simulator``.
 
     ``live`` and ``standin`` are the real machine, ``va`` the simulator. The
@@ -821,10 +826,11 @@ def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "sim
         resolve_target(section, target)
     except ValueError:
         return None
-    return _MACHINE_KINDS.get(target)
+    # A target that resolved is one of the three names, so a string.
+    return _MACHINE_KINDS.get(target) if isinstance(target, str) else None
 
 
-def _published_targets(directory: Any) -> dict[str, Any]:
+def _published_targets(directory: str) -> dict[str, object]:
     """Per-target metadata from the first live controls server's report, or ``{}``.
 
     The hook twin's ``_published_targets`` restated: report files in name order,
@@ -852,7 +858,7 @@ def _published_targets(directory: Any) -> dict[str, Any]:
             continue
         try:
             with open(os.path.join(directory, name), encoding="utf-8") as handle:
-                report = json.load(handle)
+                report: object = json.load(handle)
         except (OSError, ValueError):
             continue
         if not isinstance(report, dict):
@@ -864,7 +870,7 @@ def _published_targets(directory: Any) -> dict[str, Any]:
 
 
 def published_machine_kind(
-    target: Any, *, state_dir: Any = None
+    target: object, *, state_dir: object = None
 ) -> Literal["real", "rehearsal", "simulator"]:
     """The kind of machine *target* is, as this deployment's controls server publishes it.
 
@@ -894,7 +900,8 @@ def published_machine_kind(
             from osprey_connectors import posture_store
 
             state_dir = posture_store.state_dir()
-        if state_dir is None:
+        if not isinstance(state_dir, str | os.PathLike):
+            # Only a path names a report directory; ``None`` names none.
             return "real"
         meta = _published_targets(os.fspath(state_dir)).get(TARGET_STANDIN)
     except Exception:  # the kind is a word an operator reads; it must not raise
@@ -1035,7 +1042,7 @@ class LimitsPosture:
         return self.enabled is True and self.mode == LIMITS_MODE_EXCLUSIVE
 
 
-def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPosture:
+def type_limits_posture(section: object, connector_type: str | None) -> LimitsPosture:
     """The limits posture one connector *type* runs under.
 
     ``control_system.connector.<type>.limits_checking`` when that block is
@@ -1118,7 +1125,7 @@ def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPostu
     return _global_limits_posture(section)
 
 
-def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
+def target_limits_posture(section: object, target: object) -> LimitsPosture:
     """The limits posture one session *target* runs under.
 
     :func:`type_limits_posture` for the type that target resolves to, so a
@@ -1158,7 +1165,7 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     return type_limits_posture(section, connector_type)
 
 
-def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
+def most_restrictive_limits_posture(section: object) -> LimitsPosture:
     """The limits posture that holds across every target a session here can select.
 
     What a caller with no target of its own has to assume. The stdlib hook is
@@ -1269,7 +1276,7 @@ def limits_database_required(posture: LimitsPosture, *, path_configured: bool) -
     return posture.enabled is True and (posture.mode != LIMITS_MODE_OPTIONAL or path_configured)
 
 
-def tier_limits_database_targets(section: Any, *, path_configured: bool) -> list[str]:
+def tier_limits_database_targets(section: object, *, path_configured: bool) -> list[str]:
     """The targets the login tier lets write whose limits posture needs a database.
 
     The tier is a ceiling, not a selection: a render whose :func:`tier_writes`
@@ -1309,7 +1316,7 @@ def tier_limits_database_targets(section: Any, *, path_configured: bool) -> list
     ]
 
 
-def incomplete_limits_blocks(section: Any) -> list[str]:
+def incomplete_limits_blocks(section: object) -> list[str]:
     """Every half-written per-type limits block in a rendered section, named.
 
     A per-type ``limits_checking`` block overrides whole, so a block that states
@@ -1363,7 +1370,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
     if not isinstance(section, dict):
         return []
     connector = section.get("connector")
-    blocks: list[tuple[Any, Any, bool]] = []
+    blocks: list[tuple[str | None, object, bool]] = []
     if LIMITS_CHECKING_LEAF in section:
         blocks.append((None, section[LIMITS_CHECKING_LEAF], False))
     if isinstance(connector, dict):
@@ -1406,7 +1413,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
     return errors
 
 
-def _global_limits_posture(section: Any) -> LimitsPosture:
+def _global_limits_posture(section: object) -> LimitsPosture:
     """The deployment-wide posture, ``control_system.limits_checking``.
 
     A leaf this block does not carry is the tri-state and not a malformed
@@ -1426,7 +1433,7 @@ def _global_limits_posture(section: Any) -> LimitsPosture:
     return _block_limits_posture(block, None, whole=False)
 
 
-def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple[str, bool]]:
+def _unstated_limits_leaves(block: Mapping[str, object], *, whole: bool) -> list[tuple[str, bool]]:
     """The leaves a limits block fails to state, and whether each was written.
 
     One classifier for both scopes and both readers — the posture resolvers and
@@ -1473,7 +1480,7 @@ def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple
 
 
 def _block_limits_posture(
-    block: dict[str, Any], connector_type: str | None, *, whole: bool
+    block: Mapping[str, object], connector_type: str | None, *, whole: bool
 ) -> LimitsPosture:
     """One ``limits_checking`` mapping read into a posture.
 
@@ -1495,7 +1502,7 @@ def _block_limits_posture(
     )
 
 
-def _limits_leaf(value: Any) -> bool | None:
+def _limits_leaf(value: object) -> bool | None:
     """One limits leaf as a literal boolean, or ``None`` for anything else.
 
     The literal booleans and nothing else are readable. A quoted ``'true'``, a
@@ -1517,7 +1524,7 @@ def _limits_leaf(value: Any) -> bool | None:
     return None
 
 
-def _limits_mode(value: Any) -> str | None:
+def _limits_mode(value: object) -> str | None:
     """The ``mode`` leaf as one of :data:`LIMITS_MODES`, or ``None`` for anything else.
 
     The two spellings and nothing else are readable: a boolean, a different
@@ -1532,14 +1539,17 @@ def _limits_mode(value: Any) -> str | None:
 
 #: How each of :data:`LIMITS_LEAVES` is read, and what a refusal says a
 #: readable value looks like.
-_LEAF_READERS: dict[str, Any] = {LIMITS_LEAVES[0]: _limits_leaf, LIMITS_LEAVES[1]: _limits_mode}
+_LEAF_READERS: dict[str, Callable[[object], bool | str | None]] = {
+    LIMITS_LEAVES[0]: _limits_leaf,
+    LIMITS_LEAVES[1]: _limits_mode,
+}
 _LEAF_VALUES = {
     LIMITS_LEAVES[0]: "a literal true or false",
     LIMITS_LEAVES[1]: " or ".join(LIMITS_MODES),
 }
 
 
-def _real_blocks(section: Any, never_live: tuple[str, ...]) -> list[str]:
+def _real_blocks(section: object, never_live: tuple[str, ...]) -> list[str]:
     """The connector blocks that could describe a real machine, sorted."""
     connector = section.get("connector") if isinstance(section, dict) else None
     if not isinstance(connector, dict):
@@ -1547,7 +1557,7 @@ def _real_blocks(section: Any, never_live: tuple[str, ...]) -> list[str]:
     return sorted(key for key in connector if isinstance(key, str) and key not in never_live)
 
 
-def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str, ...]) -> None:
+def _report_second_real_block(section: object, baseline: str, never_live: tuple[str, ...]) -> None:
     """Say so when a config describes a real machine no target can reach.
 
     A deployment whose own type is its real machine never consults the connector
@@ -1577,7 +1587,7 @@ def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str
     )
 
 
-def _live_type(section: Any) -> str:
+def _live_type(section: object) -> str:
     """The control system type that reaches this deployment's real machine.
 
     Neither a simulated type nor a stand-in one can be that machine, and the

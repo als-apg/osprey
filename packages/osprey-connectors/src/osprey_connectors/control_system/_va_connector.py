@@ -16,7 +16,7 @@ from osprey_connectors.types import DEFAULT_VA_PORT
 logger = get_logger("va_connector")
 
 
-def resolve_va_gateway_port(config_path: str | None = None) -> Any:
+def resolve_va_gateway_port(config_path: str | None = None) -> object:
     """Resolve the Channel Access port of the Virtual Accelerator to talk to.
 
     Reads ``services.virtual_accelerator.port`` — the same key the VA compose

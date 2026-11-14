@@ -61,7 +61,10 @@ class MockArchiverConnector(ArchiverConnector):
         >>> )
     """
 
-    def __init__(self):
+    #: Samples per second, set by connect().
+    _sample_rate_hz: float
+
+    def __init__(self) -> None:
         self._connected = False
         self._archive: ArchiveComposite | None = None
         self._view: SimulatorView | None = None

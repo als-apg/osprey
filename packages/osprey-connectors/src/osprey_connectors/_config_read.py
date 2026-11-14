@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Mapping
-from typing import Any
 
 #: The only host name that is loopback without being an address. Compared
 #: case-insensitively; every other spelling has to parse as an IP address, so a
@@ -35,7 +34,7 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def coerce_port(value: Any) -> int | None:
+def coerce_port(value: object) -> int | None:
     """*value* as a port number, or ``None`` when it does not name one.
 
     ``bool`` is rejected ahead of ``int`` on purpose: ``live_standin: true``
@@ -54,9 +53,9 @@ def coerce_port(value: Any) -> int | None:
     return None
 
 
-def nested_value(config: Any, dotted: str) -> Any:
+def nested_value(config: object, dotted: str) -> object:
     """The value of *dotted* walked as nested sections, or ``None`` when absent."""
-    node: Any = config
+    node: object = config
     for part in dotted.split("."):
         if not isinstance(node, Mapping):
             return None

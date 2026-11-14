@@ -47,7 +47,7 @@ def is_error(status: str) -> bool:
     return status not in (STATUS_OK, STATUS_NO_DECK)
 
 
-def model_status(connector: Any, model: str) -> str:
+def model_status(connector: object, model: str) -> str:
     """A served physics model's status: ``ok`` or its engine's error text.
 
     Args:

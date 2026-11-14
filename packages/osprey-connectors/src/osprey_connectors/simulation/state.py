@@ -327,7 +327,7 @@ def composed_set(
     return list(names), []
 
 
-def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, Any]:
+def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, str | int]:
     """The log record a process writes when it serves without a scenario.
 
     Args:
@@ -341,7 +341,7 @@ def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, An
     return {"instance": instance, "pid": pid, "event": OVERLAP_EVENT, "target": overlap.target}
 
 
-def format_overlap_record(model: str, record: Mapping[str, Any]) -> str:
+def format_overlap_record(model: str, record: Mapping[str, object]) -> str:
     """One printable line for an overlap record read back from a model's log.
 
     The line names where it came from, so a reader never takes it for the

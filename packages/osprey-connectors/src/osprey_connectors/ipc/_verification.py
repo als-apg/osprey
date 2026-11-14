@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._gateway_role import (
@@ -109,7 +109,7 @@ class Endpoint:
     port: Any
     mode: str
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, object]:
         return {"host": self.host, "port": self.port, "mode": self.mode}
 
 
@@ -160,11 +160,11 @@ class Verification:
 
     ok: bool
     field: str | None = None
-    expected: Any = None
-    got: Any = None
+    expected: object = None
+    got: object = None
     detail: str = ""
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, object]:
         return {
             "ok": self.ok,
             "field": self.field,
@@ -174,7 +174,7 @@ class Verification:
         }
 
 
-def config_section(config: Any, name: str) -> dict[str, Any]:
+def config_section(config: object, name: str) -> dict[str, Any]:
     """One top-level section of a rendered config, or an empty mapping.
 
     Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
@@ -192,17 +192,17 @@ def subsection(section: dict[str, Any], name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def connector_block(config: Any, connector_type: str) -> Any:
+def connector_block(config: object, connector_type: str) -> object:
     """The ``control_system.connector.<type>`` block, as written."""
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
 
-def _mode(gateway: dict[str, Any], key: str) -> str:
+def _mode(gateway: Mapping[str, object], key: str) -> str:
     name_server = config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
     return MODE_NAME_SERVER if name_server else MODE_ADDR_LIST
 
 
-def _row(gateway: Any, default_port: int | None, key: str) -> Endpoint | None:
+def _row(gateway: object, default_port: int | None, key: str) -> Endpoint | None:
     """One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.
 
     ``connect()`` guards its environment derivation with ``if gateway_config:``,
@@ -218,7 +218,7 @@ def _row(gateway: Any, default_port: int | None, key: str) -> Endpoint | None:
     )
 
 
-def _pva_globs(block: dict[str, Any]) -> list[str]:
+def _pva_globs(block: Mapping[str, object]) -> list[str]:
     """The PVA routing globs, normalized exactly as ``connect()`` normalizes."""
     pva_channels = block.get("pva_channels") or []
     if isinstance(pva_channels, str):
@@ -229,7 +229,7 @@ def _pva_globs(block: dict[str, Any]) -> list[str]:
 
 
 def derive_endpoints(
-    config: Any,
+    config: object,
     target: str,
     *,
     writes_enabled: bool | None = None,
@@ -339,7 +339,7 @@ def derive_endpoints(
     )
 
 
-def declared_gateways(block: Any) -> str:
+def declared_gateways(block: object) -> str:
     """How a connector *block* spells its ``gateways`` table: the one reader of that fact.
 
     Only the explicit empty list is :data:`GATEWAYS_NONE_DECLARED`. A block that
@@ -359,7 +359,14 @@ def declared_gateways(block: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _ports_equal(expected: Any, got: Any) -> bool:
+def _as_int(value: object) -> int:
+    """``int(value)`` for whatever ``int`` converts; ``TypeError`` for anything else."""
+    if isinstance(value, str | bytes | SupportsInt | SupportsIndex):
+        return int(value)
+    raise TypeError(f"{type(value).__name__!r} is not a number")
+
+
+def _ports_equal(expected: object, got: object) -> bool:
     """Whether two ports name the same port.
 
     ``connect()`` interpolates the port into a string environment value, so a
@@ -368,12 +375,12 @@ def _ports_equal(expected: Any, got: Any) -> bool:
     different port never compares equal.
     """
     try:
-        return int(expected) == int(got)
+        return _as_int(expected) == _as_int(got)
     except (TypeError, ValueError):
         return str(expected) == str(got)
 
 
-def _host_key(host: Any) -> str:
+def _host_key(host: object) -> str:
     """*host* as two rows must both spell it to name the same machine.
 
     Stripped and case-folded, and nothing more: no name is resolved, and no two
@@ -417,7 +424,7 @@ class LiveCollision:
 
 
 def live_collision(
-    config: Any, derivation: TargetDerivation, *, config_path: str | None = None
+    config: object, derivation: TargetDerivation, *, config_path: str | None = None
 ) -> LiveCollision | None:
     """The live gateway *derivation*'s selected endpoint lands on, or ``None``.
 
@@ -452,7 +459,7 @@ def live_collision(
     return None
 
 
-def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any]) -> Verification:
+def verify_child_report(derivation: TargetDerivation, report: Mapping[str, object]) -> Verification:
     """Assert a child came up exactly where the derivation said it would.
 
     Positive and role-aware: every field of the selected role's endpoint is
@@ -541,7 +548,7 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any])
 
 def _verify_posture(
     derivation: TargetDerivation,
-    report: Mapping[str, Any],
+    report: Mapping[str, object],
     *,
     readonly_run: bool,
     writes_enabled: bool | None,
@@ -604,7 +611,7 @@ def _verify_posture(
 
 def verify_host_report(
     derivation: TargetDerivation,
-    report: dict[str, Any],
+    report: Mapping[str, object],
     *,
     readonly_run: bool | None = None,
     writes_enabled: bool | None = None,
