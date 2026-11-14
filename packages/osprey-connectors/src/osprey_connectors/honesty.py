@@ -77,10 +77,9 @@ real machine, ``va`` is the served container and is judged served.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from typing_extensions import override
 
+from ._model import FrozenModel
 from .types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
@@ -153,8 +152,7 @@ class _Absent:
 _ABSENT = _Absent()
 
 
-@dataclass(frozen=True)
-class ArchiverPairing:
+class ArchiverPairing(FrozenModel):
     """What a config says about its archive, judged the way its reader reads it."""
 
     is_invented_history: bool

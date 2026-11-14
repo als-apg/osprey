@@ -14,9 +14,10 @@ neither the simulation engine nor the ARIEL ingestion layer depends on the
 other.
 """
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import time as dtime
+
+from osprey_connectors._model import FrozenModel
 
 __all__ = [
     "RelativeTimestamp",
@@ -24,8 +25,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
-class RelativeTimestamp:
+class RelativeTimestamp(FrozenModel):
     """A timestamp expressed relative to an apply-/ingest-time anchor.
 
     ``days_ago`` is a whole-day shift back from the anchor date; ``time`` pins

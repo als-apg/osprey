@@ -294,10 +294,10 @@ class ConnectorEnvironment:
 
         landings = [
             Landing(
-                self._all_variables[n].setpoint_pv,
-                self._all_variables[n].readback_pv,
-                float(v),
-                self._spec.readback_tolerance(n),
+                setpoint=self._all_variables[n].setpoint_pv,
+                readback=self._all_variables[n].readback_pv,
+                demand=float(v),
+                bound=self._spec.readback_tolerance(n),
             )
             for n, v in variable_inputs.items()
         ]

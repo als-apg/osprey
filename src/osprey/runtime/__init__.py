@@ -1147,7 +1147,9 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
             channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
         )
         if bound is not None:
-            landings.append(Landing(address, readback, float(demand), bound))
+            landings.append(
+                Landing(setpoint=address, readback=readback, demand=float(demand), bound=bound)
+            )
     return landings
 
 
