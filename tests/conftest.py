@@ -57,6 +57,9 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     built_demo_watchdog_on,
     offline_build_env,
 )
+from tests._session_database import (  # noqa: F401 - the session's shared Postgres container
+    pgvector_container_url,
+)
 from tests.e2e import refusals
 
 if TYPE_CHECKING:
