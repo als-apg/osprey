@@ -44,6 +44,7 @@ from osprey_connectors.control_system._ca_loop import CaLoop
 from osprey_connectors.control_system._epics_connector import (
     WRITE_THREAD_PREFIX,
     EPICSConnector,
+    _PutFault,
     _WriteExecutor,
 )
 from osprey_connectors.control_system.write_door import door_is_open
@@ -449,11 +450,10 @@ class TestPut:
         fake = TimingAioca(clock, SR_CH=record)
         connector = _connector(fake)
 
-        verdict, _failure = await connector._put_ca(
-            "SR:CH", 2.0, wait=True, deadline=(clock.time() - 0.01,)
-        )
+        outcome = await connector._put_ca("SR:CH", 2.0, wait=True, deadline=(clock.time() - 0.01,))
 
-        assert verdict == "not_sent"
+        assert isinstance(outcome, _PutFault)
+        assert outcome.verdict == "not_sent"
         assert record.puts == []
         assert not [call for call in fake.calls if call[0] == "caput"]
 
