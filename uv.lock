@@ -5570,6 +5570,7 @@ all = [
     { name = "mypy" },
     { name = "myst-parser" },
     { name = "osprey-optimizer" },
+    { name = "pandas-stubs" },
     { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -5616,6 +5617,7 @@ dev = [
     { name = "linkml" },
     { name = "mypy" },
     { name = "osprey-optimizer" },
+    { name = "pandas-stubs" },
     { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -5753,6 +5755,8 @@ requires-dist = [
     { name = "osprey-optimizer", marker = "extra == 'optimizer'", editable = "packages/osprey-optimizer" },
     { name = "packaging", specifier = ">=26.3" },
     { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pandas-stubs", marker = "extra == 'all'", specifier = ">=3.0,<3.1" },
+    { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=3.0,<3.1" },
     { name = "pillow", specifier = ">=12.3" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=10" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=12.3.0" },
@@ -6006,6 +6010,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/34/a0/ed160a00fb4f37d806406bc0a79a8b62fe67f29d00950f8d16203ff3409b/pandas-3.0.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:125eb901e233f155b268bbef9abd9afb5819db74f0e677e89a61b246228c71ac", size = 11799386, upload-time = "2026-01-21T15:51:57.457Z" },
     { url = "https://files.pythonhosted.org/packages/36/c8/2ac00d7255252c5e3cf61b35ca92ca25704b0188f7454ca4aec08a33cece/pandas-3.0.0-cp314-cp314t-win_amd64.whl", hash = "sha256:b86d113b6c109df3ce0ad5abbc259fe86a1bd4adfd4a31a89da42f84f65509bb", size = 10873041, upload-time = "2026-01-21T15:52:00.034Z" },
     { url = "https://files.pythonhosted.org/packages/e6/3f/a80ac00acbc6b35166b42850e98a4f466e2c0d9c64054161ba9620f95680/pandas-3.0.0-cp314-cp314t-win_arm64.whl", hash = "sha256:1c39eab3ad38f2d7a249095f0a3d8f8c22cc0f847e98ccf5bbe732b272e2d9fa", size = 9441003, upload-time = "2026-01-21T15:52:02.281Z" },
+]
+
+[[package]]
+name = "pandas-stubs"
+version = "3.0.5.260914"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/93/8948ae6c1e1e3d6833596fd266f7be2d27c1451b8be094975ad42c5e842e/pandas_stubs-3.0.5.260914.tar.gz", hash = "sha256:3f6fc1f147f68fd89c007105e7c94a948acb4ecd7eb20dc1c02e153c4ed5c250", size = 117622, upload-time = "2026-09-14T16:42:35.065Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/cb/5ad79e02a556cc23fed5816de0109fa8af660c66cfa5f4af74c3e8d4cd26/pandas_stubs-3.0.5.260914-py3-none-any.whl", hash = "sha256:39a1300c5c5c55fdf609e3476805decce5d5015539a4dcb683449f8feaeee2fb", size = 177344, upload-time = "2026-09-14T16:42:33.771Z" },
 ]
 
 [[package]]

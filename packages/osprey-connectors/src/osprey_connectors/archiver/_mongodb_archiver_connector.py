@@ -534,7 +534,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
-            timestamps: dict[str, list[object]] = {channel: [] for channel in channels}
+            timestamps: dict[str, list[datetime]] = {channel: [] for channel in channels}
             values: dict[str, list[object]] = {channel: [] for channel in channels}
             traced: set[str] = set()
             found = 0
@@ -543,8 +543,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 for doc in store.find(query, projection).sort("date", 1):
                     found += 1
                     doc_date = doc.get("date")
-                    if doc_date is None:
-                        logger.warning("Document missing 'date' field, skipping")
+                    if not isinstance(doc_date, datetime):
+                        logger.warning("Document missing a datetime 'date' field, skipping")
                         continue
                     for channel, field in fields.items():
                         if field in doc:

@@ -234,7 +234,7 @@ def retire_self_issued(grant: Any) -> None:
         logger.warning("Could not mark self-issued grant %s ended", grant.id, exc_info=True)
 
 
-def _control_system_section() -> Any:
+def _control_system_section() -> object:
     from osprey_connectors.config import get_config_value
 
     return get_config_value("control_system", None)
