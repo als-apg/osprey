@@ -1287,7 +1287,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     return str(path)
 
 
-def get_config_value(path: str, default: object = None, config_path: str | None = None) -> Any:
+def get_config_value(path: str, default: object = None, config_path: str | None = None) -> object:
     """
     Get a specific configuration value by dot-separated path.
 
@@ -1301,7 +1301,9 @@ def get_config_value(path: str, default: object = None, config_path: str | None 
         config_path: Optional explicit path to configuration file
 
     Returns:
-        The configuration value at the specified path, or default if not found
+        The configuration value at the specified path, or default if not found.
+        It is typed ``object`` because the YAML decides its shape: a caller
+        checks for the shape it needs before using it.
 
     Raises:
         ValueError: If path is empty or None

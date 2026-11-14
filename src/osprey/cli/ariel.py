@@ -72,6 +72,25 @@ def _load_ariel_config() -> dict:
     return config_dict
 
 
+def _ariel_section() -> dict[str, object]:
+    """Load the ``ariel`` config section for a command that reports its absence itself.
+
+    Unset or empty reads as ``{}``. A section that is set but is not a mapping
+    exits, naming the key, rather than reaching the command as some other shape.
+    """
+    section = get_config_value("ariel", {})
+    if not section:
+        return {}
+    if isinstance(section, dict):
+        return section
+    output.fail(
+        f"ariel in config.yml must be a mapping, got {type(section).__name__}",
+        None,
+        "fix the `ariel:` section in profile.yml, then run `osprey build`",
+    )
+    raise SystemExit(1)
+
+
 def _config_dir() -> Path | None:
     """Return the directory of the config.yml this CLI run is reading.
 
@@ -641,7 +660,7 @@ def status_command(output_json: bool) -> None:
     """
     from osprey.services.ariel_search.cli_operations import get_status
 
-    config_dict = get_config_value("ariel", {})
+    config_dict = _ariel_section()
 
     # Under ``--json`` the whole body runs in machine mode, so every renderer
     # line goes to stderr and stdout carries one document for a script to parse.
@@ -1260,7 +1279,7 @@ def search_command(query: str, mode: str | None, limit: int, output_json: bool) 
     """
     from osprey.services.ariel_search.cli_operations import run_search
 
-    config_dict = get_config_value("ariel", {})
+    config_dict = _ariel_section()
 
     # Under ``--json`` the whole body runs in machine mode, so every renderer
     # line goes to stderr and stdout carries one document for a script to parse.
@@ -1571,7 +1590,7 @@ def vocab_check_command(path: Path | None, output_json: bool) -> None:
     from osprey.services.ariel_search.cli_operations import check_vocabulary
 
     try:
-        config_dict = get_config_value("ariel", {}) or {}
+        config_dict = _ariel_section()
     except FileNotFoundError:
         # An explicit PATH needs no project config at all; only the
         # "check the configured file" form depends on one being reachable.
