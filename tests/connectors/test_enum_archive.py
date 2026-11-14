@@ -99,9 +99,9 @@ def archive(view_dir: Path) -> ArchiveComposite:
 
 def test_the_view_carries_the_mode_as_an_enum_of_four_options(view_dir: Path) -> None:
     view = SimulatorView.open(view_dir)
-    records = {channel["address"]: channel for channel in view.document(VARIABLES_FILE)["channels"]}
-    assert records[MODE]["value_type"] == "enum"
-    assert list(records[MODE]["options"]) == MODES
+    records = {channel.address: channel for channel in view.document(VARIABLES_FILE).channels}
+    assert records[MODE].value_type == "enum"
+    assert list(records[MODE].options or ()) == MODES
 
 
 def test_the_va_serves_an_enum_variable_with_the_four_labels_in_order(

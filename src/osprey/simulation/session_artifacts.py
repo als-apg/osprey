@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         ToolStep,
     )
     from osprey_connectors.simulation.archive import ArchiveComposite
+    from osprey_connectors.simulation.records import ArchiverEvent
 
 __all__ = [
     "PLOT_DIV_ID",
@@ -209,7 +210,7 @@ def render_artifact(
     turn: ResolvedTurn,
     *,
     archive: ArchiveComposite | None = None,
-    events: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
+    events: Mapping[str, Sequence[ArchiverEvent]] | None = None,
     anchor_s: float | None = None,
     tz: ZoneInfo | None = None,
     where: str | None = None,
@@ -255,7 +256,7 @@ def render_artifact(
 def plot_series(
     archive: ArchiveComposite,
     turn: ResolvedTurn,
-    events: Mapping[str, Sequence[Mapping[str, object]]],
+    events: Mapping[str, Sequence[ArchiverEvent]],
     anchor_s: float,
     tz: ZoneInfo,
 ) -> PlotSeries:
@@ -390,7 +391,7 @@ def _stated_instant(spelling: object, at: datetime, tz: ZoneInfo) -> float:
 
 
 def _event_instants(
-    events: Mapping[str, Sequence[Mapping[str, object]]],
+    events: Mapping[str, Sequence[ArchiverEvent]],
     channels: Sequence[str],
     anchor_s: float,
     tz: ZoneInfo,
@@ -402,7 +403,7 @@ def _event_instants(
         anchored_instant(event, anchor_s, tz)
         for address in channels
         for event in events.get(address, ())
-        if "at_offset" in event or "at_when" in event
+        if event.at_offset is not None or event.at_when is not None
     ]
 
 
@@ -410,7 +411,7 @@ def _render_plot(
     spec: ArtifactSpec,
     turn: ResolvedTurn,
     archive: ArchiveComposite,
-    events: Mapping[str, Sequence[Mapping[str, object]]],
+    events: Mapping[str, Sequence[ArchiverEvent]],
     anchor_s: float,
     tz: ZoneInfo,
     where: str,

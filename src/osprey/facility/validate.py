@@ -37,7 +37,7 @@ from dataclasses import fields as dataclass_fields
 from functools import cache
 from importlib import resources
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 import click
 
@@ -56,6 +56,9 @@ from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.values import is_waveform
+
+if TYPE_CHECKING:
+    from osprey_connectors.simulation.records import ScenarioRecord
 
 __all__ = [
     "FACILITY_HEADER",
@@ -1859,12 +1862,15 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         """The readback's declared motion stays inside its setpoint's tolerance."""
         from osprey_connectors.simulation.envelope import motion_envelope
+        from osprey_connectors.simulation.records import SeedRecord
 
         channel = self.index.channels[setpoint]
         bound = tolerance_bound(channel)
         readback_channel = self.index.channels[readback]
+        seed = readback_channel.get("simulation")
         try:
-            envelope = motion_envelope(readback_channel.get("simulation"))
+            # A seed the record refuses is reported by the seed checks, not here.
+            envelope = motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
         except ValueError:
             return
         if bound is None or envelope <= bound:
@@ -2835,15 +2841,16 @@ def tolerance_warnings(
         The warnings, scenario lines first.
     """
     from osprey_connectors.simulation.envelope import active_envelopes
+    from osprey_connectors.simulation.records import SeedRecord
 
     channels = _by_key(document.get("channels"), "id")
     seeds = {
-        address: channel["simulation"]
+        address: SeedRecord.model_validate(channel["simulation"])
         for address, channel in channels.items()
         if isinstance(channel.get("simulation"), Mapping)
     }
     scenarios = {
-        str(scenario["name"]): scenario
+        str(scenario["name"]): _motion_record(scenario)
         for scenario in document.get("scenarios") or []
         if isinstance(scenario, Mapping) and "name" in scenario
     }
@@ -2883,6 +2890,34 @@ def tolerance_warnings(
             f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
         )
     return lines
+
+
+def _motion_record(scenario: Mapping[str, object]) -> ScenarioRecord:
+    """A facility scenario's motion blocks as the view's scenario record states them.
+
+    The ``drivers``, ``couple`` and ``noise`` blocks the scenario states, and the
+    addresses its ``still`` lists by address: ``all`` and a selection resolve
+    only when the render writes the view, and still nothing here.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a motion block breaks the record.
+    """
+    from osprey.facility.scenarios import view_scenario
+
+    still = scenario.get("still")
+    return view_scenario(
+        {
+            "name": str(scenario["name"]),
+            **{
+                block: scenario[block]
+                for block in ("drivers", "couple", "noise")
+                if scenario.get(block)
+            },
+            "still": [entry for entry in still if isinstance(entry, str)]
+            if isinstance(still, list)
+            else [],
+        }
+    )
 
 
 def tolerance_bound(channel: Mapping[str, Any]) -> float | None:

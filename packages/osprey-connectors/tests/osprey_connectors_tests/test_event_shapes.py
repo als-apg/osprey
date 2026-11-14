@@ -14,7 +14,8 @@ import math
 import numpy as np
 import pytest
 
-from osprey_connectors.simulation.series import apply_events, loss_refill_bound
+from osprey_connectors.simulation import series
+from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 ANCHOR = 1_762_300_000.0
 TOPOFF = {"ceiling": 500.0, "lifetime_h": 7.0, "period_s": 31.0}
@@ -31,6 +32,27 @@ LOSS = {"shape": "loss", "at_offset": -600.0, "amount": 18.0}
 AT = ANCHOR - 600.0
 #: One injector shot: 0.15% of the 500 mA ceiling.
 SHOT = 0.75
+
+
+def apply_events(values, events, n, t_abs, anchor, tz=None, topoff=None):
+    """:func:`series.apply_events` of events and a top-off record stated as mappings."""
+    return series.apply_events(
+        values,
+        [ArchiverEvent.model_validate(event) for event in events],
+        n,
+        t_abs,
+        anchor,
+        tz,
+        None if topoff is None else TopoffRecord.model_validate(topoff),
+    )
+
+
+def loss_refill_bound(event: dict, topoff: dict | None) -> float | None:
+    """:func:`series.loss_refill_bound` of an event and a top-off record stated as mappings."""
+    return series.loss_refill_bound(
+        ArchiverEvent.model_validate(event),
+        None if topoff is None else TopoffRecord.model_validate(topoff),
+    )
 
 
 def _grid(before: float, after: float, step: float = 1.0, at: float = AT) -> np.ndarray:

@@ -89,9 +89,12 @@ def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
 def _motion_bands(records: FacilityRecords) -> dict[str, float]:
     """Each channel's motion envelope, by address."""
     from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.simulation.records import SeedRecord
 
     return {
-        channel["id"]: motion_envelope(channel.get("simulation"))
+        channel["id"]: motion_envelope(
+            None if (seed := channel.get("simulation")) is None else SeedRecord.model_validate(seed)
+        )
         for channel in records.of_kind("channel")
     }
 

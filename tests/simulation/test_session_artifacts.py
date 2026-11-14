@@ -36,6 +36,7 @@ from osprey.simulation.sessions import (
 )
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.series import anchored_instant
+from tests._archiver_events import event as view_event
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"
@@ -100,7 +101,7 @@ def _figure_layout(html: str) -> dict[str, Any]:
 
 
 def _event_instant() -> float:
-    event = {"at_when": {"days_ago": 1, "time": "14:32:08"}}
+    event = view_event({"shape": "spike", "at_when": {"days_ago": 1, "time": "14:32:08"}})
     return anchored_instant(event, ANCHOR.timestamp(), get_facility_timezone())
 
 

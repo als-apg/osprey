@@ -94,7 +94,7 @@ def test_every_pair_that_composed_with_archiver_channels_as_targets_still_compos
     targets = {name: scenario_targets(scenario) for name, scenario in scenarios.items()}
     # The rule before archiver events composed: each entry's channel was a target too.
     before = {
-        name: targets[name] | {str(entry["channel"]) for entry in scenario.get("archiver") or []}
+        name: targets[name] | {entry.channel for entry in scenario.archiver}
         for name, scenario in scenarios.items()
     }
 

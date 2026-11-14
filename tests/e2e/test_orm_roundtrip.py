@@ -193,7 +193,7 @@ def _assert_selected_readings_still(
 ) -> None:
     """Fail before deploying if a reading this test compares moves under the `still` scenario."""
     view = _facility_select.repo_view(repo)
-    assert STILL_SCENARIO in {str(scenario["name"]) for scenario in view.scenarios()}, (
+    assert STILL_SCENARIO in {scenario.name for scenario in view.scenarios()}, (
         f"the staged view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
     )
     readings = sorted({rb for _, rb in correctors.values()} | set(bpms.values()))

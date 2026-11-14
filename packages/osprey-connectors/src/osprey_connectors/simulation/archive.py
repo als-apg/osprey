@@ -58,7 +58,6 @@ import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -66,7 +65,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
+from pydantic import ValidationError, model_validator
 
+from osprey_connectors._model import FrozenModel, MutableModel
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
@@ -162,8 +163,7 @@ class SeedState(Enum):
     describes what the profile asks for. The store has to be rebuilt."""
 
 
-@dataclass(frozen=True)
-class FingerprintComparison:
+class FingerprintComparison(FrozenModel):
     """The outcome of comparing a store's manifest against current knobs."""
 
     state: SeedState
@@ -183,16 +183,23 @@ class FingerprintComparison:
         )
 
 
-@dataclass(frozen=True)
-class SeedKnobs:
+class SeedKnobs(FrozenModel):
     """The shape of the archive, as the profile's ``va_archiver:`` block sets it.
 
     Defaults mirror :class:`~osprey.cli.build_profile_archiver.VAArchiverConfig`
     so a caller holding no config still gets the shipped archive rather than an
     arbitrary one. The block validates ranges and the cadence-divisibility rule
-    at build time; :meth:`validate` repeats the ones this module's arithmetic
-    depends on, because a store can also be seeded from a hand-written config
-    that never went through a profile.
+    at build time; the knobs repeat, when built, the ones this module's
+    arithmetic depends on, because a store can also be seeded from a
+    hand-written config that never went through a profile. A knob is an
+    ``int``, never a ``bool``.
+
+    Raises:
+        ValueError: On construction, if any knob is below one, the dense span
+            reaches past retention, or the coarse cadence is not a whole
+            multiple of the dense one — that last is what makes the coarse grid
+            a subset of the dense one rather than a second grid interleaved with
+            it.
     """
 
     retention_days: int = 30
@@ -214,35 +221,32 @@ class SeedKnobs:
 
         Raises:
             ValueError: If a knob is present but not a positive integer, or the
-                set is internally inconsistent (see :meth:`validate`).
+                set is internally inconsistent (see the class).
         """
         block = config.get("va_archiver") or {}
         if not isinstance(block, Mapping):
             raise ValueError(f"config 'va_archiver' must be a mapping (got {type(block).__name__})")
+        stated = {name: block[name] for name in cls.model_fields if name in block}
+        try:
+            return cls.model_validate(stated)
+        except ValidationError as refusal:
+            error = refusal.errors()[0]
+            if error["type"] == "value_error":
+                raise ValueError(str(error["ctx"]["error"])) from None
+            name = error["loc"][0]
+            raise ValueError(
+                f"va_archiver.{name} must be an integer (got {error['input']!r})"
+            ) from None
 
-        values: dict[str, int] = {}
-        for name in ("retention_days", "hot_span_hours", "hot_cadence_sec", "tail_cadence_sec"):
-            if name in block:
-                raw = block[name]
-                if isinstance(raw, bool) or not isinstance(raw, int):
-                    raise ValueError(f"va_archiver.{name} must be an integer (got {raw!r})")
-                values[name] = raw
-
-        knobs = cls(**values)
-        knobs.validate()
-        return knobs
-
-    def validate(self) -> None:
-        """Refuse knobs this module's grid arithmetic cannot honor.
-
-        Raises:
-            ValueError: If any knob is below one, the dense span reaches past
-                retention, or the coarse cadence is not a whole multiple of the
-                dense one — that last is what makes the coarse grid a subset of
-                the dense one rather than a second grid interleaved with it.
-        """
-        for name in ("retention_days", "hot_span_hours", "hot_cadence_sec", "tail_cadence_sec"):
-            value = getattr(self, name)
+    @model_validator(mode="after")
+    def _grid(self) -> SeedKnobs:
+        """Refuse knobs this module's grid arithmetic cannot honor."""
+        for name, value in (
+            ("retention_days", self.retention_days),
+            ("hot_span_hours", self.hot_span_hours),
+            ("hot_cadence_sec", self.hot_cadence_sec),
+            ("tail_cadence_sec", self.tail_cadence_sec),
+        ):
             if value < 1:
                 raise ValueError(f"va_archiver.{name} must be >= 1 (got {value})")
         if self.hot_span_hours > self.retention_days * 24:
@@ -255,6 +259,7 @@ class SeedKnobs:
                 f"va_archiver.tail_cadence_sec ({self.tail_cadence_sec}) must be a whole "
                 f"multiple of hot_cadence_sec ({self.hot_cadence_sec})"
             )
+        return self
 
     @property
     def retention_s(self) -> int:
@@ -267,8 +272,7 @@ class SeedKnobs:
         return self.hot_span_hours * 3600
 
 
-@dataclass
-class SeedReport:
+class SeedReport(MutableModel):
     """What one seeding run wrote."""
 
     documents: int = 0
@@ -346,7 +350,7 @@ class ArchiveComposite:
         self._channels = dict(channels)
         self._topoffs = dict(topoffs or {})
         self._pulses = {
-            address: {"driver": str(seed["driver"]), "enable": str(seed["enable"])}
+            address: {"driver": seed.driver, "enable": seed.enable}
             for address, seed in (pulses or {}).items()
         }
         for address, seed in self._pulses.items():
@@ -515,10 +519,10 @@ class ArchiveComposite:
 
     def _is_float(self, address: str) -> bool:
         channel = self._channels[address]
-        return (channel.get("value_type") or channel_values.DEFAULT_VALUE_TYPE) == "float"
+        return (channel.value_type or channel_values.DEFAULT_VALUE_TYPE) == "float"
 
     def _is_waveform(self, address: str) -> bool:
-        return channel_values.is_waveform(self._channels[address].get("value_type"))
+        return channel_values.is_waveform(self._channels[address].value_type)
 
     def _drive(self, address: str, times: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """A pulse source's level: held, moved by its archiver events, as a number.
@@ -559,10 +563,10 @@ class ArchiveComposite:
         stored = [held] * len(times)
         fractions = np.linspace(0.0, 1.0, len(times))
         for event in events:
-            if event.get("shape") != _STEP:
+            if event.shape != _STEP:
                 continue
             target = channel_values.coerce(
-                event["to"], channel.get("value_type"), channel.get("options"), channel.get("shape")
+                event.to, channel.value_type, channel.options, channel.shape
             )
             for axis, at in event_positions(event, fractions, times, self._anchor_s, self._tz):
                 for index in np.flatnonzero(axis >= at):
@@ -572,7 +576,7 @@ class ArchiveComposite:
     @staticmethod
     def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
-        value_type = channel.get("value_type")
+        value_type = channel.value_type
         if value_type in channel_values.LABELLED_TYPES:
             labels: Sequence[object] = channel_values.channel_labels(channel)
             return labels.index(value)
@@ -598,8 +602,8 @@ def scenario_events(
         scenario = scenarios.get(name)
         if scenario is None:
             continue
-        for entry in scenario.get("archiver") or ():
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or ())
+        for entry in scenario.archiver:
+            events.setdefault(entry.channel, []).extend(entry.events)
     return events
 
 
@@ -641,12 +645,12 @@ def build(
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
     scenarios: dict[str, ScenarioRecord] = {
-        str(scenario["name"]): scenario for scenario in view.scenarios()
+        scenario.name: scenario for scenario in view.scenarios()
     }
     records: dict[str, ChannelRecord] = {
-        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
+        channel.address: channel for channel in view.document(VARIABLES_FILE).channels
     }
-    seeds = view.document(SEEDS_FILE)["seeds"]
+    seeds = view.document(SEEDS_FILE).seeds
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
@@ -673,9 +677,9 @@ def build(
         pulses = {
             address: pulse_seed
             for address in archived
-            if channel_values.is_waveform(records[address].get("value_type"))
+            if channel_values.is_waveform(records[address].value_type)
             and (seed := seeds.get(address)) is not None
-            and (pulse_seed := seed.get("pulse")) is not None
+            and (pulse_seed := seed.pulse) is not None
         }
 
         return ArchiveComposite(
@@ -731,7 +735,6 @@ def _seed_grid(
         ``(epoch_seconds, expire_epoch_seconds)``, both float64, ascending by
         time. Empty only if the window is degenerate.
     """
-    knobs.validate()
     end = _epoch_seconds(t0)
 
     tail_start = end - knobs.retention_s
@@ -937,7 +940,7 @@ def compare_fingerprint(
     """
     stored = collection.find_one({"_id": MANIFEST_ID})
     if stored is None:
-        return FingerprintComparison(SeedState.ABSENT)
+        return FingerprintComparison(state=SeedState.ABSENT)
 
     stamp = stored.get("seeded_at")
     seeded_at = stamp if isinstance(stamp, datetime) else None
@@ -951,8 +954,10 @@ def compare_fingerprint(
         if held.get(key) != expected
     )
     if differences:
-        return FingerprintComparison(SeedState.MISMATCH, differences, seeded_at)
-    return FingerprintComparison(SeedState.MATCH, (), seeded_at)
+        return FingerprintComparison(
+            state=SeedState.MISMATCH, differences=differences, seeded_at=seeded_at
+        )
+    return FingerprintComparison(state=SeedState.MATCH, seeded_at=seeded_at)
 
 
 # ---------------------------------------------------------------------------

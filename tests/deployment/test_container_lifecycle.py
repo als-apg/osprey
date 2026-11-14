@@ -3476,7 +3476,7 @@ def staged_archiver(monkeypatch, tmp_path):
         archive,
         "compare_fingerprint",
         lambda collection, fingerprint: archive.FingerprintComparison(
-            state["fingerprint_state"], state["differences"]
+            state=state["fingerprint_state"], differences=state["differences"]
         ),
     )
 

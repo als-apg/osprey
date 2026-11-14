@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, SupportsFloat, SupportsIndex, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
+    from osprey_connectors.simulation.records import ArchiverEvent, ScenarioRecord, TopoffRecord
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
@@ -298,7 +299,7 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
-def view_scenarios(project_dir: Path) -> dict[str, Any] | None:
+def view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord] | None:
     """The scenarios the simulator view lists, by name; ``None`` without a view.
 
     Raises:
@@ -311,25 +312,17 @@ def view_scenarios(project_dir: Path) -> dict[str, Any] | None:
     return None if view is None else _scenarios(view)
 
 
-def _scenarios(view: SimulatorView) -> dict[str, Any]:
-    """The scenarios ``view`` lists, by name, as plain dicts."""
-    # Each value is the view's scenario record thawed, which the connectors'
-    # scenario readers take. This module may not name that record: the
-    # released connectors floor it also runs against has no records module.
-    # So the value stays as ``_plain`` returns it.
-    return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+def _scenarios(view: SimulatorView) -> dict[str, ScenarioRecord]:
+    """The scenarios ``view`` lists, by name."""
+    return {scenario.name: scenario for scenario in view.scenarios()}
 
 
-def _plain(value: Any) -> Any:
-    """A JSON value the reader froze, as plain dicts and lists."""
-    if isinstance(value, Mapping):
-        return {key: _plain(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_plain(item) for item in value]
-    return value
+def _stated(scenario: ScenarioRecord) -> dict[str, object]:
+    """A scenario as ``scenarios.json`` states it, plain dicts and lists, its stated blocks only."""
+    return scenario.model_dump(mode="json", exclude_unset=True)
 
 
-def require_view_scenarios(project_dir: Path) -> dict[str, Any]:
+def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
     """The scenarios the simulator view lists, by name.
 
     Raises:
@@ -444,7 +437,7 @@ def _seed_scenario_sessions(config: dict, project_dir: Path, active: Sequence[st
     """
     try:
         scenarios = view_scenarios(project_dir) or {}
-        if not any((scenarios.get(name) or {}).get("sessions") for name in active):
+        if not any(name in scenarios and scenarios[name].sessions for name in active):
             return
         _, epoch = _active_state(config, project_dir)
         if epoch is None:
@@ -591,7 +584,7 @@ def write_scenario_sessions(
     scenarios = view_scenarios(project_dir) or {}
     held = []
     for name in active:
-        raw = (scenarios.get(name) or {}).get("sessions")
+        raw = _stated(scenarios[name]).get("sessions") if name in scenarios else None
         if not raw:
             continue
         resolved = resolve(parse_sessions(raw, prefix=f"{name}.sessions"), anchor)
@@ -690,7 +683,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
 
 
 def _view_logbook(
-    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str], files: Path
+    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str], files: Path
 ) -> list[ScenarioLogEntry]:
     """The ``logbook`` entries of a scenario set, in set order.
 
@@ -706,7 +699,7 @@ def _view_logbook(
         entry
         for name in names
         if name in scenarios
-        for entry in scenario_logbook(scenarios[name], files / name)
+        for entry in scenario_logbook(_stated(scenarios[name]), files / name)
     ]
 
 
@@ -978,7 +971,7 @@ def archiver_collection(store: dict):
 
 def active_archiver_events(
     project_dir: Path, names: Sequence[str]
-) -> Mapping[str, Sequence[Mapping[str, object]]]:
+) -> Mapping[str, Sequence[ArchiverEvent]]:
     """The composed archiver event scripts of an active set, by channel.
 
     Read from the ``archiver`` blocks of the simulator view's scenarios rather
@@ -1010,11 +1003,13 @@ def active_archiver_events(
     return scenario_events(scenarios, resolved)
 
 
-def _refuse_window_fraction(event: Mapping[str, object]) -> None:
+def _refuse_window_fraction(event: ArchiverEvent) -> None:
     """Refuse an event positioned by window fraction, by name."""
-    if "at" in event:
+    if event.at is not None:
+        # The event as the view's file states it, its keys sorted as written.
+        stated = dict(sorted(event.model_dump(mode="json", exclude_unset=True).items()))
         raise ValueError(
-            f"Archiver event {event!r} is positioned by window fraction ('at'), which "
+            f"Archiver event {stated!r} is positioned by window fraction ('at'), which "
             f"has no place in stored history — a fraction names a position in the "
             f"reader's window, not an instant. Use 'at_offset' (seconds relative to "
             f"the activation anchor) or 'at_when' (days and time of day before it) "
@@ -1022,7 +1017,7 @@ def _refuse_window_fraction(event: Mapping[str, object]) -> None:
         )
 
 
-def _require_events(events: Sequence[Mapping[str, object]]) -> None:
+def _require_events(events: Sequence[ArchiverEvent]) -> None:
     """Refuse an empty script rather than answer with an inverted window."""
     if not events:
         raise ValueError(
@@ -1033,12 +1028,12 @@ def _require_events(events: Sequence[Mapping[str, object]]) -> None:
 
 
 def event_window(
-    events: Sequence[Mapping[str, object]],
+    events: Sequence[ArchiverEvent],
     anchor: float,
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, object] | None = None,
+    topoff: TopoffRecord | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
 
@@ -1083,7 +1078,7 @@ def event_window(
     end = horizon_start
     for event in events:
         _refuse_window_fraction(event)
-        if "at_time" in event:
+        if event.at_time is not None:
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
             return horizon_start, anchor
@@ -1094,12 +1089,12 @@ def event_window(
 
 
 def event_subwindows(
-    events: Sequence[Mapping[str, object]],
+    events: Sequence[ArchiverEvent],
     anchor: float,
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, object] | None = None,
+    topoff: TopoffRecord | None = None,
 ) -> list[tuple[float, float]]:
     """The stretches one channel's events are actually *evidence* over.
 
@@ -1151,11 +1146,11 @@ def event_subwindows(
 
 
 def _occurrence_span(
-    event: Mapping[str, object],
+    event: ArchiverEvent,
     at: float,
     anchor: float,
     tz: ZoneInfo | None,
-    topoff: Mapping[str, object] | None,
+    topoff: TopoffRecord | None,
 ) -> tuple[float, float]:
     """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
 
@@ -1167,14 +1162,13 @@ def _occurrence_span(
     """
     from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound
 
-    shape = event["shape"]
+    shape = event.shape
     if shape == "spike":
-        half = _event_number(event["width"]) * _SPIKE_WINDOW_SIGMAS
+        half = _event_number(event.width) * _SPIKE_WINDOW_SIGMAS
         return at - half, at + half
     if shape == "burst":
-        slowest = max(
-            _event_number(event["decay_s"]), _event_number(event.get("tail_decay_s", 0.0))
-        )
+        tail = event.tail_decay_s
+        slowest = max(_event_number(event.decay_s), 0.0 if tail is None else float(tail))
         return at, at + BURST_WINDOW_TAUS * slowest
     if shape == "loss":
         bound = loss_refill_bound(event, topoff)
@@ -1183,46 +1177,43 @@ def _occurrence_span(
     return at, anchor if until is None else until
 
 
-def _event_number(value: object) -> float:
-    """``float(value)`` of an archiver event's number, read from an object-valued event.
+def _event_number(value: float | None) -> float:
+    """An archiver event's number, which its shape states.
 
-    ``osprey build`` checks that every number an event states is an ``int`` or a
-    ``float`` (:func:`osprey.facility.scenarios.check_scenario_events`).
+    ``osprey build`` checks that every number an event's shape needs is stated
+    (:func:`osprey.facility.scenarios.check_scenario_events`).
 
     Raises:
-        TypeError: ``value`` is not a string, a bytes object or a real number,
-            worded as ``float`` words it.
+        TypeError: the event does not state it.
     """
-    if isinstance(value, str | bytes | bytearray | SupportsFloat | SupportsIndex):
-        return float(value)
-    raise TypeError(
-        f"float() argument must be a string or a real number, not {type(value).__name__!r}"
-    )
+    if value is None:
+        raise TypeError("float() argument must be a string or a real number, not 'NoneType'")
+    return float(value)
 
 
 def _event_instants(
-    event: Mapping[str, object], anchor: float, horizon_start: float, tz: ZoneInfo | None
+    event: ArchiverEvent, anchor: float, horizon_start: float, tz: ZoneInfo | None
 ) -> list[float]:
     """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
-    if "at_time" in event:
+    if event.at_time is not None:
         from osprey_connectors.simulation.series import daily_occurrences
 
         if tz is None:
             tz = get_facility_timezone()
-        return daily_occurrences(str(event["at_time"]), _np_array([horizon_start, anchor]), tz)
+        return daily_occurrences(event.at_time, _np_array([horizon_start, anchor]), tz)
     return [_anchored_instant(event, anchor, tz)]
 
 
-def _anchored_instant(event: Mapping[str, object], anchor: float, tz: ZoneInfo | None) -> float:
+def _anchored_instant(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None) -> float:
     """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
     from osprey_connectors.simulation.series import anchored_instant
 
     return anchored_instant(event, anchor, tz if tz is not None else get_facility_timezone())
 
 
-def _step_end(event: Mapping[str, object], anchor: float, tz: ZoneInfo | None) -> float | None:
+def _step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None) -> float | None:
     """A bounded ``step``'s end instant, or ``None`` for an event that persists to the anchor."""
-    if event["shape"] != "step":
+    if event.shape != "step":
         return None
     from osprey_connectors.simulation.series import step_end
 

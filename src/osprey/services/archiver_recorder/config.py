@@ -324,12 +324,7 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> ChannelSet:
             f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
-    channels = view.document(ADDRESSES_FILE).get("channels")
-    if not isinstance(channels, tuple) or not all(isinstance(c, str) for c in channels):
-        raise RecorderConfigError(
-            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
-            f"`channels` list of addresses. Rebuild the project with `osprey build`."
-        )
+    # Opening the view held its `channels` to a list of addresses.
     addresses = list(view.channels())
     return ChannelSet(addresses, _waveform_addresses(view, addresses, root))
 
@@ -342,7 +337,7 @@ def _waveform_addresses(view: SimulatorView, addresses: Sequence[str], root: Pat
     try:
         # Parsed up front so a file without a channel list is refused here,
         # not read below as "this address is not listed".
-        view.document(VARIABLES_FILE)["channels"]
+        view.document(VARIABLES_FILE)
         for address in addresses:
             try:
                 channel = view.channel(address)

@@ -17,15 +17,25 @@ import pytest
 
 from osprey_connectors.simulation import series as series_module
 from osprey_connectors.simulation.series import (
-    apply_events,
     channel_key_bytes,
     clamp,
     daily_occurrences,
     epoch_seconds_array,
-    event_positions,
     keyed_normals,
     wander,
 )
+from tests._archiver_events import event, events
+
+
+def apply_events(values, scripted, n, t_abs, anchor, tz=None, topoff=None):
+    """:func:`series_module.apply_events` of events stated as mappings."""
+    return series_module.apply_events(values, events(scripted), n, t_abs, anchor, tz, topoff)
+
+
+def event_positions(raw, t_frac, t_abs, anchor, tz=None):
+    """:func:`series_module.event_positions` of an event stated as a mapping."""
+    return series_module.event_positions(event(raw), t_frac, t_abs, anchor, tz)
+
 
 # --------------------------------------------------------------------------
 # Deliberately-slow per-sample reference implementation of the pinned draw
@@ -136,12 +146,12 @@ class TestEventPositions:
 
     def test_offset_anchored_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"at_offset": 10.0}, t_frac, None, 100.0) == []
+        assert event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, None, 100.0) == []
 
     def test_offset_anchored_with_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
         t_abs = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
-        positions = event_positions({"at_offset": 10.0}, t_frac, t_abs, 100.0)
+        positions = event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, t_abs, 100.0)
         assert len(positions) == 1
         axis, at = positions[0]
         assert at == 110.0
@@ -149,7 +159,7 @@ class TestEventPositions:
 
     def test_time_of_day_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"at_time": "12:00:00"}, t_frac, None, 0.0) == []
+        assert event_positions({"shape": "step", "at_time": "12:00:00"}, t_frac, None, 0.0) == []
 
 
 class TestDailyOccurrences:

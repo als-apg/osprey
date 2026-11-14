@@ -197,6 +197,7 @@ from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
+from osprey_connectors.simulation.records import SeedRecord  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
     VIEW_RELPATH,
@@ -307,8 +308,8 @@ class View:
     def channel(self, address: str) -> Channel:
         return self.reader.channel(address)
 
-    def seed(self, address: str) -> Mapping[str, Any]:
-        return self.reader.seed(address) or {}
+    def seed(self, address: str) -> SeedRecord | None:
+        return self.reader.seed(address)
 
     def moving(self, address: str) -> bool:
         return declares_motion(self.seed(address))
@@ -321,12 +322,13 @@ class View:
         in place of its fixed sigma count.
         """
         seed = self.seed(address)
-        drift = seed.get("drift") or {}
+        drift = None if seed is None else seed.drift
         shape = topoff.topoff_record(seed)
         tooth = topoff.tooth_depth(shape) if shape is not None else 0.0
         held = topoff.held_value(seed)
-        sigma = _noise_sigma(seed.get("noise"), held if held is not None else seed.get("nominal"))
-        return z * sigma + abs(float(drift.get("amplitude") or 0.0)) + tooth
+        nominal = held if held is not None else (None if seed is None else seed.nominal)
+        sigma = _noise_sigma(None if seed is None else seed.noise, nominal)
+        return z * sigma + abs(float((None if drift is None else drift.amplitude) or 0.0)) + tooth
 
     def labels(self, address: str) -> list[str]:
         return list(self.channel(address).options or ("FALSE", "TRUE"))
@@ -615,7 +617,7 @@ def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
         and channel.value_type == "float"
         and channel.pair not in (None, address)
     }
-    seeds = {address: float(view.seed(address)["nominal"]) for address in pairs}
+    seeds = {address: float(view.seed(address).nominal) for address in pairs}
     written = {
         address: seed + 0.1 * abs(seed) + 1.0
         for address, seed in seeds.items()

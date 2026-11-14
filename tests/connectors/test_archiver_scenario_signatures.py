@@ -44,6 +44,7 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.simulation import topoff
+from osprey_connectors.simulation.records import SeedRecord
 from tests.facility.served_tree import in_process_config
 
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
@@ -53,7 +54,8 @@ EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/see
 
 
 def _held_current() -> float:
-    held = topoff.held_value(read_yaml(EXAMPLE_SEEDS.read_text(encoding="utf-8"))[DCCT])
+    seed = read_yaml(EXAMPLE_SEEDS.read_text(encoding="utf-8"))[DCCT]
+    held = topoff.held_value(SeedRecord.model_validate(seed))
     assert held is not None, f"{DCCT} carries no topoff seed"
     return held
 

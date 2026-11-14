@@ -1129,6 +1129,7 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
     """One landing per setpoint that has a bound, as the render's facility file states it."""
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.simulation.records import SeedRecord
     from osprey_connectors.types import is_simulated, resolve_control_system_type
 
     path, channels = _facility_channels()
@@ -1142,7 +1143,12 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
         if simulated is None:
             section = _target_connector_config() or _control_system_section()
             simulated = is_simulated(resolve_control_system_type(section))
-        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        seed = channels.get(readback, {}).get("simulation")
+        motion = (
+            motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
+            if simulated
+            else 0.0
+        )
         bound = settle_bound(
             channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
         )

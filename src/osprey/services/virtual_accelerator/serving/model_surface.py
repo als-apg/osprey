@@ -432,7 +432,7 @@ def served_addresses(view: SimulatorView) -> list[str]:
     ioc_health = getattr(view, "ioc_health_by_model", None)
     return [
         *view.channels(),
-        *(str(address) for address in view.document(ADDRESSES_FILE)["status"]),
+        *view.document(ADDRESSES_FILE).status,
         *(
             address
             for signals in (ioc_health() if ioc_health is not None else {}).values()
