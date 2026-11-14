@@ -10,9 +10,8 @@ refuses them in two layers:
 - **Dependency closure**: nothing OSPREY resolves or installs pulls them in —
   not the lock file, not a bundled preset's ``dependencies``, not the pip
   arguments of a rendered Dockerfile. pyAML may appear under either of its
-  distribution names, ``accelerator-middle-layer`` (the one OSPREY pins) or
-  ``accelerator-middle-layer-apg`` (the staging distribution OSPREY pinned
-  before), but never with its ``cs-oa-epics``, ``cs-oa-tango`` or
+  distribution names, ``accelerator-middle-layer-apg`` (the staging
+  distribution OSPREY pins) or ``accelerator-middle-layer`` (upstream), but never with its ``cs-oa-epics``, ``cs-oa-tango`` or
   ``tango-pyaml`` extras, and the lock never holds both: they ship the same
   ``pyaml`` package directory.
 
@@ -48,9 +47,9 @@ UV_LOCK = REPO_ROOT / "uv.lock"
 
 FORBIDDEN_PACKAGES = frozenset({"pyaml-cs-oa", "tango-pyaml"})
 FORBIDDEN_EXTRAS = frozenset({"cs-oa-epics", "cs-oa-tango", "tango-pyaml"})
-AML_PACKAGE = "accelerator-middle-layer"
+AML_PACKAGE = "accelerator-middle-layer-apg"
 #: Every distribution name pyAML is published under; each installs ``pyaml``.
-AML_NAMES = frozenset({AML_PACKAGE, "accelerator-middle-layer-apg"})
+AML_NAMES = frozenset({AML_PACKAGE, "accelerator-middle-layer"})
 
 # Spellings of a forbidden name in free text: any of `-`, `_`, `.` between the
 # words (pip and PEP 503 treat them alike). The trailing guard keeps a longer

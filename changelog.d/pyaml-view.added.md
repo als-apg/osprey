@@ -1,4 +1,4 @@
-pyAML (`accelerator-middle-layer` 0.3.2) ships with OSPREY as the
+pyAML (`accelerator-middle-layer-apg` 0.3.2.post1) ships with OSPREY as the
 `pyaml-cs-osprey` control-system backend: every pyAML read and write goes
 through the OSPREY connector, so channel limits, write posture, control-target
 pinning and audit apply to it. A pyAML write runs only inside a pyaml_measure

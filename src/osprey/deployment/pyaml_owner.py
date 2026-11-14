@@ -1,8 +1,8 @@
 """Assert that the ``pyaml`` import package has exactly one owning distribution.
 
 pyAML ships under more than one distribution name — ``accelerator-middle-layer``
-upstream, which OSPREY depends on, and ``accelerator-middle-layer-apg``, the
-staging release it depended on before — and every one of them writes the same
+upstream, and ``accelerator-middle-layer-apg``, the staging release OSPREY
+depends on — and every one of them writes the same
 ``pyaml/`` package directory. Two of them in one environment do not fail to
 install: the second silently overwrites files of the first, and uninstalling
 either later deletes files the other still claims. Neither resolver nor

@@ -1,7 +1,7 @@
 """The `pyaml` import package has exactly one owning distribution in every image.
 
 Two pyAML distributions (upstream ``accelerator-middle-layer`` and the staging
-``accelerator-middle-layer-apg`` OSPREY pinned before) write the same ``pyaml/``
+``accelerator-middle-layer-apg`` OSPREY pins) write the same ``pyaml/``
 directory, and no resolver or ``pip check`` notices the pair. The check module
 reads installed metadata only; these tests drive it over fixture site-packages
 directories, then hold every image that installs the local-requirements
@@ -144,7 +144,7 @@ def test_the_module_runs_as_a_script_and_exits_nonzero_on_two_owners(tmp_path):
 
 def test_this_environment_has_one_owner():
     """The development environment resolves the same single owner the images must."""
-    assert pyaml_owner.owners() == ["accelerator-middle-layer"]
+    assert pyaml_owner.owners() == ["accelerator-middle-layer-apg"]
 
 
 # ── every image that installs the local-requirements manifest calls the check ──
