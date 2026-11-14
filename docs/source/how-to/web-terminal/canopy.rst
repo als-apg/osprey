@@ -6,7 +6,7 @@ CANOPY
 **CANOPY** shows the machine the way a control-room display does: screens with
 live readbacks, setpoints and buttons, plus **Trace** for archived history, a
 correlation plot and a waveform view. In an OSPREY deployment it is the
-**CANOPY** tab of the web terminal, and the agent works in it with you: it
+**Canopy** panel in the web terminal's sidebar, and the agent works in it with you: it
 opens the screen you ask for, arranges tabs, and builds new screens.
 
 .. dropdown:: What You'll Learn
@@ -59,13 +59,15 @@ with CANOPY's Python packages and web pages, built from the canopy repository.
 1. **Build the payload** with the canopy repository's
    ``scripts/build-payload.sh`` (its ``--help`` lists the inputs). Build it at
    the commits this OSPREY release was tested against, which this command
-   prints:
+   prints with everything else the build needs:
 
    .. code-block:: bash
 
       python -m osprey.integrations.canopy --pins
 
-   A payload built at any other commit stops the build.
+   A payload built at any other canopy or PyDMConverter commit stops the
+   build. :ref:`canopy-build-payload` walks through it from the public
+   repositories.
 
 2. **Name the payload** in the deployment's ``.env``:
 
@@ -93,13 +95,101 @@ with CANOPY's Python packages and web pages, built from the canopy repository.
             timeout: 30
             run: '"{python}" -m osprey.integrations.canopy.stage'
 
-4. Run ``osprey build`` and ``osprey up``. The **CANOPY** tab is in the
+4. Run ``osprey build`` and ``osprey up``. The **Canopy** panel is in the
    sidebar.
 
 If ``OSPREY_CANOPY_PAYLOAD`` is unset, the build leaves the panel and its
 skills out and says so in one line. To leave the panel out of one tier, list
 ``canopy`` under ``exclude.web_panels`` and the three skills under
 ``exclude.skills`` (see :doc:`../build-profiles`).
+
+.. _canopy-build-payload:
+
+Build the payload from public sources
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every input is public on GitHub, in the ``als-apg/canopy-osprey-mirror-*``
+repositories:
+
+- ``canopy-osprey-mirror-canopy``: CANOPY, and the builder,
+  ``scripts/build-payload.sh``.
+- ``canopy-osprey-mirror-pydm-converter-tool``: PyDMConverter.
+- ``canopy-osprey-mirror-screen-runtime``: the screen viewer.
+- ``canopy-osprey-mirror-react-trace``: Trace.
+- ``canopy-osprey-mirror-sdk-js``: the JavaScript SDK. Its release carries
+  the packs the build installs.
+
+A mirror's default branch is not the pin. Build each repository at the
+commit ``--pins`` names, never a branch head.
+
+The build needs git, Node.js, pnpm **11.1.1** exactly (the version the
+commits' ``packageManager`` names; the builder refuses any other pnpm on
+``PATH``), uv, python3 and curl.
+
+1. Print the pins from an OSPREY clone. This runs with a bare ``python3``,
+   before anything is installed:
+
+   .. code-block:: bash
+
+      python3 src/osprey/integrations/canopy/proven.py --pins > pins
+      pin() { sed -n "s/^$1=//p" pins; }
+
+   Each repository has a ``<name>=<commit>`` and a ``<name>.mirror=<url>``
+   line. ``builder`` is the canopy commit whose ``build-payload.sh`` runs
+   (on branch ``builder.branch``). ``SDK_PACKS`` and ``pnpm`` are the
+   build's settings. ``canopy.version`` and ``PyDMConverter.version`` are the
+   versions the build is expected to give the two wheels.
+
+2. Clone the mirrors in full, with their tags: the builder refuses a shallow
+   clone, and derives each wheel's version from the tag reachable from its
+   pin. The canopy clone is the builder: check out ``builder`` there, and the
+   build takes the canopy pin from the same clone by ``CANOPY_SHA``:
+
+   .. code-block:: bash
+
+      for name in PyDMConverter canopy-screen-runtime react-trace canopy-sdk-js; do
+        git clone "$(pin "$name.mirror")" "$name"
+      done
+      git clone "$(pin builder.mirror)" canopy
+      git -C canopy checkout --detach "$(pin builder)"
+
+3. Build. Every repository is built at the commit named here, whatever is
+   checked out:
+
+   .. code-block:: bash
+
+      PYDM="$PWD/PyDMConverter" PYDM_SHA="$(pin PyDMConverter)" \
+      RT="$PWD/canopy-screen-runtime" RT_SHA="$(pin canopy-screen-runtime)" \
+      SDK="$PWD/canopy-sdk-js" SDK_SHA="$(pin canopy-sdk-js)" \
+      SDK_PACKS="$(pin SDK_PACKS)" \
+      TRACE="$PWD/react-trace" TRACE_REF="$(pin react-trace)" \
+      CANOPY_SHA="$(pin canopy)" \
+        bash canopy/scripts/build-payload.sh /srv/canopy/payload
+
+   ``SDK_PACKS`` is the SDK release URL; the builder fetches its packs and
+   checks them against the release's ``SHA512SUMS``. Check the result:
+   ``canopy_version`` and ``pydm_version`` in the payload's ``STAGED.json``
+   equal ``canopy.version`` and ``PyDMConverter.version``. If the build
+   reports that no tag is reachable from a pin, fetch the tags from that
+   repository's mirror (``git -C <clone> fetch --tags``) and build again.
+
+4. Set ``OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload`` in the deployment's
+   ``.env``.
+
+5. Install OSPREY from its clone **editable**, and build and start with
+   ``--dev``, so the images carry that checkout rather than a PyPI release:
+
+   .. code-block:: bash
+
+      pip install -e <osprey-clone>
+      osprey build --dev
+      osprey up --dev
+
+   A non-editable install of an unreleased checkout cannot be pinned, and
+   ``osprey build`` stops with *Cannot pin osprey-framework*.
+
+The ``demo`` preset seeds an archive on the first ``osprey up``; size the
+host for it (:ref:`archive size <demo-archive-size>`).
 
 The panel's optional settings are flat keys under ``config:``, for example the
 screen CANOPY opens first and the channel Trace starts with:

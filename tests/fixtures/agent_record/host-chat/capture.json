@@ -1,6 +1,6 @@
 {
- "captured_at": "2026-10-27T02:06:01.744739Z",
- "cli_version": "2.1.300",
+ "captured_at": "2026-11-14T01:07:51.647696Z",
+ "cli_version": "2.1.322",
  "command": "osprey chat --print",
  "holds": [
   "subagent",

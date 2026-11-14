@@ -4850,7 +4850,7 @@ def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.landing.groups[{i}] spells `type: "
                 f"{RETIRED_SHARED_GROUP_TYPE}`, which is read as `type: shared` (the shared "
-                "logins section); `type: apps` is deprecated and refused from OSPREY "
+                "logins section); `type: apps` is deprecated and refused in "
                 f"{RETIRED_ROSTER_KEYS_REFUSED_FROM}. To rewrite it, run "
                 "`osprey init --revalidate`"
             ),

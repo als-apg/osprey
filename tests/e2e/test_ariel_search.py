@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 from tests._session_database import dev_server_url, own_database
 
 if TYPE_CHECKING:
@@ -67,14 +66,14 @@ def e2e_database_url(request: pytest.FixtureRequest) -> str:
     Tries:
     1. ARIEL_TEST_DATABASE_URL environment variable
     2. Existing docker-compose dev database
-    3. Testcontainers
+    3. The session's own container (``pgvector_container_url``), started only
+       when neither of the first two answers
 
-    The first two exits reach a server the module did not start, so it works in
-    a database of its own there (``own_database``), dropped when the module
-    ends; the third owns the whole container. Teardown is registered with
-    ``request.addfinalizer`` on each branch that holds a resource. A ``yield``
-    would turn all three exits into generator paths and make a skip raised
-    before any resource exists fail with "did not yield a value".
+    Whichever server it is, the module works in a database of its own on it
+    (``own_database``), dropped when the module ends. Teardown is registered
+    with ``request.addfinalizer``. A ``yield`` would turn every exit into a
+    generator path and make a skip raised before any resource exists fail with
+    "did not yield a value".
     """
     # Check env var
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
@@ -88,31 +87,10 @@ def e2e_database_url(request: pytest.FixtureRequest) -> str:
         logger.info(f"Using docker dev database server for e2e tests: {server_url.split('@')[-1]}")
         return own_database(request, server_url, "ariel_e2e_test")
 
-    # Fall back to testcontainers
-    if not is_docker_available():
-        pytest.skip("No database available - start docker-compose or install Docker")
-
-    logger.info("Starting testcontainers PostgreSQL for e2e tests")
-    from testcontainers.postgres import PostgresContainer
-
-    container = start_or_skip(
-        lambda: PostgresContainer(
-            image="ankane/pgvector:latest",
-            username="ariel",
-            password="ariel",
-            dbname="ariel_e2e_test",
-        ),
-        label="ariel-e2e-postgres",
+    # Fall back to the session's own container (the image the framework deploys)
+    return own_database(
+        request, request.getfixturevalue("pgvector_container_url"), "ariel_e2e_test"
     )
-
-    request.addfinalizer(lambda: stop_quietly(container))
-
-    url = container.get_connection_url()
-    if url.startswith("postgresql+psycopg2://"):
-        url = url.replace("postgresql+psycopg2://", "postgresql://")
-
-    logger.info(f"Testcontainer started: {url.split('@')[-1]}")
-    return url
 
 
 @pytest.fixture(scope="module")

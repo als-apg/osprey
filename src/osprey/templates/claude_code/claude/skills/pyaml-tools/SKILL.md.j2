@@ -96,9 +96,9 @@ configuration the build wrote; nothing else in the deployment edits it.
 - `{{ model }}` is solved single pass: its view carries `simulators: []`, so it has no `sr.design`. Its reads are `sr.live` only.
 {% endfor -%}
 - Reads only: a pyAML write in `execute` is refused (`OspreyWriteRefused: pyAML writes run only inside pyaml_measure`).
-- A named array: `sr.live.magnets.get("<array>")`, `sr.live.bpms.get("<array>")`. Never subscript a holder with a name: `sr.live.magnets["<array>"]` is a name glob and returns an empty array.
+- A named array: `sr.live.magnets.get("<array>")`, `sr.live.diagnostic.bpms.get("<array>")`. Never subscript a holder with a name: `sr.live.magnets["<array>"]` looks up element names, not arrays, and raises `Element <array> not defined`.
 - Array values: `.strengths.get()`, `.positions.get()`; element names in order: `.names()`.
 - The RF plant: `sr.live.rf.get("DEFAULT_RF_PLANT").frequency.get()`.
-- The tunes: `sr.live.get_betatron_tune_monitor("BETATRON_TUNE").tune.get()`.
+- The tunes: `sr.live.diagnostic.get("BETATRON_TUNE").tune.get()`.
 - pyAML values are SI; a channel reference's `[unit]` suffix names the unit the control system serves.
 {% endif -%}

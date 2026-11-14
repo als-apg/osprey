@@ -373,6 +373,8 @@ every later build — you can also just edit that file instead.
 
 See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
+.. _demo-archive-size:
+
 **Tune how much history the archive keeps.** Two settings decide the store's
 size and reach: ``retention_days`` (how far back it goes — 30 by default) and
 ``hot_span_hours`` (how much of that is kept at the dense 10-second cadence —
@@ -392,6 +394,11 @@ longer matches what the profile asks for, says what changed, and reseeds it
 (pass ``--keep-archiver-base`` to leave the old data alone instead). Do **not**
 copy these keys into the project's ``config.yml`` — the build writes that file
 from the block, and a second copy is free to disagree with the first.
+
+Size the host for the seed. At the defaults (about 4,700 channels over 30
+days) MongoDB reached 7.4 GB of memory while seeding, and a Docker VM with
+less OOM-kills it and the seed fails. Give the container engine that much
+memory, or lower ``retention_days``.
 
 **Switch to real hardware.** As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility

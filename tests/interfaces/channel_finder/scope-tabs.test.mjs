@@ -3,8 +3,9 @@
  * The panel's scope switch (app.js, panel-toolbar.js): Curated · All PVs ·
  * Alarms · Archive · Feedback as the buttons of the toolbar seg `#cf-views` when
  * /api/info carries the directory descriptor (Alarms and Archive while their
- * service is configured), and Explore | Feedback otherwise; an empty or unknown
- * route lands on Curated. Nothing of it goes to the hub's tile bar.
+ * service is configured), and Explore | Feedback otherwise; the graph paradigm
+ * has no Feedback. An empty or unknown route lands on Curated. Nothing of it goes
+ * to the hub's tile bar.
  *   npx vitest run tests/interfaces/channel_finder/scope-tabs.test.mjs
  *
  * app.js boots on import, so each case re-imports it into a fresh module registry
@@ -68,7 +69,6 @@ async function boot(info, hash = '', alarms = {}) {
         <button id="cf-sidebar-toggle" type="button" disabled></button>
         <div class="osprey-seg" id="cf-views" role="group" aria-label="View">
           <button type="button" data-view="explore" aria-pressed="true">Explore</button>
-          <button type="button" data-view="feedback" aria-pressed="false">Feedback</button>
         </div>
         <span id="cf-result-count" hidden></span>
         <label id="cf-search-field"><input type="search" id="cf-search" disabled></label>
@@ -195,6 +195,8 @@ function go(hash) {
 
 const WITH = ['explore:Curated', 'allpvs:All PVs', 'feedback:Feedback'];
 const WITHOUT = ['explore:Explore', 'feedback:Feedback'];
+const GRAPH_WITH = ['explore:Curated', 'allpvs:All PVs'];
+const GRAPH_WITHOUT = ['explore:Explore'];
 
 describe('with the directory descriptor', () => {
   test('the seg reads Curated · All PVs · Feedback, Curated pressed', async () => {
@@ -227,10 +229,22 @@ describe('with the directory descriptor', () => {
     await boot(WITH_DIRECTORY, hash);
     expect(pressed()).toEqual(['allpvs']);
   });
+});
 
-  test('the feedback reason names the Curated tab', async () => {
-    await boot({ ...WITH_DIRECTORY, pipeline_type: 'graph' }, '#feedback');
-    expect(document.getElementById('cf-search-field')?.title).toBe('Search applies to Curated');
+describe('the graph paradigm', () => {
+  test.each([
+    ['with', WITH_DIRECTORY, GRAPH_WITH],
+    ['without', WITHOUT_DIRECTORY, GRAPH_WITHOUT],
+  ])('has no Feedback button %s the descriptor', async (_, info, expected) => {
+    await boot({ ...info, pipeline_type: 'graph' });
+    expect(names()).toEqual(expected);
+  });
+
+  test('a #feedback route lands on Curated, Feedback never mounted', async () => {
+    const { views } = await boot({ ...WITH_DIRECTORY, pipeline_type: 'graph' }, '#feedback');
+    expect(views.feedback.mount).not.toHaveBeenCalled();
+    expect(views.explore.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['explore']);
   });
 });
 
@@ -332,14 +346,23 @@ describe('a pipeline switch re-reads the descriptor', () => {
   test('the scope buttons appear when the answer starts carrying it', async () => {
     await boot({ ...WITHOUT_DIRECTORY, ...PIPELINES, directory_after_switch: DESCRIPTOR });
     await switchTo('graph');
-    await vi.waitFor(() => expect(names()).toEqual(WITH));
+    await vi.waitFor(() => expect(names()).toEqual(GRAPH_WITH));
     expect(pressed()).toEqual(['explore']);
   });
 
   test('they leave again when it stops', async () => {
     await boot({ ...WITH_DIRECTORY, ...PIPELINES });
     await switchTo('graph');
-    await vi.waitFor(() => expect(names()).toEqual(WITHOUT));
+    await vi.waitFor(() => expect(names()).toEqual(GRAPH_WITHOUT));
+  });
+
+  test('a switch to graph on Feedback drops the button and lands on Explore', async () => {
+    const { views } = await boot({ ...WITHOUT_DIRECTORY, ...PIPELINES }, '#feedback');
+    expect(views.feedback.mount).toHaveBeenCalledTimes(1);
+    await switchTo('graph');
+    await vi.waitFor(() => expect(names()).toEqual(GRAPH_WITHOUT));
+    expect(views.feedback.unmount).toHaveBeenCalled();
+    expect(pressed()).toEqual(['explore']);
   });
 
   test('the new buttons route after the switch', async () => {
@@ -349,7 +372,7 @@ describe('a pipeline switch re-reads the descriptor', () => {
       directory_after_switch: DESCRIPTOR,
     });
     await switchTo('graph');
-    await vi.waitFor(() => expect(names()).toHaveLength(3));
+    await vi.waitFor(() => expect(names()).toEqual(GRAPH_WITH));
     click('allpvs');
     expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
     expect(pressed()).toEqual(['allpvs']);

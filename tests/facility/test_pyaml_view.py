@@ -138,7 +138,7 @@ def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
             if "model" in device:
                 address = names.magnet_address(name)
                 assert parse_reference(device["model"]["powerconverter"]).address == address
-            elif device["type"] == "pyaml.bpm.bpm":
+            elif device["type"] == "pyaml.diagnostics.bpm.bpm":
                 assert names.bpm_name(names.bpm_device(name)) == name
             elif device["type"] == "pyaml.rf.rf_plant":
                 assert names.rf_plant_name(names.rf_address(name)) == name

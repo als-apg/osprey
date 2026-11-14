@@ -10,7 +10,8 @@ these pages is a real read through that child.
 
 Coverage, each in Chromium:
 
-  (a) the view switch reads Curated · <directory label> · Alarms · Archive · Feedback; All PVs
+  (a) the view switch reads Curated · <directory label> · Alarms · Archive (no Feedback
+      under the graph paradigm); All PVs
       holds the toolbar search and result count and draws its filters in the
       shared sidebar, and no ``nav`` header contribution is sent.
   (b) a word search lists curated (◆) and control-system-only (◇) rows, the
@@ -24,7 +25,7 @@ Coverage, each in Chromium:
       MAJOR banner with its guidance and its displays as text.
   (e) ``#/pv/<name>`` and ``#/ioc/<name>`` open their pages; the IOC page says
       alive once its heartbeat advances, and links to the IOC's PVs.
-  (f) without the section the switch is Explore · Feedback and ``#/pv/<name>``
+  (f) without the section the switch is Explore alone and ``#/pv/<name>``
       shows Explore.
   (g) at the panel width a 1600 px window leaves beside the agent pane, every
       column is reachable by scrolling the table area alone.
@@ -262,7 +263,7 @@ def test_all_pvs_holds_the_toolbar_and_the_shared_sidebar(
 ):
     host = _open(chromium_browser, panel_url, "#/allpvs")
     host.wait_for_selector(ROWS)
-    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Archive", "Feedback"]
+    assert _tabs(host) == ["Curated", "All PVs", "Alarms", "Archive"]
     assert _pressed(host) == "allpvs"
 
     assert host.locator("#cf-search").is_enabled()
@@ -423,7 +424,7 @@ def test_without_the_section_the_tabs_are_todays_and_a_pv_link_shows_explore(
         "() => document.querySelector('#cf-views button[aria-pressed=\"true\"]')"
         "?.dataset.view === 'explore'"
     )
-    assert _tabs(host) == ["Explore", "Feedback"]
+    assert _tabs(host) == ["Explore"]
     host.wait_for_selector("#graph-finder-table")
     assert host.locator(".pv-page").count() == 0
 

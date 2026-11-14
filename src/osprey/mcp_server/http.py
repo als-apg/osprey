@@ -166,12 +166,19 @@ def _panel_auth_headers() -> dict[str, str]:
     anything latched it — the holder stays empty too.  The token it was handed
     is still the right bearer, and
     :func:`~osprey.interfaces.web_auth.peek_supplied_panel_token` is where it is
-    read, last.
+    read, after those.
+
+    A process that holds none of these was started by no launcher (``osprey
+    query``, an SDK run, ``claude -p``), and the gallery it calls may be hosted
+    by another such process of the same project. That host verifies the
+    project's shared panel token
+    (:func:`~osprey.interfaces.web_auth.share_panel_token_with_project`), so it
+    is read from the project last — read only, never created here.
 
     Returns:
         ``{"Authorization": "Bearer <token>"}`` when the carrier, the latch,
-        this process's own credential holder, or the token it was handed
-        yields a non-blank value, otherwise ``{}``.  Blank counts as
+        this process's own credential holder, the token it was handed, or the
+        project's shared token yields a non-blank value, otherwise ``{}``.  Blank counts as
         absent — an uninterpolated compose variable arrives as ``""`` — and a
         bare ``"Bearer "`` would be a credential-shaped lie the route has to
         reject.
@@ -194,7 +201,21 @@ def _panel_auth_headers() -> dict[str, str]:
         token = held.panel_token
     elif (supplied := peek_supplied_panel_token()) is not None:
         token = supplied
+    else:
+        token = _project_panel_token() or ""
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _project_panel_token() -> str | None:
+    """The panel token this project's launcher-less processes share, if one exists."""
+    from osprey.interfaces.web_auth import read_project_panel_token
+    from osprey_connectors.workspace import resolve_shared_data_root
+
+    try:
+        return read_project_panel_token(resolve_shared_data_root())
+    except Exception as exc:
+        logger.debug("No shared panel token: the project data root did not resolve (%s)", exc)
+        return None
 
 
 def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:

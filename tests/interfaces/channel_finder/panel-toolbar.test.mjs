@@ -56,8 +56,24 @@ afterEach(() => {
   location.hash = '';
 });
 
+/** Add the Feedback button app.js writes into the seg outside the graph paradigm. */
+function addFeedbackButton() {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.setAttribute('data-view', 'feedback');
+  button.setAttribute('aria-pressed', 'false');
+  button.textContent = 'Feedback';
+  byId('cf-views').append(button);
+}
+
 describe('the view switch', () => {
+  test('index.html draws Explore alone: app.js adds what the paradigm has', () => {
+    const views = [...document.querySelectorAll('#cf-views button')];
+    expect(views.map((b) => b.getAttribute('data-view'))).toEqual(['explore']);
+  });
+
   test('a press sets the hash, and the pressed button follows the active view', () => {
+    addFeedbackButton();
     initToolbar();
     const views = () =>
       [...document.querySelectorAll('#cf-views button')].map(
@@ -73,6 +89,7 @@ describe('the view switch', () => {
   });
 
   test('a press on the active view leaves the hash as the view wrote it', () => {
+    addFeedbackButton();
     initToolbar();
     state.setActiveView('feedback');
     location.hash = '#/feedback?kept';
@@ -84,13 +101,14 @@ describe('the view switch', () => {
 describe('controls a view does not use', () => {
   test('stay in their slots, disabled, and say why under Feedback', () => {
     initToolbar();
+    state.setPipelineInfo('hierarchical', null);
     state.setActiveView('feedback');
 
     expect(toggle().disabled).toBe(true);
-    expect(toggle().title).toBe('Filters apply to Explore');
+    expect(toggle().title).toBe('No filters for this view');
     expect(toggle().hasAttribute('aria-expanded')).toBe(false);
     expect(search().disabled).toBe(true);
-    expect(byId('cf-search-field').title).toBe('Search applies to Explore');
+    expect(byId('cf-search-field').title).toBe('No search for this view');
   });
 
   test('say there is nothing for them in a paradigm without filters', () => {
@@ -100,10 +118,6 @@ describe('controls a view does not use', () => {
     expect(toggle().disabled).toBe(true);
     expect(toggle().title).toBe('No filters for this view');
     expect(byId('cf-search-field').title).toBe('No search for this view');
-
-    // Under Feedback too: Explore has no filters to point back to.
-    state.setActiveView('feedback');
-    expect(toggle().title).toBe('No filters for this view');
   });
 });
 

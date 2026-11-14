@@ -77,6 +77,8 @@ _ACTIVE_SEVERITIES = ("MAJOR", "INVALID", "UNDEFINED", "MINOR")
 _IOC_ALARMS_PAGE_SIZE = 50
 #: The alarm fields an IOC's alarm row carries beside its PV name.
 _IOC_ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
+#: The alarm-state backend type that replays a file rather than following a feed.
+_REPLAY_BACKEND = "alarm_replay"
 #: How long past its deadline a backend call may run before the section gives up on it.
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
@@ -321,6 +323,7 @@ class Facts:
             truncated=len(served) < len(active),
             stale=answer.stale,
             last_contact=answer.last_contact,
+            feed=_feed_kind(backend),
         )
 
     async def _alarm_config(self, name: str, deadline: float) -> Any:
@@ -661,6 +664,11 @@ def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
         "caveats": _caveats(backend),
         **fields,
     }
+
+
+def _feed_kind(backend: Any) -> str:
+    """``replay`` for the replay backend, whose ``last_contact`` is its load moment; else ``live``."""
+    return "replay" if backend.spec.type == _REPLAY_BACKEND else "live"
 
 
 def _alarm_row(row: Any) -> dict[str, Any]:

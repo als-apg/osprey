@@ -194,6 +194,8 @@ class ServerLauncher:
         self._auto_launch_checker = auto_launch_checker
         self._app_factory = app_factory
         self._pass_workspace = pass_workspace
+        # What the caller of the ensure_running() that launches asked for; see there.
+        self._share_panel_token = False
         self._release_grace_attempts = release_grace_attempts
         self._release_grace_interval = release_grace_interval
         self._held_port_retry_cooldown = held_port_retry_cooldown
@@ -572,6 +574,13 @@ class ServerLauncher:
             try:
                 import uvicorn
 
+                if self._share_panel_token:
+                    from osprey.interfaces.web_auth import share_panel_token_with_project
+                    from osprey_connectors.workspace import resolve_shared_data_root
+
+                    # Before the app is built: building it settles the credentials.
+                    share_panel_token_with_project(resolve_shared_data_root())
+
                 if self._pass_workspace:
                     from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -666,10 +675,18 @@ class ServerLauncher:
             port,
         )
 
-    def ensure_running(self) -> None:
+    def ensure_running(self, *, share_panel_token: bool = False) -> None:
         """Ensure the server is running; launch if needed.
 
         Safe to call multiple times — no-op after first launch.
+
+        Args:
+            share_panel_token: If True and this call launches the server from a
+                process no launcher handed a credential, the server verifies
+                the project's shared panel token, so the project's other
+                processes are admitted. For a caller that cannot hand the
+                token on itself; see
+                :func:`osprey.interfaces.web_auth.share_panel_token_with_project`.
 
         Ownership is decided by whether we can actually bind the port, not by
         a bare ``/health`` 200 and not by whether something answers a connect.
@@ -711,6 +728,8 @@ class ServerLauncher:
 
             if self._behind_the_proxy_without_an_identity():
                 return
+
+            self._share_panel_token = share_panel_token
 
             # A recent "held by a non-responder" outcome throttles re-probing so
             # a per-call caller (e.g. artifact_store on every save) does not pay
@@ -846,9 +865,14 @@ _launchers: dict[str, ServerLauncher] = {
 }
 
 
-def ensure_web_server(key: str) -> None:
-    """Ensure the web server identified by *key* is running."""
-    _launchers[key].ensure_running()
+def ensure_web_server(key: str, *, share_panel_token: bool = False) -> None:
+    """Ensure the web server identified by *key* is running.
+
+    Args:
+        key: The server's registry key.
+        share_panel_token: See :meth:`ServerLauncher.ensure_running`.
+    """
+    _launchers[key].ensure_running(share_panel_token=share_panel_token)
 
 
 def is_auto_launch_enabled(key: str) -> bool:
