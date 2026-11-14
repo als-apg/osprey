@@ -44,6 +44,11 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
 
+def _is_json_number(value: object) -> TypeGuard[int | float]:
+    """Whether a decoded JSON value is a number; JSON ``true``/``false`` is not."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _data_points(payload: object, pv: str) -> list[dict[str, object]]:
     """The samples of a ``getData.json`` reply, ``[]`` for an empty one.
 
@@ -172,7 +177,8 @@ class EPICSArchiverConnector(ArchiverConnector):
             pd.Series with DatetimeIndex; empty Series if no data
 
         Raises:
-            ValueError: If PV has array-valued samples (waveform PV)
+            ValueError: If PV has array-valued samples (waveform PV), or a
+                sample lacks a numeric ``secs``, ``nanos`` or a ``val``
             ConnectorUnavailableError: If the HTTP request fails
         """
         params = urllib.parse.urlencode(
@@ -219,9 +225,17 @@ class EPICSArchiverConnector(ArchiverConnector):
                 f"Unexpected archiver reply for {pv}: a sample lacks secs, nanos or val"
             )
 
-        timestamps = pd.to_datetime(
-            [dp["secs"] for dp in data_points], unit="s", utc=True
-        ) + pd.to_timedelta([dp["nanos"] for dp in data_points], unit="ns")
+        secs: list[float] = []
+        nanos: list[float] = []
+        for dp in data_points:
+            sec, nano = dp["secs"], dp["nanos"]
+            if not _is_json_number(sec) or not _is_json_number(nano):
+                raise ValueError(
+                    f"Unexpected archiver reply for {pv}: a sample's secs or nanos is not a number"
+                )
+            secs.append(sec)
+            nanos.append(nano)
+        timestamps = pd.to_datetime(secs, unit="s", utc=True) + pd.to_timedelta(nanos, unit="ns")
         values = [dp["val"] for dp in data_points]
 
         return pd.Series(values, index=timestamps, name=pv)

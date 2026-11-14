@@ -9,7 +9,7 @@ do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from typing import Any
@@ -282,7 +282,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: "Sequence[object]") -> "np.ndarray | None":
+def epoch_seconds_array(timestamps: "Iterable[object]") -> "np.ndarray | None":
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:
