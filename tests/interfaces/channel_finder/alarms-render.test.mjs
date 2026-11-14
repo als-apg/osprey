@@ -14,6 +14,7 @@ import {
   bannerHtml,
   buildTree,
   feedChip,
+  feedRows,
   filterRows,
   listHtml,
   sinceHtml,
@@ -25,6 +26,8 @@ const ROUTES = JSON.parse(
   readFileSync(join(import.meta.dirname, 'fixtures/directory_routes.json'), 'utf8')
 );
 const ALARMS = ROUTES.alarms;
+/** The fixture is the demo's replay; the same answer from a live feed. */
+const LIVE = { ...ALARMS, feed: 'live' };
 const [MAJOR_ROW, MINOR_ROW] = ALARMS.rows;
 
 /** @param {any[]} rows */
@@ -123,16 +126,35 @@ describe('times and the feed', () => {
   });
 
   test('a live feed names its last contact, a stale one says so', () => {
-    expect(feedChip({ ...ALARMS, last_contact: '2026-11-06T12:39:56.000Z' })).toEqual({
+    expect(feedChip({ ...LIVE, last_contact: '2026-11-06T12:39:56.000Z' })).toEqual({
       html: 'feed live · last contact <span data-since=""></span> ago',
       tone: 'ok',
     });
-    expect(feedChip({ ...ALARMS, last_contact: null })).toEqual({ html: 'feed live', tone: 'ok' });
-    expect(feedChip({ ...ALARMS, stale: true })).toEqual({ html: 'feed stale', tone: 'warn' });
+    expect(feedChip({ ...LIVE, last_contact: null })).toEqual({ html: 'feed live', tone: 'ok' });
+    expect(feedChip({ ...LIVE, stale: true })).toEqual({ html: 'feed stale', tone: 'warn' });
+  });
+
+  test('a replay names its load, in the neutral tone, and is never called live', () => {
+    const replay = ALARMS;
+    expect(feedChip(replay)).toEqual({
+      html: 'replay · loaded <span data-since=""></span> ago',
+      tone: 'neutral',
+    });
+    expect(feedChip({ ...replay, last_contact: null })).toEqual({
+      html: 'replay',
+      tone: 'neutral',
+    });
+    expect(feedChip({ ...replay, stale: true })).toEqual({ html: 'feed stale', tone: 'warn' });
+    expect(bandHtml(replay, null)).toContain('class="osprey-chip" data-action="feed"');
+    expect(bandHtml(LIVE, null)).toContain('class="osprey-chip osprey-chip--ok"');
+    const labels = (/** @type {any} */ answer) => feedRows(answer).map((row) => row.label);
+    expect(labels(replay)).toContain('Loaded');
+    expect(labels(replay)).not.toContain('Last contact');
+    expect(labels(LIVE)).toContain('Last contact');
   });
 
   test('the band does not carry the last contact, which the view writes in place', () => {
-    const at = (/** @type {string} */ time) => bandHtml({ ...ALARMS, last_contact: time }, null);
+    const at = (/** @type {string} */ time) => bandHtml({ ...LIVE, last_contact: time }, null);
     expect(at('2026-11-06T12:39:56.000Z')).toBe(at('2026-11-06T12:40:01.000Z'));
     expect(at('2026-11-06T12:39:56.000Z')).not.toContain('2026-11-06');
   });
@@ -140,6 +162,8 @@ describe('times and the feed', () => {
   test('the banner names the last contact when known', () => {
     expect(bannerHtml(null)).not.toContain('No contact since');
     expect(bannerHtml('2026-11-06T12:00:00.000Z')).toContain('No contact since');
+    expect(bannerHtml('2026-11-06T12:00:00.000Z', true)).toContain('Loaded');
+    expect(bannerHtml('2026-11-06T12:00:00.000Z', true)).not.toContain('No contact since');
   });
 });
 

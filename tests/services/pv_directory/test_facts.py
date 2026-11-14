@@ -658,6 +658,26 @@ async def test_active_alarms_serve_the_counts_over_every_channel_and_the_active_
     }
 
 
+@pytest.mark.parametrize(
+    ("alarm_state", "feed"),
+    [
+        (KAFKA, "live"),
+        ({"type": "alarm_replay", "settings": {"replay_file": "alarms.jsonl"}}, "replay"),
+    ],
+)
+async def test_active_alarms_say_whether_the_feed_is_live_or_a_replay(
+    tmp_path: Path, alarm_state: dict[str, Any], feed: str
+) -> None:
+    FakeAlarmState.listed = _listed(*_EVERY_SEVERITY)
+    config = {**FACILITY, "alarm_state": alarm_state}
+    page = _facts(_config(tmp_path, LIVE_BUILD, config), tmp_path)
+
+    answer = await page.active_alarms()
+
+    assert answer["source"]["service"] == alarm_state["type"]
+    assert answer["feed"] == feed
+
+
 async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
     tmp_path: Path,
 ) -> None:

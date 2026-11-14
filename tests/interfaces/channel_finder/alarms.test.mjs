@@ -288,7 +288,7 @@ describe('the summary band', () => {
   });
 
   test('the feed chip says live, and opens the source', async () => {
-    const { container } = await mount();
+    const { container } = await mount({ alarms: { ...ALARMS, feed: 'live' } });
     await loaded(container);
     const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
     expect(chip.classList.contains('osprey-chip--ok')).toBe(true);
@@ -298,6 +298,19 @@ describe('the summary band', () => {
     expect(pop.textContent).toContain('alarm_replay');
     expect(pop.textContent).toContain('PVs in tree');
     expect(pop.textContent).toContain('3');
+    expect(pop.textContent).toContain('Last contact');
+  });
+
+  test('a replay says replay and when it was loaded, in no live tone', async () => {
+    const { container } = await mount();
+    await loaded(container);
+    const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
+    expect(chip.className).toBe('osprey-chip');
+    expect(chip.textContent).toMatch(/^replay · loaded \d+ [a-z]+.* ago$/);
+    chip.click();
+    const pop = /** @type {HTMLElement} */ (document.querySelector('.osprey-info-popover'));
+    expect(pop.textContent).toContain('Loaded');
+    expect(pop.textContent).not.toContain('Last contact');
   });
 });
 
@@ -366,13 +379,14 @@ describe('the list', () => {
     expect(container.textContent).toContain('The alarm feed holds 3 PVs, all OK.');
   });
 
-  test('a stale feed shows the banner and dims the rows', async () => {
+  test('a stopped replay shows the banner, with its load time, and dims the rows', async () => {
     const { container } = await mount({ alarms: { ...ALARMS, stale: true } });
     await loaded(container);
     const banner = /** @type {HTMLElement} */ (container.querySelector('.alarms-banner'));
     expect(banner.hidden).toBe(false);
     expect(banner.textContent).toContain('Alarm feed not updating.');
-    expect(banner.textContent).toContain('No contact since');
+    expect(banner.textContent).toContain('Loaded');
+    expect(banner.textContent).not.toContain('No contact since');
     expect(banner.textContent).toContain('may be out of date');
     expect(rows(container).every((row) => row.classList.contains('is-stale'))).toBe(true);
     const chip = container.querySelector('[data-action="feed"]');
@@ -764,7 +778,7 @@ describe('the poll', () => {
     let calls = 0;
     const contactAt = (/** @type {number} */ n) => new Date(first + n * 5000).toISOString();
     const { container, view, counts } = await mount({
-      alarms: () => ({ ...ALARMS, last_contact: contactAt(calls++) }),
+      alarms: () => ({ ...ALARMS, feed: 'live', last_contact: contactAt(calls++) }),
     });
     await settled(container);
     const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
