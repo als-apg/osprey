@@ -133,8 +133,8 @@ one off the roster is recognised by its ``oidc_subject``. See
 How long the record keeps an entry
 ==================================
 
-Set ``agent_record.retention_days`` (default 14, at least 1). The record counts
-days by **arrival day**: the UTC day an entry reached the record.
+Set ``agent_record.retention_days`` (default 14, at least 1). Days count by
+**arrival day**: the UTC day an entry reached the record.
 
 Once a day, right after the export, the record removes the days past retention,
 oldest first. It removes only the days the archive holds, so an export that is
@@ -181,8 +181,8 @@ part; the row says where.
      warns at more than one closed day, when the last export failed, or when
      the archive cannot be read.
 
-On the host, two commands ask the record directly, starting the host-local one
-for the call when nothing else runs it:
+On the host, two commands ask the record directly; when no record is running,
+they start a host-local one for the call:
 
 - ``osprey agent-record health`` prints every source, transcript folder, the
   backend and the export lag, and names each problem.
@@ -289,7 +289,7 @@ is older than twice that.
 What the record can vouch for
 =============================
 
-The record is as trustworthy as the processes that write to it:
+The record is only as trustworthy as the processes that write to it:
 
 - **Containers are the boundary.** Each sender's container holds the login of
   the one identity it records as. On a deployment whose agent runs on the
