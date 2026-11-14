@@ -8,6 +8,7 @@ framework's, in ``osprey.utils.workspace``.
 """
 
 import logging
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -392,7 +393,11 @@ def resolve_path(path_str: str) -> Path:
     from osprey_connectors.config import get_config_builder
 
     config_builder = get_config_builder()
-    project_root = Path(config_builder.get("project_root"))
+    configured = config_builder.get("project_root")
+    if not isinstance(configured, str | os.PathLike):
+        # The TypeError ``Path(configured)`` raised, named.
+        raise TypeError(f"'project_root' must be a path, got {type(configured).__name__}")
+    project_root = Path(configured)
     path = Path(path_str)
     if path.is_absolute():
         return path

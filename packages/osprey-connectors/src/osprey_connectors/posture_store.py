@@ -132,11 +132,11 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
 
 from osprey_connectors import session_hold
 from osprey_connectors.identity import acting_identity
@@ -452,7 +452,7 @@ def bound_owner() -> str | NoOwner:
 
 
 @contextmanager
-def bind_owner(kwargs: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def bind_owner(kwargs: Mapping[str, object]) -> Iterator[dict[str, object]]:
     """Bind the owner riding on *kwargs* for the body, yielding the kwargs without it.
 
     The one way an owner enters a queueserver worker: the bridge puts it on the
@@ -945,15 +945,17 @@ def _read_tree_context(tree: Path, owner: str) -> _TreeContext:
         # an unexpected failure on a present record leaves a switch that may
         # exist unread, so it answers unavailable rather than guessing.
         logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
-        if getattr(exc, "errno", None) == errno.ELOOP:
+        code: object = getattr(exc, "errno", None)
+        if code == errno.ELOOP:
             return _TreeContext(None, _tree_planted_link(record_file, "record"))
-        if getattr(exc, "errno", None) == errno.EFBIG:
+        if code == errno.EFBIG:
             # Asked by name for the same reason the planted link is: the size
             # bound refuses a file whose mode and group are beyond reproach, so
             # the generic remedy points at two things an operator then finds
             # correct.
             return _TreeContext(None, _tree_record_oversized(record_file))
-        detail = getattr(exc, "strerror", None) or type(exc).__name__
+        strerror: object = getattr(exc, "strerror", None)
+        detail = strerror or type(exc).__name__
         return _TreeContext(
             None, _tree_record_unreadable(record_file, f"could not be read ({detail})")
         )

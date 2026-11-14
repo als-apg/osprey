@@ -141,7 +141,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Generic, Literal, TypeVar
 
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
@@ -248,18 +248,16 @@ REPORT_FILE_PREFIX = "server_"
 REPORT_FILE_SUFFIX = ".json"
 REPORT_FILE_GLOB = f"{REPORT_FILE_PREFIX}*{REPORT_FILE_SUFFIX}"
 
-#: The files this module has parsed, each against the signature that produced
-#: it: the record, and one entry per server report. Keyed by path, because a
-#: reader holds several of these files at once and a change to one of them is
-#: not a reason to re-parse the others.
+#: Guards every :class:`_ParsedFiles` cache below.
 _CACHE_LOCK = threading.Lock()
-_CACHE: dict[str, tuple[tuple[int, int, int], Any]] = {}
 
-#: How many parsed files the cache holds before it is dropped whole. Reports
+#: How many parsed files a cache holds before it is dropped whole. Reports
 #: are named for PIDs, so a long-lived reader would otherwise keep an entry per
 #: server that ever ran; dropping the lot costs one re-read each and cannot go
 #: stale, because every read re-stats before it trusts what it holds.
 _CACHE_MAX_ENTRIES = 128
+
+_Parsed = TypeVar("_Parsed")
 
 #: A machine's three positions. ``off`` is never stored: it is a target absent
 #: from the map.
@@ -594,29 +592,46 @@ def file_signature(path: Path | None) -> tuple[int, int, int] | None:
     return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
-def _read_cached(path: Path, parse: Callable[[Path], Any]) -> Any:
-    """*path* through *parse*, re-read only when its signature moved. Rule 4.
+class _ParsedFiles(Generic[_Parsed]):
+    """The files one parser has read, each against the signature that produced it.
 
-    An absent file drops whatever the cache held for that path: a report whose
-    server exited and whose file has been swept must not go on being answered
-    from memory.
+    One cache per parser (the record, the server reports), so each holds the one
+    type its parser returns. Keyed by path, because a reader holds several of
+    these files at once and a change to one of them is not a reason to re-parse
+    the others.
     """
-    key = str(path)
-    signature = file_signature(path)
-    if signature is None:
+
+    def __init__(self, parse: Callable[[Path], _Parsed]) -> None:
+        self._parse = parse
+        self._entries: dict[str, tuple[tuple[int, int, int], _Parsed]] = {}
+
+    def read(self, path: Path) -> _Parsed | None:
+        """*path* through the parser, re-read only when its signature moved. Rule 4.
+
+        An absent file drops whatever the cache held for that path: a report whose
+        server exited and whose file has been swept must not go on being answered
+        from memory.
+        """
+        key = str(path)
+        signature = file_signature(path)
+        if signature is None:
+            with _CACHE_LOCK:
+                self._entries.pop(key, None)
+            return None
         with _CACHE_LOCK:
-            _CACHE.pop(key, None)
-        return None
-    with _CACHE_LOCK:
-        cached = _CACHE.get(key)
-    if cached is not None and cached[0] == signature:
-        return cached[1]
-    value = parse(path)
-    with _CACHE_LOCK:
-        if len(_CACHE) >= _CACHE_MAX_ENTRIES:
-            _CACHE.clear()
-        _CACHE[key] = (signature, value)
-    return value
+            cached = self._entries.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        value = self._parse(path)
+        with _CACHE_LOCK:
+            if len(self._entries) >= _CACHE_MAX_ENTRIES:
+                self._entries.clear()
+            self._entries[key] = (signature, value)
+        return value
+
+    def clear(self) -> None:
+        with _CACHE_LOCK:
+            self._entries.clear()
 
 
 #: How a record read ended: a usable record, no file, or a file (or root)
@@ -639,6 +654,9 @@ def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
         return None, "unreadable"
     record = parse_record(raw)
     return (None, "unreadable") if record is None else (record, "ok")
+
+
+_RECORDS = _ParsedFiles(_read)
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -679,7 +697,7 @@ def read_record_status(
     target_path = record_path() if path is None else path
     if target_path is None:
         return None, "unreadable"
-    cached: tuple[ControlContext | None, _RecordStatus] | None = _read_cached(target_path, _read)
+    cached = _RECORDS.read(target_path)
     if cached is not None:
         return cached
     # No signature: absent, or a stat that failed for another reason.
@@ -695,8 +713,8 @@ def read_record_status(
 
 def invalidate_cache() -> None:
     """Forget every parsed file. For tests and for a process that moved roots."""
-    with _CACHE_LOCK:
-        _CACHE.clear()
+    _RECORDS.clear()
+    _REPORTS.clear()
 
 
 # -- writing ----------------------------------------------------------------
@@ -1726,10 +1744,12 @@ def _read_entry(path: Path) -> ServerReport | None:
     return None if payload is None else _parse_report(payload)
 
 
+_REPORTS = _ParsedFiles(_read_entry)
+
+
 def read_report(path: Path) -> ServerReport | None:
     """One server's report, or ``None`` when the file states no usable one."""
-    report: ServerReport | None = _read_cached(path, _read_entry)
-    return report
+    return _REPORTS.read(path)
 
 
 def live_reports(

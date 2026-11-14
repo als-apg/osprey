@@ -26,7 +26,15 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any, overload
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation._records import (
+        ChannelRecord,
+        ModelEntry,
+        ScenarioRecord,
+        SeedRecord,
+    )
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -158,7 +166,11 @@ class ViewSchemaError(ValueError):
     """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
 
 
-def _freeze(value: object) -> Any:
+@overload
+def _freeze(value: Mapping[str, object]) -> Mapping[str, object]: ...
+@overload
+def _freeze(value: object) -> object: ...
+def _freeze(value: object) -> object:
     """A read-only copy of a JSON value: mappings as proxies, lists as tuples."""
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -229,8 +241,8 @@ class Channel:
                 value_range=_freeze(entry["value_range"]),
                 owner=entry["owner"],
                 on=_freeze(entry["on"]),
-                options=_freeze(entry.get("options")),
-                shape=_freeze(entry.get("shape")),
+                options=_freeze(entry["options"]) if "options" in entry else None,
+                shape=_freeze(entry["shape"]) if "shape" in entry else None,
                 precision=entry.get("precision"),
             )
         except KeyError as missing:
@@ -322,10 +334,10 @@ class Model:
     name: str
     engine: str | None
     served: bool
-    settings: Mapping[str, Any]
+    settings: Mapping[str, object]
     deck: Path | None
     bindings: tuple[Binding, ...]
-    inputs: tuple[Mapping[str, Any], ...] = ()
+    inputs: tuple[Mapping[str, object], ...] = ()
 
 
 class SimulatorView:
@@ -435,12 +447,11 @@ class SimulatorView:
     def models(self) -> tuple[Model, ...]:
         """Every model of the facility file, sorted by name."""
         if self._models is None:
-            self._models = tuple(
-                self._model(entry) for entry in self._parsed(VARIABLES_FILE)["models"]
-            )
+            entries: Sequence[ModelEntry] = self._parsed(VARIABLES_FILE)["models"]
+            self._models = tuple(self._model(entry) for entry in entries)
         return self._models
 
-    def _model(self, entry: Mapping[str, Any]) -> Model:
+    def _model(self, entry: ModelEntry) -> Model:
         name = str(entry["name"])
         engine = entry.get("engine")
         deck = entry.get("deck")
@@ -470,7 +481,8 @@ class SimulatorView:
 
     def served(self) -> tuple[str, ...]:
         """The names of the models the render serves, in ``served_models.json`` order."""
-        return tuple(str(name) for name in self.document(SERVED_MODELS_FILE)["models"])
+        names: Sequence[str] = self.document(SERVED_MODELS_FILE)["models"]
+        return tuple(str(name) for name in names)
 
     def physics_models(self) -> tuple[Model, ...]:
         """The served models whose engine is not ``texture``, sorted by name."""
@@ -478,11 +490,13 @@ class SimulatorView:
 
     def channels(self) -> tuple[str, ...]:
         """Every channel address of the facility file, sorted."""
-        return tuple(str(address) for address in self.document(ADDRESSES_FILE)["channels"])
+        addresses: Sequence[str] = self.document(ADDRESSES_FILE)["channels"]
+        return tuple(str(address) for address in addresses)
 
     def status_addresses(self) -> Mapping[str, str]:
         """Each served physics model's status address, ``<code>:SIM:<model>:STATUS``."""
-        listed = set(self.document(ADDRESSES_FILE)["status"])
+        status: Sequence[str] = self.document(ADDRESSES_FILE)["status"]
+        listed = set(status)
         return MappingProxyType(
             {
                 model.name: address
@@ -503,7 +517,7 @@ class SimulatorView:
         Raises:
             ViewSchemaError: a listed entry is not such an address.
         """
-        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        listed: Sequence[str] = self.document(ADDRESSES_FILE).get("ioc_health", ())
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
@@ -523,16 +537,24 @@ class SimulatorView:
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
+            entries: Sequence[ChannelRecord] = self._parsed(VARIABLES_FILE)["channels"]
             self._channel_records = MappingProxyType(
                 {
                     channel.address: channel
-                    for channel in (
-                        Channel.from_entry(entry)
-                        for entry in self._parsed(VARIABLES_FILE)["channels"]
-                    )
+                    for channel in (Channel.from_entry(entry) for entry in entries)
                 }
             )
         return self._channel_records
+
+    def _channel_entries(self) -> Sequence[ChannelRecord]:
+        """Every channel entry of ``variables.json``, read-only, in file order."""
+        entries: Sequence[ChannelRecord] = self.document(VARIABLES_FILE)["channels"]
+        return entries
+
+    def _seeds(self) -> Mapping[str, SeedRecord]:
+        """Every seed record of ``seeds.json``, read-only, by address."""
+        seeds: Mapping[str, SeedRecord] = self.document(SEEDS_FILE)["seeds"]
+        return seeds
 
     def channel(self, address: str) -> Channel:
         """The channel at ``address``.
@@ -586,8 +608,7 @@ class SimulatorView:
 
     def seed(self, address: str) -> Mapping[str, Any] | None:
         """The seed record of the channel at ``address``, or ``None``."""
-        seed: Mapping[str, Any] | None = self.document(SEEDS_FILE)["seeds"].get(address)
-        return seed
+        return self._seeds().get(address)
 
     def scenarios(self) -> tuple[Mapping[str, Any], ...]:
         """Every scenario of ``scenarios.json``, sorted by name.
@@ -595,7 +616,11 @@ class SimulatorView:
         Raises:
             ViewSchemaError: A scenario's ``still`` is not a list of addresses.
         """
-        scenarios: tuple[Mapping[str, Any], ...] = self.document(SCENARIOS_FILE)["scenarios"]
+        return self._scenarios()
+
+    def _scenarios(self) -> tuple[ScenarioRecord, ...]:
+        """:meth:`scenarios`, each record typed as the schema states it."""
+        scenarios: tuple[ScenarioRecord, ...] = self.document(SCENARIOS_FILE)["scenarios"]
         for scenario in scenarios:
             still = scenario.get("still")
             if still is not None and not (
@@ -626,8 +651,8 @@ class SimulatorView:
         key = tuple(resolve_active_scenarios(active))
         if key not in self._envelopes:
             self._envelopes[key] = active_envelopes(
-                self.document(SEEDS_FILE)["seeds"],
-                {str(scenario["name"]): scenario for scenario in self.scenarios()},
+                self._seeds(),
+                {str(scenario["name"]): scenario for scenario in self._scenarios()},
                 key,
             )
         return self._envelopes[key].get(address, 0.0)

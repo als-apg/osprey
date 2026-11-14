@@ -101,56 +101,66 @@ def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None
             ``os.environ`` + ``.env`` overlay without mutating global state
             (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
-    lookup = os.environ if environ is None else environ
-    raw_server_envs: dict[object, object] = {}
+    return _resolved(data, os.environ if environ is None else environ)
+
+
+def _resolved(data: object, lookup: "Mapping[str, str]") -> object:
+    """:func:`resolve_env_vars` against *lookup*: a dict, a list, a string, or *data* itself."""
     if isinstance(data, dict):
-        cc = data.get("claude_code")
-        servers = cc.get("servers") if isinstance(cc, dict) else None
-        if isinstance(servers, dict):
-            for name, spec in servers.items():
-                if isinstance(spec, dict) and isinstance(spec.get("env"), dict):
-                    raw_server_envs[name] = copy.deepcopy(spec["env"])
-
-    if isinstance(data, dict):
-        resolved: dict[object, object] = {
-            key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
-        }
-    elif isinstance(data, list):
-        return [resolve_env_vars(item, environ=lookup) for item in data]
-    elif isinstance(data, str):
-
-        def replace_env_var(match: re.Match[str]) -> str:
-            if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
-                var_name = match.group(1)
-                default_value = match.group(2) if match.group(2) is not None else None
-            else:  # $VAR_NAME (simple form)
-                var_name = match.group(3)
-                default_value = None
-
-            env_value = lookup.get(var_name)
-            # Match bash :- semantics: empty string triggers default too
-            if env_value is None or (not env_value and default_value is not None):
-                if default_value is not None:
-                    return default_value
-                # DEBUG, not INFO: this resolver is generic over the whole
-                # config tree and knows nothing about which of the values it
-                # walks actually matter to the caller. Reported at INFO it
-                # rendered every build as a wall of misses for providers the
-                # project never uses, while saying nothing about the keys
-                # that *did* resolve. User-facing credential reporting lives
-                # in osprey.cli.build_environment.report_provider_credentials,
-                # which knows the selected provider.
-                if not os.environ.get("OSPREY_QUIET"):
-                    logger.debug(
-                        f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
-                    )
-                return match.group(0)
-            return env_value
-
-        pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
-        return re.sub(pattern, replace_env_var, data)
-    else:
+        return _resolved_dict(data, lookup)
+    if isinstance(data, list):
+        return [_resolved(item, lookup) for item in data]
+    if not isinstance(data, str):
         return data
+
+    def replace_env_var(match: re.Match[str]) -> str:
+        if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
+            var_name = match.group(1)
+            default_value = match.group(2) if match.group(2) is not None else None
+        else:  # $VAR_NAME (simple form)
+            var_name = match.group(3)
+            default_value = None
+
+        env_value = lookup.get(var_name)
+        # Match bash :- semantics: empty string triggers default too
+        if env_value is None or (not env_value and default_value is not None):
+            if default_value is not None:
+                return default_value
+            # DEBUG, not INFO: this resolver is generic over the whole
+            # config tree and knows nothing about which of the values it
+            # walks actually matter to the caller. Reported at INFO it
+            # rendered every build as a wall of misses for providers the
+            # project never uses, while saying nothing about the keys
+            # that *did* resolve. User-facing credential reporting lives
+            # in osprey.cli.build_environment.report_provider_credentials,
+            # which knows the selected provider.
+            if not os.environ.get("OSPREY_QUIET"):
+                logger.debug(
+                    f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
+                )
+            return match.group(0)
+        return env_value
+
+    pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+    return re.sub(pattern, replace_env_var, data)
+
+
+def _resolved_dict(data: dict[str, object], lookup: "Mapping[str, str]") -> dict[str, object]:
+    """A dict's values resolved by :func:`_resolved`, with the MCP server env blocks kept raw.
+
+    The keys come back as they went in; typed ``str``, as a config's are, because
+    only the ``claude_code`` key is ever looked up.
+    """
+    raw_server_envs: dict[object, object] = {}
+    cc = data.get("claude_code")
+    servers = cc.get("servers") if isinstance(cc, dict) else None
+    if isinstance(servers, dict):
+        for name, spec in servers.items():
+            env = spec.get("env") if isinstance(spec, dict) else None
+            if isinstance(env, dict):
+                raw_server_envs[name] = copy.deepcopy(env)
+
+    resolved = {key: _resolved(value, lookup) for key, value in data.items()}
 
     # Restore preserved MCP server env blocks (only meaningful at the top of a
     # config dict; sub-recursions never hit this path because they have no
@@ -299,7 +309,7 @@ _RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
 
 
 def _runtime_write_paths_under_data(
-    config: "Mapping[str, Any]", project_root: Path
+    config: "Mapping[str, object]", project_root: Path
 ) -> list[tuple[str, str]]:
     """Find configured runtime-write paths that resolve inside ``<root>/data/``.
 
@@ -608,7 +618,7 @@ class ConfigBuilder:
     # Sentinel to distinguish "no default given" from "default is None".
     _REQUIRED = object()
 
-    def _require_config(self, path: str, default: object = _REQUIRED) -> Any:
+    def _require_config(self, path: str, default: object = _REQUIRED) -> object:
         """Get config value, raising ValueError if required (no default) and missing.
 
         When *default* is provided, uses it with a warning. When *default* is
@@ -709,7 +719,9 @@ class ConfigBuilder:
         """
         configured_root = self.raw_config.get("project_root")
         project_root = (
-            Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
+            _as_path(configured_root, "project_root")
+            if configured_root
+            else repo_root_for_config(self.config_path)
         ).expanduser()
 
         for key, value in _runtime_write_paths_under_data(self.raw_config, project_root):
@@ -725,7 +737,7 @@ class ConfigBuilder:
                 _RUNTIME_STATE_DIR,
             )
 
-    def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
+    def _load_yaml_file(self, file_path: Path) -> dict[str, object]:
         """Load and validate a YAML configuration file."""
         try:
             with open(file_path) as f:
@@ -747,14 +759,14 @@ class ConfigBuilder:
             logger.error(error_msg)
             raise yaml.YAMLError(error_msg) from e
 
-    def _resolve_env_vars(self, data: object) -> Any:
+    def _resolve_env_vars(self, data: dict[str, object]) -> dict[str, object]:
         """Recursively resolve environment variables in configuration data.
 
-        Delegates to the module-level :func:`resolve_env_vars` function.
+        Resolves as the module-level :func:`resolve_env_vars` function does.
         """
-        return resolve_env_vars(data)
+        return _resolved_dict(data, os.environ)
 
-    def _load_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _load_config(self) -> tuple[dict[str, object], dict[str, object]]:
         """Load configuration from single file.
 
         Returns:
@@ -773,7 +785,7 @@ class ConfigBuilder:
         logger.info(f"Loaded configuration from {self.config_path}")
         return expanded_config, unexpanded_config
 
-    def get_unexpanded_config(self) -> dict[str, Any]:
+    def get_unexpanded_config(self) -> dict[str, object]:
         """Get configuration with environment variable placeholders preserved.
 
         Returns the configuration as loaded from YAML, without expanding
@@ -793,7 +805,7 @@ class ConfigBuilder:
     #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
     _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
 
-    def _get_execution_config(self) -> dict[str, Any]:
+    def _get_execution_config(self) -> dict[str, object]:
         """Get execution configuration with sensible defaults.
 
         Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
@@ -830,7 +842,7 @@ class ConfigBuilder:
 
         return {"execution_method": _EXECUTION_METHOD_SUBPROCESS}
 
-    def _get_python_executor_config(self) -> dict[str, Any]:
+    def _get_python_executor_config(self) -> dict[str, object]:
         """Get python executor configuration with sensible defaults.
 
         Returns python_executor configuration from config.yml if present, otherwise
@@ -851,7 +863,7 @@ class ConfigBuilder:
             "execution_timeout_seconds": _DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         }
 
-    def _build_configurable(self) -> dict[str, Any]:
+    def _build_configurable(self) -> dict[str, object]:
         """Build the configurable dictionary with pre-computed nested structures."""
         return {
             "model_configs": self._build_model_configs(),
@@ -866,36 +878,46 @@ class ConfigBuilder:
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
 
-    def _build_model_configs(self) -> dict[str, Any]:
+    def _build_model_configs(self) -> dict[str, object]:
         """Get model configs from flat structure."""
         return self._section("models")
 
-    def _build_provider_configs(self) -> dict[str, Any]:
+    def _build_provider_configs(self) -> dict[str, object]:
         """Build provider configs."""
         return self._section("api.providers")
 
-    def _build_service_configs(self) -> dict[str, Any]:
+    def _build_service_configs(self) -> dict[str, object]:
         """Get service configs from flat structure."""
         return self._section("services")
 
-    def _section(self, path: str) -> dict[str, Any]:
+    def _section(self, path: str) -> dict[str, object]:
         """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
         return mapping_or_empty(self.get(path), path, self.config_path)
 
-    def get(self, path: str, default: object = None) -> Any:
+    def get(self, path: str, default: object = None) -> object:
         """Get configuration value using dot notation path."""
-        keys = path.split(".")
-        value = self.raw_config
+        value: object = self.raw_config
+        for key in path.split("."):
+            # A missing key, or a segment that is not a mapping (a list, a
+            # scalar, ``None``), reads as absent.
+            if not isinstance(value, Mapping) or key not in value:
+                return default
+            value = value[key]
+        return value
 
-        try:
-            for key in keys:
-                value = value[key]
-            return value
-        except (KeyError, TypeError):
-            return default
+
+def _as_path(value: object, key: str) -> Path:
+    """*value*, a configured path, as a :class:`~pathlib.Path`.
+
+    Raises:
+        TypeError: *value* is not a string or path-like, as ``Path(value)`` raises.
+    """
+    if isinstance(value, str | os.PathLike):
+        return Path(value)
+    raise TypeError(f"'{key}' must be a path, got {type(value).__name__}")
 
 
-def mapping_or_empty(value: object, path: str, source: object) -> dict[str, Any]:
+def mapping_or_empty(value: object, path: str, source: object) -> dict[str, object]:
     """Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused."""
     if value is None:
         return {}
@@ -972,7 +994,7 @@ def _no_default_config_message(resolved: Path) -> str:
 
 
 _default_config: ConfigBuilder | None = None
-_default_configurable: dict[str, Any] | None = None
+_default_configurable: dict[str, object] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
 
 
@@ -1038,7 +1060,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
 
 def get_configurable(
     config_path: str | None = None, set_as_default: bool = False
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Get configurable dict with automatic context detection.
 
     This function supports both framework execution contexts and standalone execution,
@@ -1169,7 +1191,7 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
         _default_config, _default_configurable = previous
 
 
-def load_config(config_path: str | None = None) -> dict[str, Any]:
+def load_config(config_path: str | None = None) -> dict[str, object]:
     """Load raw configuration dictionary from YAML file.
 
     Convenience function that returns the raw configuration dictionary
@@ -1218,15 +1240,19 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     main_file_paths = config.get("file_paths", {})
     agent_data_root = agent_data_base_dir(config.raw_config)
 
+    if not isinstance(main_file_paths, Mapping):
+        # Refused rather than probed: on a list or a str, ``in`` and indexing
+        # either raised TypeError or matched by accident.
+        raise TypeError(f"'file_paths' must be a mapping, got {type(main_file_paths).__name__}")
     if sub_dir in main_file_paths:
-        sub_dir_path = main_file_paths[sub_dir]
+        sub_dir_path = _as_path(main_file_paths[sub_dir], f"file_paths.{sub_dir}")
         logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
     else:
-        sub_dir_path = sub_dir
+        sub_dir_path = Path(sub_dir)
         logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
 
     if project_root:
-        project_root_path = Path(project_root)
+        project_root_path = _as_path(project_root, "project_root")
 
         if host_path:
             logger.debug(f"Forcing host path resolution for: {sub_dir}")
@@ -1333,7 +1359,11 @@ def get_facility_timezone() -> "ZoneInfo":
     from zoneinfo import ZoneInfo
 
     try:
-        tz_name = get_config_value("facility_timezone", "UTC")
+        tz_name: object = get_config_value("facility_timezone", "UTC")
+        if not isinstance(tz_name, str):
+            # The TypeError ZoneInfo raises for a key that is not a string, named;
+            # it degrades to UTC below like every other failure.
+            raise TypeError(f"facility_timezone must be a string, got {type(tz_name).__name__}")
         zone = ZoneInfo(tz_name)
     except Exception as exc:  # any failure must degrade to UTC, not raise
         if not _tz_fallback_warned:
@@ -1400,7 +1430,7 @@ def _warn_on_tz_drift(tz_name: str) -> None:
     )
 
 
-def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
+def get_full_configuration(config_path: str | None = None) -> dict[str, object]:
     """
     Get the complete configuration dictionary.
 

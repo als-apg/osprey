@@ -87,6 +87,9 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     baseline_target,
     switch_capable,
 )
+from osprey.mcp_server.control_system.connector_host_manager import (
+    RecoveryRecord as Recovery,
+)
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
@@ -266,10 +269,6 @@ class MCPServerConfig:
 # ---------------------------------------------------------------------------
 # The supervised handle
 # ---------------------------------------------------------------------------
-
-#: One thing the supervisor did about a failure: ``{"action": <word>, "text": <sentence>}``.
-Recovery = dict[str, str]
-
 
 #: The contract each key's connector states, which a handle reads when none serves.
 _CONTRACTS: dict[str, type] = {
@@ -560,7 +559,11 @@ class ControlSystemContext:
         held = self._recoveries.get(name)
         if held is not None and held[0] is incarnation:
             task = held[1]
-            if not task.done() or (task.result() or {}).get("action") != RecoveryAction.CHILD_KEPT:
+            if (
+                not task.done()
+                or (record := task.result()) is None
+                or record.get("action") != RecoveryAction.CHILD_KEPT
+            ):
                 return await asyncio.shield(task)
         task = asyncio.ensure_future(self._guarded(act, name, incarnation))
         self._recoveries[name] = (incarnation, task)

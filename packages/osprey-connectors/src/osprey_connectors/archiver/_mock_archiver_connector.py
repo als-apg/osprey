@@ -82,15 +82,15 @@ class MockArchiverConnector(ArchiverConnector):
                   ``data/simulator/`` beside the loaded config.
 
         Raises:
-            ValueError: ``sample_rate_hz`` is not greater than zero.
+            ValueError: ``sample_rate_hz`` is not a number greater than zero.
             RuntimeError: There is no built simulator view, it is from an
                 older build, or a physics model fails to build at the start
                 state.
         """
         # A zero or negative rate would divide by zero later; reject it at
-        # configuration time.
-        sample_rate_hz = config.get("sample_rate_hz", 1.0)
-        if sample_rate_hz <= 0:
+        # configuration time, along with a rate that is not a number at all.
+        sample_rate_hz: object = config.get("sample_rate_hz", 1.0)
+        if not isinstance(sample_rate_hz, int | float) or sample_rate_hz <= 0:
             raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
         self._sample_rate_hz = sample_rate_hz
 

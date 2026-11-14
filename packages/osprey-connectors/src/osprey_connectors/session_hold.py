@@ -215,17 +215,18 @@ def _read_record(root: Path, session_key: str) -> list[_FlagEntry] | None:
     if not stat.S_ISDIR(mode):
         return None
     try:
-        payload = json.loads(_read_no_follow(directory / RECORD_NAME))
+        payload: object = json.loads(_read_no_follow(directory / RECORD_NAME))
     except (OSError, ValueError):
         return None
     if not isinstance(payload, dict):
         return None
     if payload.get("schema") != _SCHEMA_VERSION or payload.get("session_key") != session_key:
         return None
-    flags = payload.get("flags")
-    if not isinstance(flags, list) or not all(_valid_flag(entry) for entry in flags):
+    flags: object = payload.get("flags")
+    if not isinstance(flags, list):
         return None
-    return flags
+    entries = [entry for entry in flags if _valid_flag(entry)]
+    return entries if len(entries) == len(flags) else None
 
 
 def _to_flag(entry: _FlagEntry) -> HoldFlag:
