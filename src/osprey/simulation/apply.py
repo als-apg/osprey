@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
+    from osprey_connectors.simulation.records import ScenarioRecord
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
@@ -298,7 +299,7 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
-def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
+def view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord] | None:
     """The scenarios the simulator view lists, by name; ``None`` without a view.
 
     Raises:
@@ -311,9 +312,15 @@ def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
     return None if view is None else _scenarios(view)
 
 
-def _scenarios(view: SimulatorView) -> dict[str, dict[str, Any]]:
+def _scenarios(view: SimulatorView) -> dict[str, ScenarioRecord]:
     """The scenarios ``view`` lists, by name, as plain dicts."""
-    return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+    # The reader refuses a scenarios.json of another schema than the one
+    # ``osprey build`` writes, which states each entry's shape; thawed into
+    # plain dicts and lists, an entry keeps that shape.
+    scenarios: dict[str, ScenarioRecord] = {
+        str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()
+    }
+    return scenarios
 
 
 def _plain(value: Any) -> Any:
@@ -325,7 +332,7 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
+def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
     """The scenarios the simulator view lists, by name.
 
     Raises:
@@ -440,7 +447,7 @@ def _seed_scenario_sessions(config: dict, project_dir: Path, active: Sequence[st
     """
     try:
         scenarios = view_scenarios(project_dir) or {}
-        if not any((scenarios.get(name) or {}).get("sessions") for name in active):
+        if not any(name in scenarios and scenarios[name].get("sessions") for name in active):
             return
         _, epoch = _active_state(config, project_dir)
         if epoch is None:
@@ -587,7 +594,8 @@ def write_scenario_sessions(
     scenarios = view_scenarios(project_dir) or {}
     held = []
     for name in active:
-        raw = (scenarios.get(name) or {}).get("sessions")
+        scenario = scenarios.get(name)
+        raw = scenario.get("sessions") if scenario else None
         if not raw:
             continue
         resolved = resolve(parse_sessions(raw, prefix=f"{name}.sessions"), anchor)
@@ -686,7 +694,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
 
 
 def _view_logbook(
-    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str], files: Path
+    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str], files: Path
 ) -> list[ScenarioLogEntry]:
     """The ``logbook`` entries of a scenario set, in set order.
 
