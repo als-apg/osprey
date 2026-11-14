@@ -1,10 +1,11 @@
 """The `pyaml` import package has exactly one owning distribution in every image.
 
 Two pyAML distributions (upstream ``accelerator-middle-layer`` and the staging
-``accelerator-middle-layer-apg``) write the same ``pyaml/`` directory, and no
-resolver or ``pip check`` notices the pair. The check module reads installed
-metadata only; these tests drive it over fixture site-packages directories, then
-hold every image that installs the local-requirements manifest to calling it.
+``accelerator-middle-layer-apg`` OSPREY pinned before) write the same ``pyaml/``
+directory, and no resolver or ``pip check`` notices the pair. The check module
+reads installed metadata only; these tests drive it over fixture site-packages
+directories, then hold every image that installs the local-requirements
+manifest to calling it.
 """
 
 from __future__ import annotations
@@ -66,11 +67,11 @@ def _neighbours(site: pathlib.Path) -> None:
 
 
 def test_one_owner_passes(tmp_path, capsys):
-    _staging(tmp_path)
+    _upstream(tmp_path)
     _neighbours(tmp_path)
-    assert pyaml_owner.owners(path=[str(tmp_path)]) == ["accelerator-middle-layer-apg"]
+    assert pyaml_owner.owners(path=[str(tmp_path)]) == ["accelerator-middle-layer"]
     assert pyaml_owner.main(path=[str(tmp_path)]) == 0
-    assert "accelerator-middle-layer-apg" in capsys.readouterr().out
+    assert "accelerator-middle-layer" in capsys.readouterr().out
 
 
 def test_two_owners_fail_and_name_both(tmp_path, capsys):
@@ -96,26 +97,26 @@ def test_two_owners_across_path_entries_fail(tmp_path):
 
 def test_the_yaml_printer_named_pyaml_is_a_second_owner(tmp_path):
     """PyPI's unrelated `pyaml` YAML printer also installs `pyaml/`."""
-    _staging(tmp_path)
+    _upstream(tmp_path)
     _dist(tmp_path, "pyaml", ["pyaml/__init__.py", "pyaml/cli.py"])
     assert pyaml_owner.main(path=[str(tmp_path)]) == 1
 
 
 def test_a_single_module_pyaml_py_owns_the_name(tmp_path):
-    _staging(tmp_path)
+    _upstream(tmp_path)
     _dist(tmp_path, "pyaml-single", ["pyaml.py"])
     assert pyaml_owner.owners(path=[str(tmp_path)]) == [
-        "accelerator-middle-layer-apg",
+        "accelerator-middle-layer",
         "pyaml-single",
     ]
 
 
 def test_a_record_less_install_falls_back_to_top_level(tmp_path):
-    _staging(tmp_path)
+    _upstream(tmp_path)
     _dist(tmp_path, "legacy-pyaml", None, top_level="pyaml\n")
     _dist(tmp_path, "legacy-other", None, top_level="other\n")
     assert pyaml_owner.owners(path=[str(tmp_path)]) == [
-        "accelerator-middle-layer-apg",
+        "accelerator-middle-layer",
         "legacy-pyaml",
     ]
 
@@ -143,7 +144,7 @@ def test_the_module_runs_as_a_script_and_exits_nonzero_on_two_owners(tmp_path):
 
 def test_this_environment_has_one_owner():
     """The development environment resolves the same single owner the images must."""
-    assert pyaml_owner.owners() == ["accelerator-middle-layer-apg"]
+    assert pyaml_owner.owners() == ["accelerator-middle-layer"]
 
 
 # ── every image that installs the local-requirements manifest calls the check ──

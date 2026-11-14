@@ -32,7 +32,7 @@ export function demoEnvelope() {
       id: 'agent',
       label: 'Agent',
       components: [
-        comp(rows, 'claude-code', 'Claude Code', '2.1.300', { rows: [5] }),
+        comp(rows, 'claude-code', 'Claude Code', '2.1.322', { rows: [5] }),
         comp(rows, 'model-provider', 'model provider', 'als-apg', { rows: [6], unused: [7, 8] }),
         comp(rows, 'embed-vision', 'embedding · vision', 'ollama', { rows: [9] }),
       ],

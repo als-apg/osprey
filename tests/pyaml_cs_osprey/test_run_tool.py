@@ -598,13 +598,13 @@ class TestPyamlTools:
 
     def test_a_trm_measure_stopped_at_init_returns_a_stopped_run(self, sr: Accelerator) -> None:
         """``trm.measure`` sends INIT outside its ``try``; the interrupt becomes a stopped run."""
-        run = run_tool(sr.design.trm.measure, callback=_stop)
+        run = run_tool(sr.design.tool.trm.measure, callback=_stop)
         assert run.completed is False
-        assert sr.design.trm._callback is None
+        assert sr.design.tool.trm._callback is None
 
     def test_a_chromaticity_measure_stopped_returns_a_stopped_run(self, sr: Accelerator) -> None:
         """The chromaticity monitor reports its interrupted run with ``False``."""
-        monitor = sr.design.get_chromaticity_monitor("CHROMATICITY_MONITOR")
+        monitor = sr.design.tool.get("CHROMATICITY_MONITOR")
         run = run_tool(monitor.measure, callback=_stop)
         assert run.completed is False
         assert monitor._callback is None
@@ -613,9 +613,9 @@ class TestPyamlTools:
         self, sr: Accelerator
     ) -> None:
         """The monitor sends INIT before registering; a cleared slot keeps that INIT inert."""
-        monitor = sr.design.get_chromaticity_monitor("CHROMATICITY_MONITOR")
+        monitor = sr.design.tool.get("CHROMATICITY_MONITOR")
         run_tool(monitor.measure, callback=_stop)
-        chroma = sr.design.chromaticity.readback()
+        chroma = sr.design.tool.chromaticity.readback()
         assert np.all(np.isfinite(chroma))
 
 

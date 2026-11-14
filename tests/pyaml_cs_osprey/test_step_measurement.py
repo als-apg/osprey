@@ -98,7 +98,7 @@ CONFIG: dict[str, Any] = {
         *(_magnet("sextupole", name, "1/m**2") for name in SEXTS),
         *(
             {
-                "type": "pyaml.bpm.bpm",
+                "type": "pyaml.diagnostics.bpm.bpm",
                 "name": name,
                 "x_pos": f"{name}:x[m]",
                 "y_pos": f"{name}:y[m]",

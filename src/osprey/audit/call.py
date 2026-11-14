@@ -1,11 +1,11 @@
 """The tool call a record is about: its id, its conversation, and what it noted.
 
 The agent harness sends an id with every MCP ``tools/call`` (the ``_meta`` key
-:data:`TOOL_USE_ID_META_KEY`, verified in harness builds 2.1.267, 2.1.294 and
-2.1.300) and stamps the conversation id on every stdio MCP child it spawns
-(``CLAUDE_CODE_SESSION_ID``). The MCP audit middleware reads both once per call
-and opens a :func:`call_scope`; every audit record filed inside that scope —
-the middleware's own, an inner recorder's through
+:data:`TOOL_USE_ID_META_KEY`, verified in harness builds 2.1.267, 2.1.294,
+2.1.300 and 2.1.322) and stamps the conversation id on every stdio MCP child it
+spawns (``CLAUDE_CODE_SESSION_ID``). The MCP audit middleware reads both once
+per call and opens a :func:`call_scope`; every audit record filed inside that
+scope — the middleware's own, an inner recorder's through
 :func:`osprey.audit.writer.record` — then names the call it belongs to without
 a call-site edit. That id is the key that joins a default audit entry to the
 ``tool_call`` record and to the harness's own transcript.
@@ -54,7 +54,8 @@ __all__ = [
 ]
 
 #: The ``_meta`` key the agent harness sends the tool-use id under on every
-#: MCP ``tools/call`` (verified in harness builds 2.1.267, 2.1.294 and 2.1.300).
+#: MCP ``tools/call`` (verified in harness builds 2.1.267, 2.1.294, 2.1.300 and
+#: 2.1.322).
 TOOL_USE_ID_META_KEY = "claudecode/toolUseId"
 
 #: The shape a tool-use id is accepted in. The id names a stamp file, so it

@@ -28,7 +28,7 @@ logger = logging.getLogger("osprey.cli.templates")
 # The value is one exact build of @anthropic-ai/claude-code, the same one on
 # every host and in every image; it is never read from an npm dist-tag, which
 # moves under it.
-_DEFAULT_CLAUDE_CLI_VERSION = "2.1.300"
+_DEFAULT_CLAUDE_CLI_VERSION = "2.1.322"
 
 CONFIG_TEMPLATE = "config.yml.j2"
 """The project-file template that renders ``config.yml``."""

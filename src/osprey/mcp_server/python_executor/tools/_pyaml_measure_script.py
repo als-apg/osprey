@@ -466,7 +466,7 @@ def observables(measured, holder, bpm_array):
         return [[str(n), str(p)] for n, p in zip(names, planes)]
     if names:
         return [split_label(str(n)) for n in names]
-    bpms = list(holder.bpms.get(bpm_array).names())
+    bpms = list(holder.diagnostic.bpms.get(bpm_array).names())
     return [[n, "x"] for n in bpms] + [[n, "y"] for n in bpms]
 
 
@@ -540,9 +540,9 @@ def plan(holder, copy_dir):
     fields = {}
     source = PLAN["tool"]
     if "monitor" in source:
-        tool = holder.get_chromaticity_monitor(source["monitor"])
+        tool = holder.tool.get(source["monitor"])
     else:
-        tool = getattr(holder, source["attribute"])
+        tool = getattr(holder.tool, source["attribute"])
     bpm_array = getattr(tool, PLAN["bpm_array"]) if PLAN.get("bpm_array") else None
     values = {
         "settle": SETTLE,
