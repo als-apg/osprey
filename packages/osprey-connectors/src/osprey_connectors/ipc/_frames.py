@@ -153,11 +153,12 @@ class _UnrebuildableValueError(FrameDecodeError):
 
 @dataclass(frozen=True)
 class RequestFrame:
-    """A decoded call request. ``method`` is never validated by the codec."""
+    """A decoded call request. ``method`` and ``kwargs`` are never validated by the codec:
+    the child refuses a bad one in that request's error frame."""
 
     request_id: str
     method: str
-    kwargs: dict[str, object]
+    kwargs: object
 
 
 @dataclass(frozen=True)
@@ -387,10 +388,11 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
     if not isinstance(request_id, str):
         raise FrameDecodeError("frame is missing its request id")
     if kind == "request":
-        kwargs = _decode_value(header["kwargs"], blobs)
-        if not isinstance(kwargs, dict):
-            raise FrameDecodeError("request frame kwargs are not a mapping")
-        return RequestFrame(request_id=request_id, method=header["method"], kwargs=kwargs)
+        return RequestFrame(
+            request_id=request_id,
+            method=header["method"],
+            kwargs=_decode_value(header["kwargs"], blobs),
+        )
     if kind == "result":
         try:
             value = _decode_value(header["value"], blobs)

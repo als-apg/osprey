@@ -838,12 +838,14 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
-async def _invoke(
-    connector: ControlSystemConnector, method: str, kwargs: dict[str, object]
-) -> object:
+async def _invoke(connector: ControlSystemConnector, method: str, kwargs: object) -> object:
     """Run one request against the connector."""
     if method == "ping":
         return os.getpid()
+    if not isinstance(kwargs, dict):
+        raise TypeError(
+            f"connector host request kwargs are a {type(kwargs).__name__}, not a mapping"
+        )
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
     if method in PROXY_METHODS:
@@ -932,6 +934,11 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         return EXIT_INIT_FAILED
 
     try:
+        if not isinstance(init.kwargs, dict):
+            raise TypeError(
+                f"connector host {INIT_METHOD!r} kwargs are a {type(init.kwargs).__name__}, "
+                "not a mapping"
+            )
         connector, report = await _build_connector(init.kwargs, marks)
     except Exception as exc:
         logger.warning("connector host: connect failed: %r", exc)
