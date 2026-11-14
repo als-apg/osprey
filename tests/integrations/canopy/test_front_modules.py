@@ -81,12 +81,17 @@ def _package_upstream_modules() -> dict[str, set[str]]:
     return found
 
 
-def _forwarded_modules() -> set[str]:
-    """The modules of the routes FRONT relays upstream (the 405 stubs excluded)."""
-    settings = mcp_config.Settings.model_construct()
+#: The endpoints FRONT answers itself, calling nothing upstream: the 405 stubs and
+#: the e-log as a disabled module answers it while the e-log relay is off.
+_LOCAL_ENDPOINTS = frozenset({"not_allowed", "elog_config_not_relayed", "elog_not_relayed"})
+
+
+def _forwarded_modules(**settings_fields: object) -> set[str]:
+    """The modules of the routes FRONT relays upstream (its own answers excluded)."""
+    settings = mcp_config.Settings.model_construct(**settings_fields)
     modules: set[str] = set()
     for route in forward.build_forward_routes(settings):
-        if getattr(getattr(route, "endpoint", None), "__name__", "") == "not_allowed":
+        if getattr(getattr(route, "endpoint", None), "__name__", "") in _LOCAL_ENDPOINTS:
             continue
         modules |= _upstream_modules(route.path)
     return modules
@@ -100,6 +105,17 @@ def test_the_restated_called_modules_are_the_ones_canopy_mcps_code_calls() -> No
 def test_the_forward_routes_relay_hare_formula_engine_and_mole() -> None:
     assert _forwarded_modules() == {"hare", "formula-engine", "mole"}
     assert _forwarded_modules() <= set(sidecar_module.FRONT_CALLED_MODULES)
+
+
+def test_only_the_elog_relay_calls_the_elog_module() -> None:
+    """OSPREY leaves the relay off, so FRONT answers the e-log itself."""
+    assert _forwarded_modules(elog_relay=True) == {"hare", "formula-engine", "mole", "elog"}
+
+
+def test_the_read_key_never_names_the_elog() -> None:
+    """DATA mounts no e-log, so FRONT's read key is not scoped to it."""
+    assert "elog" not in MODULES.split(",")
+    assert "elog" not in sidecar_module.FRONT_MODULES
 
 
 def test_the_tool_path_constants_are_among_the_called_modules() -> None:
