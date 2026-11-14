@@ -3,8 +3,9 @@
 The words below are a verbatim copy of PostgreSQL's
 ``src/backend/snowball/stopwords/english.stop`` (installed as
 ``/usr/share/postgresql/<major>/tsearch_data/english.stop``), read from
-PostgreSQL **15.4** — the server the ARIEL test suite runs against
-(``ankane/pgvector``). The list is stable across PostgreSQL majors; it is
+PostgreSQL 15.4 and identical in PostgreSQL **16.16** — the server of
+``pgvector/pgvector:pg16``, the image the framework deploys and the ARIEL test
+suites run against. The list is stable across PostgreSQL majors; it is
 vendored here so vocabulary validation needs no database connection.
 
 Why it matters: ARIEL's keyword search hardcodes the ``'english'`` text-search

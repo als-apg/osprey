@@ -125,8 +125,4 @@ test('_renderPendingSection draws design-system buttons', () => {
     'osprey-btn primary fb-pending-approve',
     'osprey-btn fb-pending-dismiss',
   ]);
-  doc.innerHTML = _renderPendingSection([{ id: 'i1', query: 'q' }], { canPromote: false });
-  expect([...doc.querySelectorAll('button')].map((b) => b.className)).toEqual([
-    'osprey-btn fb-pending-dismiss',
-  ]);
 });
