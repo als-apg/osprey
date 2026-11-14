@@ -179,7 +179,7 @@ class PhoebusAlarmState(AlarmState):
         before_catch_up = self._before_catch_up()
         if before_catch_up is not None:
             return before_catch_up
-        return Unavailable(FEED_EMPTY) if self._snapshot.messages == 0 else None
+        return Unavailable(reason=FEED_EMPTY) if self._snapshot.messages == 0 else None
 
     def _before_catch_up(self) -> Unavailable | None:
         blocked = self._blocked()
@@ -187,19 +187,19 @@ class PhoebusAlarmState(AlarmState):
             return blocked
         if self._caught_up:
             return None
-        return Unavailable(self._unreachable or FEED_LOADING)
+        return Unavailable(reason=self._unreachable or FEED_LOADING)
 
     def _blocked(self) -> Unavailable | None:
         """Why no consumer can be built; decided once, on first need, not in the constructor."""
         if self._cannot_start is None and self._consumer_factory is None:
             settings = self.spec.settings
             if not (settings.get("bootstrap_servers") and settings.get("topic")):
-                self._cannot_start = Unavailable(SETTINGS_MISSING)
+                self._cannot_start = Unavailable(reason=SETTINGS_MISSING)
             else:
                 try:
                     importlib.import_module("aiokafka")
                 except ImportError:
-                    self._cannot_start = Unavailable(KAFKA_CLIENT_MISSING)
+                    self._cannot_start = Unavailable(reason=KAFKA_CLIENT_MISSING)
         return self._cannot_start
 
     def _stale(self) -> bool:

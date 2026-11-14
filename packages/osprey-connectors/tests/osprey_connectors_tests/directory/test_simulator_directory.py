@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -281,7 +280,7 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
 ) -> None:
     page = await directory.search(DirectoryQuery(name=f"={SETPOINT}"), DEADLINE)
 
-    assert asdict(page.rows[0]) == {
+    assert page.rows[0].model_dump() == {
         "name": SETPOINT,
         "status": "Active",
         "description": "Quadrupole current setting.",
@@ -523,7 +522,7 @@ async def _every_answer(directory: SimulatorDirectory) -> list[Any]:
     page = await directory.search(DirectoryQuery(words="x"), DEADLINE)
     assert page.outcome is Outcome.UNAVAILABLE
     return [
-        Unavailable(page.reason or ""),
+        Unavailable(reason=page.reason or ""),
         await directory.count(DirectoryQuery(), DEADLINE),
         await directory.describe("T:X", DEADLINE),
         await directory.property_names(DEADLINE),

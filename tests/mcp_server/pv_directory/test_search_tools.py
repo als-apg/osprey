@@ -109,7 +109,7 @@ class FakeDirectory:
         if self.failure:
             raise RuntimeError(self.failure)
         if name not in self.values:
-            return Unavailable(f"property {name!r} did not answer")
+            return Unavailable(reason=f"property {name!r} did not answer")
         return [value for value in self.values[name] if value.startswith(prefix or "")]
 
 
@@ -284,7 +284,7 @@ async def test_a_feed_without_an_answer_stays_in_the_result_as_partial(
     tmp_path: Path, feed: type[FakeFeed]
 ) -> None:
     FakeDirectory.rows = [_row("SR:BPM1")]
-    feed.held = Unavailable("alarm feed still loading")
+    feed.held = Unavailable(reason="alarm feed still loading")
     _install(tmp_path, {**FACILITY, "alarm_state": _FEED})
 
     result = json.loads(await search.directory_search(words="SR"))

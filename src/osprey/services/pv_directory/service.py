@@ -274,7 +274,7 @@ class DirectoryService:
         hidden = self._hidden()
         row = self._hide_row(backend, answer.row, hidden)
         record = as_payload(
-            dataclasses.replace(
+            _rebuilt(
                 answer,
                 properties={k: v for k, v in answer.properties.items() if k not in hidden},
             )
@@ -420,7 +420,7 @@ class DirectoryService:
             path = resolve_replay_file(value, self._project_dir)
         except ValueError:
             return spec  # the replay backend answers an unresolved name as unavailable
-        return dataclasses.replace(spec, settings={**spec.settings, "replay_file": str(path)})
+        return _rebuilt(spec, settings={**spec.settings, "replay_file": str(path)})
 
     async def _probe(self, kind: str, target: str) -> dict[str, Any]:
         backend, source, reason = await self._resolve(kind)
@@ -553,13 +553,13 @@ class DirectoryService:
         if extent is None:
             return None
         if extent.channels is None:
-            return Unavailable(extent.reason or "the archive does not say what it holds")
+            return Unavailable(reason=extent.reason or "the archive does not say what it holds")
         return extent.channels
 
     # -- searching -------------------------------------------------------
 
     async def _count(self, at: Any, backend: Any, server: Any, deadline: float) -> Any:
-        key = ("count", dataclasses.replace(server, page=0, page_size=0))
+        key = ("count", _rebuilt(server, page=0, page_size=0))
         cached = self._cached(at, key)
         if cached is not None:
             return cached
@@ -578,7 +578,7 @@ class DirectoryService:
         deadline: float,
     ) -> Any:
         """Every row *server* matches, or why the set cannot be had."""
-        key = ("set", dataclasses.replace(server, page=0, page_size=0))
+        key = ("set", _rebuilt(server, page=0, page_size=0))
         cached = self._cached(at, key)
         if cached is not None:
             return cached
@@ -591,9 +591,9 @@ class DirectoryService:
         if total == 0:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
-        answer = await backend.search(dataclasses.replace(server, page=0, page_size=total), left)
+        answer = await backend.search(_rebuilt(server, page=0, page_size=total), left)
         if answer.outcome == Outcome.UNAVAILABLE:
-            return Unavailable(answer.reason or "no answer")
+            return Unavailable(reason=answer.reason or "no answer")
         fetched = _FullSet(list(answer.rows), answer.request)
         self._store(at, key, fetched)
         return fetched
@@ -606,10 +606,12 @@ class DirectoryService:
         """
         backend, _source, reason = await self._resolve("alarm_state")
         if backend is None:
-            return None if reason is None or reason == NO_SOURCE_REASON else Unavailable(reason)
+            return (
+                None if reason is None or reason == NO_SOURCE_REASON else Unavailable(reason=reason)
+            )
         snapshot = await self.snapshot()
         if snapshot is None:
-            return Unavailable("the target moved")
+            return Unavailable(reason="the target moved")
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
@@ -685,7 +687,7 @@ class DirectoryService:
             return row
         by_property = backend.field_properties
         cleared = {field: None for field, name in by_property.items() if name in hidden}
-        return dataclasses.replace(row, **cleared) if cleared else row
+        return _rebuilt(row, **cleared) if cleared else row
 
     # -- small helpers ---------------------------------------------------
 
@@ -699,10 +701,10 @@ class DirectoryService:
         try:
             return await asyncio.wait_for(call, deadline)
         except TimeoutError:
-            return Unavailable(f"no answer within {deadline:g} s")
+            return Unavailable(reason=f"no answer within {deadline:g} s")
         except Exception as failure:
             logger.warning("directory backend failed", exc_info=True)
-            return Unavailable(service_failed(failure))
+            return Unavailable(reason=service_failed(failure))
 
     def _cached(self, at: Any, key: tuple[Any, ...]) -> Any:
         entry = self._sets.get((at, *key))
@@ -752,13 +754,13 @@ async def _cancel(tasks: Iterable[asyncio.Task[Any]]) -> None:
 def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     """A finished task's answer; ``Unavailable`` when it is not done or raised."""
     if task is None:
-        return Unavailable(late)
+        return Unavailable(reason=late)
     if not task.done() or task.cancelled():
-        return Unavailable(late)
+        return Unavailable(reason=late)
     failure = task.exception()
     if failure is not None:
         logger.warning("directory backend failed", exc_info=failure)
-        return Unavailable(service_failed(failure))
+        return Unavailable(reason=service_failed(failure))
     return task.result()
 
 
@@ -794,10 +796,10 @@ def _unfiltered(
     """Why an alarm or archive filter cannot be applied: no answer, or no such service."""
     if alarms and not isinstance(index, dict):
         reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(f"cannot filter by alarm: {reason}")
+        return Unavailable(reason=f"cannot filter by alarm: {reason}")
     if archived and not isinstance(held, frozenset):
         reason = held.reason if isinstance(held, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(f"cannot filter by archive: {reason}")
+        return Unavailable(reason=f"cannot filter by archive: {reason}")
     return None
 
 
@@ -886,6 +888,11 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
             counts[value] = counts.get(value, 0) + 1
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [{"value": value, "count": count} for value, count in ordered]
+
+
+def _rebuilt(record: Any, **changes: Any) -> Any:
+    """*record*, a connectors model, rebuilt with *changes* and validated like a new one."""
+    return type(record).model_validate({**dict(record), **changes})
 
 
 def _split_filters(

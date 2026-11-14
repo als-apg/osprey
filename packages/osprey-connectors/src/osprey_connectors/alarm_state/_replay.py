@@ -12,13 +12,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ConfigDict, ValidationError, field_validator
 from typing_extensions import override
 
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
@@ -133,7 +133,7 @@ class ReplayAlarmState(AlarmState):
     def _answering(self) -> FeedSnapshot | Unavailable:
         snapshot = self._loaded()
         if isinstance(snapshot, FeedSnapshot) and snapshot.messages == 0:
-            return Unavailable(FEED_EMPTY)
+            return Unavailable(reason=FEED_EMPTY)
         return snapshot
 
     def _loaded(self) -> FeedSnapshot | Unavailable:
@@ -142,21 +142,23 @@ class ReplayAlarmState(AlarmState):
             return path
         if self._failed is not None:
             return self._failed
-        return self._snapshot if self._snapshot is not None else Unavailable(FEED_LOADING)
+        return self._snapshot if self._snapshot is not None else Unavailable(reason=FEED_LOADING)
 
     def _replay_path(self) -> Path | Unavailable:
         value = self.spec.settings.get("replay_file")
         if not value:
-            return Unavailable("alarm_state.replay_file is not set")
+            return Unavailable(reason="alarm_state.replay_file is not set")
         if not isinstance(value, str | os.PathLike):
-            return Unavailable("alarm_state.replay_file is not a path")
+            return Unavailable(reason="alarm_state.replay_file is not a path")
         if str(value).startswith("demo:"):
-            return Unavailable(f"alarm replay {value} was not resolved to a file")
+            return Unavailable(reason=f"alarm replay {value} was not resolved to a file")
         path = Path(value)
         if path.is_absolute():
             return path
         if self.project_dir is None:
-            return Unavailable(f"alarm replay file {value} is relative, with no project directory")
+            return Unavailable(
+                reason=f"alarm replay file {value} is relative, with no project directory"
+            )
         return self.project_dir / path
 
     async def _load(self, path: Path) -> None:
@@ -166,14 +168,29 @@ class ReplayAlarmState(AlarmState):
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
             logger.warning("alarm replay not loaded: %s", reason)
-            self._failed = Unavailable(f"alarm replay file cannot be read: {reason}")
+            self._failed = Unavailable(reason=f"alarm replay file cannot be read: {reason}")
 
 
-@dataclass(frozen=True)
-class _Message:
-    key: str | None
-    value: Mapping[str, object] | str | None
-    time: datetime | None
+class _Message(FrozenModel):
+    """One topic message of the file; a key it does not name is ignored.
+
+    ``time`` is read with :meth:`datetime.fromisoformat`, a time with no zone as
+    UTC.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    key: str | None = None
+    value: dict[str, object] | str | None = None
+    time: datetime | None = None
+
+    @field_validator("time", mode="before")
+    @classmethod
+    def _iso_time(cls, recorded: object) -> object:
+        if not isinstance(recorded, str):
+            return recorded
+        moment = datetime.fromisoformat(recorded)
+        return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
@@ -192,7 +209,9 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
                 parsed: object = json.loads(line)
                 stopped = parsed == _STOPPED_MARKER
                 if not stopped:
-                    messages.append(_message(parsed))
+                    messages.append(_Message.model_validate(parsed))
+            except ValidationError as exc:
+                raise ValueError(f"{path} line {number}: {_refused(exc)}") from exc
             except (ValueError, TypeError) as exc:
                 raise ValueError(f"{path} line {number}: {exc}") from exc
 
@@ -208,24 +227,12 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
     return snapshot, stopped, _iso(loaded_at)
 
 
-def _message(parsed: object) -> _Message:
-    if not isinstance(parsed, dict):
-        raise ValueError("a message is a JSON object")
-    key = parsed.get("key")
-    if key is not None and not isinstance(key, str):
-        raise ValueError("a message's key is a string or null")
-    value = parsed.get("value")
-    if value is not None and not isinstance(value, dict | str):
-        raise ValueError("a message's value is a JSON object, a string or null")
-    recorded = parsed.get("time")
-    if recorded is None:
-        return _Message(key, value, None)
-    if not isinstance(recorded, str):
-        raise ValueError("a message's time is an ISO-8601 string")
-    moment = datetime.fromisoformat(recorded)
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return _Message(key, value, moment)
+def _refused(error: ValidationError) -> str:
+    """Why a line is not a message: each field refused, and the reason."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in detail['loc']) or 'a message'}: {detail['msg']}"
+        for detail in error.errors(include_url=False)
+    )
 
 
 def _iso(moment: datetime) -> str:

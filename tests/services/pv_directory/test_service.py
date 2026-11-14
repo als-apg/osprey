@@ -151,7 +151,7 @@ class FakeAlarmState(FakeBackend):
         return AlarmStateRecord(severity="MAJOR")
 
     async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return Unavailable("no message from the feed yet")
+        return Unavailable(reason="no message from the feed yet")
 
     async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
@@ -545,7 +545,7 @@ async def test_search_marks_each_row_with_the_feed_state(tmp_path: Path) -> None
 
 async def test_a_feed_without_an_answer_marks_no_row_and_says_why(tmp_path: Path) -> None:
     directory = _alarmed_directory(tmp_path)
-    FakeAlarmState.held = Unavailable("alarm feed still loading")
+    FakeAlarmState.held = Unavailable(reason="alarm feed still loading")
 
     page = await directory.search(words="SR")
 
@@ -1159,7 +1159,7 @@ async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
 async def test_every_search_outcome_carries_the_page_fields(
     tmp_path: Path, record: _Record
 ) -> None:
-    page_keys = {field.name for field in dataclasses.fields(DirectoryPage)}
+    page_keys = set(DirectoryPage.model_fields)
     FakeDirectory.rows = [_row("SR:BPM1")]
     record.move("live", 1)
     found = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")

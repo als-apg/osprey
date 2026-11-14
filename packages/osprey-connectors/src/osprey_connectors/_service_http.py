@@ -176,12 +176,14 @@ class ReadOnlyTransport:
             The parsed JSON, or :class:`Unavailable` with the reason in plain words.
         """
         if not self._allows(method, path):
-            return Unavailable(f"refused: {method} {path!r} is not a request this backend may send")
+            return Unavailable(
+                reason=f"refused: {method} {path!r} is not a request this backend may send"
+            )
         connection = self._connection
         if connection is None:
-            return Unavailable(self._block_reason)
+            return Unavailable(reason=self._block_reason)
         bound = min(deadline, connection.timeout_or(deadline))
-        no_answer = Unavailable(f"no answer within {bound:g} s")
+        no_answer = Unavailable(reason=f"no answer within {bound:g} s")
         if bound <= 0:
             return no_answer
         request = self._build_request(connection, method, path, params, json_body)
@@ -213,14 +215,14 @@ class ReadOnlyTransport:
         base = connection.url or ""
         if "?" in base or "#" in base:
             # The allowed path would land in the query or fragment, not in the path sent.
-            return Unavailable(f"`{self._where}.url` must not carry a query or fragment")
+            return Unavailable(reason=f"`{self._where}.url` must not carry a query or fragment")
         url = base.rstrip("/") + path
         if params:
             try:
                 query = urllib.parse.urlencode(params, doseq=True, quote_via=urllib.parse.quote)
             except UnicodeError:
                 # A lone surrogate survives JSON decoding, so a search word can carry one here.
-                return Unavailable(_UNENCODABLE_QUERY_REASON)
+                return Unavailable(reason=_UNENCODABLE_QUERY_REASON)
             url = f"{url}?{query}"
         headers = {}
         data = None
@@ -230,7 +232,7 @@ class ReadOnlyTransport:
         try:
             return urllib.request.Request(url, data=data, headers=headers, method=method)
         except ValueError:
-            return Unavailable(f"`{self._where}.url` must be an http or https url")
+            return Unavailable(reason=f"`{self._where}.url` must be an http or https url")
 
     def _open(self) -> urllib.request.OpenerDirector:
         if self._opener is None:
@@ -250,9 +252,9 @@ class ReadOnlyTransport:
         try:
             opener = self._open()
         except UnicodeError:
-            return Unavailable(self._unsendable_reason())
+            return Unavailable(reason=self._unsendable_reason())
         except (ValueError, ConnectionError) as e:
-            return Unavailable(str(e))
+            return Unavailable(reason=str(e))
         ends_at = time.monotonic() + bound
         try:
             try:
@@ -266,14 +268,14 @@ class ReadOnlyTransport:
                 content_type = response.headers.get("Content-Type", "")
                 return _read_answer(response.status, content_type, body)
         except http.client.IncompleteRead:
-            return Unavailable(_CUT_SHORT_REASON)
+            return Unavailable(reason=_CUT_SHORT_REASON)
         except (ValueError, http.client.InvalidURL):
             # What these say can quote the login header or the url, so none of it is repeated.
-            return Unavailable(self._unsendable_reason())
+            return Unavailable(reason=self._unsendable_reason())
         except (OSError, http.client.HTTPException) as e:
             if isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError):
-                return Unavailable(f"no answer within {bound:g} s")
-            return Unavailable(f"could not reach the service: {getattr(e, 'reason', e)}")
+                return Unavailable(reason=f"no answer within {bound:g} s")
+            return Unavailable(reason=f"could not reach the service: {getattr(e, 'reason', e)}")
 
     def _unsendable_reason(self) -> str:
         return f"`{self._where}`: the url or login cannot be sent"
@@ -281,7 +283,7 @@ class ReadOnlyTransport:
 
 def _read_until(response: _Reply, ends_at: float) -> bytes | Unavailable:
     # A socket timeout restarts with every byte, so a slow drip would outlast it.
-    too_large = Unavailable(f"answered more than {_MAX_BODY_BYTES // (1024 * 1024)} MiB")
+    too_large = Unavailable(reason=f"answered more than {_MAX_BODY_BYTES // (1024 * 1024)} MiB")
     if response.length is not None and response.length > _MAX_BODY_BYTES:
         return too_large
     chunks = []
@@ -295,20 +297,20 @@ def _read_until(response: _Reply, ends_at: float) -> bytes | Unavailable:
             raise TimeoutError
     # read1 reports an early close as an empty read, leaving the declared length unmet.
     if response.length:
-        return Unavailable(_CUT_SHORT_REASON)
+        return Unavailable(reason=_CUT_SHORT_REASON)
     return b"".join(chunks)
 
 
 def _read_answer(status: int, content_type: str, body: bytes) -> object:
     html = "html" in content_type.lower() or _is_html(body)
     if 300 <= status < 400 or (html and status in _LOGIN_PAGE_STATUSES):
-        return Unavailable(LOGIN_PAGE_REASON)
+        return Unavailable(reason=LOGIN_PAGE_REASON)
     if html or not 200 <= status < 300:
-        return Unavailable(f"answered HTTP {status}")
+        return Unavailable(reason=f"answered HTTP {status}")
     try:
         return json.loads(body)
     except (ValueError, RecursionError):
-        return Unavailable(_MALFORMED_REASON)
+        return Unavailable(reason=_MALFORMED_REASON)
 
 
 def _is_html(body: bytes) -> bool:

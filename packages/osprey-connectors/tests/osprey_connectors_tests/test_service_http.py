@@ -275,7 +275,7 @@ async def test_html_reads_as_a_login_page(service, status, content_type, body):
 
     answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable(LOGIN_PAGE_REASON)
+    assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert answer.reason == (
         "answered with a login page (an access proxy is in front of the service)"
     )
@@ -297,7 +297,7 @@ async def test_html_with_any_other_status_names_the_status(service, status, cont
 
     answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable(f"answered HTTP {status}")
+    assert answer == Unavailable(reason=f"answered HTTP {status}")
 
 
 @pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
@@ -307,7 +307,7 @@ async def test_a_redirect_reads_as_a_login_page_and_is_not_followed(service, sta
 
     answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable(LOGIN_PAGE_REASON)
+    assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert [r["target"] for r in service.received] == ["/resources/channels"]
 
 
@@ -316,7 +316,7 @@ async def test_a_redirect_of_a_post_is_not_followed(service):
 
     answer = await _transport(service, PUT_LOG).request("POST", "/search", json_body={}, deadline=5)
 
-    assert answer == Unavailable(LOGIN_PAGE_REASON)
+    assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert [r["target"] for r in service.received] == ["/search"]
 
 
@@ -326,7 +326,7 @@ async def test_a_body_that_is_not_json_is_malformed(service, body):
 
     answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("malformed response")
+    assert answer == Unavailable(reason="malformed response")
 
 
 @pytest.mark.parametrize("status", [404, 500, 503])
@@ -335,7 +335,7 @@ async def test_an_error_status_is_named(service, status):
 
     answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable(f"answered HTTP {status}")
+    assert answer == Unavailable(reason=f"answered HTTP {status}")
 
 
 # --- the deadline -------------------------------------------------------------------
@@ -348,7 +348,7 @@ async def test_a_silent_service_answers_no_answer_within_the_deadline(service):
     started = time.monotonic()
     answer = await _transport(service).request("GET", "/resources/channels", deadline=0.2)
 
-    assert answer == Unavailable("no answer within 0.2 s")
+    assert answer == Unavailable(reason="no answer within 0.2 s")
     assert time.monotonic() - started < 2.0
 
 
@@ -359,13 +359,13 @@ async def test_a_shorter_configured_timeout_bounds_a_longer_deadline(service):
         "GET", "/resources/channels", deadline=60
     )
 
-    assert answer == Unavailable("no answer within 0.2 s")
+    assert answer == Unavailable(reason="no answer within 0.2 s")
 
 
 async def test_a_spent_deadline_sends_nothing(service):
     answer = await _transport(service).request("GET", "/resources/channels", deadline=0)
 
-    assert answer == Unavailable("no answer within 0 s")
+    assert answer == Unavailable(reason="no answer within 0 s")
     assert service.received == []
 
 
@@ -403,7 +403,7 @@ async def test_a_body_dripped_past_the_deadline_times_out():
         server.shutdown()
         server.server_close()
 
-    assert answer == Unavailable("no answer within 0.3 s")
+    assert answer == Unavailable(reason="no answer within 0.3 s")
     assert time.monotonic() - started < 2.0
 
 
@@ -418,7 +418,7 @@ async def test_a_reply_at_the_size_cap_is_read_and_one_byte_over_is_refused(serv
 
     assert await transport.request("GET", "/resources/channels", deadline=5) == 1
     answer = await transport.request("GET", "/resources/tags", deadline=5)
-    assert answer == Unavailable("answered more than 1 MiB")
+    assert answer == Unavailable(reason="answered more than 1 MiB")
 
 
 async def test_a_declared_length_over_the_cap_is_refused_before_reading(monkeypatch):
@@ -435,7 +435,7 @@ async def test_a_declared_length_over_the_cap_is_refused_before_reading(monkeypa
         started = time.monotonic()
         answer = await transport.request("GET", "/resources/channels", deadline=30)
 
-    assert answer == Unavailable("answered more than 1 MiB")
+    assert answer == Unavailable(reason="answered more than 1 MiB")
     assert time.monotonic() - started < 4.0
 
 
@@ -462,7 +462,7 @@ async def test_an_undeclared_reply_over_the_cap_stops_the_read(monkeypatch):
         answer = await transport.request("GET", "/resources/channels", deadline=30)
         assert finished.wait(5)
 
-    assert answer == Unavailable("answered more than 1 MiB")
+    assert answer == Unavailable(reason="answered more than 1 MiB")
     assert sent < total / 2
 
 
@@ -560,7 +560,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
 
     answer = await _transport(service, auth=auth).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable(reason="`pv_directory.settings`: the url or login cannot be sent")
     assert service.received == []
     assert "s3cret" not in caplog.text
 
@@ -580,7 +580,7 @@ async def test_a_url_that_cannot_be_sent_is_unavailable_naming_the_block(url):
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable(reason="`pv_directory.settings`: the url or login cannot be sent")
 
 
 async def test_a_refused_login_names_the_status_not_the_login(service, monkeypatch):
@@ -591,7 +591,7 @@ async def test_a_refused_login_names_the_status_not_the_login(service, monkeypat
         "GET", "/resources/channels", deadline=5
     )
 
-    assert answer == Unavailable("answered HTTP 401")
+    assert answer == Unavailable(reason="answered HTTP 401")
 
 
 @pytest.mark.parametrize(
@@ -605,7 +605,7 @@ async def test_a_query_that_cannot_be_encoded_sends_nothing(service, monkeypatch
 
     answer = await transport.request("GET", "/resources/channels", params=params, deadline=5)
 
-    assert answer == Unavailable("the query cannot be sent")
+    assert answer == Unavailable(reason="the query cannot be sent")
     assert service.received == []
 
 
@@ -617,7 +617,9 @@ async def test_a_url_with_a_query_or_fragment_sends_nothing(service, suffix):
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings.url` must not carry a query or fragment")
+    assert answer == Unavailable(
+        reason="`pv_directory.settings.url` must not carry a query or fragment"
+    )
     assert service.received == []
 
 

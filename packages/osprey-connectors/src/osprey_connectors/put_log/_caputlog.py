@@ -25,10 +25,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
 
+from pydantic import ConfigDict, ValidationError
 from typing_extensions import override
 
+from osprey_connectors._model import FrozenModel
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.put_log._contract import PutLog, PutRow
 from osprey_connectors.service_answers import (
@@ -50,11 +51,13 @@ _MAX_ROWS = 200
 _EARLIEST = datetime.min.replace(tzinfo=UTC)
 
 
-class _Envelope(TypedDict):
-    """What an answer is read for, once ``results`` is checked a list of objects."""
+class _Envelope(FrozenModel):
+    """What an answer is read for: ``results`` must be a list of objects, the rest is ignored."""
+
+    model_config = ConfigDict(extra="ignore")
 
     results: list[dict[str, object]]
-    totalResults: object
+    totalResults: object = None
 
 
 class CaPutLog(PutLog):
@@ -93,7 +96,7 @@ class CaPutLog(PutLog):
         if isinstance(envelope, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=envelope.reason)
 
-        results = envelope["results"]
+        results = envelope.results
         hits = [hit for hit in results if _is_write_to(_recorded(hit, "pv"), channel)]
         if since is not None:
             floor = _as_utc(since)
@@ -122,12 +125,10 @@ class CaPutLog(PutLog):
         )
         if isinstance(answer, Unavailable):
             return answer
-        if not isinstance(answer, dict):
-            return Unavailable(_MALFORMED_REASON)
-        results = answer.get("results")
-        if not isinstance(results, list) or not all(isinstance(hit, dict) for hit in results):
-            return Unavailable(_MALFORMED_REASON)
-        return _Envelope(results=results, totalResults=answer.get("totalResults"))
+        try:
+            return _Envelope.model_validate(answer)
+        except ValidationError:
+            return Unavailable(reason=_MALFORMED_REASON)
 
     def _page(
         self,
@@ -182,8 +183,8 @@ def _as_utc(moment: datetime) -> datetime:
 
 
 def _left_unread(envelope: _Envelope, limit: int) -> bool:
-    read = len(envelope["results"])
-    total = envelope["totalResults"]
+    read = len(envelope.results)
+    total = envelope.totalResults
     return total > read if isinstance(total, int) else read > limit
 
 

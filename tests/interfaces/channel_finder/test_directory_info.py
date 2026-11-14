@@ -31,7 +31,7 @@ from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.service_answers import Source
+from osprey_connectors.service_answers import Outcome, Source
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -361,7 +361,9 @@ def test_the_fixture_search_is_a_directory_page() -> None:
         service=served["service"],
         rehearsal=served["rehearsal"],
     )
-    rebuilt = DirectoryPage(**{**page, "source": source, "rows": rows})
+    rebuilt = DirectoryPage(
+        **{**page, "outcome": Outcome(page["outcome"]), "source": source, "rows": rows}
+    )
     payload = _connectors.as_payload(rebuilt)
     payload["rows"] = [
         service._served_row(row, served["origin"], states, held)
