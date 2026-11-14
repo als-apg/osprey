@@ -275,7 +275,8 @@ import { state } from './state.js';
  * cover every channel the feed holds a state for; `rows` only those not OK,
  * worst first, then newest. `outcome` is `unavailable` with `reason` when the
  * feed gave no answer, and `source.service` is "none" when the target has no
- * alarm-state source.
+ * alarm-state source. `feed` is `replay` when the states are replayed from a
+ * file; its `last_contact` is then the moment the file was loaded.
  * @typedef {{
  *   outcome: 'found'|'unavailable',
  *   source: Source,
@@ -286,6 +287,7 @@ import { state } from './state.js';
  *   truncated?: boolean,
  *   stale?: boolean,
  *   last_contact?: string|null,
+ *   feed?: 'live'|'replay',
  *   reason?: string,
  * }} ActiveAlarms
  */

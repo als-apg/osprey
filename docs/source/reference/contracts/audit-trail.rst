@@ -562,7 +562,7 @@ another identity's.
 **The deployment-wide view is a reader's.** A reader is a person the profile
 names under ``agent_record.readers``. A question spanning several people
 is answered by a reader, on the history page or with a reader key
-(:doc:`/how-to/health-and-monitoring/read-the-record`). Past the retention
+(:ref:`agent-record-readers`). Past the retention
 window, it is answered from the archive on the deploy host, where whoever owns
 ``var/archive/`` reads every day's export.
 

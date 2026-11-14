@@ -32,7 +32,9 @@ async def active_alarms(severities: list[str] | None = None, limit: int = 100) -
     ``latched``, ``acknowledged``, ``message``, ``time``, ``stale`` and
     ``links.panel``, the panel page showing that channel. ``stale`` means the
     alarm feed is not updating: the severities are the last received, not a
-    clear state. ``last_contact`` is when the feed was last heard from.
+    clear state. ``feed`` is ``live`` or ``replay`` (states replayed from a
+    file, not the machine's). ``last_contact`` is when a live feed was last
+    heard from, or when a replay was loaded.
 
     Args:
         severities: Only rows of these severities (for example ``["MAJOR"]``);
@@ -42,7 +44,7 @@ async def active_alarms(severities: list[str] | None = None, limit: int = 100) -
     Returns:
         JSON object: ``outcome``, ``source``, ``caveats`` (the deployment's
         notes on that source), ``counts``, ``total``, ``rows``, ``truncated``,
-        ``stale`` and ``last_contact``.
+        ``stale``, ``last_contact`` and ``feed``.
     """
     if not 0 <= limit <= ACTIVE_ALARMS_MAX_ROWS:
         make_error(

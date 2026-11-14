@@ -1,5 +1,5 @@
-The roster's old spellings still load until OSPREY 2026.12.0, each with a warning
-that names its successor; `osprey init --revalidate` rewrites a repo to the new
+The roster's old spellings still load until the next stable OSPREY release, each
+with a warning that names its successor; `osprey init --revalidate` rewrites a repo to the new
 spellings in place:
 
 - `users[].persona` and `authorization.roles.<role>.persona`, read as `tier` <!-- retired-spelling -->

@@ -572,6 +572,12 @@ translation proxy (see *Protocol Translation* above), the local proxy address,
 whose port changes at every launch. A policy can therefore only agree with a
 proxied provider by leaving ``ANTHROPIC_BASE_URL`` out.
 
+Whenever the launched endpoint is a gateway rather than Anthropic's own API,
+OSPREY also starts the agent with ``ENABLE_TOOL_SEARCH=false``, so the agent is
+sent its tools directly instead of having to search for them; this replaces a
+value from the shell or ``.env``, and a managed policy that sets the variable
+is not checked and wins.
+
 .. list-table::
    :header-rows: 1
    :widths: 15 45

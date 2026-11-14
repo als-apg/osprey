@@ -5,7 +5,7 @@ name: Channel Finder Feedback Capture
 description: Silently captures channel finder search results into pending review store
 summary: Captures CF tool results for operator review
 event: PostToolUse
-tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql, mcp__channel-finder__read_cypher, mcp__channel-finder__search_channels
+tools: mcp__channel-finder__build_channels, mcp__channel-finder__ask_channels, mcp__channel-finder__run_sql
 ---
 
 ## Flow
@@ -17,6 +17,10 @@ stdin --> Parse JSON
          Is CF tool?  --NO--> EXIT (silent)
               |
              YES
+              v
+         Graph tool?  --YES--> EXIT (silent: graph mode has no feedback)
+              |
+             NO
               v
          Saved-output notice?  --YES--> read the session's saved file
               |                          (unreadable/untrusted: EXIT)
@@ -111,9 +115,16 @@ try:
         "mcp__channel-finder__build_channels",
         "mcp__channel-finder__ask_channels",
         "mcp__channel-finder__run_sql",
+    }
+    # The graph pipeline answers from the facility graph and keeps no hints, so
+    # there is nothing to review its answers into.
+    GRAPH_TOOLS = {
         "mcp__channel-finder__read_cypher",
         "mcp__channel-finder__search_channels",
     }
+    if tool_name in GRAPH_TOOLS:
+        log_hook("cf-feedback-capture", hook_input, status="graph-answer", detail=tool_name)
+        sys.exit(0)
     if tool_name not in CAPTURE_TOOLS:
         log_hook("cf-feedback-capture", hook_input, status="skip-tool", detail=tool_name)
         sys.exit(0)
@@ -181,18 +192,14 @@ try:
         else:
             tool_response = inner  # already a dict/list
 
-    # Three answer shapes reach this hook. The table pipelines return
-    # `channels`/`total`; read_cypher returns its QueryResult envelope — `rows`,
-    # `row_count`, `truncated`; search_channels returns the search index's
-    # `total` beside a `rows` list of hits. Reading every count keeps one
-    # capture path for every pipeline mode, so an operator reviews graph answers
-    # on the same card as table answers. A response that carries a `rows` list
-    # is harvested for addresses below, whichever of the two counts it uses.
+    # Two answer shapes reach this hook: `channels`/`total`, and run_sql's
+    # `rows`/`row_count` envelope. A response that carries a `rows` list is
+    # harvested for addresses below, whichever of the two counts it uses.
     total = 0
-    graph_envelope = None
+    rows_envelope = None
     if isinstance(tool_response, dict):
         if "row_count" in tool_response:
-            graph_envelope = tool_response
+            rows_envelope = tool_response
             row_count = tool_response.get("row_count")
             if isinstance(row_count, int) and not isinstance(row_count, bool):
                 total = row_count
@@ -202,7 +209,7 @@ try:
         else:
             total = tool_response.get("total", 0)
             if isinstance(tool_response.get("rows"), list):
-                graph_envelope = tool_response
+                rows_envelope = tool_response
     if not total or total <= 0:
         resp_type = type(tool_response).__name__
         resp_keys = list(tool_response.keys()) if isinstance(tool_response, dict) else None
@@ -249,16 +256,15 @@ try:
     )
 
     # The review UI and the artifact matcher both read the addresses out of a
-    # `channels` list on the recorded response. A graph answer carries them in
-    # its address column instead — `fullPv` as the corpus spells it, `pv` as
-    # the shipped example queries alias it -- so the envelope is recorded with
-    # that list beside its rows. It goes here rather than on the item because
+    # `channels` list on the recorded response. A rows envelope carries them in
+    # an address column instead — `fullPv` or `pv` — so the envelope is
+    # recorded with that list beside its rows. It goes here rather than on the item because
     # the pending-review store copies a fixed set of item fields and would drop
     # anything else, while `tool_response` reaches both readers intact. A query
     # that returns no addresses at all (a count per section, say) is still worth
     # reviewing and lands with an empty list.
-    if graph_envelope is not None:
-        recorded = dict(graph_envelope)
+    if rows_envelope is not None:
+        recorded = dict(rows_envelope)
         addresses = []
         seen = set()
         for row in recorded.get("rows") or []:

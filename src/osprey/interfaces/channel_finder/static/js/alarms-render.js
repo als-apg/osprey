@@ -231,18 +231,36 @@ export function countHtml(n) {
 /**
  * The feed chip's label markup and tone. The last contact moves with every
  * answer of a live feed, so its placeholder carries no time: the view writes
- * the time into it in place, and the band's markup stays the same.
+ * the time into it in place, and the band's markup stays the same. A replay
+ * is no feed: it says when its file was loaded, in a neutral tone.
  * @param {ActiveAlarms} answer
- * @returns {{ html: string, tone: 'ok'|'warn' }}
+ * @returns {{ html: string, tone: 'ok'|'warn'|'neutral' }}
  */
 export function feedChip(answer) {
   if (answer.stale) return { html: 'feed stale', tone: 'warn' };
+  if (answer.feed === 'replay') {
+    return {
+      html: sinceHtml(answer.last_contact)
+        ? 'replay · loaded <span data-since=""></span> ago'
+        : 'replay',
+      tone: 'neutral',
+    };
+  }
   return {
     html: sinceHtml(answer.last_contact)
       ? 'feed live · last contact <span data-since=""></span> ago'
       : 'feed live',
     tone: 'ok',
   };
+}
+
+/**
+ * The chip's classes: a neutral chip takes the primitive's own grey.
+ * @param {'ok'|'warn'|'neutral'} tone
+ * @returns {string}
+ */
+function chipClass(tone) {
+  return tone === 'neutral' ? 'osprey-chip' : `osprey-chip osprey-chip--${tone}`;
 }
 
 /**
@@ -275,19 +293,21 @@ export function bandHtml(answer, pressed) {
     '<span class="alarms-grow"></span>' +
     '<button type="button" class="osprey-icon-btn" data-action="refresh"' +
     ' aria-label="Refresh" title="Refresh"></button>' +
-    `<button type="button" class="osprey-chip osprey-chip--${chip.tone}" data-action="feed">` +
+    `<button type="button" class="${chipClass(chip.tone)}" data-action="feed">` +
     `<span class="osprey-chip-label">${chip.html}</span></button>`
   );
 }
 
 /**
- * The warning over a stale feed.
+ * The warning over a stale feed. A replay never had contact: it names when
+ * its file was loaded.
  * @param {string|null|undefined} lastContact
+ * @param {boolean} [replay]
  * @returns {string}
  */
-export function bannerHtml(lastContact) {
+export function bannerHtml(lastContact, replay = false) {
   const since = timeText(lastContact);
-  const when = since ? ` No contact since ${esc(since)}.` : '';
+  const when = since ? ` ${replay ? 'Loaded' : 'No contact since'} ${esc(since)}.` : '';
   return (
     `<strong>Alarm feed not updating.</strong>${when}` +
     ' The states below are the last ones received and may be out of date.'
@@ -309,7 +329,8 @@ export function feedRows(answer) {
   if (typeof answer.total === 'number')
     rows.push({ label: 'PVs in tree', value: fmt(answer.total) });
   const contact = timeText(answer.last_contact);
-  if (contact) rows.push({ label: 'Last contact', value: contact });
+  if (contact)
+    rows.push({ label: answer.feed === 'replay' ? 'Loaded' : 'Last contact', value: contact });
   return rows;
 }
 

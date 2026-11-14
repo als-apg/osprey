@@ -28,6 +28,16 @@ OTHER_COMMIT = contract.OTHER_COMMIT
 CANOPY_PIN = PROVEN_COMMITS["canopy"]
 PYDM_PIN = PROVEN_COMMITS["PyDMConverter"]
 PROVEN_MODULE = Path(proven.__file__)
+PAIR_LINES = f"canopy={CANOPY_PIN}\nPyDMConverter={PYDM_PIN}\n"
+
+
+def _pins_output() -> str:
+    """What ``--pins`` prints: the pair first, then what the payload was built from."""
+    commits = {**PROVEN_COMMITS, **proven.PAYLOAD_COMMITS}
+    lines = [f"{key}={value}" for key, value in commits.items()]
+    lines += [f"{key}.mirror={proven.MIRRORS[key]}" for key in commits]
+    lines += [f"{key}={value}" for key, value in proven.PAYLOAD_BUILD.items()]
+    return "".join(line + "\n" for line in lines)
 
 
 class _FakeDistribution:
@@ -87,6 +97,43 @@ def test_the_package_re_exports_the_modules_declaration() -> None:
 @pytest.mark.parametrize("distribution", ["canopy", "PyDMConverter"])
 def test_a_proven_commit_is_a_full_commit_id(distribution: str) -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", PROVEN_COMMITS[distribution])
+
+
+# --- what the proven payload was built from ------------------------------------------
+
+
+def test_the_payload_record_never_names_a_distribution_the_stage_check_judges() -> None:
+    assert set(proven.PAYLOAD_COMMITS).isdisjoint(PROVEN_COMMITS)
+    assert set(proven.STAGED_KEYS) == set(PROVEN_COMMITS)
+
+
+@pytest.mark.parametrize("name", sorted(proven.PAYLOAD_COMMITS))
+def test_a_payload_commit_is_a_full_commit_id(name: str) -> None:
+    assert re.fullmatch(r"[0-9a-f]{40}", proven.PAYLOAD_COMMITS[name])
+
+
+def test_every_repository_has_its_public_mirror() -> None:
+    assert set(proven.MIRRORS) == set(PROVEN_COMMITS) | set(proven.PAYLOAD_COMMITS)
+    for url in proven.MIRRORS.values():
+        assert url.startswith("https://github.com/als-apg/canopy-osprey-mirror-")
+
+
+def test_the_builder_is_a_canopy_commit() -> None:
+    assert proven.MIRRORS["builder"] == proven.MIRRORS["canopy"]
+
+
+@pytest.mark.parametrize(
+    ("key", "distribution"),
+    [("canopy.version", "canopy"), ("PyDMConverter.version", "PyDMConverter")],
+)
+def test_a_recorded_wheel_version_names_its_pin(key: str, distribution: str) -> None:
+    assert proven.version_names_pin(distribution, proven.PAYLOAD_BUILD[key])
+
+
+def test_the_sdk_packs_come_from_the_sdk_mirrors_release() -> None:
+    assert proven.PAYLOAD_BUILD["SDK_PACKS"].startswith(
+        proven.MIRRORS["canopy-sdk-js"] + "/releases/download/v"
+    )
 
 
 # --- the files copied from CANOPY -------------------------------------------------------
@@ -432,9 +479,13 @@ def test_main_prints_the_probe_line_and_exits_by_the_state(
     assert capsys.readouterr().out == proven.line(proven.judge(), None) + "\n"
 
 
-def test_main_pins_prints_both_commits(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_pins_prints_both_commits_first_then_the_payload_record(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert proven.main(["--pins"]) == 0
-    assert capsys.readouterr().out == f"canopy={CANOPY_PIN}\nPyDMConverter={PYDM_PIN}\n"
+    out = capsys.readouterr().out
+    assert out.startswith(PAIR_LINES)
+    assert out == _pins_output()
 
 
 def test_the_module_runs_by_path_with_nothing_but_the_standard_library(tmp_path: Path) -> None:
@@ -447,7 +498,7 @@ def test_the_module_runs_by_path_with_nothing_but_the_standard_library(tmp_path:
         check=False,
     )
     assert done.returncode == 0, done.stderr
-    assert done.stdout == f"canopy={CANOPY_PIN}\nPyDMConverter={PYDM_PIN}\n"
+    assert done.stdout == _pins_output()
 
 
 def _run_in_a_bare_site(
@@ -502,7 +553,7 @@ def test_the_package_command_judges_with_a_clean_stderr(
 def test_the_package_command_prints_the_pins(tmp_path: Path) -> None:
     done = _run_in_a_bare_site(tmp_path, "osprey.integrations.canopy", {}, "--pins")
     assert done.returncode == 0, done.stderr
-    assert done.stdout == f"canopy={CANOPY_PIN}\nPyDMConverter={PYDM_PIN}\n"
+    assert done.stdout == _pins_output()
     assert done.stderr == ""
 
 
@@ -512,7 +563,7 @@ def test_the_package_command_with_a_clean_stderr__mutation_runs_the_submodule(
     done = _run_in_a_bare_site(tmp_path, "osprey.integrations.canopy.proven", {}, "--pins")
     assert "RuntimeWarning" in done.stderr
     assert done.returncode == 0
-    assert done.stdout == f"canopy={CANOPY_PIN}\nPyDMConverter={PYDM_PIN}\n"
+    assert done.stdout == _pins_output()
 
 
 # --- what a run says --------------------------------------------------------------------

@@ -1368,30 +1368,6 @@ textarea.form-input {
   padding: 2px 6px;
 }
 
-/* Informational posture, matching .explore-unknown--info: the graph paradigm
-   keeps no feedback store by design, so the pane that says so must not be
-   tinted like a failure. Sized to sit above the capture queue. */
-.fb-paradigm-note {
-  background: var(--accent-tint-08);
-  border: 1px solid var(--accent-tint-30);
-  border-left: 3px solid var(--color-accent);
-  border-radius: 5px; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  padding: var(--space-3) var(--space-4);
-}
-
-.fb-paradigm-note-title {
-  color: var(--text-accent);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-
-.fb-paradigm-note-body {
-  margin-top: var(--space-2);
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  line-height: var(--leading-normal);
-}
-
 .fb-table-row {
   cursor: pointer;
 }

@@ -133,6 +133,8 @@ function viewAvailable(view) {
   if (!Object.hasOwn(VIEWS, view)) return false;
   if (view === 'alarms' && !alarmsConfigured()) return false;
   if (view === 'archive' && !archiveConfigured()) return false;
+  // The graph paradigm answers from the facility graph and keeps no hints.
+  if (view === 'feedback' && state.pipelineType === 'graph') return false;
   return !DIRECTORY_VIEWS.has(view) || state.directory !== null;
 }
 
@@ -199,7 +201,7 @@ function activateView(viewName, params) {
  * The view switch's buttons, in the one order the panel has: Curated · All PVs
  * · Alarms · Archive · Feedback, each kept while viewAvailable says so (Curated
  * is whichever paradigm runs). Without the directory descriptor Curated reads
- * Explore, and only it and Feedback remain.
+ * Explore, and only it and Feedback remain (Feedback outside the graph paradigm).
  * @returns {{ id: string, label: string }[]}
  */
 function viewTabs() {
