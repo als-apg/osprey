@@ -87,8 +87,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation._records import ChannelRecord, ScenarioRecord
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.records import ChannelRecord, ScenarioRecord
 
 logger = get_logger("archive")
 

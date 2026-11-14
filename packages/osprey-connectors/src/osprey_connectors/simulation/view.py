@@ -29,7 +29,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation._records import (
+    from osprey_connectors.simulation.records import (
         ChannelRecord,
         ModelEntry,
         ScenarioRecord,

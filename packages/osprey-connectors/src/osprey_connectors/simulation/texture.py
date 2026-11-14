@@ -72,7 +72,7 @@ from osprey_connectors.simulation.envelope import declares_motion
 from osprey_connectors.simulation.view import SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation._records import (
+    from osprey_connectors.simulation.records import (
         ChannelRecord,
         GateRecord,
         LinearTerm,

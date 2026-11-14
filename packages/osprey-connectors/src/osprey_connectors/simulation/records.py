@@ -1,4 +1,4 @@
-"""The shapes of the records a simulator view's documents carry, for the type checker.
+"""The shapes of the records a simulator view's documents carry.
 
 ``osprey build`` validates the facility's YAML and writes the simulator view
 from it; :class:`~osprey_connectors.simulation.view.SimulatorView` refuses a
@@ -11,13 +11,30 @@ A view document is frozen as the reader serves it: its lists are tuples and
 its mappings read-only, so a list is typed as a ``Sequence`` and a mapping as a
 ``Mapping``.
 
-The module imports only the standard library.
+The module imports only the standard library. Its types are public so that
+code outside the simulation package can name the records it passes in; they
+exist only for the type checker, and nothing checks a record against them at
+runtime.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import NotRequired, Required, TypedDict
+
+__all__ = [
+    "ChannelRecord",
+    "CouplingTerm",
+    "DriveRecord",
+    "GateRecord",
+    "LinearTerm",
+    "ModelEntry",
+    "NoiseRecord",
+    "PulseRecord",
+    "ResolvedCoupling",
+    "ScenarioRecord",
+    "SeedRecord",
+]
 
 
 class NoiseRecord(TypedDict, total=False):
@@ -27,7 +44,7 @@ class NoiseRecord(TypedDict, total=False):
     relative: float
 
 
-class WanderRecord(TypedDict):
+class _WanderRecord(TypedDict):
     """A seed's ``drift`` or a coupling's ``gain_wander``: a bounded slow wander."""
 
     amplitude: float
@@ -47,7 +64,7 @@ class CouplingTerm(TypedDict):
 
     driver: str
     gain: float
-    gain_wander: NotRequired[WanderRecord]
+    gain_wander: NotRequired[_WanderRecord]
 
 
 class ResolvedCoupling(CouplingTerm):
@@ -56,7 +73,7 @@ class ResolvedCoupling(CouplingTerm):
     drive: DriveRecord
 
 
-class TopoffRecord(TypedDict):
+class _TopoffRecord(TypedDict):
     """A ``topoff`` seed: a stored current that decays and refills."""
 
     ceiling: float
@@ -64,7 +81,7 @@ class TopoffRecord(TypedDict):
     period_s: float
 
 
-class LifetimeRecord(TypedDict):
+class _LifetimeRecord(TypedDict):
     """A ``topoff_lifetime`` seed: the channel whose ``topoff`` lifetime it holds."""
 
     of: str
@@ -95,13 +112,13 @@ class SeedRecord(TypedDict, total=False):
 
     nominal: object
     noise: NoiseRecord
-    drift: WanderRecord
+    drift: _WanderRecord
     clamp: Sequence[float | None]
     linear: Mapping[str, float | LinearTerm]
     gate: GateRecord
     pulse: PulseRecord
-    topoff: TopoffRecord
-    topoff_lifetime: LifetimeRecord
+    topoff: _TopoffRecord
+    topoff_lifetime: _LifetimeRecord
 
 
 class ChannelRecord(TypedDict):
@@ -122,7 +139,7 @@ class ChannelRecord(TypedDict):
     precision: NotRequired[int]
 
 
-class WiringRecord(TypedDict, total=False):
+class _WiringRecord(TypedDict, total=False):
     """One wiring record of a model in ``variables.json``."""
 
     id: str
@@ -144,28 +161,28 @@ class ModelEntry(TypedDict):
     served: bool
     settings: Mapping[str, object]
     deck: str | None
-    wiring: Sequence[WiringRecord]
+    wiring: Sequence[_WiringRecord]
     inputs: NotRequired[Sequence[Mapping[str, object]]]
 
 
-class When(TypedDict):
+class _When(TypedDict):
     """A calendar placement, ``{days_ago, time}``, read in the facility timezone."""
 
     days_ago: int
     time: str
 
 
-class ArchiverEvent(TypedDict, total=False):
+class _ArchiverEvent(TypedDict, total=False):
     """One event of a scenario's ``archiver`` entry."""
 
     shape: Required[str]
     at: float
     at_offset: float
-    at_when: When
+    at_when: _When
     at_time: str
     until: float
     until_offset: float
-    until_when: When
+    until_when: _When
     to: float | str
     amplitude: float
     width: float
@@ -175,14 +192,14 @@ class ArchiverEvent(TypedDict, total=False):
     amount: float
 
 
-class ArchiverEntry(TypedDict):
+class _ArchiverEntry(TypedDict):
     """One entry of a scenario's ``archiver`` block: a channel and its events."""
 
     channel: str
-    events: NotRequired[Sequence[ArchiverEvent]]
+    events: NotRequired[Sequence[_ArchiverEvent]]
 
 
-class FaultRecord(TypedDict):
+class _FaultRecord(TypedDict):
     """One model's fault in a scenario's ``faults`` block."""
 
     writes: Mapping[str, object]
@@ -195,7 +212,7 @@ class ScenarioRecord(TypedDict, total=False):
     name: Required[str]
     description: str
     overrides: Mapping[str, object]
-    archiver: Sequence[ArchiverEntry]
+    archiver: Sequence[_ArchiverEntry]
     logbook: Sequence[Mapping[str, object]]
     sessions: object
     drivers: Mapping[str, DriveRecord]
@@ -203,4 +220,4 @@ class ScenarioRecord(TypedDict, total=False):
     noise: Mapping[str, NoiseRecord]
     channel_faults: Mapping[str, str]
     still: Sequence[str]
-    faults: Mapping[str, FaultRecord]
+    faults: Mapping[str, _FaultRecord]

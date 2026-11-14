@@ -159,7 +159,7 @@ from osprey_connectors.simulation.view import (
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation._records import (
+    from osprey_connectors.simulation.records import (
         ChannelRecord,
         CouplingTerm,
         DriveRecord,
