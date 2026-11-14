@@ -34,6 +34,9 @@ Usage:
 """
 
 import logging
+from collections.abc import Mapping
+from types import TracebackType
+from typing import TypeAlias
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -46,6 +49,18 @@ __all__ = [
     "get_logger",
     "set_handler_console",
 ]
+
+#: What :meth:`logging.Logger.log` takes as ``exc_info``.
+_ExcInfo: TypeAlias = (
+    bool
+    | BaseException
+    | tuple[type[BaseException], BaseException, TracebackType | None]
+    | tuple[None, None, None]
+    | None
+)
+
+#: Keywords of the retired event system that callers may still pass; dropped.
+_EVENT_KWARGS = frozenset({"error", "error_type", "recoverable", "stack_trace", "warning"})
 
 
 class ComponentLogger:
@@ -91,7 +106,18 @@ class ComponentLogger:
         self.color = color
         self._state = state
 
-    def _log(self, level: int, message: str, *args: object, intent: str, **kwargs) -> None:
+    def _log(
+        self,
+        level: int,
+        message: str,
+        *args: object,
+        intent: str,
+        exc_info: _ExcInfo,
+        stack_info: bool,
+        stacklevel: int,
+        extra: Mapping[str, object] | None,
+        other: Mapping[str, object],
+    ) -> None:
         """Core logging method that delegates to the stdlib logger.
 
         Args:
@@ -103,67 +129,304 @@ class ComponentLogger:
                 handlers can tell intents apart without guessing from the level
                 (``info`` and ``key_info`` both log at INFO). Metadata only —
                 it changes no level and nothing about rendering.
-            **kwargs: Forwarded to :meth:`logging.Logger.log`. A caller-supplied
-                ``extra`` mapping is merged, not replaced; its dict is left
-                unmutated.
+            exc_info: Forwarded to :meth:`logging.Logger.log`.
+            stack_info: Forwarded to :meth:`logging.Logger.log`.
+            stacklevel: Forwarded to :meth:`logging.Logger.log`.
+            extra: Forwarded to :meth:`logging.Logger.log`, merged, not
+                replaced; the caller's dict is left unmutated.
+            other: Every other keyword the caller passed. The retired
+                event-system keywords are dropped; any other is refused, as
+                :meth:`logging.Logger.log` refuses it: only when the level is
+                enabled.
         """
-        # Strip event-system kwargs that callers may still pass
-        kwargs.pop("error", None)
-        kwargs.pop("error_type", None)
-        kwargs.pop("recoverable", None)
-        kwargs.pop("stack_trace", None)
-        kwargs.pop("warning", None)
-        caller_extra = kwargs.pop("extra", None)
-        extra = {**(caller_extra or {}), "osprey_intent": intent}
-        self.base_logger.log(level, message, *args, extra=extra, **kwargs)
+        unknown = sorted(set(other) - _EVENT_KWARGS)
+        if unknown and self.base_logger.isEnabledFor(level):
+            raise TypeError(f"{intent}() got an unexpected keyword argument {unknown[0]!r}")
+        merged = {**(extra or {}), "osprey_intent": intent}
+        self.base_logger.log(
+            level,
+            message,
+            *args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=merged,
+        )
 
-    def status(self, message: str, *args: object, **kwargs) -> None:
+    def status(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Status update — high-level progress messages."""
-        self._log(logging.INFO, message, *args, intent="status", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="status",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def key_info(self, message: str, *args: object, **kwargs) -> None:
+    def key_info(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Important operational information."""
-        self._log(logging.INFO, message, *args, intent="key_info", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="key_info",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def info(self, message: str, *args: object, **kwargs) -> None:
+    def info(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Normal operational messages."""
-        self._log(logging.INFO, message, *args, intent="info", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="info",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def debug(self, message: str, *args: object, **kwargs) -> None:
+    def debug(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Debug-level messages."""
-        self._log(logging.DEBUG, message, *args, intent="debug", **kwargs)
+        self._log(
+            logging.DEBUG,
+            message,
+            *args,
+            intent="debug",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def warning(self, message: str, *args: object, **kwargs) -> None:
+    def warning(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Warning messages."""
-        self._log(logging.WARNING, message, *args, intent="warning", **kwargs)
+        self._log(
+            logging.WARNING,
+            message,
+            *args,
+            intent="warning",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def error(self, message: str, *args: object, exc_info: bool = False, **kwargs) -> None:
+    def error(
+        self,
+        message: str,
+        *args: object,
+        exc_info: bool = False,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Error messages."""
-        self._log(logging.ERROR, message, *args, intent="error", exc_info=exc_info, **kwargs)
+        self._log(
+            logging.ERROR,
+            message,
+            *args,
+            intent="error",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def success(self, message: str, *args: object, **kwargs) -> None:
+    def success(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Success messages."""
-        self._log(logging.INFO, message, *args, intent="success", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="success",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def timing(self, message: str, *args: object, **kwargs) -> None:
+    def timing(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Timing information."""
-        self._log(logging.INFO, message, *args, intent="timing", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="timing",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def approval(self, message: str, *args: object, **kwargs) -> None:
+    def approval(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Approval messages."""
-        self._log(logging.INFO, message, *args, intent="approval", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="approval",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def resume(self, message: str, *args: object, **kwargs) -> None:
+    def resume(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Resume messages."""
-        self._log(logging.INFO, message, *args, intent="resume", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="resume",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def critical(self, message: str, *args: object, **kwargs) -> None:
+    def critical(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Critical error messages."""
-        self._log(logging.CRITICAL, message, *args, intent="critical", **kwargs)
+        self._log(
+            logging.CRITICAL,
+            message,
+            *args,
+            intent="critical",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def exception(self, message: str, *args: object, **kwargs) -> None:
+    def exception(
+        self,
+        message: str,
+        *args: object,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Exception with traceback."""
-        self._log(logging.ERROR, message, *args, intent="exception", exc_info=True, **kwargs)
+        self._log(
+            logging.ERROR,
+            message,
+            *args,
+            intent="exception",
+            exc_info=True,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
     # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
     @property
@@ -208,9 +471,10 @@ def _build_rich_handler(console: Console | None = None) -> RichHandler:
     """
     try:
         # Security-conscious defaults: hide locals to prevent sensitive data exposure
-        rich_tracebacks = get_config_value("logging.rich_tracebacks", True)
-        show_traceback_locals = get_config_value("logging.show_traceback_locals", False)
-        show_full_paths = get_config_value("logging.show_full_paths", False)
+        # Read for their truth, as RichHandler reads them.
+        rich_tracebacks = bool(get_config_value("logging.rich_tracebacks", True))
+        show_traceback_locals = bool(get_config_value("logging.show_traceback_locals", False))
+        show_full_paths = bool(get_config_value("logging.show_full_paths", False))
     except Exception:
         # Config system unavailable; use secure defaults. Cannot log here:
         # the logging infrastructure is mid-configuration.

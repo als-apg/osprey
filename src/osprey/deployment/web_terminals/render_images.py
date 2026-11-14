@@ -124,7 +124,9 @@ def _resolve_render_claude_cli_version(project_path: str) -> str | None:
         return None
     from osprey.agent_runner.launcher import pinned_cli_version
 
-    return pinned_cli_version(render_config.get("claude_code") or {})
+    claude_code = render_config.get("claude_code")
+    # A block that is not a mapping states no pin, like an unreadable config.
+    return pinned_cli_version(claude_code if isinstance(claude_code, Mapping) else {})
 
 
 def _render_image_build_cmd(
