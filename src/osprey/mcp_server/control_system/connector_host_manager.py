@@ -110,7 +110,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_eligibility import (
@@ -156,7 +156,21 @@ from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
-    from osprey_connectors.errors import RecoveryRecord
+
+
+class RecoveryRecord(TypedDict):
+    """One thing the supervisor did about a failure: an ``action`` word and its ``text``.
+
+    The shape a failure's ``recovery`` carries. ``osprey_connectors.errors``
+    names it ``RecoveryRecord`` too, but the released connectors floor does
+    not carry that name yet; TypedDicts are structural, so this copy and that
+    one are the same type to the checker. Import it from there once the floor
+    does.
+    """
+
+    action: str
+    text: str
+
 
 logger = logging.getLogger("osprey.mcp_server.control_system.connector_host_manager")
 
@@ -166,6 +180,7 @@ __all__ = [
     "DEFAULT_SPAWN_TIMEOUT_S",
     "ConnectorHostManager",
     "NoConnectorHostError",
+    "RecoveryRecord",
     "SwitchError",
     "baseline_target",
     "reset_target_state",
