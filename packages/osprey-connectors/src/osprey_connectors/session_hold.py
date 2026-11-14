@@ -51,7 +51,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Literal, TypeGuard
+from typing import Final, Literal, NotRequired, TypedDict, TypeGuard
 
 from osprey_connectors.safety_file import atomic_replace
 
@@ -112,6 +112,25 @@ _ANSWERS: Final = frozenset({"stop", "continue"})
 _STR_FIELDS: Final = ("flag_id", "source", "reason", "prompt_ref", "prompt_excerpt", "opened_at")
 
 
+class _FlagEntry(TypedDict):
+    """One flag as the record holds it; :func:`_valid_flag` checks the required keys."""
+
+    flag_id: str
+    source: str
+    reason: str
+    prompt_ref: str
+    prompt_excerpt: str
+    opened_at: str
+    state: Literal["open", "closed"]
+    stop_unconfirmed: bool
+    started: list[str]
+    answer: NotRequired[Literal["stop", "continue"]]
+    operator: NotRequired[str]
+    answered_at: NotRequired[str]
+    stop_operator: NotRequired[str]
+    stop_marked_at: NotRequired[str]
+
+
 @dataclass(frozen=True)
 class HoldFlag:
     """One open flag on a session, as :func:`open_flags` reports it."""
@@ -168,7 +187,7 @@ def _read_no_follow(path: Path) -> str:
     return text
 
 
-def _valid_flag(entry: object) -> bool:
+def _valid_flag(entry: object) -> TypeGuard[_FlagEntry]:
     if not isinstance(entry, dict):
         return False
     if not all(isinstance(entry.get(name), str) for name in _STR_FIELDS):
@@ -181,7 +200,7 @@ def _valid_flag(entry: object) -> bool:
     return isinstance(started, list) and all(isinstance(s, str) for s in started)
 
 
-def _read_record(root: Path, session_key: str) -> list[dict[str, Any]] | None:
+def _read_record(root: Path, session_key: str) -> list[_FlagEntry] | None:
     """The session's flag entries, or ``None`` when the record is missing or unreadable.
 
     ``None`` covers every failure: a missing or non-directory session dir, a
@@ -209,7 +228,7 @@ def _read_record(root: Path, session_key: str) -> list[dict[str, Any]] | None:
     return flags
 
 
-def _to_flag(entry: dict[str, Any]) -> HoldFlag:
+def _to_flag(entry: _FlagEntry) -> HoldFlag:
     return HoldFlag(
         flag_id=entry["flag_id"],
         source=entry["source"],
@@ -343,7 +362,7 @@ def _locked(root: Path, session_key: str) -> Iterator[Path]:
         os.close(fd)
 
 
-def _write(path: Path, session_key: str, flags: list[dict[str, Any]]) -> None:
+def _write(path: Path, session_key: str, flags: list[_FlagEntry]) -> None:
     payload = {"schema": _SCHEMA_VERSION, "session_key": session_key, "flags": flags}
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     atomic_replace(path, data, mode=_RECORD_MODE)
@@ -363,7 +382,7 @@ def _open_entry(
     prompt_ref: str,
     prompt_excerpt: str,
     opened_at: str,
-) -> dict[str, Any]:
+) -> _FlagEntry:
     """A new flag's record entry, with every field :func:`_valid_flag` requires."""
     return {
         "flag_id": flag_id,
@@ -455,6 +474,14 @@ def open_flag(
     return True
 
 
+def _close(entry: _FlagEntry, answer: Literal["stop", "continue"], operator: str, at: str) -> None:
+    """Mark *entry* closed with *answer*, by *operator*, at *at*."""
+    entry["state"] = "closed"
+    entry["answer"] = answer
+    entry["operator"] = operator
+    entry["answered_at"] = at
+
+
 def answer_flags(
     session_key: str,
     flag_ids: Iterable[str],
@@ -485,7 +512,6 @@ def answer_flags(
     key = _checked_key(session_key)
     if not wanted:
         return ()
-    closed = {"state": "closed", "answer": answer, "operator": operator}
     with _locked(resolved, key) as path:
         flags = _read_record(resolved, key)
         if flags is None:
@@ -499,14 +525,14 @@ def answer_flags(
                 prompt_excerpt=_SYNTHETIC.prompt_excerpt,
                 opened_at=_SYNTHETIC.opened_at,
             )
-            entry.update(closed, answered_at=_now())
+            _close(entry, answer, operator, _now())
             _write(path, key, [entry])
             return (UNREADABLE_FLAG_ID,)
         released: list[str] = []
         stamp = _now()
         for entry in flags:
             if entry["state"] == "open" and entry["flag_id"] in wanted:
-                entry.update(closed, answered_at=stamp)
+                _close(entry, answer, operator, stamp)
                 released.append(str(entry["flag_id"]))
         if released:
             _write(path, key, flags)
@@ -548,12 +574,10 @@ def mark_stop_unconfirmed(
         stamp = _now()
         for entry in flags:
             if entry["state"] == "open" and entry["flag_id"] in wanted:
-                entry.update(
-                    stop_unconfirmed=True,
-                    started=[str(command) for command in started],
-                    stop_operator=operator,
-                    stop_marked_at=stamp,
-                )
+                entry["stop_unconfirmed"] = True
+                entry["started"] = [str(command) for command in started]
+                entry["stop_operator"] = operator
+                entry["stop_marked_at"] = stamp
                 marked.append(entry["flag_id"])
         if marked:
             _write(path, key, flags)
