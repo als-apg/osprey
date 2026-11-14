@@ -10,19 +10,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal, TypeGuard
 
 import pandas as pd
 
 from osprey_connectors.config import localize_facility
 
-PROCESSING_MODES = ("raw", "mean", "min", "max", "median", "std", "count")
+#: A canonical processing mode, one of :data:`PROCESSING_MODES`.
+ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]
+
+PROCESSING_MODES: tuple[ProcessingMode, ...] = (
+    "raw",
+    "mean",
+    "min",
+    "max",
+    "median",
+    "std",
+    "count",
+)
 
 # The canonical long-format columns every archiver connector returns.
 LONG_COLUMNS = ("timestamp", "channel", "value")
 
 # EPICS Archiver Appliance operator names, keyed by our canonical mode. "raw"
 # maps to lastSample so a binned raw query keeps its long-standing behavior.
-_EPICS_OPERATORS = {
+_EPICS_OPERATORS: dict[ProcessingMode, str] = {
     "raw": "lastSample",
     "mean": "mean",
     "min": "min",
@@ -31,6 +43,11 @@ _EPICS_OPERATORS = {
     "std": "std",
     "count": "count",
 }
+
+
+def _is_processing_mode(value: str) -> TypeGuard[ProcessingMode]:
+    """Whether ``value`` names one of :data:`PROCESSING_MODES`."""
+    return value in PROCESSING_MODES
 
 
 def require_datetime(start_date: object, end_date: object) -> None:
@@ -99,7 +116,7 @@ class Processing:
             this one grid.
     """
 
-    mode: str
+    mode: ProcessingMode
     precision_ms: int
     epics_operator: str | None
     origin: pd.Timestamp
@@ -123,7 +140,7 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
         ValueError: If ``processing`` is not a known mode, or if a non-raw mode
             is requested with a non-positive ``precision_ms``.
     """
-    if processing not in PROCESSING_MODES:
+    if not _is_processing_mode(processing):
         raise ValueError(
             f"Unknown processing mode {processing!r}. Valid modes: {', '.join(PROCESSING_MODES)}"
         )
