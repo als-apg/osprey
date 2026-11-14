@@ -117,7 +117,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from lume.exceptions import ReadOnlyError
@@ -157,6 +157,16 @@ from osprey_connectors.simulation.view import (
     ViewSchemaError,
 )
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation._records import (
+        ChannelRecord,
+        CouplingTerm,
+        DriveRecord,
+        NoiseRecord,
+        ResolvedCoupling,
+        ScenarioRecord,
+    )
 
 __all__ = [
     "Composite",
@@ -229,14 +239,16 @@ def _default_log_dir() -> Path | None:
     return log_dir()
 
 
-def _plain(value: object) -> Any:
+def _plain(value: object) -> object:
     """A child's output in its stored representation: a waveform as a flat list."""
     if isinstance(value, np.ndarray):
         if value.ndim == 0:
-            return value.item()
+            item: object = value.item()
+            return item
         return [float(item) for item in value.reshape(-1)]
     if isinstance(value, np.generic):
-        return value.item()
+        scalar: object = value.item()
+        return scalar
     return value
 
 
@@ -327,15 +339,15 @@ class _Child:
     status: str = STATUS_OK
     active: dict[str, object] = field(default_factory=dict)
     inputs: dict[str, values.StoredValue] = field(default_factory=dict)
-    last_good: dict[str, Any] = field(default_factory=dict)
-    starts: dict[str, Any] = field(default_factory=dict)
+    last_good: dict[str, object] = field(default_factory=dict)
+    starts: dict[str, object] = field(default_factory=dict)
     #: The active scenarios that fault this child or override one of its
     #: setpoints, in activation order.
     scenarios: tuple[str, ...] = ()
     #: The model inputs: each declared ``{address, engine}`` record with the
     #: child that produces its address, in declared order. Not ``inputs``,
     #: which holds the setpoint values written to the child.
-    takes: tuple[tuple[Mapping[str, Any], str], ...] = ()
+    takes: tuple[tuple[Mapping[str, object], str], ...] = ()
     #: The children that take an input from this one.
     consumers: tuple[str, ...] = ()
     #: The next delivery is a baseline: nothing was delivered since this child
@@ -397,15 +409,15 @@ class Composite(LUMEModel):
         self._held_writes: frozenset[str] = frozenset()
         self._faulted: dict[str, ChannelFault] = {}
         self._fault_severity: dict[str, str] = {}
-        self._snapshot: dict[str, Any] = {}
-        self._texture_demands: dict[str, Any] = {}
+        self._snapshot: dict[str, object] = {}
+        self._texture_demands: dict[str, object] = {}
 
         variables = view.document(VARIABLES_FILE)
-        self._scenarios: dict[str, Mapping[str, Any]] = {
-            str(scenario["name"]): scenario for scenario in view.scenarios()
+        self._scenarios: dict[str, ScenarioRecord] = {
+            str(scenario["name"]): scenario for scenario in view._scenarios()
         }
-        self._channels: dict[str, Mapping[str, Any]] = {
-            str(channel["address"]): channel for channel in variables["channels"]
+        self._channels: dict[str, ChannelRecord] = {
+            str(channel["address"]): channel for channel in view._channel_entries()
         }
         models = {model.name: model for model in view.physics_models()}
         physics = sorted(models)
@@ -492,7 +504,7 @@ class Composite(LUMEModel):
     def _start_value(self, child: _Child, address: str) -> values.StoredValue:
         """A physics channel's start value: its active write, its wiring default, or zero."""
         channel = self._channels[address]
-        value_type: str | None = channel.get("value_type")
+        value_type = channel.get("value_type")
         if address in child.active:
             return values.coerce(
                 child.active[address], value_type, channel.get("options"), channel.get("shape")
@@ -583,7 +595,7 @@ class Composite(LUMEModel):
         function = getattr(child.engine, name, None)
         return function if callable(function) else None
 
-    def _call_time(self, child: _Child, name: str, *args: object) -> Any:
+    def _call_time(self, child: _Child, name: str, *args: object) -> object:
         """Call ``child``'s time-contract function ``name`` on its model with ``args``.
 
         Returns what it returns, or ``None`` when the child states no such
@@ -593,10 +605,11 @@ class Composite(LUMEModel):
         if function is None:
             return None
         try:
-            return function(child.model, *args)
+            result: object = function(child.model, *args)
         except Exception as exc:
             self._fail(child, exc)
             return None
+        return result
 
     def _advance_child(self, child: _Child, t_s: float, *, start: bool = False) -> None:
         """Deliver ``child``'s inputs, then apply every step due by ``t_s``; a raise fails it.
@@ -640,7 +653,7 @@ class Composite(LUMEModel):
         take = getattr(child.engine, "take_inputs", None)
         if not callable(take):
             return
-        pairs: list[tuple[Mapping[str, Any], object]] = []
+        pairs: list[tuple[Mapping[str, object], object]] = []
         for record, producer in child.takes:
             ok, value = self._input_value(producer, str(record["address"]))
             if ok:
@@ -674,7 +687,7 @@ class Composite(LUMEModel):
         for child in self._children.values():
             deadline = self._call_time(child, "next_deadline")
             if deadline is not None:
-                deadlines.append(float(deadline))
+                deadlines.append(values._real(deadline))
         return min(deadlines) if deadlines else None
 
     def emitted(self) -> frozenset[str]:
@@ -740,17 +753,20 @@ class Composite(LUMEModel):
                 self._log(name, overlap_record(overlap, instance=self._instance, pid=os.getpid()))
         self._active = list(active)
 
-        overrides: dict[str, Any] = {}
-        faults: dict[str, dict[str, Any]] = {}
-        drivers: dict[str, Mapping[str, Any]] = {}
-        couple: dict[str, list[Mapping[str, Any]]] = {}
-        noise: dict[str, Mapping[str, Any]] = {}
+        overrides: dict[str, object] = {}
+        faults: dict[str, dict[str, object]] = {}
+        drivers: dict[str, DriveRecord] = {}
+        couple: dict[str, list[CouplingTerm]] = {}
+        noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
         channel_faults: dict[str, str] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
-            scenario = self._scenarios.get(name, {})
+            scenario = self._scenarios.get(name)
+            if scenario is None:
+                # ``nominal`` when the view does not list it: a scenario that writes nothing.
+                continue
             overrides.update(scenario.get("overrides") or {})
             overridden_by[str(name)] = {str(a) for a in scenario.get("overrides") or {}}
             for model, fault in (scenario.get("faults") or {}).items():
@@ -764,7 +780,7 @@ class Composite(LUMEModel):
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
 
-        resolved: dict[str, list[Mapping[str, Any]]] = {}
+        resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
             for term in terms:
                 drive = drivers.get(str(term["driver"]))
@@ -926,9 +942,9 @@ class Composite(LUMEModel):
 
     def _partition(
         self, names: Sequence[str]
-    ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
+    ) -> tuple[dict[str, object], list[str], dict[str, list[str]]]:
         """Split names into the status and IOC health values, the texture's and each child's."""
-        statuses: dict[str, Any] = {}
+        statuses: dict[str, object] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
@@ -949,7 +965,7 @@ class Composite(LUMEModel):
         uptime = max(float(self._clock()) - self._started_s, 0.0)
         return int(uptime) if signal == HEARTBEAT else uptime
 
-    def _get(self, names: list[str]) -> dict[str, Any]:
+    def _get(self, names: list[str]) -> dict[str, object]:
         self._refresh()
         t_s = float(self._clock())
         self._advance(t_s)
@@ -963,7 +979,7 @@ class Composite(LUMEModel):
                 )
         return {name: outputs[name] for name in names}
 
-    def _served(self, names: list[str], t_s: float) -> dict[str, Any]:
+    def _served(self, names: list[str], t_s: float) -> dict[str, object]:
         """The channels as served at ``t_s`` without the channel faults."""
         outputs, texture, physics = self._partition(names)
         if texture:
@@ -978,7 +994,7 @@ class Composite(LUMEModel):
         channel = self._channels[address]
         return channel.get("role") != SETPOINT and is_float_channel(channel)
 
-    def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
+    def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, object]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
         readbacks = sorted(
             {
@@ -993,20 +1009,20 @@ class Composite(LUMEModel):
             return self._failed_values(child, names)
         moved = self._moving_readbacks(
             child,
-            {address: np.array([float(truth[address])]) for address in readbacks},
+            {address: np.array([values._real(truth[address])]) for address in readbacks},
             np.array([t_s], dtype=np.float64),
         )
         for address in readbacks:
             truth[address] = float(moved[address][0])
         return {name: truth[name] for name in names}
 
-    def _held_demands(self, names: Sequence[str]) -> dict[str, Any]:
+    def _held_demands(self, names: Sequence[str]) -> dict[str, object]:
         """The value last written to each of ``names`` the active scenarios hold.
 
         A physics setpoint's demand is its child's input; a texture setpoint's
         is the value the composite kept for it, absent until a write.
         """
-        demands: dict[str, Any] = {}
+        demands: dict[str, object] = {}
         for name in names:
             if name not in self._held_writes:
                 continue
@@ -1053,7 +1069,7 @@ class Composite(LUMEModel):
             for name, series_ in moved.items()
         }
 
-    def _plain_get(self, child: _Child, names: list[str]) -> dict[str, Any] | None:
+    def _plain_get(self, child: _Child, names: list[str]) -> dict[str, object] | None:
         """A built child's plain reads, or ``None`` once a read fails the child."""
         if child.model is None:
             return None
@@ -1067,9 +1083,9 @@ class Composite(LUMEModel):
         )
         return read
 
-    def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, Any]:
+    def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, object]:
         """What a failed child's channels read: inputs, NaN, or the last good value."""
-        outputs: dict[str, Any] = {}
+        outputs: dict[str, object] = {}
         for name in names:
             channel = self._channels[name]
             value_type = channel_value_type(channel)
@@ -1154,7 +1170,7 @@ class Composite(LUMEModel):
                 out.update(self._moving_readbacks(child, owned, times))
         return {name: out[name] for name in names}
 
-    def held(self, names: Sequence[str]) -> dict[str, Any]:
+    def held(self, names: Sequence[str]) -> dict[str, object]:
         """Each channel's held value: no motion, no readout, no clamp.
 
         A texture channel returns the value the texture holds; a physics
@@ -1248,11 +1264,11 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=False)
 
-    def _write(self, values_by_name: Mapping[str, Any], *, client: bool) -> None:
+    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> None:
         self._refresh()
         if not values_by_name:
             return
-        coerced: dict[str, Any] = {}
+        coerced: dict[str, values.StoredValue] = {}
         for name, value in values_by_name.items():
             variable = self._variables.get(name)
             if variable is None:
@@ -1284,16 +1300,18 @@ class Composite(LUMEModel):
     def _set(self, values_by_name: dict[str, Any]) -> None:
         self._forward(values_by_name)
 
-    def _forward(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    def _forward(
+        self, values_by_name: Mapping[str, values.StoredValue]
+    ) -> dict[str, dict[str, values.StoredValue]]:
         """Write the children, then the texture; returns what reached each child's model."""
-        batches: dict[str, dict[str, Any]] = {}
+        batches: dict[str, dict[str, values.StoredValue]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
-        forwarded: dict[str, dict[str, Any]] = {}
+        forwarded: dict[str, dict[str, values.StoredValue]] = {}
         texture = batches.get(TEXTURE_OWNER) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
-        writing: Mapping[str, Any] = {}
+        writing: Mapping[str, values.StoredValue] = {}
         try:
             for model, child in self._children.items():
                 if model in batches:
@@ -1320,8 +1338,8 @@ class Composite(LUMEModel):
         return forwarded
 
     def _set_child(
-        self, child: _Child, batch: Mapping[str, Any]
-    ) -> tuple[Callable[[], None], dict[str, Any]]:
+        self, child: _Child, batch: Mapping[str, values.StoredValue]
+    ) -> tuple[Callable[[], None], dict[str, values.StoredValue]]:
         """Write one child's batch; returns its undo and the values that reached the model.
 
         Every name of the batch lands in the child's inputs; only the names the
@@ -1398,7 +1416,7 @@ class Composite(LUMEModel):
             raise ValueError(f"model {model!r} has no variable {variable!r}")
         return child, variable
 
-    def model_variables(self) -> dict[str, tuple[Variable, Any]]:
+    def model_variables(self) -> dict[str, tuple[Variable, object]]:
         """Each built physics model's own variables, named ``<model>/<name>``.
 
         A model's own variables are the ones it declares beyond the view's
@@ -1411,7 +1429,7 @@ class Composite(LUMEModel):
             active scenarios; a read-only variable's is ``None``.
         """
         self._refresh()
-        listed: dict[str, tuple[Variable, Any]] = {}
+        listed: dict[str, tuple[Variable, object]] = {}
         for child in self._children.values():
             if child.model is None:
                 continue
@@ -1423,7 +1441,7 @@ class Composite(LUMEModel):
                     )
         return listed
 
-    def model_get(self, names: Sequence[str]) -> dict[str, Any]:
+    def model_get(self, names: Sequence[str]) -> dict[str, object]:
         """Read the children's own variables, each named ``<model>/<name>``.
 
         Raises:
@@ -1431,14 +1449,14 @@ class Composite(LUMEModel):
                 variable, or a variable of a failed model.
         """
         self._refresh()
-        outputs: dict[str, Any] = {}
+        outputs: dict[str, object] = {}
         for name in names:
             child, variable = self._model_variable(name)
             assert child.model is not None
             outputs[name] = child.model.get(variable)
         return outputs
 
-    def model_set(self, values_by_name: Mapping[str, Any]) -> None:
+    def model_set(self, values_by_name: Mapping[str, object]) -> None:
         """Write the children's own variables, each named ``<model>/<name>``.
 
         Raises:
@@ -1447,7 +1465,7 @@ class Composite(LUMEModel):
                 refuses the write.
         """
         self._refresh()
-        batches: dict[str, tuple[_Child, dict[str, Any]]] = {}
+        batches: dict[str, tuple[_Child, dict[str, object]]] = {}
         for name, value in values_by_name.items():
             child, variable = self._model_variable(name)
             batches.setdefault(child.name, (child, {}))[1][variable] = value

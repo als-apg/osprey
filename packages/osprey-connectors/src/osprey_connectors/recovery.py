@@ -68,6 +68,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 
 __all__ = [
@@ -123,7 +124,7 @@ class Recovery:
         if not self.text:
             raise ValueError("a recovery record states what was done; its text is empty")
 
-    def as_dict(self) -> dict[str, str]:
+    def as_dict(self) -> RecoveryRecord:
         """The record as a failure's ``recovery`` carries it."""
         return {"action": str(self.action), "text": self.text}
 

@@ -34,7 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, SupportsFloat, SupportsIndex
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
@@ -306,7 +306,21 @@ def plot_series(
     samples = archive.samples(channels, t_s)
     return PlotSeries(
         t_s=t_s,
-        values={address: tuple(float(v) for v in samples[address]) for address in channels},
+        values={address: tuple(_plotted(v) for v in samples[address]) for address in channels},
+    )
+
+
+def _plotted(sample: object) -> float:
+    """``float(sample)`` of one archived sample, which the archive types only by its channel.
+
+    Raises:
+        TypeError: ``sample`` is not a string, a bytes object or a real number,
+            worded as ``float`` words it.
+    """
+    if isinstance(sample, str | bytes | bytearray | SupportsFloat | SupportsIndex):
+        return float(sample)
+    raise TypeError(
+        f"float() argument must be a string or a real number, not {type(sample).__name__!r}"
     )
 
 
