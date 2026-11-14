@@ -27,7 +27,7 @@ with its channel, so a public failure needs no registry entry of its own.
 """
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -93,7 +93,7 @@ class ChannelLimitsViolationError(ChannelError):
         min_value: float | None = None,
         max_value: float | None = None,
         max_step: float | None = None,
-        current_value: Any | None = None,
+        current_value: object = None,
     ):
         self.channel_address = channel_address
         self.attempted_value = value

@@ -53,8 +53,9 @@ every write instead of waving them through unchecked.
 import json
 import logging
 import os
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Final, Literal, TypeGuard
 
 __all__ = [
     "CLI_CONTROL_SYSTEM_TYPES",
@@ -343,11 +344,11 @@ def resolve_control_system_type(section: object) -> str:
     return _resolve_type(section, VIRTUAL_ACCELERATOR)
 
 
-def _states_type(section: object) -> bool:
+def _states_type(section: object) -> TypeGuard[dict[object, object]]:
     return isinstance(section, dict) and bool(section.get("type"))
 
 
-def resolve_serving(section: Any) -> str:
+def resolve_serving(section: object) -> str:
     """Where the simulator a ``control_system:`` section selects runs.
 
     A section that states no type is the fail-safe default, the simulator in
@@ -364,8 +365,8 @@ def resolve_serving(section: Any) -> str:
     if resolve_control_system_type(section) != VIRTUAL_ACCELERATOR:
         return SERVED
     connector = section.get("connector")
-    block = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
-    value = block.get(SERVING_LEAF) if isinstance(block, dict) else None
+    block: object = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
+    value: object = block.get(SERVING_LEAF) if isinstance(block, dict) else None
     if value is None:
         return SERVED
     if value not in SERVING_MODES:
@@ -454,11 +455,11 @@ def _own_name_block(connector_type: str) -> str | None:
     return None if "." in connector_type else connector_type
 
 
-def _archiver_settings_homes(section: object) -> list[tuple[str, Any]]:
+def _archiver_settings_homes(section: object) -> list[tuple[str, object]]:
     """Every block in *section* that configures the selected archiver, in order."""
     if not isinstance(section, dict):
         return []
-    homes: list[tuple[str, Any]] = []
+    homes: list[tuple[str, object]] = []
     if _ARCHIVER_SETTINGS_LEAF in section:
         homes.append((_ARCHIVER_SETTINGS_LEAF, section[_ARCHIVER_SETTINGS_LEAF]))
     own = _own_name_block(resolve_archiver_type(section))
@@ -493,7 +494,7 @@ def archiver_settings_key(section: object) -> str:
     return f"archiver.{home}"
 
 
-def resolve_archiver_settings(section: object) -> dict[str, Any]:
+def resolve_archiver_settings(section: object) -> dict[str, object]:
     """The settings block the selected archiver's ``connect()`` is handed.
 
     ``archiver.settings`` for every archiver; for a short-named one, its own-name
@@ -808,7 +809,9 @@ _REHEARSAL: Literal["rehearsal"] = "rehearsal"
 _MACHINE_KIND_KEY = "machine_kind"
 
 
-def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+def machine_kind(
+    section: object, target: object
+) -> Literal["real", "rehearsal", "simulator"] | None:
     """The kind of machine *target* names by its name: ``real`` or ``simulator``.
 
     ``live`` and ``standin`` are the real machine, ``va`` the simulator. The
@@ -823,10 +826,11 @@ def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "sim
         resolve_target(section, target)
     except ValueError:
         return None
-    return _MACHINE_KINDS.get(target)
+    # A target that resolved is one of the three names, so a string.
+    return _MACHINE_KINDS.get(target) if isinstance(target, str) else None
 
 
-def _published_targets(directory: Any) -> dict[str, Any]:
+def _published_targets(directory: str) -> dict[str, object]:
     """Per-target metadata from the first live controls server's report, or ``{}``.
 
     The hook twin's ``_published_targets`` restated: report files in name order,
@@ -854,7 +858,7 @@ def _published_targets(directory: Any) -> dict[str, Any]:
             continue
         try:
             with open(os.path.join(directory, name), encoding="utf-8") as handle:
-                report = json.load(handle)
+                report: object = json.load(handle)
         except (OSError, ValueError):
             continue
         if not isinstance(report, dict):
@@ -866,7 +870,7 @@ def _published_targets(directory: Any) -> dict[str, Any]:
 
 
 def published_machine_kind(
-    target: Any, *, state_dir: Any = None
+    target: object, *, state_dir: object = None
 ) -> Literal["real", "rehearsal", "simulator"]:
     """The kind of machine *target* is, as this deployment's controls server publishes it.
 
@@ -896,7 +900,8 @@ def published_machine_kind(
             from osprey_connectors import posture_store
 
             state_dir = posture_store.state_dir()
-        if state_dir is None:
+        if not isinstance(state_dir, str | os.PathLike):
+            # Only a path names a report directory; ``None`` names none.
             return "real"
         meta = _published_targets(os.fspath(state_dir)).get(TARGET_STANDIN)
     except Exception:  # the kind is a word an operator reads; it must not raise
@@ -1365,7 +1370,7 @@ def incomplete_limits_blocks(section: object) -> list[str]:
     if not isinstance(section, dict):
         return []
     connector = section.get("connector")
-    blocks: list[tuple[Any, Any, bool]] = []
+    blocks: list[tuple[str | None, object, bool]] = []
     if LIMITS_CHECKING_LEAF in section:
         blocks.append((None, section[LIMITS_CHECKING_LEAF], False))
     if isinstance(connector, dict):
@@ -1428,7 +1433,7 @@ def _global_limits_posture(section: object) -> LimitsPosture:
     return _block_limits_posture(block, None, whole=False)
 
 
-def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple[str, bool]]:
+def _unstated_limits_leaves(block: Mapping[str, object], *, whole: bool) -> list[tuple[str, bool]]:
     """The leaves a limits block fails to state, and whether each was written.
 
     One classifier for both scopes and both readers — the posture resolvers and
@@ -1475,7 +1480,7 @@ def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple
 
 
 def _block_limits_posture(
-    block: dict[str, Any], connector_type: str | None, *, whole: bool
+    block: Mapping[str, object], connector_type: str | None, *, whole: bool
 ) -> LimitsPosture:
     """One ``limits_checking`` mapping read into a posture.
 
@@ -1534,7 +1539,10 @@ def _limits_mode(value: object) -> str | None:
 
 #: How each of :data:`LIMITS_LEAVES` is read, and what a refusal says a
 #: readable value looks like.
-_LEAF_READERS: dict[str, Any] = {LIMITS_LEAVES[0]: _limits_leaf, LIMITS_LEAVES[1]: _limits_mode}
+_LEAF_READERS: dict[str, Callable[[object], bool | str | None]] = {
+    LIMITS_LEAVES[0]: _limits_leaf,
+    LIMITS_LEAVES[1]: _limits_mode,
+}
 _LEAF_VALUES = {
     LIMITS_LEAVES[0]: "a literal true or false",
     LIMITS_LEAVES[1]: " or ".join(LIMITS_MODES),

@@ -91,7 +91,7 @@ class ComponentLogger:
         self.color = color
         self._state = state
 
-    def _log(self, level: int, message: str, *args, intent: str, **kwargs) -> None:
+    def _log(self, level: int, message: str, *args: object, intent: str, **kwargs) -> None:
         """Core logging method that delegates to the stdlib logger.
 
         Args:
@@ -117,51 +117,51 @@ class ComponentLogger:
         extra = {**(caller_extra or {}), "osprey_intent": intent}
         self.base_logger.log(level, message, *args, extra=extra, **kwargs)
 
-    def status(self, message: str, *args, **kwargs) -> None:
+    def status(self, message: str, *args: object, **kwargs) -> None:
         """Status update — high-level progress messages."""
         self._log(logging.INFO, message, *args, intent="status", **kwargs)
 
-    def key_info(self, message: str, *args, **kwargs) -> None:
+    def key_info(self, message: str, *args: object, **kwargs) -> None:
         """Important operational information."""
         self._log(logging.INFO, message, *args, intent="key_info", **kwargs)
 
-    def info(self, message: str, *args, **kwargs) -> None:
+    def info(self, message: str, *args: object, **kwargs) -> None:
         """Normal operational messages."""
         self._log(logging.INFO, message, *args, intent="info", **kwargs)
 
-    def debug(self, message: str, *args, **kwargs) -> None:
+    def debug(self, message: str, *args: object, **kwargs) -> None:
         """Debug-level messages."""
         self._log(logging.DEBUG, message, *args, intent="debug", **kwargs)
 
-    def warning(self, message: str, *args, **kwargs) -> None:
+    def warning(self, message: str, *args: object, **kwargs) -> None:
         """Warning messages."""
         self._log(logging.WARNING, message, *args, intent="warning", **kwargs)
 
-    def error(self, message: str, *args, exc_info: bool = False, **kwargs) -> None:
+    def error(self, message: str, *args: object, exc_info: bool = False, **kwargs) -> None:
         """Error messages."""
         self._log(logging.ERROR, message, *args, intent="error", exc_info=exc_info, **kwargs)
 
-    def success(self, message: str, *args, **kwargs) -> None:
+    def success(self, message: str, *args: object, **kwargs) -> None:
         """Success messages."""
         self._log(logging.INFO, message, *args, intent="success", **kwargs)
 
-    def timing(self, message: str, *args, **kwargs) -> None:
+    def timing(self, message: str, *args: object, **kwargs) -> None:
         """Timing information."""
         self._log(logging.INFO, message, *args, intent="timing", **kwargs)
 
-    def approval(self, message: str, *args, **kwargs) -> None:
+    def approval(self, message: str, *args: object, **kwargs) -> None:
         """Approval messages."""
         self._log(logging.INFO, message, *args, intent="approval", **kwargs)
 
-    def resume(self, message: str, *args, **kwargs) -> None:
+    def resume(self, message: str, *args: object, **kwargs) -> None:
         """Resume messages."""
         self._log(logging.INFO, message, *args, intent="resume", **kwargs)
 
-    def critical(self, message: str, *args, **kwargs) -> None:
+    def critical(self, message: str, *args: object, **kwargs) -> None:
         """Critical error messages."""
         self._log(logging.CRITICAL, message, *args, intent="critical", **kwargs)
 
-    def exception(self, message: str, *args, **kwargs) -> None:
+    def exception(self, message: str, *args: object, **kwargs) -> None:
         """Exception with traceback."""
         self._log(logging.ERROR, message, *args, intent="exception", exc_info=True, **kwargs)
 

@@ -102,7 +102,7 @@ def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None
             (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
     lookup = os.environ if environ is None else environ
-    raw_server_envs: dict[str, dict] = {}
+    raw_server_envs: dict[object, object] = {}
     if isinstance(data, dict):
         cc = data.get("claude_code")
         servers = cc.get("servers") if isinstance(cc, dict) else None
@@ -112,14 +112,14 @@ def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None
                     raw_server_envs[name] = copy.deepcopy(spec["env"])
 
     if isinstance(data, dict):
-        resolved: Any = {
+        resolved: dict[object, object] = {
             key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
         }
     elif isinstance(data, list):
         return [resolve_env_vars(item, environ=lookup) for item in data]
     elif isinstance(data, str):
 
-        def replace_env_var(match):
+        def replace_env_var(match: re.Match[str]) -> str:
             if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
                 var_name = match.group(1)
                 default_value = match.group(2) if match.group(2) is not None else None
@@ -729,7 +729,7 @@ class ConfigBuilder:
         """Load and validate a YAML configuration file."""
         try:
             with open(file_path) as f:
-                config = yaml_loader.safe_load(f)
+                config: object = yaml_loader.safe_load(f)
 
             if config is None:
                 logger.warning(f"Configuration file is empty: {file_path}")
@@ -1293,7 +1293,7 @@ def get_config_value(path: str, default: object = None, config_path: str | None 
     configurable = get_configurable(config_path)
 
     keys = path.split(".")
-    value = configurable
+    value: object = configurable
 
     for key in keys:
         if isinstance(value, dict) and key in value:
