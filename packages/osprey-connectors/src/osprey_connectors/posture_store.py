@@ -1243,7 +1243,9 @@ def _write_verdict(
     )
 
 
-def _verdict_kind(section: object, target: object) -> Literal["real", "rehearsal", "simulator"] | None:
+def _verdict_kind(
+    section: object, target: object
+) -> Literal["real", "rehearsal", "simulator"] | None:
     """The machine kind a verdict on *target* names, or ``None``. Never raises.
 
     The name decides whether the target resolves at all; the published report

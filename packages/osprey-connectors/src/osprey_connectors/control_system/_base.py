@@ -748,7 +748,9 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
     return results
 
 
-def _limits_refusal(channel_address: str, value: object, error: BaseException) -> ChannelWriteResult:
+def _limits_refusal(
+    channel_address: str, value: object, error: BaseException
+) -> ChannelWriteResult:
     """The REFUSED result a batch answers for a write the limits refused.
 
     One line per channel, the violation's type and reason, where a single
@@ -806,7 +808,9 @@ def _repeated_refusal(channel_address: str, value: object, times: int) -> Channe
     )
 
 
-def _batch_send_verdict(channel_address: str, value: object, error: Exception) -> ChannelWriteResult:
+def _batch_send_verdict(
+    channel_address: str, value: object, error: Exception
+) -> ChannelWriteResult:
     """The result of one write of a batch whose send raised, or the raise itself.
 
     A limits refusal at send time is a ``LIMITS`` refusal. A channel that
