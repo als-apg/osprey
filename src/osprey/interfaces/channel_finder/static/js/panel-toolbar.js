@@ -46,10 +46,10 @@ export const TOOLBAR_IDS = Object.freeze({
 
 const SHOW_SIDEBAR = 'Show sidebar';
 
-/** Why a control is disabled: under Feedback (when the curated tab has it), or anywhere else. */
+/** Why a control is disabled in a view that does not use it. */
 const REASONS = Object.freeze({
-  filters: ['Filters apply to', 'No filters for this view'],
-  search: ['Search applies to', 'No search for this view'],
+  filters: 'No filters for this view',
+  search: 'No search for this view',
 });
 
 /** Whether a view holds the search field. */
@@ -79,20 +79,6 @@ export function searchInput() {
   return /** @type {HTMLInputElement|null} */ (byId(TOOLBAR_IDS.search));
 }
 
-/**
- * Why a control does not apply in the current view. Under Feedback the
- * controls point back to the curated tab (Explore, or Curated beside a
- * directory), but only where it has them: the graph paradigm is the one with
- * filters and a search.
- * @param {keyof typeof REASONS} kind
- * @returns {string}
- */
-function reason(kind) {
-  const [feedback, other] = REASONS[kind];
-  if (state.activeView !== 'feedback' || state.pipelineType !== 'graph') return other;
-  return `${feedback} ${state.directory ? 'Curated' : 'Explore'}`;
-}
-
 /** Bring every control in line with the view and with what is claimed. @returns {void} */
 function refresh() {
   const pressed = familyOf(state.activeView);
@@ -104,7 +90,7 @@ function refresh() {
   const input = searchInput();
   if (input) input.disabled = !enabled;
   const field = byId(TOOLBAR_IDS.field);
-  if (field) writeTitle(field, enabled ? '' : reason('search'));
+  if (field) writeTitle(field, enabled ? '' : REASONS.search);
 
   // A drawn sidebar keeps the toggle in step itself (panel-sidebar.js).
   const toggle = /** @type {HTMLButtonElement|null} */ (byId(TOOLBAR_IDS.toggle));
@@ -113,7 +99,7 @@ function refresh() {
     toggle.setAttribute('aria-label', SHOW_SIDEBAR);
     toggle.removeAttribute('aria-expanded');
     toggle.removeAttribute('aria-controls');
-    writeTitle(toggle, filterReason ?? reason('filters'));
+    writeTitle(toggle, filterReason ?? REASONS.filters);
   }
 }
 

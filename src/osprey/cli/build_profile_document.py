@@ -337,8 +337,8 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
 # asked | allowed``. The posture it replaces — the flat ``control_system.writes_enabled``
 # and every ``control_system.connector.<type>.writes_enabled`` — is read for one
 # release window by rewriting it here, at the single parse point, so the merge,
-# the hash and the render all read the new key. The window closes at
-# ``build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM``: a test tripwire, not
+# the hash and the render all read the new key. The window closes with
+# ``build_profile_load.retired_spellings_window_open``: a test tripwire, not
 # a version compare here, so this module keeps importing nothing from the
 # profile pipeline.
 
@@ -810,8 +810,8 @@ def normalize_retired_write_keys(
 # write asks a person first, so ``approval.tools.<tool>`` for one of those tools
 # states a second answer nothing reads. It is dropped here, at the single parse
 # point, with one warning per document, until
-# ``build_profile_load.RETIRED_APPROVAL_POLICY_REFUSED_FROM`` (a test tripwire,
-# as for the write keys). Every other tool keeps its policy.
+# ``build_profile_load.RETIRED_APPROVAL_POLICY_REFUSED_FROM`` (the same test
+# tripwire as the write keys). Every other tool keeps its policy.
 
 #: Where the per-tool policies live under ``config:``, as path segments.
 APPROVAL_TOOLS_PATH = ("approval", "tools")

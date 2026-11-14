@@ -33,21 +33,21 @@ honestly so the layer above can refuse with a reason rather than pretend.
 Generations
 -----------
 The generation is what pins holders: an executor sandbox or an approved write
-that was granted under generation *n* must refuse once the deployment has moved
+that was granted under generation *n* must refuse once its login has moved
 past it. It therefore counts **target changes**, not process restarts. A
 same-target respawn — :meth:`ConnectorHostManager.respawn_same_target`, and
 :meth:`ConnectorHostManager.replace_child`, which recovers a child whose
 connector is lost — replaces the process and leaves the generation alone,
 because nothing a holder was promised has changed.
 
-This manager does not **mint** generations; it is handed them. One deployment
-runs one target and one generation, recorded in the shared control-context
+This manager does not **mint** generations; it is handed them. One login
+runs one target and one generation, recorded in that login's control-context
 record, and the process that owns that record is the only writer that may
-advance it. Every server then reconciles what it is running to what the record
-says (:meth:`ConnectorHostManager.reconcile`) and reports how far it has got.
-Two servers incrementing their own counters would give one deployment two
-generation *n+1* s that meant different targets, and a holder pinned to either
-of them could not tell which it had been promised.
+advance it. Every server of the login then reconciles what it is running to
+what the record says (:meth:`ConnectorHostManager.reconcile`) and reports how
+far it has got. Two servers incrementing their own counters would give one
+login two generation *n+1* s that meant different targets, and a holder pinned
+to either of them could not tell which it had been promised.
 
 Reconciling to the record
 -------------------------

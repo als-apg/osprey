@@ -1,0 +1,1 @@
+Pin CANOPY to 13c32420 and PyDMConverter to 4b8183f3, and record the payload's runtime at 70b47fc. CANOPY answers the Trace's e-log config request again, so the Trace no longer hits a 404; a Phoebus action button with two or more actions becomes a menu.

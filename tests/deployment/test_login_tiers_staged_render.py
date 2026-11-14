@@ -20,7 +20,9 @@ The rules restated (the C-LT contract):
   roster rule alone decides it, and an app card is never a key. ``'unknown'``
   is never a key;
 * the staged document minus the map is the root flatten (Bluesky, the untiered
-  worker) or the container-rooted tier render (the tiered worker);
+  worker) or the container-rooted tier render (the tiered worker), with the
+  deployed machines' loopback gateways named by service when the container is on
+  the compose network and stages that flatten (``in_network_gateways``);
 * no root, terminal-served or image render carries a map.
 
 Each case is checked on the build and again after ``prepare_compose_files``
@@ -397,6 +399,26 @@ def _container_render(repo: Path, service: str, case: Case) -> Path:
     return build / "config.yml"
 
 
+def _expected_staged_render(repo: Path, service: str, case: Case) -> dict[str, Any]:
+    """The document a staged config must equal once its map is taken out.
+
+    A container on the compose network that stages the root flatten reaches the
+    deployed machines by service name, so its copy is the flatten readdressed.
+    The Bluesky lanes are always on the bridge; the dispatch worker follows its
+    ``network:`` key; the tiered worker's copy is the tier's render as built.
+    """
+    from osprey.deployment.compose_generator import in_network_gateways
+
+    render = _load(_container_render(repo, service, case))
+    if service == "dispatch_worker" and case.worker_tier is not None:
+        return render
+    root = _load(repo / "build" / "config.yml")
+    block = (root.get("services") or {}).get(service) or {}
+    if service != "bluesky" and block.get("network") == "host":
+        return render
+    return in_network_gateways(render, list(root.get("deployed_services") or []))
+
+
 def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
     """Every tree-bound container's staged config under *staged_root* obeys the contract."""
     from osprey_connectors.types import tier_writes
@@ -452,7 +474,10 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
             assert case.build_account not in login_tiers, staged_path
 
         render = _load(_container_render(repo, service, case))
-        assert _without_map(staged) == render, staged_path
+        assert _without_map(staged) == _expected_staged_render(repo, service, case), staged_path
+        if service == "bluesky":
+            # The exemplar deploys machines at loopback: the readdressing is not a no-op.
+            assert _expected_staged_render(repo, service, case) != render, staged_path
         assert staged["control_system"].get("writes") == render["control_system"].get("writes")
         assert tier_writes(staged["control_system"]) == tier_writes(render["control_system"])
 

@@ -140,17 +140,32 @@ def _sidecar_step_modules() -> dict[str, ModuleType]:
 
 
 def _postgres_start_bound() -> float:
-    """The longest the lane's Postgres start can take before it fails.
+    """The longest the session's Postgres start can take before it fails.
 
     ``start_or_fail`` retries the start; each attempt runs testcontainers' own
     readiness wait, bounded by its configured timeout, with a pause between.
+    Then ``require_container_runtime`` asks the runtime once, waits for the
+    server to answer from the host up to the readiness ceiling plus one round
+    (the connect-bounded probe, the pause, two liveness reads), and asks the
+    runtime again when it never did.
     """
     from testcontainers.core.config import testcontainers_config
 
+    from tests import _session_database
+
     attempts = _container_support.CONTAINER_START_ATTEMPTS
-    return (
+    start = (
         attempts * testcontainers_config.timeout
         + (attempts - 1) * _container_support.CONTAINER_START_BACKOFF_S
+    )
+    readiness_round = (
+        _session_database.CONNECT_TIMEOUT_S + 0.5 + 2 * _container_support.CONTAINER_STATE_TIMEOUT
+    )
+    return (
+        start
+        + 2 * _container_support.DOCKER_CLI_PROBE_TIMEOUT
+        + _container_support.READINESS_CEILING
+        + readiness_round
     )
 
 

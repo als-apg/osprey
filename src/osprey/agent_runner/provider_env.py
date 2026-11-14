@@ -26,6 +26,7 @@ import sys
 from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -216,6 +217,40 @@ MANAGED_ENV_VARS = frozenset(
         "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     }
 )
+
+#: Anthropic's own API host: a base URL naming it, with no port, is not a gateway.
+_ANTHROPIC_API_HOST = "api.anthropic.com"
+
+#: Laid beside ``ANTHROPIC_BASE_URL`` whenever it names a gateway (any host but
+#: Anthropic's own, OSPREY's translation proxy included), so the agent is sent
+#: its tools directly, as it is on a build before 2.1.304.
+#:
+#: Claude Code 2.1.304 turned tool search on by default behind a custom base
+#: URL: every MCP tool and most built-ins are then withheld from the request
+#: until the model calls ``ToolSearch``, whose result is a ``tool_reference``
+#: block. The dispatch tool policy (``tool_policy.py``) denies ``ToolSearch``
+#: like any tool outside a trigger's allow list, and the translation proxy
+#: (``infrastructure/proxy/translator.py``) does not carry ``tool_reference``.
+#: Remove this only once both handle them. A launch with no base URL (direct
+#: Anthropic) is never given it.
+GATEWAY_TOOL_SEARCH_ENV: Mapping[str, str] = MappingProxyType({"ENABLE_TOOL_SEARCH": "false"})
+
+
+def base_url_env(base_url: str) -> dict[str, str]:
+    """Return the env that points Claude Code at *base_url*.
+
+    Every ``ANTHROPIC_BASE_URL`` OSPREY puts in a provider env block comes from
+    here, so a gateway launch always carries :data:`GATEWAY_TOOL_SEARCH_ENV`
+    and a launch at Anthropic's own host never does.
+
+    Args:
+        base_url: The value for ``ANTHROPIC_BASE_URL``, as Claude Code reads it.
+    """
+    env = {"ANTHROPIC_BASE_URL": base_url}
+    if urlsplit(base_url).netloc != _ANTHROPIC_API_HOST:
+        env.update(GATEWAY_TOOL_SEARCH_ENV)
+    return env
+
 
 # Managed variables whose values are secrets: a managed-policy refusal names
 # them but never prints either side's value.
@@ -1244,7 +1279,7 @@ class ClaudeCodeModelResolver:
         # with the loopback URL at launch. Skipped when neither config nor the
         # built-in table names a URL (direct Anthropic with no api.providers entry).
         if base_url:
-            env_block["ANTHROPIC_BASE_URL"] = base_url.rstrip("/").removesuffix("/v1")
+            env_block.update(base_url_env(base_url.rstrip("/").removesuffix("/v1")))
 
         # Claude Code's alias env vars (all providers) — derived from the single
         # TIER_MODEL_ENV_VARS declaration so this key set can never drift from

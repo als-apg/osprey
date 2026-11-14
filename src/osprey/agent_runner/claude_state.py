@@ -14,13 +14,15 @@ carefully-built allow list is inert until the operator clicks through a dialog
 they have no context to evaluate. Every key this module writes is Claude
 Code's own state, which is why it lives in the harness adapter.
 
-The seed is for the interactive terminals only. An unattended agent run uses
-a config dir this module never seeds, so its project allow rules stay off by
-design; :func:`is_untrusted_allow_rules_notice` names the line the CLI prints
-about it. A web terminal on a host has no entrypoint, so the server marks its
-own render trusted at startup (:func:`seed_workspace_trust`) and nothing else:
-the operator still approves every ask, but without trust the render's allow
-list is dropped and every read-only tool reaches the approval card.
+The seed is for the interactive terminals and ``osprey chat`` only. An
+unattended agent run uses a config dir this module never seeds, so its project
+allow rules stay off by design; :func:`is_untrusted_allow_rules_notice` names
+the line the CLI prints about it. A web terminal on a host has no entrypoint,
+so the server marks its own render trusted at startup
+(:func:`seed_workspace_trust`) and nothing else, and ``osprey chat`` does the
+same for the render it launches into: the operator still approves every ask,
+but without trust the render's allow list is dropped, every read-only tool
+reaches the approval card, and a ``--print`` run is refused those reads.
 
 This module writes the state Claude Code would have recorded had the operator
 answered, once, from the container entrypoint's root phase — the same phase

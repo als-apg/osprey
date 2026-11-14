@@ -411,7 +411,7 @@ def plan_problems(plan: Mapping[str, Any]) -> list[str]:
 
     A plan is a mapping:
 
-    * ``tool``: ``{"attribute": <holder attribute>}`` or ``{"monitor": <name>}``,
+    * ``tool``: ``{"attribute": <attribute of the holder's ``tool``>}`` or ``{"monitor": <name>}``,
       the chromaticity monitor of that name;
     * ``fit``: one of :data:`FIT_STRATEGIES`;
     * ``magnet-group``: ``magnets`` (``{"members": [<tool attribute>, ...]}``

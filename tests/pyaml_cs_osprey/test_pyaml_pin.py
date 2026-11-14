@@ -153,3 +153,15 @@ def test_pyaml_still_round_trips_no_mixed_thin_thick_magnet() -> None:
         "the pinned pyAML drives a magnet whose slices mix zero-length and thick elements "
         f"with its set strength: {gone}"
     )
+
+
+def test_pinned_pyaml_ships_the_trajectory_tool() -> None:
+    """Deployment applications drive first-turn trajectory correction through pyAML.
+
+    ``pyaml.tuning_tools.trajectory`` is not in an upstream release yet, so the
+    pin is the staging distribution that carries it; a pin without it would build
+    an image whose trajectory application cannot import its solver.
+    """
+    from pyaml.tuning_tools.trajectory import Trajectory
+
+    assert Trajectory is not None

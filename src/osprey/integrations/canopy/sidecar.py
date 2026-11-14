@@ -159,11 +159,12 @@ DATA_KEYS_FILENAME = "data.keys"
 #: The CANOPY modules FRONT (``canopy_mcp``) calls on DATA: its relays (hare,
 #: formula-engine), its archiver forward (mole), and its tools -- ``read_pv`` and the
 #: health summary (hare), ``search_pvs`` and lint (raccoon), ``convert_legacy``
-#: (converter). The widget catalog is no call: FRONT reads it from the viewer's
-#: own ``ir-map.json``. Restated from canopy_mcp's code, which this module does
-#: not import; pinned against it by
-#: ``tests/integrations/canopy/test_front_modules.py``.
-FRONT_CALLED_MODULES = ("hare", "formula-engine", "mole", "raccoon", "converter")
+#: (converter), and its e-log relay (elog), which only ``CANOPY_ELOG_RELAY``
+#: turns on: off, FRONT answers the e-log itself and calls nothing. The widget
+#: catalog is no call: FRONT reads it from the viewer's own ``ir-map.json``.
+#: Restated from canopy_mcp's code, which this module does not import; pinned
+#: against it by ``tests/integrations/canopy/test_front_modules.py``.
+FRONT_CALLED_MODULES = ("hare", "formula-engine", "mole", "raccoon", "converter", "elog")
 
 #: The modules DATA's read key is scoped to: those FRONT calls that DATA
 #: mounts. A module DATA does not mount answers 404 whatever the key holds.
