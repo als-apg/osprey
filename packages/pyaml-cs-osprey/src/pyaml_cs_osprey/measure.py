@@ -1,6 +1,6 @@
 """Stepped measurements pyAML's shipped tools cannot express, run as one method call.
 
-pyAML 0.3.1's tools step bipolar, one magnet at a time and with one scalar delta.
+pyAML 0.3.2's tools step bipolar, one magnet at a time and with one scalar delta.
 :class:`StepMeasurement` runs the other steppings: a unipolar orbit response with a
 delta per corrector, a unipolar dispersion, and tune or chromaticity responses that
 step a whole group of magnets as one knob.
@@ -271,7 +271,7 @@ class StepMeasurement(MeasurementTool):
         """The chromaticity monitor a ``crm`` hands its callback to, else ``None``."""
         if self._chromaticity_monitor is None:
             return None
-        return self._holder.get_chromaticity_monitor(self._chromaticity_monitor)
+        return self._holder.tool.get(self._chromaticity_monitor)
 
     def measure(self, callback: Callable[..., Any] | None = None) -> bool:
         """Run the measurement, every write inside this call.
@@ -332,7 +332,7 @@ class StepMeasurement(MeasurementTool):
 
     def _orbit_observables(self) -> list[str]:
         """The orbit observables in pySC's order: every BPM's x, then every BPM's y."""
-        names = list(self._holder.bpms.get(self._bpm_array).names())
+        names = list(self._holder.diagnostic.bpms.get(self._bpm_array).names())
         return [f"{name}.x" for name in names] + [f"{name}.y" for name in names]
 
     def _measure_orm(self) -> dict[str, Any]:
@@ -377,7 +377,7 @@ class StepMeasurement(MeasurementTool):
     def _read(self, group: str, idx: int) -> np.ndarray:
         """The tune or chromaticity at the current setting, as ``[x, y]``."""
         if self.kind == "trm":
-            monitor = self._holder.get_betatron_tune_monitor(self._tune_monitor)
+            monitor = self._holder.diagnostic.get(self._tune_monitor)
             total = np.zeros(2)
             for avg in range(self.n_avg_meas):
                 tune = np.asarray(monitor.tune.get(), dtype=float)
@@ -388,7 +388,7 @@ class StepMeasurement(MeasurementTool):
                 if avg < self.n_avg_meas - 1:
                     _sleep(self.sleep_between_meas)
             return total / self.n_avg_meas
-        monitor = self._holder.get_chromaticity_monitor(self._chromaticity_monitor)
+        monitor = self._holder.tool.get(self._chromaticity_monitor)
         if not monitor.measure(callback=self._callback):
             raise KeyboardInterrupt
         chromaticity = np.asarray(monitor.chromaticity.get(), dtype=float)

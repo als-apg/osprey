@@ -81,11 +81,13 @@ What the serving process still keeps in ``os.environ`` is the
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import secrets
+import stat
 import threading
 import time
 import urllib.parse
@@ -115,6 +117,7 @@ __all__ = [
     "PANEL_REGISTER_ROUTE",
     "PANEL_TIER_ROUTES",
     "PANEL_TOKEN_ENV",
+    "PROJECT_PANEL_TOKEN_FILE",
     "SESSION_LIFETIME_ENV",
     "SESSION_STORE_DIR_ENV",
     "UNNAMED_OPERATOR",
@@ -132,7 +135,9 @@ __all__ = [
     "panel_tier_routes",
     "peek_supplied_panel_token",
     "peek_web_credentials",
+    "read_project_panel_token",
     "reset_web_credentials",
+    "share_panel_token_with_project",
 ]
 
 #: The operator secret's environment carrier. In the container shape the deploy
@@ -897,6 +902,123 @@ _CREDENTIALS: WebCredentials | None = None
 #: child this process spawns still inherits nothing. ``None`` means no non-blank
 #: token was ever supplied — not "not populated yet", and never a reason to mint.
 _SUPPLIED_PANEL_TOKEN: str | None = None
+#: The data root :func:`share_panel_token_with_project` named before this
+#: process populated, or ``None``. Read once, by :func:`_populate`.
+_PROJECT_TOKEN_ROOT: Path | None = None
+
+#: The file a project's launcher-less processes share one panel token through,
+#: directly under the project's shared data root. See
+#: :func:`share_panel_token_with_project`.
+PROJECT_PANEL_TOKEN_FILE = ".panel-token"  # noqa: S105 -- names a file, holds no secret
+#: Owner-only, like every other secret file this tree writes.
+_PROJECT_TOKEN_FILE_MODE = 0o600
+_PROJECT_TOKEN_READ_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+#: Far more than a minted token; bounds what a file that is not ours can make us read.
+_PROJECT_TOKEN_MAX_BYTES = 512
+
+
+def read_project_panel_token(root: Path) -> str | None:
+    """Return the panel token the project under *root* shares, or ``None``.
+
+    Read-only: it never creates the file and never mints. The file is trusted
+    only as this module writes it — a regular file, not reached through a
+    link, owned by this user and closed to everyone else. Anything else is
+    read as no token, so a file somebody planted or loosened is never sent as
+    a bearer and never verified against.
+
+    Args:
+        root: The project's shared data root.
+    """
+    try:
+        descriptor = os.open(Path(root) / PROJECT_PANEL_TOKEN_FILE, _PROJECT_TOKEN_READ_FLAGS)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) & ~_PROJECT_TOKEN_FILE_MODE
+        ):
+            return None
+        raw = os.read(descriptor, _PROJECT_TOKEN_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+    if len(raw) > _PROJECT_TOKEN_MAX_BYTES:
+        return None
+    return raw.decode("ascii", errors="ignore").strip() or None
+
+
+def _ensure_project_panel_token(root: Path) -> str | None:
+    """Return the project's shared panel token, creating the file when absent.
+
+    Created once and never rewritten, the way the agent-record credential files
+    are: the token is written to a new owner-only file beside the destination
+    and linked into place, so two processes starting together agree on
+    whichever link landed first and no reader sees a partial token.
+
+    Returns ``None`` — and the caller mints a private token, as it always did —
+    when the file cannot be created or the one already there is not safe to
+    trust.
+    """
+    path = Path(root) / PROJECT_PANEL_TOKEN_FILE
+    if (existing := read_project_panel_token(root)) is not None:
+        return existing
+    try:
+        if not os.path.lexists(path):
+            temporary = path.with_name(f"{path.name}.{secrets.token_hex(6)}.tmp")
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _PROJECT_TOKEN_FILE_MODE
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                    handle.write(mint_secret())
+                with contextlib.suppress(FileExistsError):
+                    os.link(temporary, path)
+            finally:
+                with contextlib.suppress(OSError):
+                    os.unlink(temporary)
+    except OSError as exc:
+        logger.warning("Could not create the shared panel token file %s: %s", path, exc)
+        return None
+    token = read_project_panel_token(root)
+    if token is None:
+        logger.warning(
+            "Not using the shared panel token file %s: it must be a regular file owned by "
+            "this user with mode 0600. Panel calls from this project's other processes to a "
+            "server this process hosts will be refused until it is removed.",
+            path,
+        )
+    return token
+
+
+def share_panel_token_with_project(root: Path) -> None:
+    """Have this process, if it has no launcher, serve with the project's shared panel token.
+
+    A process started by ``osprey web`` or ``osprey chat`` is handed its panel
+    token, and so is every other process of that session. The MCP servers of a
+    session nothing of OSPREY launched (``osprey query``, an SDK run, ``claude
+    -p``) are handed nothing: each would mint a token only it knows, and the
+    one that comes to host the artifact gallery would refuse the others. Called
+    before such a process builds the app it hosts, this makes
+    :func:`_populate` take the token from :data:`PROJECT_PANEL_TOKEN_FILE`
+    under *root* instead, where the project's other processes read it
+    (:func:`read_project_panel_token`).
+
+    It changes nothing for a process that was handed an operator secret or a
+    panel token, or one whose credentials are already settled: what a launcher
+    supplied, and what this process may already have passed on, stands. The
+    operator secret is never shared — only the panel tier is.
+
+    Args:
+        root: The project's shared data root.
+    """
+    global _PROJECT_TOKEN_ROOT
+    with _POPULATION_LOCK:
+        if _CREDENTIALS is None:
+            _PROJECT_TOKEN_ROOT = Path(root)
 
 
 def _populate() -> WebCredentials:
@@ -912,6 +1034,7 @@ def _populate() -> WebCredentials:
             :func:`_session_ttl_from_env`.
     """
     global _SUPPLIED_PANEL_TOKEN
+    project_panel_token: str | None = None
     # Every carrier is popped BEFORE anything below that can raise — the guard
     # and the operator-secret check — because the process that catches the
     # error goes on serving and spawning children. A credential left in
@@ -952,6 +1075,10 @@ def _populate() -> WebCredentials:
                 "value and a locally minted secret would refuse every request."
             )
         operator_secret = mint_secret()
+        # A process nothing handed an identity is the only one that shares its
+        # panel token through the project; see share_panel_token_with_project.
+        if not supplied_panel_token and _PROJECT_TOKEN_ROOT is not None:
+            project_panel_token = _ensure_project_panel_token(_PROJECT_TOKEN_ROOT)
 
     # Read after the pops above, deliberately: this call can raise too, and the
     # carriers must already be out of the environment when it does.
@@ -960,7 +1087,7 @@ def _populate() -> WebCredentials:
 
     return WebCredentials(
         operator_secret=operator_secret,
-        panel_token=supplied_panel_token or mint_secret(),
+        panel_token=supplied_panel_token or project_panel_token or mint_secret(),
         roster_secrets=roster_secrets,
         roster_owners=roster_owners,
         dispatcher_token=dispatcher_token,
@@ -1314,10 +1441,11 @@ def reset_web_credentials() -> None:
     remembered token surviving a test would hand a bearer to the next test
     asserting that a process holding nothing sends none.
     """
-    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN
+    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN, _PROJECT_TOKEN_ROOT
     with _POPULATION_LOCK:
         _CREDENTIALS = None
         _SUPPLIED_PANEL_TOKEN = None
+        _PROJECT_TOKEN_ROOT = None
 
 
 def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:

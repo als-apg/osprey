@@ -1,12 +1,12 @@
 """Assert that the ``pyaml`` import package has exactly one owning distribution.
 
 pyAML ships under more than one distribution name — ``accelerator-middle-layer``
-upstream and ``accelerator-middle-layer-apg`` as a staging release — and every
-one of them writes the same ``pyaml/`` package directory. Two of them in
-one environment do not fail to install: the second silently overwrites files of
-the first, and uninstalling either later deletes files the other still claims.
-Neither resolver nor ``pip check`` sees it, because the two names do not
-conflict as requirements.
+upstream, which OSPREY depends on, and ``accelerator-middle-layer-apg``, the
+staging release it depended on before — and every one of them writes the same
+``pyaml/`` package directory. Two of them in one environment do not fail to
+install: the second silently overwrites files of the first, and uninstalling
+either later deletes files the other still claims. Neither resolver nor
+``pip check`` sees it, because the two names do not conflict as requirements.
 
 The image recipes that overlay locally-built wheels on a primed framework run
 this module after the overlay::

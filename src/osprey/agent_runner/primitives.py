@@ -126,7 +126,9 @@ def _apply_e2e_overrides(spec: Any) -> Any:
                 env_block[key] = force_model
         env_block["CLAUDE_CODE_SUBAGENT_MODEL"] = force_model
     if proxy_base:
-        env_block["ANTHROPIC_BASE_URL"] = proxy_base
+        from osprey.agent_runner.provider_env import base_url_env
+
+        env_block.update(base_url_env(proxy_base))
     return dataclasses.replace(spec, env_block=env_block, **changes)
 
 

@@ -16,6 +16,7 @@ difference.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -203,6 +204,33 @@ class TestLaunch:
             result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
 
         assert result.exit_code == 3
+
+    @pytest.mark.usefixtures("real_host_trust_seed")
+    def test_marks_its_own_render_trusted_and_nothing_else(
+        self, runner, launches, lifecycle_repo, monkeypatch, tmp_path
+    ):
+        """An untrusted render has the CLI drop the render's allow list."""
+        build = stub_build(lifecycle_repo)
+        config_dir = tmp_path / "claude-config"
+        config_dir.mkdir()
+        elsewhere = {"hasTrustDialogAccepted": False}
+        (config_dir / ".claude.json").write_text(
+            json.dumps({"theme": "dark", "projects": {"/somewhere/else": elsewhere}})
+        )
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--print", "hi"])
+
+        assert result.exit_code == 0, result.output
+        assert len(launches) == 1
+        state = json.loads((config_dir / ".claude.json").read_text())
+        assert state == {
+            "theme": "dark",
+            "projects": {
+                "/somewhere/else": elsewhere,
+                str(build.resolve()): {"hasTrustDialogAccepted": True},
+            },
+        }
 
     def test_resolves_the_repo_by_walking_up_from_the_working_directory(
         self, runner, launches, lifecycle_repo, monkeypatch

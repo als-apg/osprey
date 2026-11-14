@@ -351,7 +351,50 @@ class TestEnsureWebServerDispatch:
         fake = MagicMock()
         monkeypatch.setitem(server_launcher._launchers, "artifact", fake)
         ensure_web_server("artifact")
-        fake.ensure_running.assert_called_once_with()
+        fake.ensure_running.assert_called_once_with(share_panel_token=False)
+
+    def test_passes_the_shared_panel_token_request_on(self, monkeypatch):
+        fake = MagicMock()
+        monkeypatch.setitem(server_launcher._launchers, "artifact", fake)
+        ensure_web_server("artifact", share_panel_token=True)
+        fake.ensure_running.assert_called_once_with(share_panel_token=True)
+
+
+@pytest.mark.real_server_launch
+class TestSharedPanelTokenOnLaunch:
+    """A launch shares the project's panel token only for the caller that asked."""
+
+    def _launch(self, launcher: ServerLauncher, **kwargs) -> list[str]:
+        """Run *launcher*'s server thread body inline; return the order of what it did."""
+        order: list[str] = []
+        launcher._app_factory = lambda: order.append("app")
+        with (
+            patch("osprey.infrastructure.server_launcher.threading.Thread") as thread_cls,
+            patch("osprey.infrastructure.server_launcher._sleep"),
+            patch.object(launcher, "_is_running", return_value=True),
+            patch("uvicorn.run"),
+            patch(
+                "osprey_connectors.workspace.resolve_shared_data_root",
+                return_value="/the/data/root",
+            ),
+            patch(
+                "osprey.interfaces.web_auth.share_panel_token_with_project",
+                side_effect=lambda root: order.append(f"share {root}"),
+            ),
+        ):
+            launcher.ensure_running(**kwargs)
+            thread_cls.call_args_list[0].kwargs["target"]()
+        return order
+
+    def test_the_token_is_shared_before_the_app_is_built(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
+
+        assert self._launch(launcher, share_panel_token=True) == ["share /the/data/root", "app"]
+
+    def test_a_plain_launch_shares_nothing(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
+
+        assert self._launch(launcher) == ["app"]
 
     def test_unknown_key_raises_keyerror(self):
         with pytest.raises(KeyError):

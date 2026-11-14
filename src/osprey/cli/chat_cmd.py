@@ -617,6 +617,21 @@ def _run_agent(args: list[str], build_dir: Path) -> int:
     if started_servers:
         add_panel_token(child_env, get_web_credentials().panel_token)
 
+    # Mark the render trusted in the state file the agent reads, as the host web
+    # terminal does at startup: an untrusted render has the CLI drop its
+    # permissions.allow list, so a --print run is refused every read the render
+    # allows. Only this render's path, and no other first-run key.
+    from osprey.agent_runner.claude_state import seed_workspace_trust
+
+    try:
+        seed_workspace_trust(build_dir, env=child_env)
+    except Exception as exc:  # never block the launch on this
+        logging.getLogger(__name__).warning(
+            "Could not mark %s trusted for Claude Code (%s); its allow list will not apply",
+            build_dir,
+            exc,
+        )
+
     try:
         return subprocess.run(args, env=child_env).returncode
     finally:

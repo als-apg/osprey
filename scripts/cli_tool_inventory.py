@@ -6,9 +6,16 @@ The inventory of a build is the list of built-in tools it names in its
 deny-free environment: a fresh ``HOME`` and config directory, a dummy API key,
 a base URL nothing listens on, no settings but the (empty) project's, and
 ``CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`` — plus the environment OSPREY
-gives every Claude Code process it starts (``TASK_TOOLS_ENV``), so the list is
-the one an OSPREY agent is offered on any model, task-list tools included.
-MCP names are dropped: the probe loads no MCP server.
+gives every Claude Code process it starts (``TASK_TOOLS_ENV``), so the list
+holds the task-list tools on any model. MCP names are dropped: the probe loads
+no MCP server.
+
+The probe leaves tool search at the build's own default, which behind a base
+URL is on from 2.1.304, so ``ToolSearch`` is recorded. That is every built-in
+the build has, not what one launch is offered: behind a gateway OSPREY turns
+tool search off (``GATEWAY_TOOL_SEARCH_ENV``) and the agent is not offered
+``ToolSearch``, while a launch at Anthropic directly is. The name has to be in
+the inventory for a deny list to be able to name it.
 
 That list is the *offline core*, recorded as ``tools``. With remote
 configuration reachable a build also lists flag-gated tools (``Monitor``
