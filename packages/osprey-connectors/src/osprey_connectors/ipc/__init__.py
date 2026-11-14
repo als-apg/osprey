@@ -14,7 +14,7 @@ package that imported ``_host`` eagerly would load it a second time under
 ``__main__``.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey_connectors.ipc._frames import (
     FrameDecodeError,
@@ -154,7 +154,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
     """Resolve a public name from its defining module, on every access.
 
     Not cached here: the defining module stays the one place a name is bound,

@@ -201,12 +201,15 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any, SupportsFloat, TypedDict
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
 __all__ = [
     "EXIT_INIT_FAILED",
@@ -414,7 +417,7 @@ def _save_coverage() -> None:
 # --------------------------------------------------------------------------
 
 
-def _installed_endpoint() -> tuple[str | None, str | None, Any]:
+def _installed_endpoint() -> tuple[str | None, str | None, int | str | None]:
     """The CA endpoint currently installed in the environment.
 
     Read *after* ``connect()`` and after the startup scrub, so whatever is
@@ -437,7 +440,7 @@ def _installed_endpoint() -> tuple[str | None, str | None, Any]:
     return None, None, None
 
 
-def _as_port(value: str | None) -> Any:
+def _as_port(value: str | None) -> int | str | None:
     """A port as the int it usually is, or verbatim when it is not one."""
     if value is None or value == "":
         return None
@@ -481,7 +484,7 @@ def _writes_enabled_input() -> bool:
     return tier_allows(section)
 
 
-def _selection_writes_enabled(connector: Any) -> bool:
+def _selection_writes_enabled(connector: ControlSystemConnector) -> bool:
     """The write posture ``connect()`` actually selected this child's gateway on.
 
     The connector instance's own property rather than a second derivation from
@@ -512,7 +515,7 @@ def _named_authorization() -> str | None:
     return named_authorization()
 
 
-def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
+def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:
     """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
     The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,
@@ -546,7 +549,7 @@ def _endpoint_matches(gateway: object, mode: str | None, host: str | None, port:
 
 
 def _installed_role(
-    gateways: dict[str, Any],
+    gateways: dict[str, object],
     mode: str | None,
     host: str | None,
     port: object,
@@ -572,9 +575,30 @@ def _installed_role(
     return matched[0] if len(matched) == 1 else None
 
 
+class _PostConnectReport(TypedDict):
+    """The post-connect report, as this child writes it (see the module docstring)."""
+
+    selected_role: str | None
+    mode: str | None
+    host: str | None
+    port: int | str | None
+    _epics_configured: bool
+    connector_type: str
+    transport: str | None
+    target: str
+    writes_enabled: bool
+    readonly_run: bool
+    authorization: str | None
+    epics_env: dict[str, str]
+    pid: int
+
+
 def _post_connect_report(
-    connector: object, connector_type: str, target: str, section: dict[str, Any]
-) -> dict[str, Any]:
+    connector: ControlSystemConnector,
+    connector_type: str,
+    target: str,
+    section: dict[str, Any],
+) -> _PostConnectReport:
     """Describe what ``connect()`` configured, for the parent to verify."""
     connector_block = (section.get("connector") or {}).get(connector_type) or {}
     gateways = connector_block.get("gateways") or {}
@@ -620,8 +644,8 @@ def _post_connect_report(
 
 
 async def _build_connector(
-    payload: dict[str, Any], marks: _StartMarks | None = None
-) -> tuple[Any, dict[str, Any]]:
+    payload: dict[str, object], marks: _StartMarks | None = None
+) -> tuple[ControlSystemConnector, _PostConnectReport]:
     """Apply the init payload and bring up the connector it describes.
 
     Args:
@@ -658,6 +682,8 @@ async def _build_connector(
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     connector_type = types.resolve_target(section, target)
+    # resolve_target refuses anything but one of the target names.
+    target = str(target)
     register_builtin_connectors()
     if marks is not None:
         marks.mark("imports")
@@ -685,7 +711,7 @@ async def _build_connector(
     if marks is not None:
         marks.mark("connected")
 
-    report = _post_connect_report(connector, connector_type, str(target), section)
+    report = _post_connect_report(connector, connector_type, target, section)
     logger.warning(
         "connector host: serving target %r as %r (role=%r mode=%r %s:%s)",
         target,
@@ -709,9 +735,9 @@ class _FrameStream:
     def __init__(self, reader: asyncio.StreamReader) -> None:
         self._reader = reader
         self._parser = frames.FrameReader()
-        self._ready: deque[Any] = deque()
+        self._ready: deque[frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame] = deque()
 
-    async def next(self) -> Any:
+    async def next(self) -> frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame | None:
         """The next frame, or ``None`` once the pipe reaches EOF."""
         while not self._ready:
             chunk = await self._reader.read(_READ_CHUNK_BYTES)
@@ -767,8 +793,8 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
 
 
 async def _spawn_probe(
-    connector: Any, channel: str, timeout: float | None = DEFAULT_PROBE_TIMEOUT_S
-) -> Any:
+    connector: ControlSystemConnector, channel: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
+) -> ChannelValue:
     """Read one named channel under a hard bound.
 
     Args:
@@ -784,6 +810,7 @@ async def _spawn_probe(
         The channel's :class:`ChannelValue`.
 
     Raises:
+        TypeError: The channel is not an address, or the bound is not a number.
         ValueError: The bound is not a positive number.
         TimeoutError: The read did not finish inside the bound. The message
             always names the channel and the bound, because the two bounds race
@@ -792,7 +819,14 @@ async def _spawn_probe(
             layers up, as a switch refusal ending in ": ." that names nothing
             the operator could act on.
     """
-    bound = DEFAULT_PROBE_TIMEOUT_S if timeout is None else float(timeout)
+    if not isinstance(channel, str):
+        raise TypeError(f"spawn_probe channel must be a channel address, got {channel!r}")
+    if timeout is None:
+        bound = DEFAULT_PROBE_TIMEOUT_S
+    elif isinstance(timeout, str | SupportsFloat):
+        bound = float(timeout)
+    else:
+        raise TypeError(f"spawn_probe timeout must be a number, got {timeout!r}")
     if bound <= 0:
         raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
     try:
@@ -804,7 +838,9 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
-async def _invoke(connector: object, method: str, kwargs: dict[str, Any]) -> Any:
+async def _invoke(
+    connector: ControlSystemConnector, method: str, kwargs: dict[str, object]
+) -> object:
     """Run one request against the connector."""
     if method == "ping":
         return os.getpid()
@@ -818,7 +854,9 @@ async def _invoke(connector: object, method: str, kwargs: dict[str, Any]) -> Any
     )
 
 
-async def _dispatch(connector: Any, frame: Any, writer: _FrameWriter) -> None:
+async def _dispatch(
+    connector: ControlSystemConnector, frame: frames.RequestFrame, writer: _FrameWriter
+) -> None:
     """Serve one request and write exactly one reply for it."""
     try:
         payload = frames.encode_result(
@@ -830,7 +868,9 @@ async def _dispatch(connector: Any, frame: Any, writer: _FrameWriter) -> None:
     await writer.send(payload)
 
 
-async def _serve(connector: object, stream: _FrameStream, writer: _FrameWriter) -> int:
+async def _serve(
+    connector: ControlSystemConnector, stream: _FrameStream, writer: _FrameWriter
+) -> int:
     """Dispatch requests until the pipe closes or a disconnect is served."""
     inflight: set[asyncio.Task[None]] = set()
     while True:
