@@ -130,13 +130,13 @@ def _linear_terms(linear: Mapping[str, Any]) -> list[tuple[str, float]]:
     return terms
 
 
-def _gate_inputs(inputs: Any) -> list[tuple[str, Any]]:
+def _gate_inputs(inputs: Any) -> list[tuple[str, object]]:
     """``(input address, blocking label)`` pairs of a seed's ``gate.inputs``, sorted.
 
     ``inputs`` is ``{<address>: <blocking_label>}``; a value may also be the
     record ``{blocking_label: <label>}``.
     """
-    pairs: list[tuple[str, Any]] = []
+    pairs: list[tuple[str, object]] = []
     for address in sorted(inputs or {}, key=str):
         label = inputs[address]
         if isinstance(label, Mapping):
@@ -234,7 +234,7 @@ class TextureModel(LUMEModel):
             and str(self._channels[address]["pair"]) in owned
         }
 
-        self._nominals: dict[str, Any] = {
+        self._nominals: dict[str, values.StoredValue] = {
             address: self._nominal(address, unserved_defaults.get(address)) for address in owned
         }
         for setpoint, readback in self._echo.items():
@@ -243,16 +243,16 @@ class TextureModel(LUMEModel):
         self._variables: dict[str, Variable] = {
             address: channel_variable(self._channels[address], start[address]) for address in owned
         }
-        self._held: dict[str, Any] = {}
+        self._held: dict[str, values.StoredValue] = {}
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
         self._noise: dict[str, Mapping[str, Any]] = {}
         self._still: frozenset[str] = frozenset()
-        self._active: dict[str, Any] = {}
+        self._active: dict[str, object] = {}
         self.reset()
 
     @staticmethod
-    def _unserved_wiring_defaults(models: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-        defaults: dict[str, Any] = {}
+    def _unserved_wiring_defaults(models: Sequence[Mapping[str, Any]]) -> dict[str, object]:
+        defaults: dict[str, object] = {}
         for model in models:
             if model.get("served"):
                 continue
@@ -261,13 +261,13 @@ class TextureModel(LUMEModel):
                     defaults.setdefault(str(record["address"]), record["default"])
         return defaults
 
-    def _coerce(self, address: str, value: Any) -> Any:
+    def _coerce(self, address: str, value: object) -> values.StoredValue:
         channel = self._channels[address]
         return values.coerce(
             value, channel_value_type(channel), channel.get("options"), channel.get("shape")
         )
 
-    def _nominal(self, address: str, wiring_default: Any) -> Any:
+    def _nominal(self, address: str, wiring_default: object) -> values.StoredValue:
         channel = self._channels[address]
         seed = self._seeds.get(address, {})
         held = topoff.held_value(seed, self._seeds.get)
@@ -291,7 +291,7 @@ class TextureModel(LUMEModel):
         self._held = {address: self._nominals[address] for address in self._variables}
         self._hold(self._active)
 
-    def set_active(self, writes: Mapping[str, Any]) -> None:
+    def set_active(self, writes: Mapping[str, object]) -> None:
         """Make the active scenarios' writes the start state, and reset to it.
 
         An active write is held whether or not its channel is settable, and a
@@ -424,7 +424,7 @@ class TextureModel(LUMEModel):
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
 
-    def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
+    def motion(self, address: str, t_s: object, base: object = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
 
         Drift, then the held couplings, then a ``topoff`` seed's tooth
@@ -510,7 +510,7 @@ class TextureModel(LUMEModel):
         return term, float(record.get(term) or 0.0), subkeys[term]
 
     @staticmethod
-    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: Any) -> np.ndarray:
+    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: object) -> np.ndarray:
         """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``."""
         tau, period = topoff.tau_period(record)
         unit = np.exp(-np.mod(times, period) / tau)
@@ -529,7 +529,7 @@ class TextureModel(LUMEModel):
             float(drive["amplitude"]),
             float(drive["period_s"]),
         )
-        gain: Any = float(coupling["gain"])
+        gain: float | np.ndarray = float(coupling["gain"])
         envelope = coupling.get("gain_wander")
         if envelope:
             gain = gain * (
@@ -595,7 +595,7 @@ class TextureModel(LUMEModel):
     def _set(self, values_by_name: dict[str, Any]) -> None:
         self._hold(values_by_name)
 
-    def _hold(self, values_by_name: Mapping[str, Any]) -> None:
+    def _hold(self, values_by_name: Mapping[str, object]) -> None:
         """Hold coerced values and their echoes; nothing is held when one is refused."""
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)

@@ -78,7 +78,6 @@ real machine, ``va`` is the served container and is judged served.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from .types import (
     INVENTED_HISTORY_TYPES,
@@ -116,7 +115,7 @@ _CONTROL_SYSTEM_TYPE = "control_system.type"
 _ARCHIVER_TYPE = "archiver.type"
 
 
-def invents_history(control_system_section: Any) -> bool:
+def invents_history(control_system_section: object) -> bool:
     """Whether the machine *control_system_section* selects has no recorded past.
 
     A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is
@@ -133,7 +132,7 @@ def invents_history(control_system_section: Any) -> bool:
         return True
 
 
-def target_section(control_system_section: Any, connector_type: str) -> dict[str, Any]:
+def target_section(control_system_section: object, connector_type: str) -> dict[str, object]:
     """The section a target builds from: the deployment's own, with its type replaced."""
     section = control_system_section if isinstance(control_system_section, dict) else {}
     return {**section, "type": connector_type}
@@ -166,7 +165,7 @@ class ArchiverPairing:
     written."""
 
 
-def pairing_in_profile(config: Any) -> ArchiverPairing:
+def pairing_in_profile(config: object) -> ArchiverPairing:
     """Judge a build profile's ``config:`` block.
 
     Both spellings are live here — the emitter honors the dotted key and a
@@ -205,7 +204,7 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
     )
 
 
-def pairing_in_rendered_config(config: Any) -> ArchiverPairing:
+def pairing_in_rendered_config(config: object) -> ArchiverPairing:
     """Judge a rendered ``config.yml`` — the deploy config and the MCP server's.
 
     Nested sections only, because that is all either reader honors: a top-level
@@ -228,7 +227,7 @@ def pairing_in_rendered_config(config: Any) -> ArchiverPairing:
     return _rendered_pairing(config, invents_history(control_system))
 
 
-def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
+def pairing_for_target(config: object, target: str) -> ArchiverPairing:
     """Judge the pairing a session *target* would create in a rendered config.
 
     The same nested-only reading of the same file as
@@ -268,14 +267,14 @@ def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
     return _rendered_pairing(config, invents_history(section))
 
 
-def _sections(config: Any) -> dict[Any, Any]:
+def _sections(config: object) -> dict[object, object]:
     """The config's top-level sections, or none when it is not a mapping."""
     return config if isinstance(config, dict) else {}
 
 
-def _profile_section(type_value: Any, serving_value: Any) -> dict[str, Any]:
+def _profile_section(type_value: object, serving_value: object) -> dict[str, object]:
     """The one-key ``control_system:`` section a profile's spellings render to."""
-    section: dict[str, Any] = {}
+    section: dict[str, object] = {}
     if type_value is not _ABSENT:
         section["type"] = type_value
     if serving_value is not _ABSENT:
@@ -283,7 +282,7 @@ def _profile_section(type_value: Any, serving_value: Any) -> dict[str, Any]:
     return section
 
 
-def _rendered_pairing(config: Any, invented: bool) -> ArchiverPairing:
+def _rendered_pairing(config: object, invented: bool) -> ArchiverPairing:
     """The verdict on a rendered config, given whether the control system to
     judge it against — the one it selects, or the one a target would select —
     has no recorded past."""
@@ -298,7 +297,7 @@ def _rendered_pairing(config: Any, invented: bool) -> ArchiverPairing:
     )
 
 
-def _spellings(config: Any, dotted: str, *, nested_only: bool) -> list[Any]:
+def _spellings(config: object, dotted: str, *, nested_only: bool) -> list[object]:
     """The values this config sets for *dotted*, in every spelling that is live.
 
     Returned exactly as written, never normalized: the resolvers in
@@ -315,14 +314,14 @@ def _spellings(config: Any, dotted: str, *, nested_only: bool) -> list[Any]:
     return [value for value in values if value is not _ABSENT]
 
 
-def _flat_value(config: Any, dotted: str) -> Any:
+def _flat_value(config: object, dotted: str) -> object:
     """The value of the whole dotted key written as one top-level key."""
     if not isinstance(config, dict) or dotted not in config:
         return _ABSENT
     return config[dotted]
 
 
-def _nested_value(config: Any, dotted: str) -> Any:
+def _nested_value(config: object, dotted: str) -> object:
     """The value of *dotted* walked as nested sections."""
     node = config
     for part in dotted.split("."):
@@ -332,12 +331,12 @@ def _nested_value(config: Any, dotted: str) -> Any:
     return node
 
 
-def _stated(values: list[Any]) -> list[str]:
+def _stated(values: list[object]) -> list[str]:
     """The values that actually say something, as text for a message."""
     return sorted({str(value) for value in values if value})
 
 
-def _profile_phrase(archiver: list[Any]) -> str:
+def _profile_phrase(archiver: list[object]) -> str:
     if not archiver:
         return f"unset (which the connector factory resolves to {MOCK_ARCHIVER!r})"
     stated = _stated(archiver)
@@ -352,7 +351,7 @@ def _profile_phrase(archiver: list[Any]) -> str:
     return repr(stated[0])
 
 
-def _rendered_phrase(archiver: list[Any], flat: Any) -> str:
+def _rendered_phrase(archiver: list[object], flat: object) -> str:
     stated = _stated(archiver)
     if stated:
         return repr(stated[0])

@@ -282,7 +282,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: "Sequence[Any]") -> "np.ndarray | None":
+def epoch_seconds_array(timestamps: "Sequence[object]") -> "np.ndarray | None":
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:

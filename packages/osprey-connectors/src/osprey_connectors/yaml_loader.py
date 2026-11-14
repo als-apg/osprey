@@ -26,14 +26,14 @@ __all__ = [
 ]
 
 
-def safe_loader() -> type[Any]:
+def safe_loader() -> type[yaml.CSafeLoader] | type[yaml.SafeLoader]:
     """The safe loader class to parse with: libyaml's when present, else PyYAML's.
 
     Resolved at call time rather than at import, so a build that runs without
     the C bindings falls back on the same code path a test can exercise by
     removing ``yaml.CSafeLoader``.
     """
-    return getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    return yaml.CSafeLoader if hasattr(yaml, "CSafeLoader") else yaml.SafeLoader
 
 
 def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
@@ -51,23 +51,23 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
     return yaml.load(stream, Loader=safe_loader())
 
 
-def _safe_dumper() -> type[Any]:
+def _safe_dumper() -> type[yaml.CSafeDumper] | type[yaml.SafeDumper]:
     """The safe dumper class to emit with: libyaml's when present, else PyYAML's.
 
     Resolved at call time, like :func:`safe_loader`.
     """
-    return getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+    return yaml.CSafeDumper if hasattr(yaml, "CSafeDumper") else yaml.SafeDumper
 
 
 @overload
-def safe_dump(data: Any, stream: None = None, **kwargs: Any) -> str: ...
+def safe_dump(data: object, stream: None = None, **kwargs: Any) -> str: ...
 
 
 @overload
-def safe_dump(data: Any, stream: IO[str], **kwargs: Any) -> None: ...
+def safe_dump(data: object, stream: IO[str], **kwargs: Any) -> None: ...
 
 
-def safe_dump(data: Any, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
+def safe_dump(data: object, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
     """Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.
 
     Args:

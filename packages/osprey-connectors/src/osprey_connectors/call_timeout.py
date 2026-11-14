@@ -8,7 +8,7 @@ every connector that bounds its calls names and refuses that bound alike.
 
 import math
 from collections.abc import Iterator, Mapping
-from typing import Any, SupportsFloat
+from typing import SupportsFloat
 
 from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
 
@@ -35,7 +35,7 @@ _RENAMED_PATHS = frozenset(
 )
 
 
-def call_timeout_s(config: Mapping[str, Any], connector_type: str | None) -> float:
+def call_timeout_s(config: Mapping[str, object], connector_type: str | None) -> float:
     """The call bound one connector block declares.
 
     Args:
@@ -86,7 +86,7 @@ def _positive_seconds(value: object) -> float | None:
     return seconds if math.isfinite(seconds) and seconds > 0 else None
 
 
-def refuse_renamed_timeout_keys(config: Mapping[str, Any]) -> None:
+def refuse_renamed_timeout_keys(config: Mapping[str, object]) -> None:
     """Refuse a whole config that still spells a connector's call bound ``timeout``.
 
     Checked when a config is read, so the old key fails before any connector is
@@ -105,7 +105,7 @@ def refuse_renamed_timeout_keys(config: Mapping[str, Any]) -> None:
         raise ValueError("; ".join(f"{path} is renamed to {TIMEOUT_KEY}" for path in renamed))
 
 
-def _dotted_paths(node: Mapping[str, Any], prefix: str = "") -> Iterator[str]:
+def _dotted_paths(node: Mapping[str, object], prefix: str = "") -> Iterator[str]:
     """Every key of *node*, nested ones included, as a dotted path."""
     for key, value in node.items():
         if not isinstance(key, str):

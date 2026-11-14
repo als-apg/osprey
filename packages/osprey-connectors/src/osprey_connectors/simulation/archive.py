@@ -159,7 +159,7 @@ class FingerprintComparison:
     """The outcome of comparing a store's manifest against current knobs."""
 
     state: SeedState
-    differences: tuple[tuple[str, Any, Any], ...] = ()
+    differences: tuple[tuple[str, object, object], ...] = ()
     """``(key, stored, expected)`` for each field that moved. Empty unless the
     state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*
     what changed rather than announcing an unexplained reseed."""
@@ -193,7 +193,7 @@ class SeedKnobs:
     tail_cadence_sec: int = 60
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> SeedKnobs:
+    def from_config(cls, config: Mapping[str, object]) -> SeedKnobs:
         """Read the knobs out of a rendered project config.
 
         Args:
@@ -538,7 +538,7 @@ class ArchiveComposite:
     def _stepped(
         self,
         channel: Mapping[str, Any],
-        held: Any,
+        held: object,
         events: Sequence[Mapping[str, Any]],
         times: np.ndarray,
     ) -> list[Any]:
@@ -776,7 +776,9 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 # ---------------------------------------------------------------------------
 
 
-def _synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
+def _synthesize_documents(
+    archive: ArchiveComposite, epoch_s: np.ndarray
+) -> list[dict[str, object]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
     This is the single definition of "what the archive holds at time T", and it
@@ -796,7 +798,7 @@ def _synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> lis
         timestamp belongs to is a property of the grid, not of the values.
     """
     stamps = _as_utc_datetimes(epoch_s)
-    documents: list[dict[str, Any]] = [{DATE_FIELD: stamp} for stamp in stamps]
+    documents: list[dict[str, object]] = [{DATE_FIELD: stamp} for stamp in stamps]
     if not documents:
         return documents
 
@@ -826,7 +828,7 @@ def seed_fingerprint(
     channel_addresses: Iterable[str],
     *,
     compression: str,
-) -> dict[str, Any]:
+) -> dict[str, int | str]:
     """The knobs a store's coverage depends on, as a comparable dict.
 
     Everything here changes what the store *contains*: the window's depth and
@@ -864,7 +866,7 @@ def seed_fingerprint(
 
 def _write_manifest(
     collection: Collection,
-    fingerprint: Mapping[str, Any],
+    fingerprint: Mapping[str, object],
     *,
     seeded_at: datetime,
     report: SeedReport | None = None,
@@ -899,7 +901,7 @@ def _write_manifest(
 
 
 def compare_fingerprint(
-    collection: Collection, fingerprint: Mapping[str, Any]
+    collection: Collection, fingerprint: Mapping[str, object]
 ) -> FingerprintComparison:
     """Whether the store in front of us was built with the knobs now in force.
 
@@ -952,7 +954,7 @@ def waveform_document(
     values: Sequence[float] | np.ndarray,
     *,
     expire_at: datetime,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """One archived trace: one document per (channel, instant).
 
     The keys mirror a scalar snapshot document, so the same field naming and the
@@ -1114,7 +1116,7 @@ def seed_base(
 
 def _waveform_documents(
     archive: ArchiveComposite, epoch_s: np.ndarray, expire_s: np.ndarray
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     """The trace documents of every waveform channel at these instants.
 
     Valued at the epoch seconds a reader derives from the stored dates, as the
@@ -1126,7 +1128,7 @@ def _waveform_documents(
     expiry = _as_utc_datetimes(expire_s)
     reader_epoch_s = epoch_seconds_array(stamps)
     assert reader_epoch_s is not None  # datetimes always convert
-    documents: list[dict[str, Any]] = []
+    documents: list[dict[str, object]] = []
     for address in archive.waveform_addresses:
         for stamp, expire_at, trace in zip(
             stamps, expiry, archive.traces(address, reader_epoch_s), strict=True
@@ -1139,7 +1141,7 @@ def _submit_bounded(
     pool: ThreadPoolExecutor,
     pending: set[Future[None]],
     collection: Collection,
-    documents: list[dict[str, Any]],
+    documents: list[dict[str, object]],
     limit: int,
 ) -> set[Future[None]]:
     """Queue one insert, first draining until fewer than ``limit`` are in flight.
@@ -1162,7 +1164,7 @@ def _submit_bounded(
     return pending
 
 
-def _insert_chunk(collection: Collection, documents: list[dict[str, Any]]) -> None:
+def _insert_chunk(collection: Collection, documents: list[dict[str, object]]) -> None:
     """Insert one batch, unordered so the server may parallelize it internally."""
     if documents:
         collection.insert_many(documents, ordered=False)

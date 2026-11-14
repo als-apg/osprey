@@ -583,7 +583,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
     with pytest.raises(TimeoutError) as caught:
         await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
 
-    assert not isinstance(caught.value, ConnectorHostLostError)
+    assert not isinstance(caught.value, ConnectorHostError)
     assert "still answers a ping" in str(caught.value)
     assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
     assert live.pid == pid and pid_alive(pid)
@@ -810,7 +810,8 @@ async def test_the_pool_and_the_policy_table_agree(
     }
     assert list(raised.recovery) == [expected]
     if kept:
-        assert type(raised) is TimeoutError
+        assert isinstance(raised, TimeoutError)
+        assert not isinstance(raised, ConnectorHostError)
         assert child.retired is None
     else:
         assert isinstance(raised, ConnectorHostLostError)

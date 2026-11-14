@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Literal
 
 from osprey_connectors.service_answers import (
     Outcome,
@@ -95,7 +95,7 @@ class DirectoryPage:
     rows: list[DirectoryRow] = field(default_factory=list)
     truncated: bool = False
     partial: list[Mapping[str, str]] = field(default_factory=list)
-    facets: Mapping[str, list[Mapping[str, Any]]] | None = None
+    facets: Mapping[str, list[Mapping[str, object]]] | None = None
     facets_reason: str | None = None
     reason: str | None = None
 

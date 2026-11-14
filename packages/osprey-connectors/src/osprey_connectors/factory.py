@@ -92,7 +92,9 @@ class ConnectorFactory:
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
     _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
     #: Service backend classes by kind, then by the type name a spec selects them by.
-    _service_backends: dict[str, dict[str, type[Any]]] = {kind: {} for kind in _SERVICE_KINDS}
+    _service_backends: dict[str, dict[str, type[_ServiceBackend]]] = {
+        kind: {} for kind in _SERVICE_KINDS
+    }
 
     @classmethod
     def register_control_system(
@@ -121,7 +123,7 @@ class ConnectorFactory:
         logger.debug(f"Registered archiver connector: {name}")
 
     @classmethod
-    def register_service(cls, kind: str, name: str, backend_class: type[Any]) -> None:
+    def register_service(cls, kind: str, name: str, backend_class: type[_ServiceBackend]) -> None:
         """Register a service backend under the type name a ``BackendSpec`` selects it by.
 
         Args:
@@ -381,7 +383,7 @@ class ConnectorFactory:
 
     @classmethod
     async def create_service(
-        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any
+        cls, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
     ) -> _ServiceBackend:
         """Build the service backend a spec names. Backends connect nothing here: no I/O.
 
@@ -417,12 +419,12 @@ class ConnectorFactory:
         return backend
 
     @classmethod
-    def list_control_systems(cls) -> list:
+    def list_control_systems(cls) -> list[str]:
         """List available control system connector types."""
         return list(cls._control_system_connectors.keys())
 
     @classmethod
-    def list_archivers(cls) -> list:
+    def list_archivers(cls) -> list[str]:
         """List available archiver connector types."""
         return list(cls._archiver_connectors.keys())
 

@@ -9,16 +9,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 from osprey_connectors.service_answers import Unavailable, _Backend
 
 _SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
 
 
-def severity_rank(severity: Any) -> int:
+def severity_rank(severity: object) -> int:
     """The severity's rank, higher is worse; an unknown one ranks highest, never as recovered."""
-    return _SEVERITY_RANK.get(severity, len(_SEVERITY_RANK))
+    unknown = len(_SEVERITY_RANK)
+    return _SEVERITY_RANK.get(severity, unknown) if isinstance(severity, str) else unknown
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -78,8 +79,8 @@ class AlarmConfigRecord:
 
     in_tree: Literal["yes", "no", "unknown"]
     path: str | None = None
-    guidance: Any = None
-    displays: Any = None
+    guidance: object = None
+    displays: object = None
     enabled: bool | None = None
     latching: bool | None = None
 

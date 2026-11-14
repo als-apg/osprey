@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
@@ -41,13 +40,13 @@ _PROJECT_ROOT_CONFIG_KEY = "project_root"
 
 #: The signature every ``config_lookup`` here has: that of
 #: :func:`osprey_connectors.config.get_config_value`.
-ConfigLookup = Callable[[str, Any], Any]
+ConfigLookup = Callable[[str, object], object]
 
 #: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
 #: takes for the ``max_step`` check: one channel address in, that channel's
 #: present value out. Every control system can read a channel; none of them
 #: agree on how, so the caller that is about to write supplies its own.
-CurrentValueReader = Callable[[str], Any]
+CurrentValueReader = Callable[[str], object]
 
 #: Ceiling on the fresh read a ``max_step`` check makes, in seconds, when the
 #: deployment names none. The check sits in front of a write an operator is
@@ -163,7 +162,7 @@ def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
     return readings.pop(), None
 
 
-def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
+def _finite_real_or_reason(value: object) -> tuple[float | None, str | None]:
     """The value as a finite ``float``, or why it cannot be held to a numeric limit.
 
     A real number is accepted as is: ``int``, ``float``, ``bool`` and anything
@@ -200,7 +199,7 @@ def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
 
 
 def step_read_timeout_seconds(
-    config: Mapping[str, Any] | None, connector_type: str | None = None
+    config: Mapping[str, object] | None, connector_type: str | None = None
 ) -> float:
     """The ``max_step`` fresh-read budget one connector block declares.
 
@@ -237,7 +236,7 @@ def step_read_timeout_seconds(
     return float(declared)
 
 
-def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:
+def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
     """A ``get_config_value``-shaped lookup over an already-loaded config.
 
     For the callers that hold the config as a dict rather than through the
@@ -254,8 +253,8 @@ def mapping_config_lookup(config: Mapping[str, Any]) -> ConfigLookup:
         mappings and answers *default* for any segment that is not there.
     """
 
-    def lookup(path: str, default: Any = None) -> Any:
-        value: Any = config
+    def lookup(path: str, default: object = None) -> object:
+        value: object = config
         for key in path.split("."):
             if not isinstance(value, Mapping) or key not in value:
                 return default
@@ -286,7 +285,7 @@ class LimitsValidator:
     def __init__(
         self,
         limits_database: dict[str, ChannelLimitsConfig],
-        policy_config: dict,
+        policy_config: Mapping[str, object],
         raw_db: dict | None = None,
         failsafe_reason: str | None = None,
     ):
@@ -846,7 +845,7 @@ class LimitsValidator:
     def validate(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         *,
         read_current: CurrentValueReader | None = None,
     ) -> None:
@@ -986,7 +985,7 @@ class LimitsValidator:
         # All checks passed!
         logger.debug(f"Validated write: {channel_address}={value}")
 
-    def validate_without_step_check(self, channel_address: str, value: Any) -> None:
+    def validate_without_step_check(self, channel_address: str, value: object) -> None:
         """Every limits check that can be made without reading the machine.
 
         For a caller that is *not* the one performing the write, and so has no
@@ -1008,7 +1007,7 @@ class LimitsValidator:
         self._validate_without_step(channel_address, value)
 
     def _validate_without_step(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[ChannelLimitsConfig | None, float | None]:
         """Checks 1-3, shared by both entry points.
 

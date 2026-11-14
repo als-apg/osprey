@@ -8,12 +8,14 @@ collection named by ``waveform_collection``, one document per (channel, instant)
 of the same shape, and every read covers both.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -35,6 +37,13 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.archive import waveform_collection
+
+if TYPE_CHECKING:
+    from pymongo import MongoClient
+    from pymongo.collection import Collection
+
+#: A stored document as pymongo decodes it: each field holds any BSON value.
+_Document = dict[str, object]
 
 logger = get_logger("mongodb_archiver_connector")
 
@@ -176,17 +185,17 @@ class MongoDBArchiverConnector(ArchiverConnector):
     # pymongo exception classes, bound by connect(). Declared here so every
     # method can reference them on a connector that never completed a connect()
     # — including the stub connectors tests wire up by hand.
-    _MongoClient = None
-    _ConnectionFailure = None
-    _ConfigurationError = None
+    _MongoClient: type[MongoClient[_Document]] | None = None
+    _ConnectionFailure: type[Exception] | None = None
+    _ConfigurationError: type[Exception] | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
-        self._client = None
-        self._collection = None
+        self._client: MongoClient[_Document] | None = None
+        self._collection: Collection[_Document] | None = None
         # The waveform sibling of ``_collection``; None on a connector wired to
         # a single collection, which then reads scalars only.
-        self._waveforms = None
+        self._waveforms: Collection[_Document] | None = None
         self._timeout: float = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
@@ -338,7 +347,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         _log_route_once(url is not None, store)
 
         try:
-            client = self._MongoClient(
+            client: MongoClient[_Document] = MongoClient(
                 **mongo_client_kwargs(
                     url=url,
                     host=host,
@@ -353,7 +362,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             self._client = client
 
             # Test connection
-            def test_connection():
+            def test_connection() -> None:
                 client.admin.command("ping")
 
             await asyncio.to_thread(test_connection)
@@ -367,12 +376,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}"
             )
 
-        except self._ConnectionFailure as e:
+        except ConnectionFailure as e:
             raise ConnectorUnavailableError(
                 f"Cannot connect to MongoDB at {store}. "
                 f"Please check connectivity and authentication. {DEPLOY_HINT}"
             ) from e
-        except self._ConfigurationError as e:
+        except ConfigurationError as e:
             raise ConnectorUnavailableError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
             # pymongo loads the CA file while it builds the client, before any ping.
@@ -393,7 +402,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if client:
             try:
 
-                def close_connection():
+                def close_connection() -> None:
                     client.close()
 
                 await asyncio.to_thread(close_connection)
@@ -428,13 +437,20 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
 
-    def _stores(self) -> tuple[Any, ...]:
-        """Every collection a read covers: the snapshots, then the waveform sibling."""
-        if self._waveforms is None:
-            return (self._collection,)
-        return (self._collection, self._waveforms)
+    def _stores(self) -> tuple[Collection[_Document], ...]:
+        """Every collection a read covers: the snapshots, then the waveform sibling.
 
-    def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing):
+        Raises:
+            RuntimeError: If the connector holds no collection.
+        """
+        collection = self._collection
+        if collection is None:
+            raise RuntimeError("MongoDB archiver not connected")
+        if self._waveforms is None:
+            return (collection,)
+        return (collection, self._waveforms)
+
+    def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing) -> None:
         """Refuse a non-raw mode on any requested channel the waveform store holds.
 
         Asked of the whole store, not of the window: a waveform channel stays one
@@ -501,7 +517,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
-        def fetch_data():
+        def fetch_data() -> pd.DataFrame:
             """Synchronous data fetch function."""
             fields = {channel: field_name(channel) for channel in channels}
             # Match any document carrying at least one requested channel: ANDing
@@ -534,6 +550,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
                         if field in doc:
                             value = doc[field]
                             if is_waveform_store:
+                                if not isinstance(value, list):
+                                    raise TypeError(f"no trace stored for waveform {channel!r}")
                                 traced.add(channel)
                                 value = [float(x) for x in value]
                             timestamps[channel].append(doc_date)
@@ -612,22 +630,26 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         self._require_connected()
 
-        def stored_extent():
-            """Timestamps of the oldest and newest documents carrying this channel."""
+        def stored_extent() -> tuple[datetime | None, datetime | None]:
+            """Timestamps of the oldest and newest documents carrying this channel.
+
+            A ``date`` that is not a datetime counts as none, as ``get_data`` skips it.
+            """
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
             query = {field_name(channel): {"$exists": True}}
             projection = {"date": 1}
-            firsts, lasts = [], []
+            firsts: list[datetime] = []
+            lasts: list[datetime] = []
             for store in self._stores():
                 oldest = store.find_one(query, projection, sort=[("date", 1)])
                 if oldest is None:
                     continue
                 newest = store.find_one(query, projection, sort=[("date", -1)])
-                if oldest.get("date") is not None:
-                    firsts.append(oldest["date"])
-                if (newest or {}).get("date") is not None:
-                    lasts.append(newest["date"])
+                if isinstance(oldest_at := oldest.get("date"), datetime):
+                    firsts.append(oldest_at)
+                if isinstance(newest_at := (newest or {}).get("date"), datetime):
+                    lasts.append(newest_at)
             return min(firsts, default=None), max(lasts, default=None)
 
         try:
@@ -709,12 +731,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             for store in self._stores():
                 first = store.find_one({}, {"date": 1}, sort=[("date", 1)])
                 last = store.find_one({}, {"date": 1}, sort=[("date", -1)])
-                if first is None or last is None or last.get("date") is None:
+                if first is None or last is None:
                     continue
-                if first.get("date") is not None:
-                    oldest.append(first["date"])
-                newest.append(last["date"])
-                for document in store.find({"date": last["date"]}):
+                if not isinstance(last_at := last.get("date"), datetime):
+                    continue
+                if isinstance(first_at := first.get("date"), datetime):
+                    oldest.append(first_at)
+                newest.append(last_at)
+                for document in store.find({"date": last_at}):
                     channels.update(
                         _address_of(field) for field in document if field not in _RESERVED_FIELDS
                     )

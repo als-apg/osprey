@@ -76,7 +76,7 @@ __all__ = [
 logger = logging.getLogger("CONFIG")
 
 
-def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -> Any:
+def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None) -> Any:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
@@ -102,7 +102,7 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
             (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
     lookup = os.environ if environ is None else environ
-    raw_server_envs: dict[str, dict] = {}
+    raw_server_envs: dict[object, object] = {}
     if isinstance(data, dict):
         cc = data.get("claude_code")
         servers = cc.get("servers") if isinstance(cc, dict) else None
@@ -112,14 +112,14 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
                     raw_server_envs[name] = copy.deepcopy(spec["env"])
 
     if isinstance(data, dict):
-        resolved: Any = {
+        resolved: dict[object, object] = {
             key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
         }
     elif isinstance(data, list):
         return [resolve_env_vars(item, environ=lookup) for item in data]
     elif isinstance(data, str):
 
-        def replace_env_var(match):
+        def replace_env_var(match: re.Match[str]) -> str:
             if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
                 var_name = match.group(1)
                 default_value = match.group(2) if match.group(2) is not None else None
@@ -203,7 +203,7 @@ def is_unresolved_placeholder(value: object) -> bool:
 _PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 
-def unresolved_placeholders(value: Any) -> list[str]:
+def unresolved_placeholders(value: object) -> list[str]:
     """Every placeholder left in *value*, depth-first.
 
     Where :func:`is_unresolved_placeholder` asks whether a value is exactly one
@@ -608,7 +608,7 @@ class ConfigBuilder:
     # Sentinel to distinguish "no default given" from "default is None".
     _REQUIRED = object()
 
-    def _require_config(self, path: str, default: Any = _REQUIRED) -> Any:
+    def _require_config(self, path: str, default: object = _REQUIRED) -> Any:
         """Get config value, raising ValueError if required (no default) and missing.
 
         When *default* is provided, uses it with a warning. When *default* is
@@ -729,7 +729,7 @@ class ConfigBuilder:
         """Load and validate a YAML configuration file."""
         try:
             with open(file_path) as f:
-                config = yaml_loader.safe_load(f)
+                config: object = yaml_loader.safe_load(f)
 
             if config is None:
                 logger.warning(f"Configuration file is empty: {file_path}")
@@ -747,7 +747,7 @@ class ConfigBuilder:
             logger.error(error_msg)
             raise yaml.YAMLError(error_msg) from e
 
-    def _resolve_env_vars(self, data: Any) -> Any:
+    def _resolve_env_vars(self, data: object) -> Any:
         """Recursively resolve environment variables in configuration data.
 
         Delegates to the module-level :func:`resolve_env_vars` function.
@@ -882,7 +882,7 @@ class ConfigBuilder:
         """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
         return mapping_or_empty(self.get(path), path, self.config_path)
 
-    def get(self, path: str, default: Any = None) -> Any:
+    def get(self, path: str, default: object = None) -> Any:
         """Get configuration value using dot notation path."""
         keys = path.split(".")
         value = self.raw_config
@@ -895,7 +895,7 @@ class ConfigBuilder:
             return default
 
 
-def mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
+def mapping_or_empty(value: object, path: str, source: object) -> dict[str, Any]:
     """Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused."""
     if value is None:
         return {}
@@ -1261,7 +1261,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     return str(path)
 
 
-def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:
+def get_config_value(path: str, default: object = None, config_path: str | None = None) -> Any:
     """
     Get a specific configuration value by dot-separated path.
 
@@ -1293,7 +1293,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     configurable = get_configurable(config_path)
 
     keys = path.split(".")
-    value = configurable
+    value: object = configurable
 
     for key in keys:
         if isinstance(value, dict) and key in value:
