@@ -306,7 +306,7 @@ class Owner:
     pid: int
     port: int | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This owner as the record's ``owner`` object."""
         return {"kind": self.kind, "pid": self.pid, "port": self.port}
 
@@ -346,11 +346,11 @@ class ControlContext:
     generation: int
     owner: Owner | None = None
     posture: dict[str, str] = field(default_factory=dict)
-    last_switch: dict[str, Any] | None = None
+    last_switch: dict[str, object] | None = None
     switch: Mapping[str, str] = field(default_factory=dict)
     switch_epoch: int | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
 
         The seven contract fields and the schema, and nothing else: a payload
@@ -464,7 +464,7 @@ def record_path() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def _positive_int(value: Any) -> int | None:
+def _positive_int(value: object) -> int | None:
     """*value* as a positive integer, or ``None``.
 
     ``bool`` is excluded on purpose: it is an ``int`` in Python, and a payload
@@ -475,7 +475,7 @@ def _positive_int(value: Any) -> int | None:
     return int(value)
 
 
-def _parse_owner(value: Any) -> Owner | None:
+def _parse_owner(value: object) -> Owner | None:
     """One ``owner`` object as an :class:`Owner`, or ``None`` when ownerless.
 
     Rule 2 of the module contract for this field: an owner has to name a kind
@@ -492,7 +492,7 @@ def _parse_owner(value: Any) -> Owner | None:
     return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
 
 
-def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
+def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
     """One stored ``switch`` value as the word it arms with, or ``None`` for off.
 
     Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
@@ -509,7 +509,7 @@ def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
     return None
 
 
-def _parse_switch(value: Any) -> dict[str, str]:
+def _parse_switch(value: object) -> dict[str, str]:
     """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
@@ -526,14 +526,14 @@ def _parse_switch(value: Any) -> dict[str, str]:
     }
 
 
-def _parse_epoch(value: Any) -> int | None:
+def _parse_epoch(value: object) -> int | None:
     """One ``switch_epoch`` as a non-negative integer, or ``None`` (epoch-less)."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def parse_record(raw: Any) -> ControlContext | None:
+def parse_record(raw: object) -> ControlContext | None:
     """Decode a record, or ``None`` when it states no usable context.
 
     Accepts the decoded JSON object or the raw text/bytes of one, so a reader
@@ -702,7 +702,7 @@ def invalidate_cache() -> None:
 # -- writing ----------------------------------------------------------------
 
 
-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
     """Write *payload* to *path* as JSON, replacing any existing file. Rule 3.
 
     The file is replaced whole through ``safety_file.atomic_replace``, so a
@@ -1334,7 +1334,7 @@ def terminus(
     *,
     request_id: str,
     target: str,
-    requested_at: Any,
+    requested_at: object,
     requested_by: str,
     status: str,
     reason: str | None,
@@ -1464,12 +1464,12 @@ class ServerReport:
     applied_target: str | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, Any] = field(default_factory=dict)
-    last_switch: dict[str, Any] | None = None
-    last_posture_realign: dict[str, Any] | None = None
-    targets: dict[str, Any] = field(default_factory=dict)
+    reachability: dict[str, object] = field(default_factory=dict)
+    last_switch: dict[str, object] | None = None
+    last_posture_realign: dict[str, object] | None = None
+    targets: dict[str, object] = field(default_factory=dict)
     updated_at: str | None = None
-    statement: dict[str, Any] | None = None
+    statement: dict[str, dict[str, object] | None] | None = None
 
     @property
     def display_only(self) -> bool:
@@ -1481,7 +1481,7 @@ class ServerReport:
         """
         return self.statement is not None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This report as the JSON object its file holds.
 
         The ten contract fields, plus ``statement`` as the eleventh for a
@@ -1489,7 +1489,7 @@ class ServerReport:
         :func:`_parse_report` unchanged and a controls server's report never
         reads back as display-only.
         """
-        payload: dict[str, Any] = {
+        payload: dict[str, object] = {
             "server_pid": self.server_pid,
             "session": self.session,
             "applied_target": self.applied_target,
@@ -1511,14 +1511,14 @@ class ServerReport:
         return payload
 
 
-def _non_negative_int(value: Any) -> int | None:
+def _non_negative_int(value: object) -> int | None:
     """*value* as a non-negative integer, or ``None``. ``bool`` excluded."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def _text(value: Any) -> str | None:
+def _text(value: object) -> str | None:
     """*value* as a non-empty string, or ``None``.
 
     An empty string states nothing, and a reader that compared one to a session
@@ -1527,7 +1527,7 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _child_pids(value: Any) -> tuple[int, ...]:
+def _child_pids(value: object) -> tuple[int, ...]:
     """*value* as the positive child PIDs it names, in order, without repeats."""
     if not isinstance(value, list | tuple):
         return ()
@@ -1539,7 +1539,7 @@ def _child_pids(value: Any) -> tuple[int, ...]:
     return tuple(pids)
 
 
-def _mapping(value: Any) -> dict[str, Any]:
+def _mapping(value: object) -> dict[str, object]:
     """*value* as a mapping, or an empty one. Anything else states nothing."""
     return dict(value) if isinstance(value, dict) else {}
 
@@ -1554,11 +1554,11 @@ _REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
 #: The keys of a statement's ``writes``: the execution verdict's own terms.
 _WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
 
-_WRITE_POSITIONS: tuple[Any, ...] = (None, "asked", "allowed")
-_MACHINE_KINDS: tuple[Any, ...] = (None, "real", "rehearsal", "simulator")
+_WRITE_POSITIONS: tuple[str | None, ...] = (None, "asked", "allowed")
+_MACHINE_KINDS: tuple[str | None, ...] = (None, "real", "rehearsal", "simulator")
 
 
-def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
+def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, object]:
     """The ``writes`` half of a machine statement, from one execution verdict.
 
     The verdict's own terms and nothing else: ``allowed``, ``position`` (whether
@@ -1580,7 +1580,7 @@ def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
     }
 
 
-def _reachable_statement(value: Any) -> dict[str, Any] | None:
+def _reachable_statement(value: object) -> dict[str, object] | None:
     """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
     if not isinstance(value, dict) or value.get("state") not in _REACHABLE_STATES:
         return None
@@ -1592,7 +1592,7 @@ def _reachable_statement(value: Any) -> dict[str, Any] | None:
     return {"state": value["state"], "since": since, "reason": reason}
 
 
-def _writes_statement(value: Any) -> dict[str, Any] | None:
+def _writes_statement(value: object) -> dict[str, object] | None:
     """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
     if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
         return None
@@ -1604,7 +1604,7 @@ def _writes_statement(value: Any) -> dict[str, Any] | None:
     return {key: value.get(key) for key in _WRITES_STATEMENT_KEYS}
 
 
-def _statement(value: Any) -> dict[str, Any] | None:
+def _statement(value: object) -> dict[str, dict[str, object] | None] | None:
     """*value* as a machine statement, or ``None`` when it is not one.
 
     A statement is a mapping holding both ``reachable`` and ``writes``, each
@@ -1626,7 +1626,7 @@ def _statement(value: Any) -> dict[str, Any] | None:
     return {"reachable": reachable, "writes": writes}
 
 
-def _parse_report(raw: Any) -> ServerReport | None:
+def _parse_report(raw: object) -> ServerReport | None:
     """Decode one server report, or ``None`` when it describes no server.
 
     Rule 5. ``server_pid`` is the identity and the only field that can make the
@@ -1699,7 +1699,7 @@ def report_paths() -> list[Path]:
         return []
 
 
-def _read_payload(path: Path) -> dict[str, Any] | None:
+def _read_payload(path: Path) -> dict[str, object] | None:
     """One report file as its JSON object, or ``None``. Never raises."""
     try:
         raw = path.read_text(encoding="utf-8")
@@ -1709,7 +1709,7 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
         logger.debug("Could not read the server report at %s; skipping it", path)
         return None
     try:
-        loaded = json.loads(raw)
+        loaded: object = json.loads(raw)
     except Exception:  # a half-written report is skipped, not fatal
         logger.debug("Server report %s is not valid JSON; skipping it", path.name)
         return None
@@ -1823,7 +1823,7 @@ def sweep_dead(
 # -- convergence ------------------------------------------------------------
 
 
-def _switch_at(report: ServerReport, generation: int) -> dict[str, Any] | None:
+def _switch_at(report: ServerReport, generation: int) -> Mapping[str, object] | None:
     """*report*'s switch block when it is about *generation*, else ``None``.
 
     A block that names a different generation is about a swap this record has
@@ -1840,7 +1840,7 @@ def _switch_at(report: ServerReport, generation: int) -> dict[str, Any] | None:
     return block
 
 
-def _bound_epoch(block: dict[str, Any]) -> float | None:
+def _bound_epoch(block: Mapping[str, object]) -> float | None:
     """The ``expires_at`` of *block* as epoch seconds, or ``None`` for no bound.
 
     The bound is a wall clock the publishing server computed from its own

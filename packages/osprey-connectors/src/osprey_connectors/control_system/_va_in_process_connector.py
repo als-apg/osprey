@@ -80,6 +80,7 @@ from osprey_connectors.simulation.view import (
 )
 
 if TYPE_CHECKING:
+    from osprey_connectors.control_system._limits_validator import CurrentValueReader
     from osprey_connectors.simulation.composite import Composite
 
 logger = get_logger("va_in_process_connector")
@@ -257,7 +258,7 @@ class _Journal:
         )
 
 
-def _seq(document: Any) -> int | None:
+def _seq(document: object) -> int | None:
     """A journal document's ``seq``, or ``None`` when it is not a journal."""
     if not isinstance(document, dict) or not isinstance(document.get("writes"), list):
         return None
@@ -265,7 +266,7 @@ def _seq(document: Any) -> int | None:
     return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
 
 
-def _mark(document: Any, text: str) -> int | str:
+def _mark(document: object, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
     seq = _seq(document)
     return (text or 0) if seq is None else seq
@@ -285,8 +286,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._composite: Composite | None = None
         self._records: dict[str, Mapping[str, Any]] = {}
         self._served: frozenset[str] = frozenset()
-        self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], Any]]] = {}
-        self._last_held: dict[str, Any] = {}
+        self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], object]]] = {}
+        self._last_held: dict[str, object] = {}
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
         self._channels: frozenset[str] = frozenset()
@@ -317,7 +318,7 @@ class VAInProcessConnector(ControlSystemConnector):
         from osprey_connectors.simulation import resolve_tick_s
         from osprey_connectors.simulation.composite import Composite
 
-        self._response_delay = config.get("response_delay_ms", 10) / 1000.0
+        self._response_delay: float = config.get("response_delay_ms", 10) / 1000.0
 
         from osprey_connectors.control_system._limits_validator import LimitsValidator
 
@@ -499,14 +500,14 @@ class VAInProcessConnector(ControlSystemConnector):
                     return address, f"{value!r} is outside [{low}, {high}]"
         return None
 
-    def _append(self, address: str, value: Any) -> None:
+    def _append(self, address: str, value: object) -> None:
         """Append one write the composite took, under the journal's lock."""
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
             seq = _seq(document)
             synced = seq == self._journal_mark or (seq is None and self._journal_mark == 0)
-            writes: list[Any] = []
+            writes: list[object] = []
             if seq is not None and document.get("active_set_sha256") == self._active_sha:
                 writes = list(document["writes"])
             seq = (seq or 0) + 1
@@ -570,7 +571,7 @@ class VAInProcessConnector(ControlSystemConnector):
             raise ChannelNotFoundError(address)
         return self._composite
 
-    def _wire(self, address: str, value: Any) -> Any:
+    def _wire(self, address: str, value: Any) -> object:
         """A value as the wire carries it: a label as its index, a waveform as an array."""
         record = self._records.get(address)
         if record is None:
@@ -620,7 +621,7 @@ class VAInProcessConnector(ControlSystemConnector):
             metadata=metadata,
         )
 
-    def _held_value(self, address: str) -> Any:
+    def _held_value(self, address: str) -> object:
         composite = self._require(address)
         return self._wire(address, composite.held([address])[address])
 
@@ -651,7 +652,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._sync()
         return self._reading(channel_address, held=True)
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> CurrentValueReader | None:
         """What the simulated control system holds, read without motion."""
         return self._held_value
 
@@ -679,7 +680,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
     # -- writes ----------------------------------------------------------------
 
-    def _refused(self, address: str, value: Any, message: str) -> ChannelWriteResult:
+    def _refused(self, address: str, value: object, message: str) -> ChannelWriteResult:
         logger.warning(f"In-process write refused: {address}: {message}")
         return ChannelWriteResult(
             channel_address=address,
@@ -689,7 +690,7 @@ class VAInProcessConnector(ControlSystemConnector):
             error_message=message,
         )
 
-    def _coerce(self, address: str, value: Any) -> Any:
+    def _coerce(self, address: str, value: object) -> object:
         """``value`` in the stored representation of the channel's ``value_type``.
 
         Raises:
@@ -705,7 +706,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _write_precheck(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
         """Refuse an address outside the view and a channel that is no writable setpoint."""
         if self._composite is None:
@@ -729,7 +730,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
     async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
         """What the simulated control system holds: read in process, no thread."""
-        held: dict[str, Any] = {}
+        held: dict[str, object] = {}
         for address in channel_addresses:
             try:
                 held[address] = self._held_value(address)
@@ -740,7 +741,7 @@ class VAInProcessConnector(ControlSystemConnector):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; an in-process write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -870,7 +871,7 @@ class VAInProcessConnector(ControlSystemConnector):
             notes=f"Observed {observed.value}, sent {value} (in process)",
         )
 
-    def _put(self, channel_address: str, value: Any) -> None:
+    def _put(self, channel_address: str, value: object) -> None:
         """Set ``value`` in the composite; raises whatever the composite raises."""
         self._require(channel_address).set({channel_address: value})
 
@@ -913,13 +914,13 @@ class VAInProcessConnector(ControlSystemConnector):
             del self._subscriptions[subscription_id]
             logger.debug(f"In-process subscription removed: {subscription_id}")
 
-    def _subscribed_held(self) -> dict[str, Any]:
+    def _subscribed_held(self) -> dict[str, object]:
         addresses = sorted({address for address, _ in self._subscriptions.values()})
         if not addresses or self._composite is None:
             return {}
         return {address: self._held_value(address) for address in addresses}
 
-    async def _notify(self, before: Mapping[str, Any] | None = None) -> None:
+    async def _notify(self, before: Mapping[str, object] | None = None) -> None:
         """Fire each subscription whose held value changed or whose channel moves under the active scenarios."""
         if not self._subscriptions or self._composite is None:
             return

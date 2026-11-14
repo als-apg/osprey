@@ -73,11 +73,12 @@ from __future__ import annotations
 import json
 import struct
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from io import BytesIO
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
 
@@ -128,6 +129,9 @@ _HEADER_STRUCT = struct.Struct(">I")
 #: Marker key identifying a tagged (non-scalar) value node in the JSON header.
 _TAG = "__osprey_ipc__"
 
+#: A node of a frame's JSON header, as ``json`` writes it.
+_Json: TypeAlias = None | bool | int | float | str | list["_Json"] | dict[str, "_Json"]
+
 
 class FrameEncodeError(TypeError):
     """A value was handed to the codec that the wire format cannot carry."""
@@ -149,11 +153,12 @@ class _UnrebuildableValueError(FrameDecodeError):
 
 @dataclass(frozen=True)
 class RequestFrame:
-    """A decoded call request. ``method`` is never validated by the codec."""
+    """A decoded call request. ``method`` and ``kwargs`` are never validated by the codec:
+    the child refuses a bad one in that request's error frame."""
 
     request_id: str
     method: str
-    kwargs: dict[str, Any]
+    kwargs: object
 
 
 @dataclass(frozen=True)
@@ -161,7 +166,7 @@ class ResultFrame:
     """A decoded successful reply."""
 
     request_id: str
-    value: Any
+    value: object
 
 
 @dataclass(frozen=True)
@@ -222,7 +227,7 @@ def _npy_load(data: bytes) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 
-def _encode_value(value: Any, blobs: list[bytes]) -> Any:
+def _encode_value(value: object, blobs: list[bytes]) -> _Json:
     """Turn ``value`` into a JSON node, appending any binary payloads to ``blobs``."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -242,7 +247,9 @@ def _encode_value(value: Any, blobs: list[bytes]) -> Any:
             "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
     tag = type(value).__name__
-    if _DATACLASSES.get(tag) is type(value):
+    if isinstance(value, ChannelValue | ChannelMetadata | ChannelWriteResult) and _DATACLASSES.get(
+        tag
+    ) is type(value):
         return {
             _TAG: tag,
             "fields": {
@@ -253,7 +260,7 @@ def _encode_value(value: Any, blobs: list[bytes]) -> Any:
     raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
 
 
-def _decode_value(node: Any, blobs: list[bytes]) -> Any:
+def _decode_value(node: object, blobs: list[bytes]) -> object:
     """Inverse of :func:`_encode_value`."""
     if node is None or isinstance(node, (bool, int, float, str)):
         return node
@@ -283,7 +290,7 @@ def _decode_value(node: Any, blobs: list[bytes]) -> Any:
         raise _UnrebuildableValueError(tag, exc) from exc
 
 
-def _blob(blobs: list[bytes], index: Any) -> bytes:
+def _blob(blobs: list[bytes], index: object) -> bytes:
     if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(blobs):
         raise FrameDecodeError(f"blob index {index!r} outside the frame's {len(blobs)} segments")
     return blobs[index]
@@ -294,7 +301,7 @@ def _blob(blobs: list[bytes], index: Any) -> bytes:
 # --------------------------------------------------------------------------
 
 
-def _pack(header: dict[str, Any], blobs: list[bytes]) -> bytes:
+def _pack(header: dict[str, _Json], blobs: list[bytes]) -> bytes:
     header["v"] = PROTOCOL_VERSION
     header["blobs"] = [len(blob) for blob in blobs]
     payload = json.dumps(header).encode("utf-8")
@@ -304,22 +311,22 @@ def _pack(header: dict[str, Any], blobs: list[bytes]) -> bytes:
     return MAGIC + _HEADER_STRUCT.pack(len(body)) + body
 
 
-def encode_request(request_id: str, method: str, kwargs: dict[str, Any] | None = None) -> bytes:
+def encode_request(request_id: str, method: str, kwargs: Mapping[str, object]) -> bytes:
     """Encode a call request. ``method`` is passed through unexamined."""
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "request",
         "request_id": request_id,
         "method": method,
-        "kwargs": _encode_value(dict(kwargs or {}), blobs),
+        "kwargs": _encode_value(dict(kwargs), blobs),
     }
     return _pack(header, blobs)
 
 
-def encode_result(request_id: str, value: Any) -> bytes:
+def encode_result(request_id: str, value: object) -> bytes:
     """Encode a successful reply carrying ``value``."""
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "result",
         "request_id": request_id,
         "value": _encode_value(value, blobs),
@@ -338,7 +345,7 @@ def encode_error(request_id: str, exc: BaseException) -> bytes:
     decodes as a ``ConnectorInternalError`` naming that class.
     """
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "error",
         "request_id": request_id,
         "class_tag": _registered_tag(exc) or type(exc).__name__,
@@ -401,6 +408,8 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
         class_tag = str(header.get("class_tag", ""))
         message = str(header.get("message", ""))
         fields = _decode_value(header.get("fields", {_TAG: "dict", "items": []}), blobs)
+        if not isinstance(fields, dict):
+            raise FrameDecodeError("error frame fields are not a mapping")
         return ErrorFrame(
             request_id=request_id,
             class_tag=class_tag,

@@ -20,11 +20,14 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING
 
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES, START_MARKS_FD_ENV
 from osprey_connectors.process import terminate
+
+if TYPE_CHECKING:
+    from osprey_connectors.ipc._proxy import ConnectorHostProxy
 
 __all__ = [
     "CHILD_MODULE",
@@ -71,7 +74,7 @@ def host_env() -> dict[str, str]:
 
 async def spawn_host(
     python: str, env: Mapping[str, str], *, start_marks_fd: int | None = None
-) -> Any:
+) -> asyncio.subprocess.Process:
     """Launch one connector-host child with its frame pipes attached.
 
     Args:
@@ -141,7 +144,12 @@ SETTLE_TIMEOUT_S = 2.0
 
 
 async def kill_host(
-    process: Any, proxy: Any, reader: AttributedReader, *, reason: str | None, grace_s: float
+    process: asyncio.subprocess.Process,
+    proxy: ConnectorHostProxy,
+    reader: AttributedReader,
+    *,
+    reason: str | None,
+    grace_s: float,
 ) -> None:
     """Put down a child that failed, and let its proxy settle. Never raises.
 
@@ -162,7 +170,9 @@ async def kill_host(
     await proxy.disconnect(ack_timeout=0.0)
 
 
-async def stop_host(process: Any, proxy: Any, *, grace_s: float) -> None:
+async def stop_host(
+    process: asyncio.subprocess.Process, proxy: ConnectorHostProxy, *, grace_s: float
+) -> None:
     """Stop a healthy child in order: acknowledge, then make sure it is gone. Never raises.
 
     Args:
