@@ -199,20 +199,10 @@ export function _formatTime(isoStr) {
  * Render the "Pending Reviews" section: the searches the agent ran, captured
  * by the PostToolUse hook and waiting for an operator to look at them.
  *
- * Shared by both feedback views, and `canPromote` is the entire difference
- * between them. Approving promotes a captured search into the navigation
- * hints a pipeline reads back on its next search; a deployment with no
- * feedback store has nowhere to put one, and the server refuses the call
- * (`pending_review_api._get_feedback_store`). So the button is not drawn
- * there rather than drawn and answered with an error. Dismiss stays in both:
- * it only deletes from the capture queue and needs no feedback store.
- *
  * @param {any[]} items - pending review items, newest first.
- * @param {{canPromote?: boolean}} [options]
  * @returns {string}
  */
-export function _renderPendingSection(items, options = {}) {
-  const canPromote = options.canPromote !== false;
+export function _renderPendingSection(items) {
   const pendingItems = items || [];
 
   if (pendingItems.length === 0) {
@@ -251,9 +241,6 @@ export function _renderPendingSection(items, options = {}) {
             item.artifact && item.artifact.filename
               ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>`
               : '';
-          const approveHtml = canPromote
-            ? `<button type="button" class="osprey-btn primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>`
-            : '';
           return `
         <div class="fb-pending-card" data-id="${esc(item.id)}">
           ${taskHtml}
@@ -270,7 +257,7 @@ export function _renderPendingSection(items, options = {}) {
             </div>
             ${artifactHtml}
             <div class="fb-pending-actions">
-              ${approveHtml}
+              <button type="button" class="osprey-btn primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>
               <button type="button" class="osprey-btn fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
             </div>
           </div>
