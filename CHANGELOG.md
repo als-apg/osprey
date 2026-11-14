@@ -3914,6 +3914,11 @@ Logbook (ARIEL):
   already queued when a write's cycle starts are served in one publishing pass,
   and a write to a setting no model binds reads back only the channels it can
   change.
+- A truthy `ariel:` section that is not a mapping makes simulation apply fail
+  with `ValueError` instead of crashing while seeding the logbook, and a
+  `claude_code:` block that is not a mapping reads as no pinned CLI version when
+  web-terminal images are rendered. A gateway port that is not a number is still
+  reported unreachable, now saying it is not a port number.
 
 ### Deprecated
 
