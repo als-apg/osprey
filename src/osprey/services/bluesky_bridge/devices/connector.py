@@ -273,7 +273,14 @@ class ConnectorSettable(StandardReadable):
         assert bound is not None
         await settle(
             self._osprey_connector,
-            [Landing(self._setpoint_pv, self._readback_pv, value, bound)],
+            [
+                Landing(
+                    setpoint=self._setpoint_pv,
+                    readback=self._readback_pv,
+                    demand=value,
+                    bound=bound,
+                )
+            ],
             timeout_s=settle_timeout_s(),
         )
 

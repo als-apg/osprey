@@ -8,13 +8,14 @@ canonical long frame without ever manufacturing a sample.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, TypeAlias, TypeGuard
 
 import pandas as pd
+from pydantic import InstanceOf
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import localize_facility
 
 #: A canonical processing mode, one of :data:`PROCESSING_MODES`.
@@ -107,8 +108,7 @@ def utc_window(start_date: datetime, end_date: datetime) -> tuple[datetime, date
     return to_utc(start_date), to_utc(end_date)
 
 
-@dataclass(frozen=True)
-class Processing:
+class Processing(FrozenModel):
     """A processing mode rendered for both backend families.
 
     Attributes:
@@ -128,7 +128,7 @@ class Processing:
     mode: ProcessingMode
     precision_ms: int
     epics_operator: str | None
-    origin: pd.Timestamp
+    origin: InstanceOf[pd.Timestamp]
 
 
 def resolve_processing(processing: str, precision_ms: int, window_start: datetime) -> Processing:

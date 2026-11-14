@@ -60,7 +60,7 @@ def test_archiver_contract_speaks_channels(cls, method, expected):
 
 def test_archiver_metadata_identifies_a_channel():
     """ArchiverMetadata names what it describes the same way get_data does."""
-    fields = ArchiverMetadata.__dataclass_fields__
+    fields = ArchiverMetadata.model_fields
     assert "channel" in fields
     assert "pv_name" not in fields
 

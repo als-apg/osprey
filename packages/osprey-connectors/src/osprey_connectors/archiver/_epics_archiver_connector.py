@@ -14,11 +14,13 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TypeGuard
 
 import pandas as pd
+from pydantic import ConfigDict, Field, ValidationError, field_validator
 from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     SampleSeries,
@@ -33,47 +35,72 @@ from osprey_connectors.logger import get_logger
 
 logger = get_logger("epics_archiver_connector")
 
-#: The fields of one sample in a ``getData.json`` reply.
-_SAMPLE_FIELDS = ("secs", "nanos", "val")
+
+class _Sample(FrozenModel):
+    """One sample of a ``getData.json`` reply: ``secs``, ``nanos`` and ``val``.
+
+    The appliance sends more per sample (``severity``, ``status``, ``fields``),
+    which the connector does not read, so a key beyond these three is ignored
+    rather than refused. ``secs`` and ``nanos`` are JSON numbers, never
+    ``true``/``false``, and keep the type they arrived as; ``val`` is whatever
+    the channel archives.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    secs: int | float
+    nanos: int | float
+    val: ContractAny
 
 
-def _is_json_array(value: object) -> TypeGuard[list[object]]:
-    """Whether a decoded JSON value is an array."""
-    return isinstance(value, list)
+class _Series(FrozenModel):
+    """The first series of a ``getData.json`` reply: its samples, oldest first.
+
+    ``meta`` and anything else beside ``data`` is ignored. A ``data`` that is
+    absent or empty (``[]``, ``null``, ``{}``, ``0``, ``""``) is a series with
+    no samples.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    data: list[_Sample] = Field(default_factory=list)
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _empty_when_unset(cls, value: object) -> object:
+        """An empty or null ``data`` is no samples."""
+        return value or []
 
 
-def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
-    """Whether a decoded JSON value is an object; JSON object keys are strings."""
-    return isinstance(value, dict)
-
-
-def _is_json_number(value: object) -> TypeGuard[int | float]:
-    """Whether a decoded JSON value is a number; JSON ``true``/``false`` is not."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _data_points(payload: object, pv: str) -> list[dict[str, object]]:
+def _data_points(payload: object, pv: str) -> list[_Sample]:
     """The samples of a ``getData.json`` reply, ``[]`` for an empty one.
 
     The appliance answers ``[{"meta": {...}, "data": [{"secs", "nanos", "val"}, ...]}]``;
-    an empty reply is ``[]`` or a series whose ``data`` is empty.
+    an empty reply is ``[]`` or a series whose ``data`` is empty. Only the
+    first series is read.
 
     Raises:
-        ValueError: If the reply is not of that shape, naming the PV.
+        ValueError: If the reply is not of that shape, naming the PV, and the
+            field and the reason when it is the series that is malformed.
     """
     if not payload:
         return []
-    if not _is_json_array(payload) or not _is_json_object(series := payload[0]):
+    if not isinstance(payload, list):
         raise ValueError(f"Unexpected archiver reply for {pv}: not a list of series objects")
-    data_points = series.get("data", [])
-    if not data_points:
-        return []
-    if not _is_json_array(data_points):
-        raise ValueError(f"Unexpected archiver reply for {pv}: `data` is not a list")
-    samples = [dp for dp in data_points if _is_json_object(dp)]
-    if len(samples) != len(data_points):
-        raise ValueError(f"Unexpected archiver reply for {pv}: a sample is not an object")
-    return samples
+    try:
+        return _Series.model_validate(payload[0]).data
+    except ValidationError as exc:
+        raise ValueError(f"Unexpected archiver reply for {pv}: {_fault(exc)}") from exc
+
+
+def _fault(exc: ValidationError) -> str:
+    """Where the first fault of a malformed series is, and what is wrong there."""
+    error = exc.errors()[0]
+    loc, reason = error["loc"], error["msg"]
+    if loc and loc[-1] in ("int", "float"):
+        # A member of ``secs``/``nanos``'s ``int | float``: the field is not a number.
+        loc, reason = loc[:-1], "Input should be a number"
+    return f"{'.'.join(str(part) for part in loc) or 'series'}: {reason}"
 
 
 class EPICSArchiverConnector(ArchiverConnector):
@@ -218,30 +245,18 @@ class EPICSArchiverConnector(ArchiverConnector):
             ) from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
-        data_points = _data_points(payload, pv)
-        if not data_points:
+        samples = _data_points(payload, pv)
+        if not samples:
             return pd.Series(dtype=float, name=pv)
 
         # Check for waveform PV (array-valued val)
-        if isinstance(data_points[0].get("val"), list):
+        if isinstance(samples[0].val, list):
             raise ValueError(f"Waveform PVs not supported: {pv}")
-        if any(field not in dp for dp in data_points for field in _SAMPLE_FIELDS):
-            raise ValueError(
-                f"Unexpected archiver reply for {pv}: a sample lacks secs, nanos or val"
-            )
 
-        secs: list[float] = []
-        nanos: list[float] = []
-        for dp in data_points:
-            sec, nano = dp["secs"], dp["nanos"]
-            if not _is_json_number(sec) or not _is_json_number(nano):
-                raise ValueError(
-                    f"Unexpected archiver reply for {pv}: a sample's secs or nanos is not a number"
-                )
-            secs.append(sec)
-            nanos.append(nano)
-        timestamps = pd.to_datetime(secs, unit="s", utc=True) + pd.to_timedelta(nanos, unit="ns")
-        values = [dp["val"] for dp in data_points]
+        timestamps = pd.to_datetime(
+            [sample.secs for sample in samples], unit="s", utc=True
+        ) + pd.to_timedelta([sample.nanos for sample in samples], unit="ns")
+        values = [sample.val for sample in samples]
 
         return pd.Series(values, index=timestamps, name=pv)
 
