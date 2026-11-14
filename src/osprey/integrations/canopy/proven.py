@@ -38,8 +38,8 @@ from dataclasses import dataclass
 #: The canopy-contract check runs against exactly these; a payload and the shipped
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
-    "canopy": "166989aade14853aeefaa8b34ce760ea4d68ed37",  # osprey:not-a-port (a sha)
-    "PyDMConverter": "67129697d7fa8b87309f96e4f08ee05f38dc7867",
+    "canopy": "13c3242030bf97e27a14f2e5b3e14e4a82a2a513",  # osprey:not-a-port (a sha)
+    "PyDMConverter": "4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f",
 }
 
 #: The public mirror each repository of the proven payload is cloned from.
@@ -50,7 +50,7 @@ _MIRROR = "https://github.com/als-apg/canopy-osprey-mirror-"
 #: it. Recorded so the payload can be rebuilt, never judged: the stage check
 #: reads :data:`PROVEN_COMMITS` alone.
 PAYLOAD_COMMITS: dict[str, str] = {
-    "canopy-screen-runtime": "41dc570b65c366ef49184c3a6ea6ac30b6345625",
+    "canopy-screen-runtime": "70b47fc14986ea003580d237139358445cf23430",
     "react-trace": "cb9d19b5cb4b4ecab9fe290d059481debf1dfc7c",
     "canopy-sdk-js": "d07d7f4c23ce52347cca312268b8078cdd87282f",
     "builder": "7a6c250cdf344016cf09bd65c66e241a12097b08",
@@ -75,8 +75,8 @@ PAYLOAD_BUILD: dict[str, str] = {
     "builder.branch": "als/payload-sdk-release",
     "SDK_PACKS": _MIRROR + "sdk-js/releases/download/v0.3.1-als.2",
     "pnpm": "11.1.1",
-    "canopy.version": "0.0.2.dev291+g166989aad",
-    "PyDMConverter.version": "1.0.9.dev8+g67129697d",
+    "canopy.version": "0.0.2.dev293+g13c324203",
+    "PyDMConverter.version": "1.0.9.dev10+g4b8183f39",
 }
 
 #: The ``STAGED.json`` key that names each distribution's commit.

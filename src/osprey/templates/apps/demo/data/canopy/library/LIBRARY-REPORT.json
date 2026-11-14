@@ -1,7 +1,7 @@
 {
   "generator": {
     "schema": "canopy-library-report/1",
-    "canopy_version": "0.1.dev483+g166989aad"
+    "canopy_version": "0.0.2.dev293+g13c324203"
   },
   "files": {
     "digest": "sha256:0fe9de292a084409a58d57c59ff13caa50ebde8f382d93adf2a34456899cb4b9",
