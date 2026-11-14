@@ -508,7 +508,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">INVENTED_HISTORY_TYPES</span><span class="p">,</span>
@@ -548,7 +547,7 @@
 
 <div class="viewcode-block" id="invents_history">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.invents_history">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">invents_history</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">invents_history</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the machine *control_system_section* selects has no recorded past.</span>
 
 <span class="sd">    A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is</span>
@@ -568,7 +567,7 @@
 
 <div class="viewcode-block" id="target_section">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.target_section">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">target_section</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">target_section</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The section a target builds from: the deployment&#39;s own, with its type replaced.&quot;&quot;&quot;</span>
     <span class="n">section</span> <span class="o">=</span> <span class="n">control_system_section</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">control_system_section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
     <span class="k">return</span> <span class="p">{</span><span class="o">**</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">connector_type</span><span class="p">}</span></div>
@@ -607,7 +606,7 @@
 
 <div class="viewcode-block" id="pairing_in_profile">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_in_profile">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_profile</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_profile</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge a build profile&#39;s ``config:`` block.</span>
 
 <span class="sd">    Both spellings are live here — the emitter honors the dotted key and a</span>
@@ -649,7 +648,7 @@
 
 <div class="viewcode-block" id="pairing_in_rendered_config">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_in_rendered_config">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_rendered_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_in_rendered_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge a rendered ``config.yml`` — the deploy config and the MCP server&#39;s.</span>
 
 <span class="sd">    Nested sections only, because that is all either reader honors: a top-level</span>
@@ -675,7 +674,7 @@
 
 <div class="viewcode-block" id="pairing_for_target">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.honesty.pairing_for_target">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">pairing_for_target</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pairing_for_target</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Judge the pairing a session *target* would create in a rendered config.</span>
 
 <span class="sd">    The same nested-only reading of the same file as</span>
@@ -716,14 +715,14 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_sections</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The config&#39;s top-level sections, or none when it is not a mapping.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">config</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_profile_section</span><span class="p">(</span><span class="n">type_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">serving_value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_profile_section</span><span class="p">(</span><span class="n">type_value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">serving_value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The one-key ``control_system:`` section a profile&#39;s spellings render to.&quot;&quot;&quot;</span>
-    <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="n">type_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">:</span>
         <span class="n">section</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">type_value</span>
     <span class="k">if</span> <span class="n">serving_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">:</span>
@@ -731,7 +730,7 @@
     <span class="k">return</span> <span class="n">section</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_pairing</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">invented</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_pairing</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">invented</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverPairing</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict on a rendered config, given whether the control system to</span>
 <span class="sd">    judge it against — the one it selects, or the one a target would select —</span>
 <span class="sd">    has no recorded past.&quot;&quot;&quot;</span>
@@ -746,7 +745,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">nested_only</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_spellings</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">nested_only</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The values this config sets for *dotted*, in every spelling that is live.</span>
 
 <span class="sd">    Returned exactly as written, never normalized: the resolvers in</span>
@@ -763,14 +762,14 @@
     <span class="k">return</span> <span class="p">[</span><span class="n">value</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_ABSENT</span><span class="p">]</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_flat_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_flat_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The value of the whole dotted key written as one top-level key.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="n">dotted</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_ABSENT</span>
     <span class="k">return</span> <span class="n">config</span><span class="p">[</span><span class="n">dotted</span><span class="p">]</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_nested_value</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">dotted</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The value of *dotted* walked as nested sections.&quot;&quot;&quot;</span>
     <span class="n">node</span> <span class="o">=</span> <span class="n">config</span>
     <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">dotted</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">):</span>
@@ -780,12 +779,12 @@
     <span class="k">return</span> <span class="n">node</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_stated</span><span class="p">(</span><span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_stated</span><span class="p">(</span><span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The values that actually say something, as text for a message.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="nb">sorted</span><span class="p">({</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span> <span class="k">if</span> <span class="n">value</span><span class="p">})</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_profile_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_profile_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">archiver</span><span class="p">:</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;unset (which the connector factory resolves to </span><span class="si">{</span><span class="n">MOCK_ARCHIVER</span><span class="si">!r}</span><span class="s2">)&quot;</span>
     <span class="n">stated</span> <span class="o">=</span> <span class="n">_stated</span><span class="p">(</span><span class="n">archiver</span><span class="p">)</span>
@@ -800,7 +799,7 @@
     <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="n">stated</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span> <span class="n">flat</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_rendered_phrase</span><span class="p">(</span><span class="n">archiver</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span> <span class="n">flat</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="n">stated</span> <span class="o">=</span> <span class="n">_stated</span><span class="p">(</span><span class="n">archiver</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">stated</span><span class="p">:</span>
         <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="n">stated</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>

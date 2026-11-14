@@ -506,7 +506,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._config_read</span><span class="w"> </span><span class="kn">import</span> <span class="n">LOOPBACK_HOSTNAME</span><span class="p">,</span> <span class="n">coerce_port</span><span class="p">,</span> <span class="n">is_loopback</span><span class="p">,</span> <span class="n">nested_value</span>
 
@@ -525,7 +524,7 @@
 
 <div class="viewcode-block" id="live_standin_port">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.live_standin_port">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">live_standin_port</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The Channel Access port the deployment&#39;s stand-in serves, if it built one.</span>
 
 <span class="sd">    Args:</span>
@@ -546,7 +545,7 @@
 <div class="viewcode-block" id="live_standin_active">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.standin.live_standin_active">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">live_standin_active</span><span class="p">(</span>
-    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">endpoint_host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">endpoint_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">endpoint_host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">endpoint_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *endpoint* is this deployment&#39;s stand-in rather than a real machine.</span>
 

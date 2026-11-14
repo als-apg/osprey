@@ -487,7 +487,6 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingProxyType</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulator</span><span class="w"> </span><span class="kn">import</span> <span class="n">virtual_accelerator_port</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -541,7 +540,7 @@
 
 <div class="viewcode-block" id="archive_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.archive_targets.archive_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archive_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archive_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The control targets whose history this deployment&#39;s ``archiver`` block holds.</span>
 
 <span class="sd">    Args:</span>
@@ -576,7 +575,7 @@
 
 <div class="viewcode-block" id="archive_withheld">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.archive_targets.archive_withheld">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archive_withheld</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archive_withheld</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a session on *target* must be told it has no archive.</span>
 
 <span class="sd">    The agent&#39;s reader of the one ``archiver:`` block asks this before it</span>
@@ -599,7 +598,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_names_an_address</span><span class="p">(</span><span class="n">archiver_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a facility archive&#39;s *settings* state where it is.</span>
 
 <span class="sd">    A non-blank string under the type&#39;s :data:`_ADDRESS_SETTINGS` entry, or</span>

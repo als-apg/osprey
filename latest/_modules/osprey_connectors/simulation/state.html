@@ -786,7 +786,7 @@
 
 <div class="viewcode-block" id="overlap_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.overlap_record">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">overlap_record</span><span class="p">(</span><span class="n">overlap</span><span class="p">:</span> <span class="n">Overlap</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">overlap_record</span><span class="p">(</span><span class="n">overlap</span><span class="p">:</span> <span class="n">Overlap</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The log record a process writes when it serves without a scenario.</span>
 
 <span class="sd">    Args:</span>
@@ -803,7 +803,7 @@
 
 <div class="viewcode-block" id="format_overlap_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.format_overlap_record">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">format_overlap_record</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">format_overlap_record</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One printable line for an overlap record read back from a model&#39;s log.</span>
 
 <span class="sd">    The line names where it came from, so a reader never takes it for the</span>

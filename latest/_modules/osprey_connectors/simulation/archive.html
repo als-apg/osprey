@@ -597,7 +597,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The outcome of comparing a store&#39;s manifest against current knobs.&quot;&quot;&quot;</span>
 
     <span class="n">state</span><span class="p">:</span> <span class="n">SeedState</span>
-    <span class="n">differences</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">differences</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``(key, stored, expected)`` for each field that moved. Empty unless the</span>
 <span class="sd">    state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*</span>
 <span class="sd">    what changed rather than announcing an unexplained reseed.&quot;&quot;&quot;</span>
@@ -639,7 +639,7 @@
 <div class="viewcode-block" id="SeedKnobs.from_config">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.SeedKnobs.from_config">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SeedKnobs</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">SeedKnobs</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Read the knobs out of a rendered project config.</span>
 
 <span class="sd">        Args:</span>
@@ -1018,7 +1018,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_stepped</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
-        <span class="n">held</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">held</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
         <span class="n">events</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
         <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
@@ -1266,7 +1266,9 @@
 <span class="c1"># ---------------------------------------------------------------------------</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_synthesize_documents</span><span class="p">(</span><span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_synthesize_documents</span><span class="p">(</span>
+    <span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One document per timestamp, carrying every archived scalar channel&#39;s value at it.</span>
 
 <span class="sd">    This is the single definition of &quot;what the archive holds at time T&quot;, and it</span>
@@ -1286,7 +1288,7 @@
 <span class="sd">        timestamp belongs to is a property of the grid, not of the values.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">stamps</span> <span class="o">=</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">epoch_s</span><span class="p">)</span>
-    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[{</span><span class="n">DATE_FIELD</span><span class="p">:</span> <span class="n">stamp</span><span class="p">}</span> <span class="k">for</span> <span class="n">stamp</span> <span class="ow">in</span> <span class="n">stamps</span><span class="p">]</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[{</span><span class="n">DATE_FIELD</span><span class="p">:</span> <span class="n">stamp</span><span class="p">}</span> <span class="k">for</span> <span class="n">stamp</span> <span class="ow">in</span> <span class="n">stamps</span><span class="p">]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">documents</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">documents</span>
 
@@ -1318,7 +1320,7 @@
     <span class="n">channel_addresses</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">compression</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The knobs a store&#39;s coverage depends on, as a comparable dict.</span>
 
 <span class="sd">    Everything here changes what the store *contains*: the window&#39;s depth and</span>
@@ -1357,7 +1359,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_write_manifest</span><span class="p">(</span>
     <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span>
-    <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">seeded_at</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
     <span class="n">report</span><span class="p">:</span> <span class="n">SeedReport</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1394,7 +1396,7 @@
 <div class="viewcode-block" id="compare_fingerprint">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.compare_fingerprint">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">compare_fingerprint</span><span class="p">(</span>
-    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">fingerprint</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FingerprintComparison</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the store in front of us was built with the knobs now in force.</span>
 
@@ -1453,7 +1455,7 @@
     <span class="n">values</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">expire_at</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One archived trace: one document per (channel, instant).</span>
 
 <span class="sd">    The keys mirror a scalar snapshot document, so the same field naming and the</span>
@@ -1619,7 +1621,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_waveform_documents</span><span class="p">(</span>
     <span class="n">archive</span><span class="p">:</span> <span class="n">ArchiveComposite</span><span class="p">,</span> <span class="n">epoch_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">expire_s</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The trace documents of every waveform channel at these instants.</span>
 
 <span class="sd">    Valued at the epoch seconds a reader derives from the stored dates, as the</span>
@@ -1631,7 +1633,7 @@
     <span class="n">expiry</span> <span class="o">=</span> <span class="n">_as_utc_datetimes</span><span class="p">(</span><span class="n">expire_s</span><span class="p">)</span>
     <span class="n">reader_epoch_s</span> <span class="o">=</span> <span class="n">epoch_seconds_array</span><span class="p">(</span><span class="n">stamps</span><span class="p">)</span>
     <span class="k">assert</span> <span class="n">reader_epoch_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># datetimes always convert</span>
-    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">archive</span><span class="o">.</span><span class="n">waveform_addresses</span><span class="p">:</span>
         <span class="k">for</span> <span class="n">stamp</span><span class="p">,</span> <span class="n">expire_at</span><span class="p">,</span> <span class="n">trace</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
             <span class="n">stamps</span><span class="p">,</span> <span class="n">expiry</span><span class="p">,</span> <span class="n">archive</span><span class="o">.</span><span class="n">traces</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">reader_epoch_s</span><span class="p">),</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span>
@@ -1644,7 +1646,7 @@
     <span class="n">pool</span><span class="p">:</span> <span class="n">ThreadPoolExecutor</span><span class="p">,</span>
     <span class="n">pending</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]],</span>
     <span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span>
-    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span>
     <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Queue one insert, first draining until fewer than ``limit`` are in flight.</span>
@@ -1667,7 +1669,7 @@
     <span class="k">return</span> <span class="n">pending</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_insert_chunk</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_insert_chunk</span><span class="p">(</span><span class="n">collection</span><span class="p">:</span> <span class="n">Collection</span><span class="p">,</span> <span class="n">documents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Insert one batch, unordered so the server may parallelize it internally.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">documents</span><span class="p">:</span>
         <span class="n">collection</span><span class="o">.</span><span class="n">insert_many</span><span class="p">(</span><span class="n">documents</span><span class="p">,</span> <span class="n">ordered</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>

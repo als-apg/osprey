@@ -450,11 +450,14 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">ENV_CHAIN_APPLIED_ENV</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._host</span><span class="w"> </span><span class="kn">import</span> <span class="n">EPICS_ENV_PREFIXES</span><span class="p">,</span> <span class="n">START_MARKS_FD_ENV</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.process</span><span class="w"> </span><span class="kn">import</span> <span class="n">terminate</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._proxy</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorHostProxy</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;CHILD_MODULE&quot;</span><span class="p">,</span>
@@ -506,7 +509,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.spawn_host">[docs]</a>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">spawn_host</span><span class="p">(</span>
     <span class="n">python</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">start_marks_fd</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Launch one connector-host child with its frame pipes attached.</span>
 
 <span class="sd">    Args:</span>
@@ -591,7 +594,12 @@
 <div class="viewcode-block" id="kill_host">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.kill_host">[docs]</a>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kill_host</span><span class="p">(</span>
-    <span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">reader</span><span class="p">:</span> <span class="n">AttributedReader</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">process</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">,</span>
+    <span class="n">proxy</span><span class="p">:</span> <span class="n">ConnectorHostProxy</span><span class="p">,</span>
+    <span class="n">reader</span><span class="p">:</span> <span class="n">AttributedReader</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Put down a child that failed, and let its proxy settle. Never raises.</span>
 
@@ -615,7 +623,9 @@
 
 <div class="viewcode-block" id="stop_host">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.stop_host">[docs]</a>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop_host</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop_host</span><span class="p">(</span>
+    <span class="n">process</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">,</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">ConnectorHostProxy</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Stop a healthy child in order: acknowledge, then make sure it is gone. Never raises.</span>
 
 <span class="sd">    Args:</span>

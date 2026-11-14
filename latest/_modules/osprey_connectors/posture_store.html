@@ -566,7 +566,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextmanager</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">replace</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NamedTuple</span><span class="p">,</span> <span class="n">cast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NamedTuple</span><span class="p">,</span> <span class="n">cast</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">session_hold</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.identity</span><span class="w"> </span><span class="kn">import</span> <span class="n">acting_identity</span>
@@ -581,6 +581,10 @@
     <span class="n">tier_writes</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_shared_data_root</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="c1"># ``control_context`` imports this module at load time.</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ControlContext</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.posture_store&quot;</span><span class="p">)</span>
 
@@ -1102,7 +1106,7 @@
 
 <div class="viewcode-block" id="parse_posture_value">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.parse_posture_value">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">parse_posture_value</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_posture_value</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The record&#39;s ``posture`` mirror as ``{target: &quot;sandbox&quot;}`` — the switched-off targets.</span>
 
 <span class="sd">    The grammar of the mirror field (rule 2), in one place:</span>
@@ -1158,7 +1162,7 @@
 <span class="sd">            the ways of not knowing happened.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">record</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="n">record</span><span class="p">:</span> <span class="n">ControlContext</span> <span class="o">|</span> <span class="kc">None</span>
     <span class="n">unavailable</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
 
 
@@ -1496,7 +1500,7 @@
 <div class="viewcode-block" id="owner_tier_term">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.owner_tier_term">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">owner_tier_term</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The owner&#39;s tier out of ``control_system.login_tiers`` — the verdict&#39;s owner rung.</span>
 
@@ -1517,8 +1521,7 @@
 <span class="sd">    Logins match exactly: no case folding, no trimming. Never raises.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">carries</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_LOGIN_TIERS_LEAF</span> <span class="ow">in</span> <span class="n">section</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">carries</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_LOGIN_TIERS_LEAF</span> <span class="ow">in</span> <span class="n">section</span><span class="p">):</span>
             <span class="k">return</span> <span class="s2">&quot;unknown&quot;</span> <span class="k">if</span> <span class="n">_tree_is_bound</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;skip&quot;</span>
         <span class="n">login_tiers</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="n">_LOGIN_TIERS_LEAF</span><span class="p">]</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">login_tiers</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span>
@@ -1538,7 +1541,7 @@
 <div class="viewcode-block" id="write_ceiling">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.write_ceiling">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_ceiling</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">tree_bound</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">tree_bound</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The highest position a write by *owner* runs at: the verdict&#39;s ceiling.</span>
 
@@ -1602,7 +1605,7 @@
 <div class="viewcode-block" id="write_verdict">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.write_verdict">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1686,11 +1689,11 @@
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">read</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">:</span> <span class="n">ControlContext</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_write_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
@@ -1712,7 +1715,9 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_verdict_kind</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_verdict_kind</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">object</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The machine kind a verdict on *target* names, or ``None``. Never raises.</span>
 
 <span class="sd">    The name decides whether the target resolves at all; the published report</span>
@@ -1728,7 +1733,7 @@
 
 <div class="viewcode-block" id="backstop_verdict">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.backstop_verdict">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">backstop_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">backstop_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict for a write no target or owner can be named for.</span>
 
 <span class="sd">    The floor under every write path that cannot be traced to one machine: it</span>
@@ -1823,7 +1828,7 @@
 <div class="viewcode-block" id="execution_verdict">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.posture_store.execution_verdict">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">execution_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1856,7 +1861,7 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_with_hold</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="n">WriteVerdict</span><span class="p">,</span> <span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="n">WriteVerdict</span><span class="p">,</span> <span class="n">session_keys</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*verdict* as :func:`execution_verdict` answers it: the hold after the backstop.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">backstop_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">)</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
@@ -1868,8 +1873,8 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_write_refusal</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">ignore_launch_pin</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
     <span class="n">seen</span><span class="p">:</span> <span class="n">_RecordSeen</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1886,6 +1891,8 @@
         <span class="k">return</span> <span class="s2">&quot;readonly_run&quot;</span><span class="p">,</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
         <span class="k">return</span> <span class="s2">&quot;tier_never&quot;</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">target</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># resolve_target refuses it too; said here for the type</span>
+        <span class="k">return</span> <span class="s2">&quot;target_unknown&quot;</span><span class="p">,</span> <span class="kc">None</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># ValueError by contract; anything else is no resolution either</span>

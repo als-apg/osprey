@@ -570,7 +570,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">replace</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NoReturn</span><span class="p">,</span> <span class="n">TypedDict</span><span class="p">,</span> <span class="n">TypeGuard</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">control_context</span><span class="p">,</span> <span class="n">posture_store</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.identity</span><span class="w"> </span><span class="kn">import</span> <span class="n">acting_identity</span>
@@ -655,6 +655,7 @@
 <span class="c1">#: Who recorded an approval: the web terminal&#39;s chip, the CLI, or the switch</span>
 <span class="c1">#: itself standing at ``allowed`` (a self-issued grant).</span>
 <span class="n">_SURFACES</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">,</span> <span class="s2">&quot;write_switch&quot;</span><span class="p">)</span>
+<span class="n">_Surface</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;chip&quot;</span><span class="p">,</span> <span class="s2">&quot;cli&quot;</span><span class="p">,</span> <span class="s2">&quot;write_switch&quot;</span><span class="p">]</span>
 
 <span class="c1">#: The surface of a self-issued grant.</span>
 <span class="n">SELF_ISSUE_SURFACE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;write_switch&quot;</span>
@@ -693,6 +694,59 @@
 
 
 <span class="c1"># -- the formats --------------------------------------------------------------</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_RangePayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="nb">min</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="nb">max</span><span class="p">:</span> <span class="nb">float</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_ApproverPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">identity</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">surface</span><span class="p">:</span> <span class="n">_Surface</span>
+    <span class="n">at_ns</span><span class="p">:</span> <span class="nb">int</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_RevocationPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">by</span><span class="p">:</span> <span class="nb">str</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_GrantPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A grant file&#39;s JSON object: exactly :data:`_GRANT_KEYS`.&quot;&quot;&quot;</span>
+
+    <span class="n">schema</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">holder</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">switch_epoch</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">_RangePayload</span><span class="p">]</span>
+    <span class="n">steps</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">issued_at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">expires_at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">lease_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">approver</span><span class="p">:</span> <span class="n">_ApproverPayload</span>
+    <span class="n">label</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">revoked</span><span class="p">:</span> <span class="n">_RevocationPayload</span> <span class="o">|</span> <span class="kc">None</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_StepPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_LedgerPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A ledger file&#39;s JSON object: exactly :data:`_LEDGER_KEYS`.&quot;&quot;&quot;</span>
+
+    <span class="n">schema</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">holder_pid</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">holder_start</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">pid_ns</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">lease_until_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">_StepPayload</span><span class="p">]</span>
 
 
 <div class="viewcode-block" id="ChannelRange">
@@ -778,9 +832,9 @@
 
 <div class="viewcode-block" id="Grant.to_payload">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.Grant.to_payload">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This grant as the JSON object its file holds.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
+        <span class="n">payload</span><span class="p">:</span> <span class="n">_GrantPayload</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
             <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span>
@@ -806,7 +860,8 @@
                 <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">revoked</span> <span class="ow">is</span> <span class="kc">None</span>
                 <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;at_ns&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">revoked</span><span class="o">.</span><span class="n">at_ns</span><span class="p">,</span> <span class="s2">&quot;by&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">revoked</span><span class="o">.</span><span class="n">by</span><span class="p">}</span>
             <span class="p">),</span>
-        <span class="p">}</span></div>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">payload</span></div>
 
 
 <div class="viewcode-block" id="Grant.live_at">
@@ -857,9 +912,9 @@
 
 <div class="viewcode-block" id="Ledger.to_payload">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.Ledger.to_payload">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This ledger as the JSON object its file holds.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
+        <span class="n">payload</span><span class="p">:</span> <span class="n">_LedgerPayload</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;authorization&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">authorization</span><span class="p">,</span>
             <span class="s2">&quot;holder_pid&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">holder_pid</span><span class="p">,</span>
@@ -870,7 +925,8 @@
                 <span class="p">{</span><span class="s2">&quot;n&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">n</span><span class="p">,</span> <span class="s2">&quot;at_ns&quot;</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">at_ns</span><span class="p">,</span> <span class="s2">&quot;channels&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">channels</span><span class="p">)}</span>
                 <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span>
             <span class="p">],</span>
-        <span class="p">}</span></div>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">payload</span></div>
 </div>
 
 
@@ -899,12 +955,12 @@
 <span class="c1"># -- parsing ------------------------------------------------------------------</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_reject_constant</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_reject_constant</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NoReturn</span><span class="p">:</span>
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is not a finite number&quot;</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_no_repeated_keys</span><span class="p">(</span><span class="n">pairs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-    <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_no_repeated_keys</span><span class="p">(</span><span class="n">pairs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+    <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">pairs</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">payload</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the key </span><span class="si">{</span><span class="n">key</span><span class="si">!r}</span><span class="s2"> is repeated&quot;</span><span class="p">)</span>
@@ -912,12 +968,12 @@
     <span class="k">return</span> <span class="n">payload</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_load_json</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_load_json</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="nb">bytearray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*raw* as JSON with no ``NaN``/``Infinity`` and no repeated key.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">parse_constant</span><span class="o">=</span><span class="n">_reject_constant</span><span class="p">,</span> <span class="n">object_pairs_hook</span><span class="o">=</span><span class="n">_no_repeated_keys</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">keys</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">keys</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> is not an object&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">set</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span> <span class="o">!=</span> <span class="n">keys</span><span class="p">:</span>
@@ -925,19 +981,19 @@
     <span class="k">return</span> <span class="n">payload</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_name</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_name</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">!=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> is not a name&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">value</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_integer</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">minimum</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_integer</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">minimum</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="n">minimum</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> is not an integer of at least </span><span class="si">{</span><span class="n">minimum</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_finite</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_finite</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> is not a number&quot;</span><span class="p">)</span>
     <span class="n">number</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
@@ -964,10 +1020,14 @@
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;lease_s </span><span class="si">{</span><span class="n">lease_s</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2"> is above the ceiling of </span><span class="si">{</span><span class="n">_MAX_LEASE_S</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_authorization_id</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_authorization_id</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_ID</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;the id is not a 32-digit lowercase hex string&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_surface</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="n">_Surface</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">_SURFACES</span>
 
 
 <span class="n">_GRANT_KEYS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
@@ -997,7 +1057,7 @@
 <span class="n">_STEP_KEYS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;n&quot;</span><span class="p">,</span> <span class="s2">&quot;at_ns&quot;</span><span class="p">,</span> <span class="s2">&quot;channels&quot;</span><span class="p">})</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_parse_channels</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_channels</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;channels is not a non-empty object&quot;</span><span class="p">)</span>
     <span class="n">channels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1013,7 +1073,7 @@
     <span class="k">return</span> <span class="n">channels</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_parse_grant</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Grant</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_grant</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Grant</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A grant out of its JSON text, bytes or decoded object.</span>
 
 <span class="sd">    Every field must be present with its type, and nothing else may be: an</span>
@@ -1032,7 +1092,7 @@
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the grant&#39;s schema is not </span><span class="si">{</span><span class="n">_SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">approver</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;approver&quot;</span><span class="p">],</span> <span class="n">_APPROVER_KEYS</span><span class="p">,</span> <span class="s2">&quot;the approver&quot;</span><span class="p">)</span>
     <span class="n">surface</span> <span class="o">=</span> <span class="n">approver</span><span class="p">[</span><span class="s2">&quot;surface&quot;</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">surface</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_SURFACES</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_surface</span><span class="p">(</span><span class="n">surface</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the approver&#39;s surface </span><span class="si">{</span><span class="n">surface</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">_SURFACES</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">revoked_raw</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;revoked&quot;</span><span class="p">]</span>
     <span class="n">revoked</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1073,13 +1133,18 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_optional_str</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_name_list</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *value* is a non-empty list of non-empty strings.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">value</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_optional_str</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> is neither a string nor null&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">value</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_parse_ledger</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_ledger</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Ledger</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A ledger out of its JSON text, bytes or decoded object.</span>
 
 <span class="sd">    The same strictness as :func:`_parse_grant`; the steps must be numbered</span>
@@ -1092,9 +1157,8 @@
     <span class="n">payload</span> <span class="o">=</span> <span class="n">_exact_keys</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">_LEDGER_KEYS</span><span class="p">,</span> <span class="s2">&quot;the ledger&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;schema&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_SCHEMA_VERSION</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;the ledger&#39;s schema is not </span><span class="si">{</span><span class="n">_SCHEMA_VERSION</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="n">holder_pid</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;holder_pid&quot;</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">holder_pid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">holder_pid</span> <span class="o">=</span> <span class="n">_integer</span><span class="p">(</span><span class="n">holder_pid</span><span class="p">,</span> <span class="s2">&quot;holder_pid&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">raw_pid</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;holder_pid&quot;</span><span class="p">]</span>
+    <span class="n">holder_pid</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">raw_pid</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_integer</span><span class="p">(</span><span class="n">raw_pid</span><span class="p">,</span> <span class="s2">&quot;holder_pid&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="n">entries</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;steps&quot;</span><span class="p">]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;steps is not a list&quot;</span><span class="p">)</span>
@@ -1104,11 +1168,7 @@
         <span class="k">if</span> <span class="n">_integer</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&#39;s n&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">!=</span> <span class="n">index</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2"> is numbered </span><span class="si">{</span><span class="n">entry</span><span class="p">[</span><span class="s1">&#39;n&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">channels</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
-        <span class="k">if</span> <span class="p">(</span>
-            <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">channels</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span>
-            <span class="ow">or</span> <span class="ow">not</span> <span class="n">channels</span>
-            <span class="ow">or</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">)</span>
-        <span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_name_list</span><span class="p">(</span><span class="n">channels</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;step </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&#39;s channels is not a non-empty list of names&quot;</span><span class="p">)</span>
         <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
             <span class="n">LedgerStep</span><span class="p">(</span>
@@ -1147,7 +1207,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">joinpath</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">segments</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_safe_segment</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_safe_segment</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span>
         <span class="ow">and</span> <span class="n">name</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="s2">&quot;..&quot;</span><span class="p">}</span>
@@ -1466,13 +1526,13 @@
     <span class="k">return</span> <span class="n">resolved</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_operations</span><span class="p">(</span><span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_operations</span><span class="p">(</span><span class="n">operations</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*operations* as a list of pairs, or ``None`` when it is not a batch of pairs.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">operations</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
         <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">operations</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">operations</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">operations</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="n">pairs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">pairs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">operations</span><span class="p">:</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
@@ -1481,10 +1541,10 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_judge</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">now_ns</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1590,7 +1650,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_unreachable</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_unreachable</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;The write authorization verdict could not be reached; refusing (</span><span class="si">%s</span><span class="s2">)&quot;</span><span class="p">,</span> <span class="n">what</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">WriteVerdict</span><span class="p">(</span>
         <span class="n">allowed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
@@ -1602,10 +1662,10 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
@@ -1722,7 +1782,7 @@
         <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_write_json</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_json</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
     <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">SHARED_FILE_MODE</span><span class="p">)</span>
 
@@ -1763,10 +1823,10 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_spend</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">operations</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-    <span class="n">authorization</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">NoOwner</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">basis</span><span class="p">:</span> <span class="n">_Basis</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteVerdict</span><span class="p">:</span>
@@ -1790,25 +1850,26 @@
     <span class="k">if</span> <span class="n">operations</span> <span class="ow">is</span> <span class="n">_ANY_WRITE</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_unreachable</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="s2">&quot;spend without a write&quot;</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">place</span> <span class="o">=</span> <span class="n">_checked_ledger_place</span><span class="p">(</span><span class="n">authorization</span><span class="p">)</span>
+        <span class="n">authorization_id</span> <span class="o">=</span> <span class="n">_authorization_id</span><span class="p">(</span><span class="n">authorization</span><span class="p">)</span>
+        <span class="n">place</span> <span class="o">=</span> <span class="n">_checked_ledger_place</span><span class="p">(</span><span class="n">authorization_id</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># no ledger to spend from: the read-only verdict names why</span>
         <span class="n">verdict</span> <span class="o">=</span> <span class="n">_verdict</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">basis</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">_unreachable</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="s2">&quot;ledger&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="k">else</span> <span class="n">verdict</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="c1"># Taken once: a one-shot iterable is judged and recorded as the same batch.</span>
         <span class="n">batch</span> <span class="o">=</span> <span class="n">_operations</span><span class="p">(</span><span class="n">operations</span><span class="p">)</span>
-        <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">_ledger_lock_path</span><span class="p">(</span><span class="n">place</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)):</span>
+        <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">_ledger_lock_path</span><span class="p">(</span><span class="n">place</span><span class="p">,</span> <span class="n">authorization_id</span><span class="p">)):</span>
             <span class="n">now</span> <span class="o">=</span> <span class="n">_now_ns</span><span class="p">()</span>
-            <span class="n">judged</span> <span class="o">=</span> <span class="n">_judge</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">basis</span><span class="p">)</span>
+            <span class="n">judged</span> <span class="o">=</span> <span class="n">_judge</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">authorization_id</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">now</span><span class="p">,</span> <span class="n">basis</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">judged</span><span class="o">.</span><span class="n">ends</span><span class="p">:</span>
-                <span class="n">_lapse</span><span class="p">(</span><span class="n">place</span><span class="p">,</span> <span class="n">authorization</span><span class="p">)</span>
+                <span class="n">_lapse</span><span class="p">(</span><span class="n">place</span><span class="p">,</span> <span class="n">authorization_id</span><span class="p">)</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">judged</span><span class="o">.</span><span class="n">verdict</span><span class="o">.</span><span class="n">allowed</span> <span class="ow">or</span> <span class="n">judged</span><span class="o">.</span><span class="n">ledger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">return</span> <span class="n">judged</span><span class="o">.</span><span class="n">verdict</span>
             <span class="n">ledger</span> <span class="o">=</span> <span class="n">judged</span><span class="o">.</span><span class="n">ledger</span>
             <span class="n">channels</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">_value</span> <span class="ow">in</span> <span class="n">batch</span> <span class="ow">or</span> <span class="p">())</span>
             <span class="n">step</span> <span class="o">=</span> <span class="n">LedgerStep</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">ledger</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">at_ns</span><span class="o">=</span><span class="n">now</span><span class="p">,</span> <span class="n">channels</span><span class="o">=</span><span class="n">channels</span><span class="p">)</span>
             <span class="n">_write_json</span><span class="p">(</span>
-                <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization</span><span class="si">}{</span><span class="n">_LEDGER_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">place</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">authorization_id</span><span class="si">}{</span><span class="n">_LEDGER_SUFFIX</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
                 <span class="n">replace</span><span class="p">(</span><span class="n">ledger</span><span class="p">,</span> <span class="n">steps</span><span class="o">=</span><span class="p">(</span><span class="o">*</span><span class="n">ledger</span><span class="o">.</span><span class="n">steps</span><span class="p">,</span> <span class="n">step</span><span class="p">))</span><span class="o">.</span><span class="n">to_payload</span><span class="p">(),</span>
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">judged</span><span class="o">.</span><span class="n">verdict</span>
@@ -1819,7 +1880,7 @@
 <div class="viewcode-block" id="authorized_execution_verdict">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.authorized_execution_verdict">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">authorized_execution_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">operations</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -1874,7 +1935,7 @@
 <div class="viewcode-block" id="authorized_write_verdict">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.authorized_write_verdict">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">authorized_write_verdict</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
@@ -2244,7 +2305,9 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_channel_ranges</span><span class="p">(</span><span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_channel_ranges</span><span class="p">(</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*channels* as ranges: each value a :class:`ChannelRange` or a ``(min, max)`` pair.&quot;&quot;&quot;</span>
     <span class="n">ranges</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">bound</span> <span class="ow">in</span> <span class="n">channels</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -2259,7 +2322,7 @@
 <div class="viewcode-block" id="self_issue">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.self_issue">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">self_issue</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRange</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -2590,6 +2653,12 @@
 <span class="c1">#: What a run does once its evaluations are done, each a write the budget pays</span>
 <span class="c1">#: for: nothing, the best point found, or the values it started from.</span>
 <span class="n">_COMPLETIONS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;apply_best&quot;</span><span class="p">,</span> <span class="s2">&quot;restore&quot;</span><span class="p">)</span>
+<span class="n">_Completion</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;apply_best&quot;</span><span class="p">,</span> <span class="s2">&quot;restore&quot;</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_completion</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="n">_Completion</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">_COMPLETIONS</span>
+
 
 <span class="c1">#: A request is a few hundred bytes plus one line per channel.</span>
 <span class="n">_REQUEST_READ_LIMIT</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
@@ -2610,6 +2679,23 @@
         <span class="s2">&quot;completion&quot;</span><span class="p">,</span>
     <span class="p">}</span>
 <span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_RequestPayload</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A request file&#39;s JSON object: exactly :data:`_REQUEST_KEYS`.&quot;&quot;&quot;</span>
+
+    <span class="n">schema</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">holder</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">_RangePayload</span><span class="p">]</span>
+    <span class="n">steps</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">requested_at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">expires_at_ns</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">lease_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">label</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">completion</span><span class="p">:</span> <span class="n">_Completion</span>
 
 
 <div class="viewcode-block" id="WriteRequest">
@@ -2651,9 +2737,9 @@
 
 <div class="viewcode-block" id="WriteRequest.to_payload">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.WriteRequest.to_payload">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This request as the JSON object its file holds.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="p">{</span>
+        <span class="n">payload</span><span class="p">:</span> <span class="n">_RequestPayload</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span>
             <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
             <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span>
@@ -2669,7 +2755,8 @@
             <span class="s2">&quot;lease_s&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">lease_s</span><span class="p">,</span>
             <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">label</span><span class="p">,</span>
             <span class="s2">&quot;completion&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">completion</span><span class="p">,</span>
-        <span class="p">}</span></div>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">payload</span></div>
 
 
 <div class="viewcode-block" id="WriteRequest.grant">
@@ -2694,7 +2781,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_parse_request</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteRequest</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_request</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">WriteRequest</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A request out of its JSON text, bytes or decoded object.</span>
 
 <span class="sd">    The grant&#39;s strictness (:func:`_parse_grant`): every field present with its</span>
@@ -2722,7 +2809,7 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;label is not a string&quot;</span><span class="p">)</span>
     <span class="n">completion</span> <span class="o">=</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;completion&quot;</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">completion</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_COMPLETIONS</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_completion</span><span class="p">(</span><span class="n">completion</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;completion </span><span class="si">{</span><span class="n">completion</span><span class="si">!r}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">_COMPLETIONS</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">WriteRequest</span><span class="p">(</span>
         <span class="nb">id</span><span class="o">=</span><span class="n">_authorization_id</span><span class="p">(</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]),</span>

@@ -732,7 +732,7 @@
 
 <div class="viewcode-block" id="epoch_seconds_array">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.epoch_seconds_array">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">epoch_seconds_array</span><span class="p">(</span><span class="n">timestamps</span><span class="p">:</span> <span class="s2">&quot;Sequence[Any]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">epoch_seconds_array</span><span class="p">(</span><span class="n">timestamps</span><span class="p">:</span> <span class="s2">&quot;Sequence[object]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert timestamps to epoch seconds, or None when not convertible.&quot;&quot;&quot;</span>
     <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">ts</span> <span class="ow">in</span> <span class="n">timestamps</span><span class="p">:</span>

@@ -446,18 +446,24 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span><span class="p">,</span> <span class="n">write_authorization</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system.write_door</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_door</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">RefusalReason</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteVerdict</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._limits_validator</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">CurrentValueReader</span><span class="p">,</span>
+        <span class="n">LimitsValidator</span><span class="p">,</span>
+    <span class="p">)</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.control_system&quot;</span><span class="p">)</span>
 
@@ -559,7 +565,7 @@
 <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_limit_bound</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_limit_bound</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One limit as a finite ``float``, or ``None`` for anything else.</span>
 
 <span class="sd">    Bools are excluded (``True`` is not a limit), as is every non-numeric value —</span>
@@ -575,7 +581,7 @@
     <span class="k">return</span> <span class="n">bound</span> <span class="k">if</span> <span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">bound</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">normalise_limit_pair</span><span class="p">(</span><span class="n">low</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">high</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">normalise_limit_pair</span><span class="p">(</span><span class="n">low</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">high</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalise one ``(low, high)`` limit pair the way :class:`ChannelMetadata` stores it.</span>
 
 <span class="sd">    Each bound that is missing, non-numeric or non-finite becomes ``None``. When</span>
@@ -589,7 +595,7 @@
     <span class="k">return</span> <span class="n">low_bound</span><span class="p">,</span> <span class="n">high_bound</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_writable_flag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_writable_flag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A reported write-access right as ``bool``, or ``None`` when not reported.</span>
 
 <span class="sd">    A client may report access rights as ``bool`` or ``0``/``1``; anything that</span>
@@ -643,7 +649,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_is_sequence</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_sequence</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;True when ``value`` is a vector rather than a scalar, for comparison.</span>
 
 <span class="sd">    Admits list, tuple and ndarray. Excluded, in order:</span>
@@ -677,7 +683,7 @@
     <span class="k">return</span> <span class="n">value</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_scalars_match</span><span class="p">(</span><span class="n">sent</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_scalars_match</span><span class="p">(</span><span class="n">sent</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">observed</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Compare two scalars: floats by relative closeness, everything else by ``==``.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">sent</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Real</span><span class="p">)</span>
@@ -747,7 +753,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">as_number</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">as_number</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``value`` as a float, or ``None`` when it is not a number.</span>
 
 <span class="sd">    A reading that is not a number — a string, an enum label, a waveform — has</span>
@@ -985,7 +991,7 @@
 <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_monitor_section</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_monitor_section</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``control_system`` section the reference monitor judges by.</span>
 
 <span class="sd">    Empty for a read-only run, which is answered before any config is read: it</span>
@@ -1032,7 +1038,7 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_verdict_refusal</span><span class="p">(</span>
-    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="s2">&quot;WriteVerdict&quot;</span>
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">verdict</span><span class="p">:</span> <span class="s2">&quot;WriteVerdict&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The REFUSED result the monitor returns for a write *verdict* refused.</span>
 
@@ -1073,7 +1079,9 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_authorized_refusal</span><span class="p">(</span>
-    <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span> <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+    <span class="n">operations</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span>
+    <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;WriteVerdict | None&quot;</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The verdict refusing one write call of a process that names an authorization.</span>
 
@@ -1208,7 +1216,9 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_limits_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_limits_refusal</span><span class="p">(</span>
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">BaseException</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The REFUSED result a batch answers for a write the limits refused.</span>
 
 <span class="sd">    One line per channel, the violation&#39;s type and reason, where a single</span>
@@ -1227,7 +1237,7 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_refused_batch</span><span class="p">(</span>
-    <span class="n">named</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">refusals</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="n">named</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span> <span class="n">refusals</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One result per write of a batch that was not sent because a write was refused.&quot;&quot;&quot;</span>
     <span class="n">refused</span> <span class="o">=</span> <span class="p">[</span><span class="n">refusal</span> <span class="k">for</span> <span class="n">refusal</span> <span class="ow">in</span> <span class="n">refusals</span> <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">]</span>
@@ -1251,7 +1261,7 @@
     <span class="p">]</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_repeated_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_repeated_refusal</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">times</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The refusal of one write to a channel its batch names more than once.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">ChannelWriteResult</span><span class="p">(</span>
         <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_address</span><span class="p">,</span>
@@ -1266,7 +1276,9 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_batch_send_verdict</span><span class="p">(</span><span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_batch_send_verdict</span><span class="p">(</span>
+    <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">error</span><span class="p">:</span> <span class="ne">Exception</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The result of one write of a batch whose send raised, or the raise itself.</span>
 
 <span class="sd">    A limits refusal at send time is a ``LIMITS`` refusal. A channel that</span>
@@ -1291,7 +1303,7 @@
     <span class="k">raise</span> <span class="n">error</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_accepts_on_connection</span><span class="p">(</span><span class="n">subscribe</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``.&quot;&quot;&quot;</span>
     <span class="n">parameters</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">subscribe</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
     <span class="k">return</span> <span class="nb">any</span><span class="p">(</span>
@@ -1369,7 +1381,7 @@
 <span class="sd">        &gt;&gt;&gt;     await connector.disconnect()</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">_limits_validator</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Initialized by subclasses in connect()</span>
+    <span class="n">_limits_validator</span><span class="p">:</span> <span class="s2">&quot;LimitsValidator | None&quot;</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Initialized by subclasses in connect()</span>
     <span class="c1"># The connector type this instance was built as. Stamped by</span>
     <span class="c1"># ConnectorFactory.build_control_system_connector() between construction and</span>
     <span class="c1"># connect(), so connect() can already read the posture</span>
@@ -1405,7 +1417,7 @@
     <span class="c1"># A subclass&#39;s own ``write_channel`` before the guard wrapped it, set by</span>
     <span class="c1"># ``__init_subclass__``: what an authorized batch writes each operation</span>
     <span class="c1"># through once the whole call was judged and its step spent.</span>
-    <span class="n">_unguarded_write_channel</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">_unguarded_write_channel</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_writes_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1434,7 +1446,7 @@
 
 <div class="viewcode-block" id="ControlSystemConnector.current_value_reader">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.current_value_reader">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">current_value_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">current_value_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;CurrentValueReader | None&quot;</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;This connector&#39;s own way to read a channel&#39;s present value.</span>
 
 <span class="sd">        Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check</span>
@@ -1521,11 +1533,19 @@
         <span class="k">if</span> <span class="n">original_subscribe</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_accepts_on_connection</span><span class="p">(</span><span class="n">original_subscribe</span><span class="p">):</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">subscribe</span> <span class="o">=</span> <span class="n">_compat_subscribe_without_on_connection</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">original_subscribe</span><span class="p">)</span>  <span class="c1"># type: ignore[method-assign]  # wraps the subclass&#39;s own method</span>
 
-        <span class="n">original_write</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_channel&quot;</span><span class="p">)</span>
+        <span class="n">original_write</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+            <span class="s2">&quot;write_channel&quot;</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">original_write</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 
             <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_write</span><span class="p">)</span>
-            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_write</span><span class="p">(</span>
+                <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+                <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+                <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+                <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+            <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
                 <span class="n">authorization</span> <span class="o">=</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span>
                 <span class="k">if</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">refused</span> <span class="o">=</span> <span class="n">_authorized_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">[(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">)],</span> <span class="n">authorization</span><span class="p">)</span>
@@ -1548,11 +1568,18 @@
             <span class="c1"># and spent whole (:meth:`write_multiple_channels`).</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_unguarded_write_channel</span> <span class="o">=</span> <span class="n">original_write</span>
 
-        <span class="n">original_multi</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
+        <span class="n">original_multi</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">original_multi</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 
             <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">original_multi</span><span class="p">)</span>
-            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_multi</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_guarded_multi</span><span class="p">(</span>
+                <span class="bp">self</span><span class="p">:</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">,</span>
+                <span class="n">operations</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span>
+                <span class="o">*</span><span class="n">args</span><span class="p">,</span>
+                <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+            <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
                 <span class="k">if</span> <span class="n">write_authorization</span><span class="o">.</span><span class="n">named_authorization</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="c1"># Under an authorization a batch is the base class&#39;s: one</span>
                     <span class="c1"># step for the call, then each operation past the guard.</span>
@@ -1926,8 +1953,8 @@
         <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
 
-        <span class="k">def</span><span class="w"> </span><span class="nf">read_all</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-            <span class="n">held</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">read_all</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+            <span class="n">held</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
             <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">channel_addresses</span><span class="p">:</span>
                 <span class="k">try</span><span class="p">:</span>
                     <span class="n">held</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">reader</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
@@ -1939,7 +1966,7 @@
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_batch</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]],</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Check every write of a batch; nothing is sent.</span>
 
 <span class="sd">        Returns the writes under the names :meth:`_write_precheck` gave them,</span>
@@ -1947,7 +1974,7 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelLimitsViolationError</span>
 
-        <span class="n">named</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">named</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">refusals</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
             <span class="n">name</span><span class="p">,</span> <span class="n">refusal</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_precheck</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
@@ -1976,7 +2003,7 @@
         <span class="p">]</span>
         <span class="n">held</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_values</span><span class="p">(</span><span class="n">stepped</span><span class="p">)</span> <span class="k">if</span> <span class="n">stepped</span> <span class="k">else</span> <span class="p">{}</span>
 
-        <span class="k">def</span><span class="w"> </span><span class="nf">read_current</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">read_current</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
             <span class="n">current</span> <span class="o">=</span> <span class="n">held</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="n">current</span>
@@ -2033,7 +2060,7 @@
 <span class="sd">        control system takes concurrent puts sends them together, and asks</span>
 <span class="sd">        once, immediately before the puts start.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">}</span>
+        <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="n">timeout</span><span class="p">}</span>
         <span class="k">if</span> <span class="n">confirm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">confirm</span>
         <span class="n">write</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">_unguarded_write_channel</span>

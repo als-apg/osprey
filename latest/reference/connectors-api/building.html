@@ -616,7 +616,7 @@ by <a class="reference internal" href="#osprey_connectors.factory.ConnectorFacto
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>kind</strong> (<em>str</em>) – <code class="docutils literal notranslate"><span class="pre">directory</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_state</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_log</span></code> or <code class="docutils literal notranslate"><span class="pre">put_log</span></code>.</p></li>
 <li><p><strong>name</strong> (<em>str</em>) – The type name.</p></li>
-<li><p><strong>backend_class</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type"><em>type</em></a><em>[</em><em>Any</em><em>]</em>) – A subclass of that kind’s base.</p></li>
+<li><p><strong>backend_class</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type"><em>type</em></a><em>[</em><em>_ServiceBackend</em><em>]</em>) – A subclass of that kind’s base.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
@@ -783,7 +783,7 @@ converges, so every create call can afford to.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>spec</strong> (<a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec" title="osprey_connectors.service_answers.BackendSpec"><em>BackendSpec</em></a>) – The backend to build, from <code class="docutils literal notranslate"><span class="pre">service_targets</span></code> or written by hand.</p></li>
 <li><p><strong>project_dir</strong> (<em>Path</em><em> | </em><em>None</em>) – The rendered config’s directory.</p></li>
-<li><p><strong>**seams</strong> (<em>Any</em>) – Test seams, passed on only when not <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>**seams</strong> (<em>object</em>) – Test seams, passed on only when not <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
@@ -802,7 +802,7 @@ converges, so every create call can afford to.</p>
 <dd><p>List available control system connector types.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list</p>
+<dd class="field-odd"><p>list[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -813,7 +813,7 @@ converges, so every create call can afford to.</p>
 <dd><p>List available archiver connector types.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list</p>
+<dd class="field-odd"><p>list[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1221,7 +1221,7 @@ Which targets are configured is a property of the rendered config, so it is
 read from the config.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<dd class="field-odd"><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -1300,7 +1300,7 @@ its author meant by it is not the one the deployment runs.</p></li>
 </ul>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<dd class="field-odd"><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes — the <em>rendered</em> one, as
 the build produced it, since that is the config a deployment runs.</p>
 </dd>
@@ -1432,7 +1432,7 @@ deployment-wide keys <a class="reference internal" href="#osprey_connectors.type
 ones — they are the lines that decide every target that wrote no block.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<dd class="field-odd"><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -1464,8 +1464,8 @@ rehearsal.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>target</strong> (<em>Any</em>) – The control target.</p></li>
-<li><p><strong>state_dir</strong> (<em>Any</em>) – The directory holding the servers’ reports; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads
+<li><p><strong>target</strong> (<em>object</em>) – The control target.</p></li>
+<li><p><strong>state_dir</strong> (<em>object</em>) – The directory holding the servers’ reports; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads
 <a class="reference internal" href="write-safety.html#osprey_connectors.posture_store.state_dir" title="osprey_connectors.posture_store.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.posture_store.state_dir()</span></code></a>.</p></li>
 </ul>
 </dd>
@@ -1491,7 +1491,7 @@ block when <code class="docutils literal notranslate"><span class="pre">settings
     at build time, with the same words.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-even"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1583,9 +1583,9 @@ tool call arriving at a real machine on the strength of a guess.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p></li>
-<li><p><strong>target</strong> (<em>Any</em>) – The control target, one of <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>. An argument,
+<li><p><strong>target</strong> (<em>object</em>) – The control target, one of <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>. An argument,
 never read from the environment, and never defaulted.</p></li>
 </ul>
 </dd>
@@ -1659,7 +1659,7 @@ operator acknowledgment. Those decide whether a target may be switched <em>to</e
 the coarser question of whether the deployment is in the multi-target world.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<dd class="field-odd"><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes. Callers holding a whole
 rendered config pass <code class="docutils literal notranslate"><span class="pre">config.get(&quot;control_system&quot;)</span></code>.</p>
 </dd>
@@ -1708,9 +1708,9 @@ about which machines a deployment has.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p></li>
-<li><p><strong>target</strong> (<em>Any</em>) – The control target being asked about.</p></li>
+<li><p><strong>target</strong> (<em>object</em>) – The control target being asked about.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -1747,9 +1747,9 @@ second target.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p></li>
-<li><p><strong>target</strong> (<em>Any</em>) – The control target, one of <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>.</p></li>
+<li><p><strong>target</strong> (<em>object</em>) – The control target, one of <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -1799,7 +1799,7 @@ surface, and a caller that refuses it names the leaves itself
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section.</p></li>
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section.</p></li>
 <li><p><strong>path_configured</strong> (<em>bool</em>) – Whether the config names a limits database path; the
 path is deployment-wide, so one answer serves every target.</p></li>
 </ul>
@@ -1891,7 +1891,7 @@ holders that carry a target instead.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> config section, in the same shape
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> takes.</p></li>
 <li><p><strong>connector_type</strong> (<em>str</em><em> | </em><em>None</em>) – A connector type name, as
 <a class="reference internal" href="#osprey_connectors.types.resolve_control_system_type" title="osprey_connectors.types.resolve_control_system_type"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_control_system_type()</span></code></a> and <a class="reference internal" href="#osprey_connectors.types.resolve_target" title="osprey_connectors.types.resolve_target"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_target()</span></code></a>
@@ -2147,7 +2147,7 @@ when the connection is made.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> names no CA.</p></li>
+<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> names no CA.</p></li>
 <li><p><strong>where</strong> (<em>str</em>) – The block’s dotted key, named in every message.</p></li>
 </ul>
 </dd>
@@ -2171,7 +2171,7 @@ is left to the consumer. The call reads no environment and no file.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> reads as nothing set.</p></li>
+<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> reads as nothing set.</p></li>
 <li><p><strong>where</strong> (<em>str</em>) – The block’s dotted key, named in every message.</p></li>
 <li><p><strong>logins</strong> (<em>frozenset</em><em>[</em><em>Literal</em><em>[</em><em>'token'</em><em>, </em><em>'password'</em><em>]</em><em>]</em>) – The login forms this consumer can send.</p></li>
 <li><p><strong>tls</strong> (<em>bool</em>) – Whether this consumer can apply a per-connection CA.</p></li>
@@ -2208,7 +2208,7 @@ for nothing here. The call reads no environment and no file.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> names no variable.</p></li>
+<li><p><strong>block</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The settings mapping; None or <code class="docutils literal notranslate"><span class="pre">{}</span></code> names no variable.</p></li>
 <li><p><strong>where</strong> (<em>str</em>) – The block’s dotted key, named in every message.</p></li>
 </ul>
 </dd>
@@ -2217,7 +2217,7 @@ for nothing here. The call reads no environment and no file.</p>
     names two logins.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>tuple[tuple[str, <em>Any</em>], …]</p>
+<dd class="field-odd"><p>tuple[tuple[str, object], …]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2265,7 +2265,7 @@ every connector that bounds its calls names and refuses that bound alike.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – A connector’s own config section — the mapping
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – A connector’s own config section — the mapping
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;</span></code> resolves to.</p></li>
 <li><p><strong>connector_type</strong> (<em>str</em><em> | </em><em>None</em>) – The type that block belongs to, so a refusal names the
 key an operator has to go and fix. <code class="docutils literal notranslate"><span class="pre">None</span></code> leaves the type a
@@ -2297,7 +2297,7 @@ spellings are read alike, so a <code class="docutils literal notranslate"><span 
 block are both covered.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – A whole config mapping, nested, dotted or both.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – A whole config mapping, nested, dotted or both.</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><p><strong>ValueError</strong> – Naming every old-spelled key and <a class="reference internal" href="#osprey_connectors.call_timeout.TIMEOUT_KEY" title="osprey_connectors.call_timeout.TIMEOUT_KEY"><code class="xref py py-data docutils literal notranslate"><span class="pre">TIMEOUT_KEY</span></code></a>.</p>

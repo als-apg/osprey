@@ -446,7 +446,6 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;DEFAULT_TERMINATE_GRACE_S&quot;</span><span class="p">,</span>
@@ -466,7 +465,7 @@
 
 <div class="viewcode-block" id="reap_exit_code">
 <a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.process.reap_exit_code">[docs]</a>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">reap_exit_code</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">reap_exit_code</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">,</span> <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Wait up to *window_s* for the event loop to collect *process*&#39;s exit.</span>
 
 <span class="sd">    Returns the exit code, or ``None`` if the child is still running when the</span>
@@ -475,14 +474,13 @@
     <span class="k">if</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">suppress</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">):</span>
             <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="n">process</span><span class="o">.</span><span class="n">wait</span><span class="p">(),</span> <span class="n">window_s</span><span class="p">)</span>
-    <span class="n">returncode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span>
-    <span class="k">return</span> <span class="n">returncode</span></div>
+    <span class="k">return</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span></div>
 
 
 
 <div class="viewcode-block" id="terminate">
 <a class="viewcode-back" href="../../reference/connectors-api/supervision.html#osprey_connectors.process.terminate">[docs]</a>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">terminate</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">terminate</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">,</span> <span class="n">grace_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises.</span>
 
 <span class="sd">    A child that already exited is collected by the event loop before anything</span>
@@ -513,9 +511,8 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_returncode</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="n">returncode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span>
-    <span class="k">return</span> <span class="n">returncode</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_returncode</span><span class="p">(</span><span class="n">process</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">Process</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">process</span><span class="o">.</span><span class="n">returncode</span>
 </pre></div>
 
                 </article>

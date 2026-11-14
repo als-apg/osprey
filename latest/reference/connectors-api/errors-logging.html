@@ -971,7 +971,7 @@ metadata only: no level is remapped and no formatter reads it.</p>
 <li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
 <li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
 <li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
-<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context (unused, kept for API compat)</p></li>
+<li><p><strong>state</strong> (<em>object</em>) – Optional state for context (unused, kept for API compat)</p></li>
 </ul>
 </dd>
 </dl>
@@ -985,7 +985,7 @@ metadata only: no level is remapped and no formatter reads it.</p>
 <li><p><strong>base_logger</strong> (<em>Logger</em>) – Underlying Python logger</p></li>
 <li><p><strong>component_name</strong> (<em>str</em>) – Name of the component (e.g., ‘data_analysis’, ‘router’, ‘mongo’)</p></li>
 <li><p><strong>color</strong> (<em>str</em>) – Rich color name for this component</p></li>
-<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context (unused, kept for API compat)</p></li>
+<li><p><strong>state</strong> (<em>object</em>) – Optional state for context (unused, kept for API compat)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1152,7 +1152,7 @@ and <code class="docutils literal notranslate"><span class="pre">color</span></c
 <li><p><strong>component_name</strong> (<em>str</em><em> | </em><em>None</em>) – Component name (e.g., ‘orchestrator’, ‘data_analysis’)</p></li>
 <li><p><strong>level</strong> (<em>int</em>) – Accepted for backwards compatibility and ignored — set levels
 through <a class="reference internal" href="#osprey_connectors.logger.configure_logging" title="osprey_connectors.logger.configure_logging"><code class="xref py py-func docutils literal notranslate"><span class="pre">configure_logging()</span></code></a> or on the returned logger.</p></li>
-<li><p><strong>state</strong> (<em>Any</em>) – Optional state for context</p></li>
+<li><p><strong>state</strong> (<em>object</em>) – Optional state for context</p></li>
 <li><p><strong>name</strong> (<em>str</em><em> | </em><em>None</em>) – Direct logger name (keyword-only)</p></li>
 <li><p><strong>color</strong> (<em>str</em><em> | </em><em>None</em>) – Direct color specification (keyword-only)</p></li>
 </ul>
@@ -1221,6 +1221,9 @@ or list of strings for multiple loggers.</p>
 </dd>
 <dt class="field-even">Yields<span class="colon">:</span></dt>
 <dd class="field-even"><p>Dictionary mapping logger names to their original levels</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Iterator</em>[dict[str, int]]</p>
 </dd>
 </dl>
 <p class="rubric">Examples</p>

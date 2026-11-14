@@ -537,7 +537,7 @@ connector type alone answers no for a facility baseline that keeps its
 simulator. The simulator view cannot decide, because every build writes it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The build
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The build
 validator, which sees an overlay, passes the overlay with
 <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code> filled in from the profile.</p>
 </dd>
@@ -558,7 +558,7 @@ real machine until the config proves otherwise.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p><strong>endpoint_host</strong> (<em>str</em>) – The host a session on the <code class="docutils literal notranslate"><span class="pre">va</span></code> target would dial.</p></li>
 <li><p><strong>endpoint_port</strong> (<em>int</em><em> | </em><em>None</em>) – The port it would dial, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when the deployment
 has not resolved one — in which case there is no endpoint to match
@@ -580,7 +580,7 @@ and no simulator to claim.</p></li>
 <dd><p>The Channel Access port the deployment’s simulator serves, if it built one.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The port, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when the deployment stood no simulator up. <code class="docutils literal notranslate"><span class="pre">None</span></code>
@@ -680,7 +680,7 @@ endpoint is treated as a real machine until the config proves otherwise.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p><strong>endpoint_host</strong> (<em>str</em>) – The host a session on the <code class="docutils literal notranslate"><span class="pre">standin</span></code> target would dial.</p></li>
 <li><p><strong>endpoint_port</strong> (<em>int</em><em> | </em><em>None</em>) – The port it would dial, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when the deployment
 has not resolved one — in which case there is no endpoint to match
@@ -702,7 +702,7 @@ and no stand-in to claim.</p></li>
 <dd><p>The Channel Access port the deployment’s stand-in serves, if it built one.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
 <code class="docutils literal notranslate"><span class="pre">services:</span></code> section, since the whole point of the dotted key is
 that one walk answers for every reader.</p>
 </dd>
@@ -784,7 +784,7 @@ stand-in that rehearses it.</p>
 <dd><p>The control targets whose history this deployment’s <code class="docutils literal notranslate"><span class="pre">archiver</span></code> block holds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
 <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> section, because the answer for the mongodb store
 turns on whether the deployment built a simulator, which the
 section alone does not carry.</p>
@@ -813,7 +813,7 @@ the archiver pairing’s question, asked at build and at the target switch.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p><strong>target</strong> (<em>str</em>) – The control target the session is on.</p></li>
 </ul>
 </dd>
@@ -971,7 +971,7 @@ a target lands.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Any</em>) – The raw config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>object</em>) – The raw config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p><strong>target</strong> (<em>str</em>) – The control target being asked for, one of
 <code class="xref py py-data docutils literal notranslate"><span class="pre">CONTROL_TARGETS</span></code>.</p></li>
 </ul>
@@ -1006,7 +1006,7 @@ fact with two homes is free to disagree, and the build should not be the
 thing that picks a winner.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Any</em>) – The profile’s resolved <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The profile’s resolved <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The verdict and the phrase naming its archiver.</p>
@@ -1027,7 +1027,7 @@ statement about the archiver would excuse the very config it fails to
 configure.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Any</em>) – The raw config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The raw config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The verdict and the phrase naming its archiver — which calls out an
@@ -1045,7 +1045,7 @@ inert flat line when one is what misled the writer.</p>
 <dd><p>The section a target builds from: the deployment’s own, with its type replaced.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>

@@ -481,7 +481,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NotRequired</span><span class="p">,</span> <span class="n">TypedDict</span><span class="p">,</span> <span class="n">TypeGuard</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">atomic_replace</span>
 
@@ -542,6 +542,25 @@
 <span class="n">_STR_FIELDS</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;flag_id&quot;</span><span class="p">,</span> <span class="s2">&quot;source&quot;</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">,</span> <span class="s2">&quot;prompt_ref&quot;</span><span class="p">,</span> <span class="s2">&quot;prompt_excerpt&quot;</span><span class="p">,</span> <span class="s2">&quot;opened_at&quot;</span><span class="p">)</span>
 
 
+<span class="k">class</span><span class="w"> </span><span class="nc">_FlagEntry</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One flag as the record holds it; :func:`_valid_flag` checks the required keys.&quot;&quot;&quot;</span>
+
+    <span class="n">flag_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prompt_ref</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prompt_excerpt</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">opened_at</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">state</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;open&quot;</span><span class="p">,</span> <span class="s2">&quot;closed&quot;</span><span class="p">]</span>
+    <span class="n">stop_unconfirmed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">started</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">answer</span><span class="p">:</span> <span class="n">NotRequired</span><span class="p">[</span><span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;stop&quot;</span><span class="p">,</span> <span class="s2">&quot;continue&quot;</span><span class="p">]]</span>
+    <span class="n">operator</span><span class="p">:</span> <span class="n">NotRequired</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">answered_at</span><span class="p">:</span> <span class="n">NotRequired</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">stop_operator</span><span class="p">:</span> <span class="n">NotRequired</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+    <span class="n">stop_marked_at</span><span class="p">:</span> <span class="n">NotRequired</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+
+
 <div class="viewcode-block" id="HoldFlag">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.HoldFlag">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -575,7 +594,7 @@
 
 <div class="viewcode-block" id="is_safe_session_key">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.is_safe_session_key">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *session_key* is one safe path segment (no separator, no dot-name).&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">session_key</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_SAFE_KEY</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span></div>
 
@@ -584,7 +603,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">is_safe_session_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unsafe session key </span><span class="si">{</span><span class="n">session_key</span><span class="si">!r}</span><span class="s2">: not a safe file name&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">session_key</span>  <span class="c1"># type: ignore[return-value]</span>
+    <span class="k">return</span> <span class="n">session_key</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_now</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -607,7 +626,7 @@
     <span class="k">return</span> <span class="n">text</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_valid_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_valid_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="n">_FlagEntry</span><span class="p">]:</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">),</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_STR_FIELDS</span><span class="p">):</span>
@@ -620,7 +639,7 @@
     <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">started</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">started</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_read_record</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_record</span><span class="p">(</span><span class="n">root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">_FlagEntry</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The session&#39;s flag entries, or ``None`` when the record is missing or unreadable.</span>
 
 <span class="sd">    ``None`` covers every failure: a missing or non-directory session dir, a</span>
@@ -648,7 +667,7 @@
     <span class="k">return</span> <span class="n">flags</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_to_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">HoldFlag</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_to_flag</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">_FlagEntry</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">HoldFlag</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">HoldFlag</span><span class="p">(</span>
         <span class="n">flag_id</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">],</span>
         <span class="n">source</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;source&quot;</span><span class="p">],</span>
@@ -791,7 +810,7 @@
         <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">session_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">_FlagEntry</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;schema&quot;</span><span class="p">:</span> <span class="n">_SCHEMA_VERSION</span><span class="p">,</span> <span class="s2">&quot;session_key&quot;</span><span class="p">:</span> <span class="n">session_key</span><span class="p">,</span> <span class="s2">&quot;flags&quot;</span><span class="p">:</span> <span class="n">flags</span><span class="p">}</span>
     <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
     <span class="n">atomic_replace</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">_RECORD_MODE</span><span class="p">)</span>
@@ -811,7 +830,7 @@
     <span class="n">prompt_ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">prompt_excerpt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">opened_at</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_FlagEntry</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A new flag&#39;s record entry, with every field :func:`_valid_flag` requires.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="p">{</span>
         <span class="s2">&quot;flag_id&quot;</span><span class="p">:</span> <span class="n">flag_id</span><span class="p">,</span>
@@ -909,6 +928,14 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_close</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">_FlagEntry</span><span class="p">,</span> <span class="n">answer</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;stop&quot;</span><span class="p">,</span> <span class="s2">&quot;continue&quot;</span><span class="p">],</span> <span class="n">operator</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">at</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Mark *entry* closed with *answer*, by *operator*, at *at*.&quot;&quot;&quot;</span>
+    <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;closed&quot;</span>
+    <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;answer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">answer</span>
+    <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;operator&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">operator</span>
+    <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;answered_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">at</span>
+
+
 <div class="viewcode-block" id="answer_flags">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.session_hold.answer_flags">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">answer_flags</span><span class="p">(</span>
@@ -941,7 +968,6 @@
     <span class="n">key</span> <span class="o">=</span> <span class="n">_checked_key</span><span class="p">(</span><span class="n">session_key</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">wanted</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">()</span>
-    <span class="n">closed</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;state&quot;</span><span class="p">:</span> <span class="s2">&quot;closed&quot;</span><span class="p">,</span> <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="n">answer</span><span class="p">,</span> <span class="s2">&quot;operator&quot;</span><span class="p">:</span> <span class="n">operator</span><span class="p">}</span>
     <span class="k">with</span> <span class="n">_locked</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
         <span class="n">flags</span> <span class="o">=</span> <span class="n">_read_record</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">flags</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -955,14 +981,14 @@
                 <span class="n">prompt_excerpt</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">prompt_excerpt</span><span class="p">,</span>
                 <span class="n">opened_at</span><span class="o">=</span><span class="n">_SYNTHETIC</span><span class="o">.</span><span class="n">opened_at</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">closed</span><span class="p">,</span> <span class="n">answered_at</span><span class="o">=</span><span class="n">_now</span><span class="p">())</span>
+            <span class="n">_close</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">answer</span><span class="p">,</span> <span class="n">operator</span><span class="p">,</span> <span class="n">_now</span><span class="p">())</span>
             <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="p">[</span><span class="n">entry</span><span class="p">])</span>
             <span class="k">return</span> <span class="p">(</span><span class="n">UNREADABLE_FLAG_ID</span><span class="p">,)</span>
         <span class="n">released</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">stamp</span> <span class="o">=</span> <span class="n">_now</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="ow">and</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">:</span>
-                <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">closed</span><span class="p">,</span> <span class="n">answered_at</span><span class="o">=</span><span class="n">stamp</span><span class="p">)</span>
+                <span class="n">_close</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">answer</span><span class="p">,</span> <span class="n">operator</span><span class="p">,</span> <span class="n">stamp</span><span class="p">)</span>
                 <span class="n">released</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]))</span>
         <span class="k">if</span> <span class="n">released</span><span class="p">:</span>
             <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
@@ -1007,12 +1033,10 @@
         <span class="n">stamp</span> <span class="o">=</span> <span class="n">_now</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">flags</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;state&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;open&quot;</span> <span class="ow">and</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">:</span>
-                <span class="n">entry</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
-                    <span class="n">stop_unconfirmed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                    <span class="n">started</span><span class="o">=</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">command</span><span class="p">)</span> <span class="k">for</span> <span class="n">command</span> <span class="ow">in</span> <span class="n">started</span><span class="p">],</span>
-                    <span class="n">stop_operator</span><span class="o">=</span><span class="n">operator</span><span class="p">,</span>
-                    <span class="n">stop_marked_at</span><span class="o">=</span><span class="n">stamp</span><span class="p">,</span>
-                <span class="p">)</span>
+                <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;stop_unconfirmed&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;started&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">command</span><span class="p">)</span> <span class="k">for</span> <span class="n">command</span> <span class="ow">in</span> <span class="n">started</span><span class="p">]</span>
+                <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;stop_operator&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">operator</span>
+                <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;stop_marked_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">stamp</span>
                 <span class="n">marked</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;flag_id&quot;</span><span class="p">])</span>
         <span class="k">if</span> <span class="n">marked</span><span class="p">:</span>
             <span class="n">_write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>

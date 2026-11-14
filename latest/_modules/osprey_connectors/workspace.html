@@ -512,7 +512,7 @@
 
 <div class="viewcode-block" id="dotted_config_str">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.dotted_config_str">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">dotted_config_str</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Read a dotted config key, or ``None`` if it does not name a real string.</span>
 
 <span class="sd">    ``None`` is returned for every way the key can fail to answer — a missing</span>
@@ -531,7 +531,7 @@
 <span class="sd">        config: Loaded config mapping, or ``None``.</span>
 <span class="sd">        key: Dotted path, e.g. ``simulation.state_dir``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">):</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="n">part</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
@@ -568,7 +568,7 @@
 
 <div class="viewcode-block" id="agent_data_base_dir">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.agent_data_base_dir">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">agent_data_base_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the agent-data root out of an already-loaded config mapping.</span>
 
 <span class="sd">    ``agent_data.base_dir`` is the only key that names this directory. Callers</span>
@@ -592,7 +592,7 @@
 
 <div class="viewcode-block" id="resolve_simulation_state_dir">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_simulation_state_dir">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_simulation_state_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_simulation_state_dir</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the directory holding the mutable ``active_scenarios`` state file.</span>
 
 <span class="sd">    The state file is the one piece of simulation state that changes after a</span>
@@ -673,7 +673,7 @@
 
 <div class="viewcode-block" id="load_osprey_config">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.load_osprey_config">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">load_osprey_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_osprey_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Load OSPREY configuration (delegates to ConfigBuilder singleton).</span>
 
 <span class="sd">    Delegates to the framework&#39;s ``ConfigBuilder`` so that ``${VAR:-default}``</span>
@@ -738,7 +738,7 @@
 
 <div class="viewcode-block" id="resolve_project_root">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_project_root">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_project_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_project_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the repo root that relative configured paths anchor against.</span>
 
 <span class="sd">    ``project_root`` names the deployment repo — the directory holding</span>
@@ -822,7 +822,7 @@
 
 <div class="viewcode-block" id="resolve_shared_data_root">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.resolve_shared_data_root">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_shared_data_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_shared_data_root</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve the agent data root WITHOUT session-path isolation.</span>
 
 <span class="sd">    Use for stores whose data must be visible to long-lived daemons</span>

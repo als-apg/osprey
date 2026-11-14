@@ -458,14 +458,14 @@
 
 <div class="viewcode-block" id="safe_loader">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.yaml_loader.safe_loader">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">safe_loader</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">safe_loader</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">yaml</span><span class="o">.</span><span class="n">CSafeLoader</span><span class="p">]</span> <span class="o">|</span> <span class="nb">type</span><span class="p">[</span><span class="n">yaml</span><span class="o">.</span><span class="n">SafeLoader</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The safe loader class to parse with: libyaml&#39;s when present, else PyYAML&#39;s.</span>
 
 <span class="sd">    Resolved at call time rather than at import, so a build that runs without</span>
 <span class="sd">    the C bindings falls back on the same code path a test can exercise by</span>
 <span class="sd">    removing ``yaml.CSafeLoader``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">yaml</span><span class="p">,</span> <span class="s2">&quot;CSafeLoader&quot;</span><span class="p">,</span> <span class="n">yaml</span><span class="o">.</span><span class="n">SafeLoader</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">yaml</span><span class="o">.</span><span class="n">CSafeLoader</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">yaml</span><span class="p">,</span> <span class="s2">&quot;CSafeLoader&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">yaml</span><span class="o">.</span><span class="n">SafeLoader</span></div>
 
 
 
@@ -487,25 +487,25 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_safe_dumper</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_safe_dumper</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">yaml</span><span class="o">.</span><span class="n">CSafeDumper</span><span class="p">]</span> <span class="o">|</span> <span class="nb">type</span><span class="p">[</span><span class="n">yaml</span><span class="o">.</span><span class="n">SafeDumper</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The safe dumper class to emit with: libyaml&#39;s when present, else PyYAML&#39;s.</span>
 
 <span class="sd">    Resolved at call time, like :func:`safe_loader`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">yaml</span><span class="p">,</span> <span class="s2">&quot;CSafeDumper&quot;</span><span class="p">,</span> <span class="n">yaml</span><span class="o">.</span><span class="n">SafeDumper</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">yaml</span><span class="o">.</span><span class="n">CSafeDumper</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">yaml</span><span class="p">,</span> <span class="s2">&quot;CSafeDumper&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">yaml</span><span class="o">.</span><span class="n">SafeDumper</span>
 
 
 <span class="nd">@overload</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>
 
 
 <span class="nd">@overload</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="n">IO</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="n">IO</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
 
 
 <div class="viewcode-block" id="safe_dump">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.yaml_loader.safe_dump">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="n">IO</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">safe_dump</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">stream</span><span class="p">:</span> <span class="n">IO</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.</span>
 
 <span class="sd">    Args:</span>

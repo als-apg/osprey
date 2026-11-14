@@ -590,10 +590,10 @@ number that names something else in its child.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>process</strong> (<em>Any</em>) – The child’s <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process</span></code>.</p></li>
-<li><p><strong>proxy</strong> (<em>Any</em>) – The <a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorHostProxy</span></code></a>
+<li><p><strong>process</strong> (<em>asyncio.subprocess.Process</em>) – The child’s <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process</span></code>.</p></li>
+<li><p><strong>proxy</strong> (<a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><em>ConnectorHostProxy</em></a>) – The <a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorHostProxy</span></code></a>
 over its pipes.</p></li>
-<li><p><strong>reader</strong> (<a class="reference internal" href="#osprey_connectors.ipc.AttributedReader" title="osprey_connectors.ipc._launch.AttributedReader"><em>AttributedReader</em></a>) – The proxy’s <a class="reference internal" href="#osprey_connectors.ipc.AttributedReader" title="osprey_connectors.ipc.AttributedReader"><code class="xref py py-class docutils literal notranslate"><span class="pre">AttributedReader</span></code></a>.</p></li>
+<li><p><strong>reader</strong> (<a class="reference internal" href="#osprey_connectors.ipc.AttributedReader" title="osprey_connectors.ipc.AttributedReader"><em>AttributedReader</em></a>) – The proxy’s <a class="reference internal" href="#osprey_connectors.ipc.AttributedReader" title="osprey_connectors.ipc.AttributedReader"><code class="xref py py-class docutils literal notranslate"><span class="pre">AttributedReader</span></code></a>.</p></li>
 <li><p><strong>reason</strong> (<em>str</em><em> | </em><em>None</em>) – Why the child is put down, named on the reader before the kill
 so every request in flight fails with it. <code class="docutils literal notranslate"><span class="pre">None</span></code> when the caller
 has already retired the reader.</p></li>
@@ -627,7 +627,7 @@ diagnostics land wherever the supervisor’s own do.</p>
     whatever their own failure type is.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><em>Any</em></p>
+<dd class="field-even"><p><em>Process</em></p>
 </dd>
 </dl>
 </dd></dl>
@@ -639,8 +639,8 @@ diagnostics land wherever the supervisor’s own do.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>process</strong> (<em>Any</em>) – The child’s <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process</span></code>.</p></li>
-<li><p><strong>proxy</strong> (<em>Any</em>) – The <a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorHostProxy</span></code></a>
+<li><p><strong>process</strong> (<em>asyncio.subprocess.Process</em>) – The child’s <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process</span></code>.</p></li>
+<li><p><strong>proxy</strong> (<a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><em>ConnectorHostProxy</em></a>) – The <a class="reference internal" href="#osprey_connectors.ipc.ConnectorHostProxy" title="osprey_connectors.ipc.ConnectorHostProxy"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConnectorHostProxy</span></code></a>
 over its pipes.</p></li>
 <li><p><strong>grace_s</strong> (<em>float</em>) – How long the child gets to exit after SIGTERM before SIGKILL.</p></li>
 </ul>
@@ -783,7 +783,7 @@ a child that names none.</p></li>
 <dd><p>The live children’s process ids, by key.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[tuple[<em>Any</em>, …], int]</p>
+<dd class="field-odd"><p>dict[tuple[str, str | None] | tuple[str, str | None, str | None, str | None], int]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -905,7 +905,7 @@ exactly as they would be in-process.</p>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.PooledConnector.report">
-<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">report</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.ipc.PooledConnector.report" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">report</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.ipc.PooledConnector.report" title="Link to this definition">#</a></dt>
 <dd><p>The current child’s post-connect report, empty when none is running.</p>
 </dd></dl>
 
@@ -1037,7 +1037,7 @@ lifetime. <a class="reference internal" href="#osprey_connectors.ipc.ConnectorHo
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.ConnectorHostProxy.from_process">
-<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">from_process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">process</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_proxy.html#ConnectorHostProxy.from_process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.ConnectorHostProxy.from_process" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">from_process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">process</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_grace_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deadline_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_proxy.html#ConnectorHostProxy.from_process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.ConnectorHostProxy.from_process" title="Link to this definition">#</a></dt>
 <dd><p>Wrap an <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process</span></code>’s stdin/stdout pipes.</p>
 <p>The proxy does not own the process: it neither starts it nor reaps it.
 Killing and restarting the child belongs to the supervisor.</p>
@@ -1163,7 +1163,7 @@ made; no answer within <code class="docutils literal notranslate"><span class="p
 <a class="reference internal" href="#osprey_connectors.ipc.ChildUnresponsiveError" title="osprey_connectors.ipc.ChildUnresponsiveError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChildUnresponsiveError</span></code></a>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Any</em></p>
+<dd class="field-odd"><p>object</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1242,7 +1242,7 @@ in when the caller happens to resume. A failure about one channel is no
 <span class="sig-name descname"><span class="pre">as_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#Endpoint.as_dict"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.Endpoint.as_dict" title="Link to this definition">#</a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1391,12 +1391,12 @@ and keeps the default.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.Verification.expected">
-<span class="sig-name descname"><span class="pre">expected</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.ipc.Verification.expected" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">expected</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.ipc.Verification.expected" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.Verification.got">
-<span class="sig-name descname"><span class="pre">got</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.ipc.Verification.got" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">got</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.ipc.Verification.got" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1409,7 +1409,7 @@ and keeps the default.</p>
 <span class="sig-name descname"><span class="pre">as_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#Verification.as_dict"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.Verification.as_dict" title="Link to this definition">#</a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1442,7 +1442,7 @@ this file: a top-level dotted line in <code class="docutils literal notranslate"
 <dd><p>The <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;</span></code> block, as written.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Any</em></p>
+<dd class="field-odd"><p>object</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1469,7 +1469,7 @@ never “nothing to probe”. A non-empty mapping is <code class="xref py py-dat
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Any</em>) – The full rendered config mapping (<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as loaded).</p></li>
+<li><p><strong>config</strong> (<em>object</em>) – The full rendered config mapping (<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as loaded).</p></li>
 <li><p><strong>target</strong> (<em>str</em>) – The control target, <code class="docutils literal notranslate"><span class="pre">'live'</span></code> or <code class="docutils literal notranslate"><span class="pre">'va'</span></code>.</p></li>
 <li><p><strong>writes_enabled</strong> (<em>bool</em><em> | </em><em>None</em>) – Whether writes are armed for <em>target</em>. Defaults to
 the deployment’s write tier —
@@ -1520,7 +1520,7 @@ with.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Any</em>) – The rendered config mapping <em>derivation</em> was derived from.</p></li>
+<li><p><strong>config</strong> (<em>object</em>) – The rendered config mapping <em>derivation</em> was derived from.</p></li>
 <li><p><strong>derivation</strong> (<a class="reference internal" href="#osprey_connectors.ipc.TargetDerivation" title="osprey_connectors.ipc._verification.TargetDerivation"><em>TargetDerivation</em></a>) – The target being judged, from <a class="reference internal" href="#osprey_connectors.ipc.derive_endpoints" title="osprey_connectors.ipc.derive_endpoints"><code class="xref py py-func docutils literal notranslate"><span class="pre">derive_endpoints()</span></code></a>.</p></li>
 <li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – See <a class="reference internal" href="#osprey_connectors.ipc.derive_endpoints" title="osprey_connectors.ipc.derive_endpoints"><code class="xref py py-func docutils literal notranslate"><span class="pre">derive_endpoints()</span></code></a>; pass the one <em>derivation</em> used.</p></li>
 </ul>
@@ -1572,7 +1572,7 @@ reporting no gateway or for having no derived endpoint to compare against.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>derivation</strong> (<a class="reference internal" href="#osprey_connectors.ipc.TargetDerivation" title="osprey_connectors.ipc._verification.TargetDerivation"><em>TargetDerivation</em></a>) – The derivation for the target, from <a class="reference internal" href="#osprey_connectors.ipc.derive_endpoints" title="osprey_connectors.ipc.derive_endpoints"><code class="xref py py-func docutils literal notranslate"><span class="pre">derive_endpoints()</span></code></a>.</p></li>
-<li><p><strong>report</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The child’s post-connect report.</p></li>
+<li><p><strong>report</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The child’s post-connect report.</p></li>
 <li><p><strong>readonly_run</strong> (<em>bool</em><em> | </em><em>None</em>) – Whether the derivation was taken for a readonly run.</p></li>
 <li><p><strong>writes_enabled</strong> (<em>bool</em><em> | </em><em>None</em>) – Whether the derivation was taken with writes armed.</p></li>
 </ul>

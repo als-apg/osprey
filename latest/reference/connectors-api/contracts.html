@@ -892,7 +892,7 @@ here, and a <code class="docutils literal notranslate"><span class="pre">max_ste
 measured over somebody else’s protocol.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Callable</em>[[str], <em>Any</em>] | None</p>
+<dd class="field-odd"><p>CurrentValueReader | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1355,7 +1355,7 @@ is the loader’s finding, with the loader’s message.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config_lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Where the key is read from, with the signature of
+<li><p><strong>config_lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Where the key is read from, with the signature of
 <a class="reference internal" href="configuration.html#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a>. Defaults to
 that function, which reads the live configurable; pass
 <a class="reference internal" href="#osprey_connectors.control_system.mapping_config_lookup" title="osprey_connectors.control_system.mapping_config_lookup"><code class="xref py py-func docutils literal notranslate"><span class="pre">mapping_config_lookup()</span></code></a> for a config held as a dict.</p></li>
@@ -1397,7 +1397,7 @@ writes at all.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config_lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – As for <a class="reference internal" href="#osprey_connectors.control_system.LimitsValidator.configured_database_path" title="osprey_connectors.control_system.LimitsValidator.configured_database_path"><code class="xref py py-meth docutils literal notranslate"><span class="pre">configured_database_path()</span></code></a>.</p></li>
+<li><p><strong>config_lookup</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – As for <a class="reference internal" href="#osprey_connectors.control_system.LimitsValidator.configured_database_path" title="osprey_connectors.control_system.LimitsValidator.configured_database_path"><code class="xref py py-meth docutils literal notranslate"><span class="pre">configured_database_path()</span></code></a>.</p></li>
 <li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – As for <a class="reference internal" href="#osprey_connectors.control_system.LimitsValidator.configured_database_path" title="osprey_connectors.control_system.LimitsValidator.configured_database_path"><code class="xref py py-meth docutils literal notranslate"><span class="pre">configured_database_path()</span></code></a>.</p></li>
 </ul>
 </dd>
@@ -1568,8 +1568,8 @@ so the caller that is about to write supplies the read.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_address</strong> (<em>str</em>) – Channel address to validate</p></li>
-<li><p><strong>value</strong> (<em>Any</em>) – Value to write</p></li>
-<li><p><strong>read_current</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>]</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The caller’s own way to read <em>channel_address</em>’s
+<li><p><strong>value</strong> (<em>object</em>) – Value to write</p></li>
+<li><p><strong>read_current</strong> (<em>Callable</em><em>[</em><em>[</em><em>str</em><em>]</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The caller’s own way to read <em>channel_address</em>’s
 present value, used only when the channel configures
 <code class="docutils literal notranslate"><span class="pre">max_step</span></code>. Omitting it on such a channel fails the write
 closed: a step that cannot be measured cannot be approved.</p></li>
@@ -1597,7 +1597,7 @@ path entirely rather than enforcing it.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_address</strong> (<em>str</em>) – Channel address to validate</p></li>
-<li><p><strong>value</strong> (<em>Any</em>) – Value to write</p></li>
+<li><p><strong>value</strong> (<em>object</em>) – Value to write</p></li>
 </ul>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
@@ -1670,14 +1670,14 @@ limits database through the same path as the runtime instead of walking
 the segments themselves.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The loaded configuration mapping.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The loaded configuration mapping.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>A callable <code class="docutils literal notranslate"><span class="pre">(dotted_key,</span> <span class="pre">default)</span> <span class="pre">-&gt;</span> <span class="pre">value</span></code> that walks nested
 mappings and answers <em>default</em> for any segment that is not there.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Callable</em>[[str, <em>Any</em>], <em>Any</em>]</p>
+<dd class="field-odd"><p><em>Callable</em>[[str, object], object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1758,7 +1758,7 @@ checks raises for the write that was refused, wherever it stands.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – A connector’s own config section — the mapping
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – A connector’s own config section — the mapping
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;</span></code> resolves to.</p></li>
 <li><p><strong>connector_type</strong> (<em>str</em><em> | </em><em>None</em>) – The type that block belongs to, so a warning names the
 key an operator has to go and fix. <code class="docutils literal notranslate"><span class="pre">None</span></code> leaves the type a

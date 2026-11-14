@@ -483,12 +483,14 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">TypeGuard</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;CLI_CONTROL_SYSTEM_TYPES&quot;</span><span class="p">,</span>
     <span class="s2">&quot;CONTROL_TARGETS&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;ControlTarget&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DEFAULT_VA_PORT&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DOOCS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;DOOCS_ARCHIVER&quot;</span><span class="p">,</span>
@@ -652,10 +654,11 @@
 <span class="c1"># machine (the facility&#39;s own, the virtual accelerator, the stand-in soft IOC),</span>
 <span class="c1"># and which connector type reaches that machine is this module&#39;s job to answer,</span>
 <span class="c1"># not the caller&#39;s.</span>
-<span class="n">TARGET_LIVE</span> <span class="o">=</span> <span class="s2">&quot;live&quot;</span>
-<span class="n">TARGET_VA</span> <span class="o">=</span> <span class="s2">&quot;va&quot;</span>
-<span class="n">TARGET_STANDIN</span> <span class="o">=</span> <span class="s2">&quot;standin&quot;</span>
-<span class="n">CONTROL_TARGETS</span> <span class="o">=</span> <span class="p">[</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_VA</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">]</span>
+<span class="n">ControlTarget</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;live&quot;</span><span class="p">,</span> <span class="s2">&quot;va&quot;</span><span class="p">,</span> <span class="s2">&quot;standin&quot;</span><span class="p">]</span>
+<span class="n">TARGET_LIVE</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;live&quot;</span>
+<span class="n">TARGET_VA</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;va&quot;</span>
+<span class="n">TARGET_STANDIN</span><span class="p">:</span> <span class="n">Final</span> <span class="o">=</span> <span class="s2">&quot;standin&quot;</span>
+<span class="n">CONTROL_TARGETS</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ControlTarget</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">TARGET_LIVE</span><span class="p">,</span> <span class="n">TARGET_VA</span><span class="p">,</span> <span class="n">TARGET_STANDIN</span><span class="p">]</span>
 
 <span class="c1">#: The topology those three names bound, spelled once and quoted by every</span>
 <span class="c1">#: answer that runs into it. One deployment describes one real machine: the</span>
@@ -736,7 +739,7 @@
 <span class="n">_BASELINE_TARGETS</span> <span class="o">=</span> <span class="p">{</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span> <span class="n">TARGET_VA</span><span class="p">,</span> <span class="n">LIVE_STANDIN</span><span class="p">:</span> <span class="n">TARGET_STANDIN</span><span class="p">}</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">fallback</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">fallback</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The connector type a factory builds from a config section.</span>
 
 <span class="sd">    A section that is missing, is not a mapping, or carries no usable ``type``</span>
@@ -755,7 +758,7 @@
 
 <div class="viewcode-block" id="resolve_archiver_type">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.resolve_archiver_type">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The archiver an ``archiver:`` config section actually selects.</span>
 
 <span class="sd">    Absent means the mock: a config that says nothing about its archiver is a</span>
@@ -768,7 +771,7 @@
 
 <div class="viewcode-block" id="resolve_control_system_type">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.resolve_control_system_type">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_control_system_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_control_system_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The control system a ``control_system:`` config section actually selects.</span>
 
 <span class="sd">    A section that states no type selects the simulator, and</span>
@@ -780,13 +783,13 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_states_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_states_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
     <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">))</span>
 
 
 <div class="viewcode-block" id="resolve_serving">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.resolve_serving">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_serving</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_serving</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Where the simulator a ``control_system:`` section selects runs.</span>
 
 <span class="sd">    A section that states no type is the fail-safe default, the simulator in</span>
@@ -803,8 +806,8 @@
     <span class="k">if</span> <span class="n">resolve_control_system_type</span><span class="p">(</span><span class="n">section</span><span class="p">)</span> <span class="o">!=</span> <span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">SERVED</span>
     <span class="n">connector</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">)</span>
-    <span class="n">block</span> <span class="o">=</span> <span class="n">connector</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
-    <span class="n">value</span> <span class="o">=</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">SERVING_LEAF</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">block</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">connector</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">SERVING_LEAF</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">SERVED</span>
     <span class="k">if</span> <span class="n">value</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">SERVING_MODES</span><span class="p">:</span>
@@ -815,7 +818,7 @@
 
 <div class="viewcode-block" id="connector_transport">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.connector_transport">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">connector_transport</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">connector_transport</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The wire a connector built from *section* speaks.</span>
 
 <span class="sd">    Computed once, here, from the type and the serving leaf, so every check that</span>
@@ -842,7 +845,7 @@
 
 <div class="viewcode-block" id="speaks_channel_access">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.speaks_channel_access">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">speaks_channel_access</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">speaks_channel_access</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a connector built from *section* speaks real Channel Access.</span>
 
 <span class="sd">    The facility&#39;s own EPICS machine, the simulator served from its container,</span>
@@ -860,7 +863,7 @@
 
 <div class="viewcode-block" id="talks_to_network">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.talks_to_network">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">talks_to_network</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">talks_to_network</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a connector built from *section* dials anything at all.</span>
 
 <span class="sd">    False only for the simulator served in process. A transport this module has</span>
@@ -906,11 +909,11 @@
     <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">connector_type</span> <span class="k">else</span> <span class="n">connector_type</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_archiver_settings_homes</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_archiver_settings_homes</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Every block in *section* that configures the selected archiver, in order.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">[]</span>
-    <span class="n">homes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">homes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="n">_ARCHIVER_SETTINGS_LEAF</span> <span class="ow">in</span> <span class="n">section</span><span class="p">:</span>
         <span class="n">homes</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">_ARCHIVER_SETTINGS_LEAF</span><span class="p">,</span> <span class="n">section</span><span class="p">[</span><span class="n">_ARCHIVER_SETTINGS_LEAF</span><span class="p">]))</span>
     <span class="n">own</span> <span class="o">=</span> <span class="n">_own_name_block</span><span class="p">(</span><span class="n">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
@@ -926,7 +929,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_not_a_block</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_not_a_block</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;`archiver.</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">` is </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">, not a block; it holds the selected &quot;</span>
         <span class="sa">f</span><span class="s2">&quot;archiver&#39;s settings as a mapping&quot;</span>
@@ -935,7 +938,7 @@
 
 <div class="viewcode-block" id="archiver_settings_key">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.archiver_settings_key">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archiver_settings_key</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archiver_settings_key</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The dotted key of the block that configures *section*&#39;s archiver.</span>
 
 <span class="sd">    ``archiver.&lt;type&gt;`` when a short-named archiver is configured by its own-name</span>
@@ -950,7 +953,7 @@
 
 <div class="viewcode-block" id="resolve_archiver_settings">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.resolve_archiver_settings">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_archiver_settings</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_archiver_settings</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The settings block the selected archiver&#39;s ``connect()`` is handed.</span>
 
 <span class="sd">    ``archiver.settings`` for every archiver; for a short-named one, its own-name</span>
@@ -975,7 +978,7 @@
 
 <div class="viewcode-block" id="archiver_settings_errors">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.archiver_settings_errors">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archiver_settings_errors</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archiver_settings_errors</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Every block under a rendered ``archiver:`` section that no archiver reads, named.</span>
 
 <span class="sd">    A lint, like :func:`incomplete_limits_blocks`, and read by the build over the</span>
@@ -1010,7 +1013,7 @@
 
 <div class="viewcode-block" id="resolve_target">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.resolve_target">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The connector type a session *target* selects, in a given deployment.</span>
 
 <span class="sd">    The returned type is also the key of the block the factory reads its</span>
@@ -1079,7 +1082,7 @@
 
 <div class="viewcode-block" id="baseline_target">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.baseline_target">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">baseline_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">baseline_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The target a deployment&#39;s own ``control_system:`` section selects.</span>
 
 <span class="sd">    ``va`` for the simulator, in whichever venue its leaf names (a section</span>
@@ -1098,7 +1101,7 @@
 
 <div class="viewcode-block" id="switch_capable">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.switch_capable">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">switch_capable</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">switch_capable</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a deployment gives a session more than one target to be pointed at.</span>
 
 <span class="sd">    The predicate itself, in the module that already owns &quot;which connector type</span>
@@ -1146,7 +1149,7 @@
 
 <div class="viewcode-block" id="target_configured">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.target_configured">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">target_configured</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">target_configured</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether *section* carries the connector block *target* is served by.</span>
 
 <span class="sd">    Both halves of &quot;does this deployment have that machine&quot;, asked the way the</span>
@@ -1185,7 +1188,7 @@
 
 <div class="viewcode-block" id="configured_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.configured_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">configured_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">configured_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The targets a session on this deployment can actually be pointed at.</span>
 
 <span class="sd">    In :data:`CONTROL_TARGETS` order, which is the order every render, roster</span>
@@ -1232,7 +1235,7 @@
 
 <div class="viewcode-block" id="tier_writes">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.tier_writes">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">tier_writes</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tier_writes</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;never&quot;</span><span class="p">,</span> <span class="s2">&quot;asked&quot;</span><span class="p">,</span> <span class="s2">&quot;allowed&quot;</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The write ceiling this deployment&#39;s login tier sets: ``never``, ``asked`` or ``allowed``.</span>
 
 <span class="sd">    :data:`WRITES_KEY` decides when the section carries it, and then only the</span>
@@ -1261,7 +1264,7 @@
 
 <div class="viewcode-block" id="tier_allows">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.tier_allows">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the tier arms anything: :func:`tier_writes` is not ``never``. Never raises.</span>
 
 <span class="sd">    This reads the ceiling only: ``asked`` and ``allowed`` both answer true, so</span>
@@ -1292,7 +1295,9 @@
 
 <div class="viewcode-block" id="machine_kind">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.machine_kind">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">machine_kind</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">machine_kind</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">object</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The kind of machine *target* names by its name: ``real`` or ``simulator``.</span>
 
 <span class="sd">    ``live`` and ``standin`` are the real machine, ``va`` the simulator. The</span>
@@ -1307,11 +1312,12 @@
         <span class="n">resolve_target</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="n">_MACHINE_KINDS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">target</span><span class="p">)</span></div>
+    <span class="c1"># A target that resolved is one of the three names, so a string.</span>
+    <span class="k">return</span> <span class="n">_MACHINE_KINDS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">target</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span></div>
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_published_targets</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_published_targets</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-target metadata from the first live controls server&#39;s report, or ``{}``.</span>
 
 <span class="sd">    The hook twin&#39;s ``_published_targets`` restated: report files in name order,</span>
@@ -1339,7 +1345,7 @@
             <span class="k">continue</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">name</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">handle</span><span class="p">:</span>
-                <span class="n">report</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+                <span class="n">report</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
         <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
             <span class="k">continue</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
@@ -1353,7 +1359,7 @@
 <div class="viewcode-block" id="published_machine_kind">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.published_machine_kind">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">published_machine_kind</span><span class="p">(</span>
-    <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">state_dir</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">state_dir</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The kind of machine *target* is, as this deployment&#39;s controls server publishes it.</span>
 
@@ -1383,7 +1389,8 @@
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span>
 
             <span class="n">state_dir</span> <span class="o">=</span> <span class="n">posture_store</span><span class="o">.</span><span class="n">state_dir</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">state_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">state_dir</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">PathLike</span><span class="p">):</span>
+            <span class="c1"># Only a path names a report directory; ``None`` names none.</span>
             <span class="k">return</span> <span class="s2">&quot;real&quot;</span>
         <span class="n">meta</span> <span class="o">=</span> <span class="n">_published_targets</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">fspath</span><span class="p">(</span><span class="n">state_dir</span><span class="p">))</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">TARGET_STANDIN</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># the kind is a word an operator reads; it must not raise</span>
@@ -1533,7 +1540,7 @@
 
 <div class="viewcode-block" id="type_limits_posture">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.type_limits_posture">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">type_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">type_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The limits posture one connector *type* runs under.</span>
 
 <span class="sd">    ``control_system.connector.&lt;type&gt;.limits_checking`` when that block is</span>
@@ -1619,7 +1626,7 @@
 
 <div class="viewcode-block" id="target_limits_posture">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.target_limits_posture">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">target_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">target_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The limits posture one session *target* runs under.</span>
 
 <span class="sd">    :func:`type_limits_posture` for the type that target resolves to, so a</span>
@@ -1662,7 +1669,7 @@
 
 <div class="viewcode-block" id="most_restrictive_limits_posture">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.most_restrictive_limits_posture">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">most_restrictive_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">most_restrictive_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The limits posture that holds across every target a session here can select.</span>
 
 <span class="sd">    What a caller with no target of its own has to assume. The stdlib hook is</span>
@@ -1779,7 +1786,7 @@
 
 <div class="viewcode-block" id="tier_limits_database_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.tier_limits_database_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">tier_limits_database_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">path_configured</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tier_limits_database_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">path_configured</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The targets the login tier lets write whose limits posture needs a database.</span>
 
 <span class="sd">    The tier is a ceiling, not a selection: a render whose :func:`tier_writes`</span>
@@ -1822,7 +1829,7 @@
 
 <div class="viewcode-block" id="incomplete_limits_blocks">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.incomplete_limits_blocks">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">incomplete_limits_blocks</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">incomplete_limits_blocks</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Every half-written per-type limits block in a rendered section, named.</span>
 
 <span class="sd">    A per-type ``limits_checking`` block overrides whole, so a block that states</span>
@@ -1876,7 +1883,7 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">[]</span>
     <span class="n">connector</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">)</span>
-    <span class="n">blocks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">blocks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="n">LIMITS_CHECKING_LEAF</span> <span class="ow">in</span> <span class="n">section</span><span class="p">:</span>
         <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="kc">None</span><span class="p">,</span> <span class="n">section</span><span class="p">[</span><span class="n">LIMITS_CHECKING_LEAF</span><span class="p">],</span> <span class="kc">False</span><span class="p">))</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
@@ -1920,7 +1927,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_global_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_global_limits_posture</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The deployment-wide posture, ``control_system.limits_checking``.</span>
 
 <span class="sd">    A leaf this block does not carry is the tri-state and not a malformed</span>
@@ -1940,7 +1947,7 @@
     <span class="k">return</span> <span class="n">_block_limits_posture</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">whole</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_unstated_limits_leaves</span><span class="p">(</span><span class="n">block</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">whole</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_unstated_limits_leaves</span><span class="p">(</span><span class="n">block</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">whole</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The leaves a limits block fails to state, and whether each was written.</span>
 
 <span class="sd">    One classifier for both scopes and both readers — the posture resolvers and</span>
@@ -1987,7 +1994,7 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_block_limits_posture</span><span class="p">(</span>
-    <span class="n">block</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">whole</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">block</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">whole</span><span class="p">:</span> <span class="nb">bool</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LimitsPosture</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One ``limits_checking`` mapping read into a posture.</span>
 
@@ -2009,7 +2016,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_limits_leaf</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_limits_leaf</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One limits leaf as a literal boolean, or ``None`` for anything else.</span>
 
 <span class="sd">    The literal booleans and nothing else are readable. A quoted ``&#39;true&#39;``, a</span>
@@ -2031,7 +2038,7 @@
     <span class="k">return</span> <span class="kc">None</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_limits_mode</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_limits_mode</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The ``mode`` leaf as one of :data:`LIMITS_MODES`, or ``None`` for anything else.</span>
 
 <span class="sd">    The two spellings and nothing else are readable: a boolean, a different</span>
@@ -2046,14 +2053,17 @@
 
 <span class="c1">#: How each of :data:`LIMITS_LEAVES` is read, and what a refusal says a</span>
 <span class="c1">#: readable value looks like.</span>
-<span class="n">_LEAF_READERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="n">_limits_leaf</span><span class="p">,</span> <span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="n">_limits_mode</span><span class="p">}</span>
+<span class="n">_LEAF_READERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">object</span><span class="p">],</span> <span class="nb">bool</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="n">_limits_leaf</span><span class="p">,</span>
+    <span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="n">_limits_mode</span><span class="p">,</span>
+<span class="p">}</span>
 <span class="n">_LEAF_VALUES</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="s2">&quot;a literal true or false&quot;</span><span class="p">,</span>
     <span class="n">LIMITS_LEAVES</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="s2">&quot; or &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">LIMITS_MODES</span><span class="p">),</span>
 <span class="p">}</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_real_blocks</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">never_live</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_real_blocks</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">never_live</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The connector blocks that could describe a real machine, sorted.&quot;&quot;&quot;</span>
     <span class="n">connector</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
@@ -2061,7 +2071,7 @@
     <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">connector</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">never_live</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_report_second_real_block</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">baseline</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">never_live</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_report_second_real_block</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">baseline</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">never_live</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Say so when a config describes a real machine no target can reach.</span>
 
 <span class="sd">    A deployment whose own type is its real machine never consults the connector</span>
@@ -2091,7 +2101,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_live_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_live_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The control system type that reaches this deployment&#39;s real machine.</span>
 
 <span class="sd">    Neither a simulated type nor a stand-in one can be that machine, and the</span>

@@ -809,7 +809,7 @@ an explicit configuration file path can be provided.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>path</strong> (<em>str</em>) – Dot-separated configuration path (e.g., “execution.timeout”)</p></li>
-<li><p><strong>default</strong> (<em>Any</em>) – Default value to return if path is not found</p></li>
+<li><p><strong>default</strong> (<em>object</em>) – Default value to return if path is not found</p></li>
 <li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>) – Optional explicit path to configuration file</p></li>
 </ul>
 </dd>
@@ -1108,7 +1108,7 @@ instance (e.g., after a raw <code class="docutils literal notranslate"><span cla
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>data</strong> (<em>Any</em>) – The config data (dict/list/str/scalar) to resolve.</p></li>
+<li><p><strong>data</strong> (<em>object</em>) – The config data (dict/list/str/scalar) to resolve.</p></li>
 <li><p><strong>environ</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>str</em><em>] </em><em>| </em><em>None</em>) – Optional mapping to resolve <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> against instead of the
 process environment. Lets callers expand against an
 <code class="docutils literal notranslate"><span class="pre">os.environ</span></code> + <code class="docutils literal notranslate"><span class="pre">.env</span></code> overlay without mutating global state
@@ -1132,7 +1132,7 @@ about to hand a connector can be refused whole when any part of it is still
 unresolved.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>value</strong> (<em>Any</em>) – A config value, of any type, after <a class="reference internal" href="#osprey_connectors.config.resolve_env_vars" title="osprey_connectors.config.resolve_env_vars"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_env_vars()</span></code></a>.</p>
+<dd class="field-odd"><p><strong>value</strong> (<em>object</em>) – A config value, of any type, after <a class="reference internal" href="#osprey_connectors.config.resolve_env_vars" title="osprey_connectors.config.resolve_env_vars"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_env_vars()</span></code></a>.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The placeholders found, in order, repeats included; empty when none.</p>
@@ -1214,7 +1214,7 @@ callers with no config in hand use <a class="reference internal" href="#osprey_c
 loads the config and anchors on the same <code class="docutils literal notranslate"><span class="pre">project_root</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The configured base directory, possibly relative to the caller’s anchor.</p>
@@ -1256,7 +1256,7 @@ loader.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Loaded config mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Loaded config mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
 <li><p><strong>key</strong> (<em>str</em>) – Dotted path, e.g. <code class="docutils literal notranslate"><span class="pre">simulation.state_dir</span></code>.</p></li>
 </ul>
 </dd>
@@ -1278,7 +1278,7 @@ environment-variable placeholders are resolved consistently.</p>
 <dd class="field-odd"><p>Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict</p>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1448,7 +1448,7 @@ redirect them.</p></li>
 </dl>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code> to consult only the
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code> to consult only the
 config <em>path</em> (callers that have not loaded one).</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -1467,7 +1467,7 @@ session isolation is handled at the index level via entry metadata
 (e.g. <code class="docutils literal notranslate"><span class="pre">ArtifactEntry.session_id</span></code>).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – An already-loaded config mapping; <code class="docutils literal notranslate"><span class="pre">None</span></code> loads the config.
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – An already-loaded config mapping; <code class="docutils literal notranslate"><span class="pre">None</span></code> loads the config.
 One derivation serves both a store’s writer and a reader that
 already holds a config.</p>
 </dd>
@@ -1496,7 +1496,7 @@ reads the same key.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
 <li><p><strong>project_root</strong> (<em>Path</em>) – Root the relative paths above resolve against.</p></li>
 </ul>
 </dd>
@@ -1653,14 +1653,14 @@ block-style documents a build writes, so every hot write goes through
 <a class="reference internal" href="#osprey_connectors.yaml_loader.safe_dump" title="osprey_connectors.yaml_loader.safe_dump"><code class="xref py py-func docutils literal notranslate"><span class="pre">safe_dump()</span></code></a>.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.yaml_loader.safe_dump">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.yaml_loader.</span></span><span class="sig-name descname"><span class="pre">safe_dump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/yaml_loader.html#safe_dump"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.yaml_loader.safe_dump" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.yaml_loader.</span></span><span class="sig-name descname"><span class="pre">safe_dump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">object</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/yaml_loader.html#safe_dump"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.yaml_loader.safe_dump" title="Link to this definition">#</a></dt>
 <dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.yaml_loader.</span></span><span class="sig-name descname"><span class="pre">safe_dump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IO</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.yaml_loader.</span></span><span class="sig-name descname"><span class="pre">safe_dump</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">object</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">IO</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span></dt>
 <dd><p>Emit one YAML document the way <code class="docutils literal notranslate"><span class="pre">yaml.safe_dump</span></code> does, on the fastest dumper.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>data</strong> (<em>Any</em>) – Plain Python objects; anything else is refused, as <code class="docutils literal notranslate"><span class="pre">yaml.safe_dump</span></code> refuses it.</p></li>
+<li><p><strong>data</strong> (<em>object</em>) – Plain Python objects; anything else is refused, as <code class="docutils literal notranslate"><span class="pre">yaml.safe_dump</span></code> refuses it.</p></li>
 <li><p><strong>stream</strong> (<em>IO</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – An open text file to write to; <code class="docutils literal notranslate"><span class="pre">None</span></code> returns the text.</p></li>
 <li><p><strong>**kwargs</strong> (<em>Any</em>) – The emitter options <code class="docutils literal notranslate"><span class="pre">yaml.safe_dump</span></code> takes (<code class="docutils literal notranslate"><span class="pre">sort_keys</span></code>,
 <code class="docutils literal notranslate"><span class="pre">default_flow_style</span></code>, <code class="docutils literal notranslate"><span class="pre">allow_unicode</span></code>, <code class="docutils literal notranslate"><span class="pre">width</span></code>, …).</p></li>
@@ -1707,7 +1707,7 @@ the C bindings falls back on the same code path a test can exercise by
 removing <code class="docutils literal notranslate"><span class="pre">yaml.CSafeLoader</span></code>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type">type</a>[<em>Any</em>]</p>
+<dd class="field-odd"><p><a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type">type</a>[<em>CSafeLoader</em>] | <a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type">type</a>[<em>SafeLoader</em>]</p>
 </dd>
 </dl>
 </dd></dl>

@@ -524,7 +524,9 @@
     <span class="n">_control_system_connectors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="n">_archiver_connectors</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">ArchiverConnector</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="c1">#: Service backend classes by kind, then by the type name a spec selects them by.</span>
-    <span class="n">_service_backends</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{</span><span class="n">kind</span><span class="p">:</span> <span class="p">{}</span> <span class="k">for</span> <span class="n">kind</span> <span class="ow">in</span> <span class="n">_SERVICE_KINDS</span><span class="p">}</span>
+    <span class="n">_service_backends</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">[</span><span class="n">_ServiceBackend</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="p">{}</span> <span class="k">for</span> <span class="n">kind</span> <span class="ow">in</span> <span class="n">_SERVICE_KINDS</span>
+    <span class="p">}</span>
 
 <div class="viewcode-block" id="ConnectorFactory.register_control_system">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_control_system">[docs]</a>
@@ -561,7 +563,7 @@
 <div class="viewcode-block" id="ConnectorFactory.register_service">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_service">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">register_service</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">backend_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_service</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">backend_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">_ServiceBackend</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Register a service backend under the type name a ``BackendSpec`` selects it by.</span>
 
 <span class="sd">        Args:</span>
@@ -833,7 +835,7 @@
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.create_service">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_service</span><span class="p">(</span>
-        <span class="bp">cls</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">BackendSpec</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">seams</span><span class="p">:</span> <span class="n">Any</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">BackendSpec</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">project_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">seams</span><span class="p">:</span> <span class="nb">object</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_ServiceBackend</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the service backend a spec names. Backends connect nothing here: no I/O.</span>
 
@@ -872,7 +874,7 @@
 <div class="viewcode-block" id="ConnectorFactory.list_control_systems">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.list_control_systems">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">list_control_systems</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">list_control_systems</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;List available control system connector types.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">_control_system_connectors</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span></div>
 
@@ -880,7 +882,7 @@
 <div class="viewcode-block" id="ConnectorFactory.list_archivers">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.list_archivers">[docs]</a>
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">list_archivers</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">list_archivers</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;List available archiver connector types.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span></div>
 </div>

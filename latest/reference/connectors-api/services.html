@@ -520,12 +520,12 @@ a string stays what the service answered, as the service recorded it.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec.target">
-<span class="sig-name descname"><span class="pre">target</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.target" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">target</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'live'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'va'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'standin'</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.target" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.BackendSpec.settings">
-<span class="sig-name descname"><span class="pre">settings</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.settings" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">settings</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.service_answers.BackendSpec.settings" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -636,7 +636,7 @@ a string stays what the service answered, as the service recorded it.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.service_answers.Source.target">
-<span class="sig-name descname"><span class="pre">target</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'va'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'live'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'standin'</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.service_answers.Source.target" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">target</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'live'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'va'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'standin'</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.service_answers.Source.target" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -817,7 +817,7 @@ sent. <code class="docutils literal notranslate"><span class="pre">partial</span
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.directory.DirectoryPage.facets">
-<span class="sig-name descname"><span class="pre">facets</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.directory.DirectoryPage.facets" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">facets</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.directory.DirectoryPage.facets" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1005,12 +1005,12 @@ factory reaches from their type names.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.alarm_state.AlarmConfigRecord.guidance">
-<span class="sig-name descname"><span class="pre">guidance</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmConfigRecord.guidance" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">guidance</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmConfigRecord.guidance" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.alarm_state.AlarmConfigRecord.displays">
-<span class="sig-name descname"><span class="pre">displays</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmConfigRecord.displays" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">displays</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.alarm_state.AlarmConfigRecord.displays" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1398,12 +1398,12 @@ property. <code class="docutils literal notranslate"><span class="pre">field</sp
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.put_log.PutRow.old">
-<span class="sig-name descname"><span class="pre">old</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.put_log.PutRow.old" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">old</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.put_log.PutRow.old" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.put_log.PutRow.new">
-<span class="sig-name descname"><span class="pre">new</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.put_log.PutRow.new" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">new</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.put_log.PutRow.new" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1476,7 +1476,7 @@ job in the framework.</p>
 <dd><p>The source of every section on every target, per the module table.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: not the
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: not the
 <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> section, because the <code class="docutils literal notranslate"><span class="pre">va</span></code> half turns on whether
 the deployment built a simulator.</p>
 </dd>

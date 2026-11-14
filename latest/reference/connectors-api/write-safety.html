@@ -927,7 +927,7 @@ by design — it resolves no target, asks no owner and opens no record, so a
 switch position never changes its answer and it reports none.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p>
+<dd class="field-odd"><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>A <a class="reference internal" href="#osprey_connectors.posture_store.WriteVerdict" title="osprey_connectors.posture_store.WriteVerdict"><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerdict</span></code></a> whose <code class="docutils literal notranslate"><span class="pre">target</span></code>, <code class="docutils literal notranslate"><span class="pre">kind</span></code> and <code class="docutils literal notranslate"><span class="pre">position</span></code> are
@@ -1058,7 +1058,7 @@ order is shared with the hook’s stdlib twin.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the write lands on.</p></li>
 <li><p><strong>owner</strong> (<em>str</em><em> | </em><a class="reference internal" href="#osprey_connectors.posture_store.NoOwner" title="osprey_connectors.posture_store.NoOwner"><em>NoOwner</em></a><em> | </em><em>None</em>) – As for <a class="reference internal" href="#osprey_connectors.posture_store.write_verdict" title="osprey_connectors.posture_store.write_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_verdict()</span></code></a>.</p></li>
 <li><p><strong>ignore_launch_pin</strong> (<em>bool</em>) – As for <a class="reference internal" href="#osprey_connectors.posture_store.write_verdict" title="osprey_connectors.posture_store.write_verdict"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_verdict()</span></code></a>.</p></li>
@@ -1295,7 +1295,7 @@ those belong to the callers that hold the record’s lock.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the write lands on.</p></li>
 <li><p><strong>owner</strong> (<em>str</em><em> | </em><a class="reference internal" href="#osprey_connectors.posture_store.NoOwner" title="osprey_connectors.posture_store.NoOwner"><em>NoOwner</em></a><em> | </em><em>None</em>) – Whose record governs the write; <code class="docutils literal notranslate"><span class="pre">None</span></code> asks
 <a class="reference internal" href="#osprey_connectors.posture_store.current_owner" title="osprey_connectors.posture_store.current_owner"><code class="xref py py-func docutils literal notranslate"><span class="pre">current_owner()</span></code></a>.</p></li>
@@ -1687,7 +1687,7 @@ whose epoch has moved since (a stop of every machine) ends it.</p></li>
 <dd><p>This grant as the JSON object its file holds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p><em>Mapping</em>[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1815,7 +1815,7 @@ reader in another namespace does not look its PID up.</p></li>
 <dd><p>This ledger as the JSON object its file holds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p><em>Mapping</em>[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1973,7 +1973,7 @@ the holder will write it.</p></li>
 <dd><p>This request as the JSON object its file holds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p><em>Mapping</em>[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2102,7 +2102,7 @@ place: a person turning the switch on mid-run does not lift the bounds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>section</strong> (<em>Any</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
+<li><p><strong>section</strong> (<em>object</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the resolved config.</p></li>
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target the write lands on.</p></li>
 <li><p><strong>operations</strong> (<em>Sequence</em><em>[</em><em>tuple</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The write call’s <code class="docutils literal notranslate"><span class="pre">(channel,</span> <span class="pre">value)</span></code> pairs.</p></li>
 <li><p><strong>authorization</strong> (<em>str</em><em> | </em><em>None</em>) – The id the process names, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
@@ -2705,7 +2705,7 @@ unsafe key.</p>
 <dd><p>Whether <em>session_key</em> is one safe path segment (no separator, no dot-name).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>bool</p>
+<dd class="field-odd"><p><em>TypeGuard</em>[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2987,7 +2987,7 @@ record is ownerless and free to be claimed.</p></li>
 written before it. A reading only: <a class="reference internal" href="#osprey_connectors.control_context.ControlContext.to_payload" title="osprey_connectors.control_context.ControlContext.to_payload"><code class="xref py py-meth docutils literal notranslate"><span class="pre">to_payload()</span></code></a> ignores it
 and derives the field from <code class="docutils literal notranslate"><span class="pre">switch</span></code>, so nothing set here is
 ever stored, and no write decision reads it.</p></li>
-<li><p><strong>last_switch</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The terminus of the last switch request, verbatim, or
+<li><p><strong>last_switch</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The terminus of the last switch request, verbatim, or
 <code class="docutils literal notranslate"><span class="pre">None</span></code> when no request has reached one.</p></li>
 <li><p><strong>switch</strong> (<em>collections.abc.Mapping</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>) – The position the person has put each machine at,
 <code class="docutils literal notranslate"><span class="pre">{target:</span> <span class="pre">&quot;asked&quot;</span> <span class="pre">|</span> <span class="pre">&quot;allowed&quot;}</span></code>; an absent target is off, and
@@ -3021,7 +3021,7 @@ existed. Kept by <a class="reference internal" href="#osprey_connectors.control_
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ControlContext.last_switch">
-<span class="sig-name descname"><span class="pre">last_switch</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ControlContext.last_switch" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">last_switch</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ControlContext.last_switch" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -3045,7 +3045,7 @@ future version added does not survive a rewrite by this one. The
 never <a class="reference internal" href="#osprey_connectors.control_context.ControlContext.posture" title="osprey_connectors.control_context.ControlContext.posture"><code class="xref py py-attr docutils literal notranslate"><span class="pre">posture</span></code></a>: a narrowing is not something a writer can store.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3097,7 +3097,7 @@ server, which serves nothing an operator can open.</p></li>
 <dd><p>This owner as the record’s <code class="docutils literal notranslate"><span class="pre">owner</span></code> object.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3134,14 +3134,14 @@ not “baseline”: it is “this server has not got there yet”.</p></li>
 same terms.</p></li>
 <li><p><strong>children</strong> (<em>tuple</em><em>[</em><em>int</em><em>, </em><em>...</em><em>]</em>) – The connector-host PIDs it spawned, so a later server can
 reap them if this one is killed.</p></li>
-<li><p><strong>reachability</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Its last probe per target, <code class="docutils literal notranslate"><span class="pre">{}</span></code> when it has not probed.</p></li>
-<li><p><strong>last_switch</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Its progress through the current switch — <code class="docutils literal notranslate"><span class="pre">applying</span></code>,
+<li><p><strong>reachability</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – Its last probe per target, <code class="docutils literal notranslate"><span class="pre">{}</span></code> when it has not probed.</p></li>
+<li><p><strong>last_switch</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Its progress through the current switch — <code class="docutils literal notranslate"><span class="pre">applying</span></code>,
 <code class="docutils literal notranslate"><span class="pre">applied</span></code> or <code class="docutils literal notranslate"><span class="pre">failed</span></code>, with the <code class="docutils literal notranslate"><span class="pre">expires_at</span></code> bound only this
 process could compute — or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
-<li><p><strong>last_posture_realign</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Its last posture realignment, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
-<li><p><strong>targets</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Per-target display metadata, <code class="docutils literal notranslate"><span class="pre">{}</span></code> when it has none.</p></li>
+<li><p><strong>last_posture_realign</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Its last posture realignment, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>targets</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – Per-target display metadata, <code class="docutils literal notranslate"><span class="pre">{}</span></code> when it has none.</p></li>
 <li><p><strong>updated_at</strong> (<em>str</em><em> | </em><em>None</em>) – When it last wrote, ISO-8601, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
-<li><p><strong>statement</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The machine statement a process that displays the machine
+<li><p><strong>statement</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em><em>] </em><em>| </em><em>None</em>) – The machine statement a process that displays the machine
 (a panel backend) writes in place of controlling it, <code class="docutils literal notranslate"><span class="pre">None</span></code> on a
 controls server’s report. <code class="docutils literal notranslate"><span class="pre">{&quot;reachable&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;writes&quot;:</span> <span class="pre">...}</span></code>,
 each axis <code class="docutils literal notranslate"><span class="pre">None</span></code> until stated: <code class="docutils literal notranslate"><span class="pre">reachable</span></code> is
@@ -3179,22 +3179,22 @@ this shape states nothing, and the report is then an ordinary one.</p></li>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ServerReport.reachability">
-<span class="sig-name descname"><span class="pre">reachability</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.reachability" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">reachability</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.reachability" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ServerReport.last_switch">
-<span class="sig-name descname"><span class="pre">last_switch</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.last_switch" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">last_switch</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.last_switch" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ServerReport.last_posture_realign">
-<span class="sig-name descname"><span class="pre">last_posture_realign</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.last_posture_realign" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">last_posture_realign</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.last_posture_realign" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ServerReport.targets">
-<span class="sig-name descname"><span class="pre">targets</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.targets" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">targets</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.targets" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -3204,7 +3204,7 @@ this shape states nothing, and the report is then an ordinary one.</p></li>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.control_context.ServerReport.statement">
-<span class="sig-name descname"><span class="pre">statement</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.statement" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">statement</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_context.ServerReport.statement" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py property">
@@ -3231,7 +3231,7 @@ display-only report and only then, so a payload round-trips through
 reads back as display-only.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3420,7 +3420,7 @@ again.</p>
 the session’s target, so a held session states <code class="docutils literal notranslate"><span class="pre">session_held</span></code>.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-even"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3749,7 +3749,7 @@ generation, and its block names no binding because there is none.</p>
 <li><p><strong>target</strong> (<em>str</em>) – The target that was asked for — recorded whether or not the
 deployment went there, because a refusal has to say what it
 refused.</p></li>
-<li><p><strong>requested_at</strong> (<em>Any</em>) – The request’s own stamp, copied verbatim.</p></li>
+<li><p><strong>requested_at</strong> (<em>object</em>) – The request’s own stamp, copied verbatim.</p></li>
 <li><p><strong>requested_by</strong> (<em>str</em>) – Who to name in the block: an audit session where the
 requester has one, <code class="docutils literal notranslate"><span class="pre">pid:&lt;n&gt;</span></code> where it does not.</p></li>
 <li><p><strong>status</strong> (<em>str</em>) – <a class="reference internal" href="#osprey_connectors.control_context.SWITCH_APPLIED" title="osprey_connectors.control_context.SWITCH_APPLIED"><code class="xref py py-data docutils literal notranslate"><span class="pre">SWITCH_APPLIED</span></code></a> or <code class="xref py py-data docutils literal notranslate"><span class="pre">SWITCH_REFUSED</span></code>.</p></li>
@@ -3953,7 +3953,7 @@ server has not vouched for reads as the real machine.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em><em> | </em><a class="reference internal" href="#osprey_connectors.write_target.Unresolved" title="osprey_connectors.write_target.Unresolved"><em>Unresolved</em></a>) – An answer of <a class="reference internal" href="#osprey_connectors.write_target.write_target_for_tool" title="osprey_connectors.write_target.write_target_for_tool"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_target_for_tool()</span></code></a>.</p></li>
-<li><p><strong>state_dir</strong> (<em>Any</em>) – The servers’ report directory; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads this process’s.</p></li>
+<li><p><strong>state_dir</strong> (<em>object</em>) – The servers’ report directory; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads this process’s.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -3980,9 +3980,9 @@ while answering.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Any</em>) – The loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, for the lane map and baseline.</p></li>
+<li><p><strong>config</strong> (<em>object</em>) – The loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, for the lane map and baseline.</p></li>
 <li><p><strong>tool_name</strong> (<em>str</em>) – The full tool name.</p></li>
-<li><p><strong>tool_input</strong> (<em>Any</em>) – The call’s arguments.</p></li>
+<li><p><strong>tool_input</strong> (<em>object</em>) – The call’s arguments.</p></li>
 <li><p><strong>hook_config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The render’s <code class="docutils literal notranslate"><span class="pre">.claude/hooks/hook_config.json</span></code> mapping;
 <code class="docutils literal notranslate"><span class="pre">None</span></code> or <code class="docutils literal notranslate"><span class="pre">{}</span></code> reads as an empty one.</p></li>
 <li><p><strong>short_name</strong> (<em>str</em><em> | </em><em>None</em>) – <em>tool_name</em> without its server prefix; <code class="docutils literal notranslate"><span class="pre">None</span></code> resolves it
