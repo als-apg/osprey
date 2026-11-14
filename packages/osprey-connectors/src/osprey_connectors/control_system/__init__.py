@@ -15,7 +15,7 @@ stack into every one of them, and importing the EPICS connector for its stale
 hold-down would load its Channel Access stack.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -74,7 +74,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> object:
     """Resolve a public name from its defining module, on every access.
 
     Not cached here: the defining module stays the one place a name is bound,
