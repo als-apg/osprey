@@ -79,6 +79,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from typing_extensions import override
+
 from .types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
@@ -143,6 +145,7 @@ class _Absent:
     set to ``None`` — which YAML produces for a bare ``archiver.type:`` and which
     the factory resolves to the mock."""
 
+    @override
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return "<absent>"
 

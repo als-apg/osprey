@@ -85,8 +85,9 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -207,8 +208,10 @@ class ConnectorHostProxy:
 
     def __init__(
         self,
-        reader: Any,
-        writer: Any,
+        # The transport is duck-typed by the class's contract (see its
+        # docstring), and the package has no public type for either half.
+        reader: ContractAny,
+        writer: ContractAny,
         *,
         timeout_grace_s: float = 1.0,
         deadline_s: float | None = None,

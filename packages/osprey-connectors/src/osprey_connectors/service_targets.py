@@ -50,13 +50,14 @@ _Kind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
 _KINDS: tuple[_Kind, ...] = ("directory", "alarm_log", "alarm_state", "put_log")
 
 
-def service_targets(config: Mapping[str, object]) -> dict[str, dict[str, BackendSpec | None]]:
+def service_targets(config: object) -> dict[str, dict[str, BackendSpec | None]]:
     """The source of every section on every target, per the module table.
 
     Args:
         config: The full config mapping, as loaded from ``config.yml``: not the
             ``pv_directory:`` section, because the ``va`` half turns on whether
-            the deployment built a simulator.
+            the deployment built a simulator. Anything that is not a mapping
+            has no section.
 
     Returns:
         ``{kind: {target: BackendSpec | None}}`` with every target of

@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typing_extensions import override
+
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
@@ -64,6 +66,7 @@ class ReplayAlarmState(AlarmState):
         self._loaded_at: str | None = None
         self._failed: Unavailable | None = None
 
+    @override
     async def start(self) -> None:
         path = self._replay_path()
         if isinstance(path, Unavailable):
@@ -74,6 +77,7 @@ class ReplayAlarmState(AlarmState):
         # one, and aclose cancelling the load does not raise in this caller.
         await asyncio.wait({self._task})
 
+    @override
     async def aclose(self) -> None:
         task, self._task = self._task, None
         if task is not None:
@@ -84,6 +88,7 @@ class ReplayAlarmState(AlarmState):
         self._loaded_at = None
         self._failed = None
 
+    @override
     async def state_for(
         self, channel: str, deadline: float
     ) -> AlarmStateRecord | Unavailable | None:
@@ -93,6 +98,7 @@ class ReplayAlarmState(AlarmState):
             return snapshot
         return state_record(snapshot, channel, stale=self._stopped)
 
+    @override
     async def states(self, deadline: float) -> AlarmStates | Unavailable:
         """Every channel's state; ``last_contact`` is the load moment, the newest rebased time."""
         await self._loading(deadline)
@@ -102,12 +108,14 @@ class ReplayAlarmState(AlarmState):
         rows = state_rows(snapshot, stale=self._stopped)
         return AlarmStates(rows=rows, stale=self._stopped, last_contact=self._loaded_at)
 
+    @override
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._loading(deadline)
         snapshot = self._answering()
         return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, channel)
 
-    async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
+    @override
+    async def probe(self, deadline: float) -> str | Unavailable:
         snapshot = self._loaded()
         if isinstance(snapshot, Unavailable):
             return snapshot

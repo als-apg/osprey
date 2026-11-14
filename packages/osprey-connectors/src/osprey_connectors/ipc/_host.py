@@ -201,7 +201,7 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, SupportsFloat, TypedDict
+from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypedDict
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
@@ -209,7 +209,7 @@ from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Mapping
 
     from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
@@ -520,10 +520,10 @@ def _named_authorization() -> str | None:
 def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:
     """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
-    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,
+    The rule itself is :func:`osprey_connectors.control_system._gateway_role._selected_role`,
     the one place it lives: this only adds that an empty table selects nothing.
     """
-    from osprey_connectors.ipc._verification import _selected_role
+    from osprey_connectors.control_system._gateway_role import _selected_role
 
     if not gateways:
         return None
@@ -863,6 +863,12 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
+class _ServedMethod(Protocol):
+    """A :data:`PROXY_METHODS` member as the child calls it: keywords in, an awaitable out."""
+
+    def __call__(self, **kwargs: object) -> Awaitable[object]: ...
+
+
 async def _invoke(connector: ControlSystemConnector, method: object, kwargs: object) -> object:
     """Run one request against the connector.
 
@@ -878,7 +884,7 @@ async def _invoke(connector: ControlSystemConnector, method: object, kwargs: obj
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
     if isinstance(method, str) and method in PROXY_METHODS:
-        served: Callable[..., Awaitable[object]] = getattr(connector, method)
+        served: _ServedMethod = getattr(connector, method)
         return await served(**kwargs)
     raise ValueError(
         f"connector host does not serve {method!r}; it serves "

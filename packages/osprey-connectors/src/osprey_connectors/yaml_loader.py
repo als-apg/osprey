@@ -15,9 +15,12 @@ block-style documents a build writes, so every hot write goes through
 
 from __future__ import annotations
 
-from typing import IO, Any, overload
+from collections.abc import Mapping
+from typing import IO, TypedDict, overload
 
 import yaml
+
+from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "safe_dump",
@@ -36,7 +39,9 @@ def safe_loader() -> type[yaml.CSafeLoader] | type[yaml.SafeLoader]:
     return yaml.CSafeLoader if hasattr(yaml, "CSafeLoader") else yaml.SafeLoader
 
 
-def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
+# The parse is ``yaml.load``'s untyped return, passed through: a document is any
+# tree of plain objects, and every caller reads the shape its own document has.
+def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> ContractAny:
     """Parse one YAML document the way ``yaml.safe_load`` does, on the fastest loader.
 
     Args:
@@ -51,6 +56,23 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
     return yaml.load(stream, Loader=safe_loader())
 
 
+class _EmitterOptions(TypedDict):
+    """The emitter options :func:`safe_dump` hands ``yaml.dump``, besides ``encoding``."""
+
+    default_style: str | None
+    default_flow_style: bool | None
+    canonical: bool | None
+    indent: int | None
+    width: float | None
+    allow_unicode: bool | None
+    line_break: str | None
+    explicit_start: bool | None
+    explicit_end: bool | None
+    version: tuple[int, int] | None
+    tags: Mapping[str, str] | None
+    sort_keys: bool
+
+
 def _safe_dumper() -> type[yaml.CSafeDumper] | type[yaml.SafeDumper]:
     """The safe dumper class to emit with: libyaml's when present, else PyYAML's.
 
@@ -60,27 +82,125 @@ def _safe_dumper() -> type[yaml.CSafeDumper] | type[yaml.SafeDumper]:
 
 
 @overload
-def safe_dump(data: object, stream: None = None, **kwargs: Any) -> str: ...
+def safe_dump(
+    data: object,
+    stream: None = None,
+    *,
+    default_style: str | None = None,
+    default_flow_style: bool | None = False,
+    canonical: bool | None = None,
+    indent: int | None = None,
+    width: float | None = None,
+    allow_unicode: bool | None = None,
+    line_break: str | None = None,
+    encoding: None = None,
+    explicit_start: bool | None = None,
+    explicit_end: bool | None = None,
+    version: tuple[int, int] | None = None,
+    tags: Mapping[str, str] | None = None,
+    sort_keys: bool = True,
+) -> str: ...
 
 
 @overload
-def safe_dump(data: object, stream: IO[str], **kwargs: Any) -> None: ...
+def safe_dump(
+    data: object,
+    stream: None = None,
+    *,
+    default_style: str | None = None,
+    default_flow_style: bool | None = False,
+    canonical: bool | None = None,
+    indent: int | None = None,
+    width: float | None = None,
+    allow_unicode: bool | None = None,
+    line_break: str | None = None,
+    encoding: str,
+    explicit_start: bool | None = None,
+    explicit_end: bool | None = None,
+    version: tuple[int, int] | None = None,
+    tags: Mapping[str, str] | None = None,
+    sort_keys: bool = True,
+) -> bytes: ...
 
 
-def safe_dump(data: object, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
+@overload
+def safe_dump(
+    data: object,
+    stream: IO[str] | IO[bytes],
+    *,
+    default_style: str | None = None,
+    default_flow_style: bool | None = False,
+    canonical: bool | None = None,
+    indent: int | None = None,
+    width: float | None = None,
+    allow_unicode: bool | None = None,
+    line_break: str | None = None,
+    encoding: str | None = None,
+    explicit_start: bool | None = None,
+    explicit_end: bool | None = None,
+    version: tuple[int, int] | None = None,
+    tags: Mapping[str, str] | None = None,
+    sort_keys: bool = True,
+) -> None: ...
+
+
+def safe_dump(
+    data: object,
+    stream: IO[str] | IO[bytes] | None = None,
+    *,
+    default_style: str | None = None,
+    default_flow_style: bool | None = False,
+    canonical: bool | None = None,
+    indent: int | None = None,
+    width: float | None = None,
+    allow_unicode: bool | None = None,
+    line_break: str | None = None,
+    encoding: str | None = None,
+    explicit_start: bool | None = None,
+    explicit_end: bool | None = None,
+    version: tuple[int, int] | None = None,
+    tags: Mapping[str, str] | None = None,
+    sort_keys: bool = True,
+) -> str | bytes | None:
     """Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.
 
     Args:
         data: Plain Python objects; anything else is refused, as ``yaml.safe_dump`` refuses it.
-        stream: An open text file to write to; ``None`` returns the text.
-        **kwargs: The emitter options ``yaml.safe_dump`` takes (``sort_keys``,
-            ``default_flow_style``, ``allow_unicode``, ``width``, ...).
+        stream: An open file to write to; ``None`` returns the document. With an
+            ``encoding`` the file is a binary one, as ``yaml.safe_dump`` writes it.
+        default_style, default_flow_style, canonical, indent, width,
+        allow_unicode, line_break, encoding, explicit_start, explicit_end,
+        version, tags, sort_keys: The emitter options ``yaml.safe_dump`` takes,
+            with its defaults.
 
     Returns:
-        The document text when ``stream`` is ``None``, else ``None``.
+        With no ``stream``, the document: text, or bytes in ``encoding`` when one
+        is given. ``None`` when it was written to ``stream``.
 
     Raises:
         yaml.representer.RepresenterError: On an object the safe dumper cannot represent.
     """
-    text: str | None = yaml.dump(data, stream, Dumper=_safe_dumper(), **kwargs)
-    return text
+    options: _EmitterOptions = {
+        "default_style": default_style,
+        "default_flow_style": default_flow_style,
+        "canonical": canonical,
+        "indent": indent,
+        "width": width,
+        "allow_unicode": allow_unicode,
+        "line_break": line_break,
+        "explicit_start": explicit_start,
+        "explicit_end": explicit_end,
+        "version": version,
+        "tags": tags,
+        "sort_keys": sort_keys,
+    }
+    # One call per shape the yaml stubs type separately; each passes yaml.dump
+    # exactly the arguments it was given.
+    if stream is not None:
+        yaml.dump(data, stream, Dumper=_safe_dumper(), encoding=encoding, **options)
+        return None
+    if encoding is None:
+        text: str = yaml.dump(data, None, Dumper=_safe_dumper(), **options)
+        return text
+    encoded: bytes = yaml.dump(data, None, Dumper=_safe_dumper(), encoding=encoding, **options)
+    return encoded
