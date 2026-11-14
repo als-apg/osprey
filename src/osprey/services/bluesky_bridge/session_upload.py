@@ -26,9 +26,6 @@ the worker namespace by executing the startup module, which knows nothing
 about session plans, so every environment open/reload drops the whole
 uploaded set. :meth:`SessionPlanUploader.sync_namespace` is the repair path:
 it re-uploads every currently-validated session plan the namespace is missing.
-:meth:`SessionPlanUploader.reload_environment` is the same thing around a
-deliberate cycle, and refuses outright while the queue is active — a reload
-mid-plan would abort work an operator is watching.
 
 **Enqueue and start re-check, and refuse rather than repair.** The armed path
 goes through :meth:`SessionPlanUploader.check_ready` (module-level shorthand:
@@ -85,7 +82,6 @@ SESSION_PLAN_MODULE = "osprey_session_plan"
 # declared with every other refusal the routes put on the wire
 # (`queue_backend.REFUSAL_REASONS`).
 REASON_UPLOAD_FAILED = "session_plan_upload_failed"
-REASON_ENVIRONMENT_BUSY = "environment_busy"
 
 # Every refusal ends with the same instruction, because every refusal has the
 # same fix: re-validating re-records the current bytes and re-uploads them.
@@ -137,12 +133,6 @@ class SessionPlanUploadError(SessionPlanError):
     """A script upload was rejected, failed in the worker, or never completed."""
 
     reason = REASON_UPLOAD_FAILED
-
-
-class SessionPlanEnvironmentBusyError(SessionPlanError):
-    """An environment reload was asked for while the queue is running a plan."""
-
-    reason = REASON_ENVIRONMENT_BUSY
 
 
 # ---------------------------------------------------------------------------
@@ -546,38 +536,6 @@ class SessionPlanUploader:
                 ", ".join(restored),
             )
         return restored
-
-    async def reload_environment(self) -> list[str]:
-        """Cycle the worker environment, then restore the validated session set.
-
-        Refused while the queue is active: a reload tears down the RunEngine,
-        which would abort a plan an operator is watching. The refusal is
-        checked here *and* by ``QueueBackend.close_environment``; the check
-        here exists so the caller gets this module's reason code rather than a
-        generic rejection.
-
-        Returns:
-            The session plans re-uploaded into the new namespace.
-
-        Raises:
-            SessionPlanEnvironmentBusyError: A plan is running or about to.
-            QueueBackendError: The manager could not be reached, or the
-                environment would not come back up.
-        """
-        backend = self._backend_getter()
-        from .queue_backend import is_queue_active
-
-        status = await backend.status(reload=True)
-        if is_queue_active(status):
-            raise SessionPlanEnvironmentBusyError(
-                "Refusing to reload the worker environment while the queue is active "
-                f"(manager state {status.get('manager_state')!r}). Stop the queue first."
-            )
-
-        await backend.close_environment()
-        self.forget_namespace()
-        await backend.ensure_environment()
-        return await self.sync_namespace()
 
     # ------------------------------------------------------------------ gate
 
