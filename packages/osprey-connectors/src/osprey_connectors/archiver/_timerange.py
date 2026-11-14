@@ -193,11 +193,28 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
                 "value": pd.Series(dtype="float64"),
             }
         )
-    frame = pd.concat(live, names=["channel", "timestamp"]).rename("value").reset_index()
+    # Series in, Series out; with the element type unknown the stubs cannot
+    # tell the Series overload of `concat` from the DataFrame one.
+    stacked: pd.Series = pd.concat(live, names=["channel", "timestamp"])
+    frame = stacked.rename("value").reset_index()
     # Real samples can arrive at any datetime64 resolution; the contract is ns.
     frame["timestamp"] = frame["timestamp"].astype("datetime64[ns, UTC]")
     frame = frame.sort_values(["channel", "timestamp"], ignore_index=True)
     return frame[list(LONG_COLUMNS)]
+
+
+def _datetime_index(s: pd.Series) -> pd.DatetimeIndex:
+    """The ``DatetimeIndex`` of one channel's samples.
+
+    Raises:
+        TypeError: If ``s`` is not indexed by timestamps, naming the channel.
+    """
+    index = s.index
+    if not isinstance(index, pd.DatetimeIndex):
+        raise TypeError(
+            f"channel {s.name!r} must be indexed by timestamps, got {type(index).__name__}"
+        )
+    return index
 
 
 def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Series:
@@ -219,6 +236,10 @@ def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Se
         The subsequence of ``s`` at each bin's last real sample, in original
         order. ``s`` unchanged when empty, when ``precision_ms <= 0``, or when
         it is already sparser than one sample per bin.
+
+    Raises:
+        TypeError: If a non-empty ``s`` to be binned is not indexed by
+            timestamps.
     """
     if precision_ms <= 0 or s.empty:
         return s
@@ -227,7 +248,8 @@ def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Se
     # same grid, and epoch-anchored `floor` would diverge from both for any
     # width that does not divide a day.
     width = pd.Timedelta(milliseconds=precision_ms)
-    bins = origin + (s.index - origin) // width * width
+    index = _datetime_index(s)
+    bins = origin + (index - origin) // width * width
     return s[~bins.duplicated(keep="last")]
 
 
@@ -275,6 +297,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     Raises:
         ValueError: If a non-raw mode is applied to a non-empty channel holding
             non-numeric values — see :func:`reject_non_numeric`.
+        TypeError: If a non-empty ``s`` is not indexed by timestamps.
     """
     # "raw" must never reach the resampler: `resample(...).agg("last")` relabels
     # the kept sample at the bin's leading edge, fabricating a timestamp nothing
@@ -287,7 +310,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     if s.index.dtype != "datetime64[ns, UTC]":
         # Resampling a datetime64[s, UTC] index at a sub-second width raises
         # ZeroDivisionError (pandas 3.0).
-        s = s.set_axis(s.index.as_unit("ns"))
+        s = s.set_axis(_datetime_index(s).as_unit("ns"))
     # origin= pins the lattice to the query window. Without it `resample`
     # defaults to origin="start_day", midnight of *this channel's* first
     # sample, so two channels in one request whose data starts on different

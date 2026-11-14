@@ -361,7 +361,7 @@ def resolve_registry_path(
     Returns:
         The resolved path, or ``None`` when no spelling names one.
     """
-    raw: Any = os.environ.get(REGISTRY_PATH_ENV)
+    raw: object = os.environ.get(REGISTRY_PATH_ENV)
     if not raw:
         if config is None:
             raw = get_config_value("registry_path", None)
@@ -429,6 +429,10 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
         if config_path:
             project_root = get_config_value("project_root", None)
             if project_root:
+                if not isinstance(project_root, str | Path):
+                    raise TypeError(
+                        f"project_root must be a path string, got {type(project_root).__name__}"
+                    )
                 base_path = Path(project_root)
                 logger.debug(f"Using project_root from config as base path: {base_path}")
             else:

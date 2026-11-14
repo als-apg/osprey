@@ -290,6 +290,9 @@ dev = [
     "types-PyYAML",  # `yaml`
     "types-Markdown",  # `markdown`
     "types-psutil",  # `psutil`
+    # Pinned to the minor of the locked pandas: a newer stub minor describes
+    # API the installed pandas lacks.
+    "pandas-stubs>=3.0,<3.1",  # `pandas`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -641,7 +644,6 @@ module = [
     "google.*",
     "googleapiclient.*",
     "litellm.*",
-    "pandas.*",
     "numpy.*",
     "matplotlib.*",
     "p4p.*",

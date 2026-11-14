@@ -39,7 +39,8 @@ def _resolve_bundle(bundle: Path | None) -> Path:
     This is the single source of that fallback rule and its error.
 
     Raises:
-        click.UsageError: When *bundle* is None and the config key is unset.
+        click.UsageError: When *bundle* is None and the config key is unset or
+            is not a string.
     """
     if bundle is not None:
         return bundle
@@ -50,6 +51,10 @@ def _resolve_bundle(bundle: Path | None) -> Path:
     if raw is None:
         raise click.UsageError(
             "No bundle path given and facility_knowledge.bundle_path is not set in config."
+        )
+    if not isinstance(raw, str | Path):
+        raise click.UsageError(
+            f"facility_knowledge.bundle_path must be a path string, got {type(raw).__name__}."
         )
     return resolve_bundle_path(raw)
 
