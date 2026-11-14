@@ -1,6 +1,6 @@
 {
- "captured_at": "2026-10-27T02:06:18.082831Z",
- "cli_version": "2.1.300",
+ "captured_at": "2026-11-14T01:08:09.002915Z",
+ "cli_version": "2.1.322",
  "command": "osprey query --json",
  "holds": [
   "subagent",
