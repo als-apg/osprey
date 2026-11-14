@@ -234,7 +234,7 @@ unit sweep:
 | QMD sidecar images | QMD sidecar and models-mount tests | both builds of the `qmd-sidecar-e2e` job in `ci.yml` | `docker image inspect` on both tags |
 | VA live containers | `tests/va/e2e` | the image builds and `OSPREY_VA_E2E_ENABLE=1` of the `va-live-e2e` job | the directory collects and runs |
 | Ollama with the models the tests name | Ollama-backed unit tests, the proxy e2e modules | install Ollama, `ollama pull` each model a skip or failure names, `OSPREY_E2E_OLLAMA=1` for the e2e lane | `curl -s localhost:11434/api/tags` lists them |
-| ALS lane stand-in | `tests/cli/test_als_lane.py` | `OSPREY_ALS_LANE_STAND_IN=tests/fixtures/mml/nsls2` | the module runs |
+| Facility lane stand-in | `tests/cli/test_als_lane.py` | `OSPREY_ALS_LANE_STAND_IN=tests/fixtures/mml/nsls2` | the module runs |
 | MML checkout, `als-ontology` checkout | `tests/facility`, the TTL seeder tests | clone them; `OSPREY_MML_MACHINE_ROOT=<MML>/machine/<facility>` | the modules run |
 | Open-file limit | the whole sweep: one worker holds about 500 descriptors once everything is provisioned | `ulimit -n 8192` in the shell that runs the tests (macOS gives 256) | `ulimit -n` |
 | pvAccess client | the pvAccess connector tests | run those modules as an overlay, `uv run --frozen --with pvapy pytest ...`; installed into the venv it fails the shipped-library review test | the modules run |
