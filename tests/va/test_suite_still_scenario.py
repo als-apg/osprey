@@ -50,7 +50,8 @@ def test_the_staged_nominal_scenario_is_the_shipped_one(
 
     scenarios = view_scenarios(project.project_dir)
     assert scenarios is not None
-    nominal = {key: value for key, value in scenarios["nominal"].items() if key != "name"}
+    stated = scenarios["nominal"].model_dump(mode="json", exclude_unset=True)
+    nominal = {key: value for key, value in stated.items() if key != "name"}
 
     assert "still" not in nominal
     assert nominal == yaml.safe_load(SHIPPED_NOMINAL.read_text(encoding="utf-8"))
@@ -59,9 +60,9 @@ def test_the_staged_nominal_scenario_is_the_shipped_one(
 def test_the_suite_scenario_stills_exactly_the_monitor_readings(
     view: SimulatorView, monitors: list[str]
 ) -> None:
-    scenarios = {str(scenario["name"]): scenario for scenario in view.scenarios()}
+    scenarios = {scenario.name: scenario for scenario in view.scenarios()}
 
-    assert list(scenarios[e2e_conftest.STILL_MONITORS_SCENARIO_NAME]["still"]) == monitors
+    assert list(scenarios[e2e_conftest.STILL_MONITORS_SCENARIO_NAME].still) == monitors
 
 
 def test_every_monitor_is_still_under_the_suite_set(

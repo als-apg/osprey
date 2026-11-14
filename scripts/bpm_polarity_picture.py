@@ -124,14 +124,12 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     from osprey.simulation.engines.pyat import response_matrix
 
     scenarios = view.scenarios()
-    (entry,) = [s for s in scenarios if s["name"] == scenario]
+    (entry,) = [s for s in scenarios if s.name == scenario]
     reversed_by_model = {
         model: {
-            address: -1
-            for address, fault in (faults.get("writes") or {}).items()
-            if fault.get("polarity") == -1
+            address: -1 for address, fault in faults.writes.items() if fault.get("polarity") == -1
         }
-        for model, faults in (entry.get("faults") or {}).items()
+        for model, faults in entry.faults.items()
     }
     reversed_by_model = {model: found for model, found in reversed_by_model.items() if found}
     if len(reversed_by_model) != 1:
@@ -212,10 +210,11 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
             )
         metres = METRES_PER_UNIT[unit]
         slope = float(matrix[rows.index(monitor), 0] / rad_per_unit) * metres  # m/rad == um/urad
-        noise = (view.seed(monitor) or {}).get("noise") or {}
-        if "relative" in noise:
+        seed = view.seed(monitor)
+        noise = None if seed is None else seed.noise
+        if noise is not None and "relative" in noise.model_fields_set:
             raise ValueError(f"{monitor} carries relative noise; the picture needs absolute")
-        noise_um = float(noise.get("absolute", 0.0)) * metres * 1e6
+        noise_um = float((noise.absolute if noise is not None else None) or 0.0) * metres * 1e6
         sign = polarity.get(monitor, 1)
         values = sign * slope * KICKS_URAD + rng.normal(0.0, noise_um, KICKS_URAD.size)
         slopes.append(slope)

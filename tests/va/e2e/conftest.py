@@ -430,7 +430,7 @@ def demo_state_dir() -> Path:
         atexit.register(shutil.rmtree, state_dir, ignore_errors=True)
         active = write_active_state(
             state_dir / ACTIVE_SCENARIOS_FILENAME,
-            {str(scenario["name"]): scenario_targets(scenario) for scenario in view.scenarios()},
+            {scenario.name: scenario_targets(scenario) for scenario in view.scenarios()},
             SUITE_SCENARIOS,
         )
         assert STILL_MONITORS_SCENARIO_NAME in active, active
@@ -489,7 +489,7 @@ _echo_seed = PRESET_VIEW.seed(TEXTURE_ECHO_SETPOINT)
 assert _echo_seed is not None, f"{TEXTURE_ECHO_SETPOINT} carries no seed"
 #: The value a planted journal writes to the echo setpoint: four fifths of its
 #: seed, away from its start value.
-TEXTURE_PLANTED_VALUE = 0.8 * float(_echo_seed["nominal"])
+TEXTURE_PLANTED_VALUE = 0.8 * float(_echo_seed.nominal)
 
 #: The operating point the substrate comparison is taken at: a horizontal and
 #: a vertical corrector of the lane model no lane drives, so the closed orbit

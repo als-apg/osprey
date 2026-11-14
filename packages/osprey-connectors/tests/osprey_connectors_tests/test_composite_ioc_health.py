@@ -59,8 +59,13 @@ def _view(path: Path, health: tuple[str, ...] | None = (HEARTBEAT, UPTIME, ENGIN
                     "address": SETPOINT,
                     "owner": "texture",
                     "role": "setpoint",
+                    "pair": None,
                     "value_type": "float",
+                    "unit": None,
+                    "description": None,
                     "writable": True,
+                    "value_range": None,
+                    "on": None,
                 }
             ],
         },

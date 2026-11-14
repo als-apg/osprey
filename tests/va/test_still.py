@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import pytest
 
+from osprey_connectors.simulation.records import ScenarioRecord
 from tests.va._still import assert_readings_still
 
 
@@ -16,9 +17,9 @@ class _View:
         self.lists_still = lists_still
         self.moving = moving
 
-    def scenarios(self) -> tuple[dict[str, str], ...]:
+    def scenarios(self) -> tuple[ScenarioRecord, ...]:
         names = ("nominal", "still") if self.lists_still else ("nominal",)
-        return tuple({"name": name} for name in names)
+        return tuple(ScenarioRecord(name=name) for name in names)
 
     def motion_envelope(self, address: str, active: Sequence[str] = ()) -> float:
         return 1.0e-6 if address in self.moving or "still" not in active else 0.0

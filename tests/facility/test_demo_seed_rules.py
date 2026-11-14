@@ -142,27 +142,34 @@ def test_every_setpoint_carries_a_tolerance() -> None:
 
 def test_every_tolerance_holds_its_readbacks_envelope() -> None:
     from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.simulation.records import SeedRecord
 
     seeds = generated()
     for channel in read_yaml(reseed_module().stamp()):
         if "tolerance" in channel:
-            envelope = motion_envelope(seeds.get(channel["pair"]))
+            seed = seeds.get(channel["pair"])
+            envelope = motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
             assert channel["tolerance"]["absolute"] >= envelope, channel["id"]
 
 
 def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenario() -> None:
     from osprey.facility.sources import load_sources
+    from osprey.facility.validate import _motion_record
     from osprey_connectors.simulation.envelope import active_envelopes
+    from osprey_connectors.simulation.records import SeedRecord
 
     result = load_sources(TREE)
     assert result.errors == []
-    scenarios = {scenario["name"]: scenario for scenario in result.sources.scenarios}
+    scenarios = {
+        scenario["name"]: _motion_record(scenario) for scenario in result.sources.scenarios
+    }
+    seeds = {address: SeedRecord.model_validate(seed) for address, seed in generated().items()}
     assert scenarios
     toleranced = [
         channel for channel in read_yaml(reseed_module().stamp()) if "tolerance" in channel
     ]
     for name in sorted(scenarios):
-        envelopes = active_envelopes(generated(), scenarios, [name])
+        envelopes = active_envelopes(seeds, scenarios, [name])
         for channel in toleranced:
             envelope = envelopes.get(channel["pair"], 0.0)
             assert envelope <= channel["tolerance"]["absolute"], (name, channel["pair"], envelope)

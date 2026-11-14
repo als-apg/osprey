@@ -37,12 +37,15 @@ from collections.abc import Iterator, Mapping, Set
 from datetime import time
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
 from osprey.simulation.sessions import SessionTurn, ToolStep, parse_sessions
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
+
+if TYPE_CHECKING:
+    from osprey_connectors.simulation.records import ScenarioRecord
 
 __all__ = [
     "FaultRoster",
@@ -54,7 +57,45 @@ __all__ = [
     "fault_roster",
     "map_fault_errors",
     "scenario_logbook",
+    "view_scenario",
 ]
+
+
+def view_scenario(entry: Mapping[str, object]) -> ScenarioRecord:
+    """A scenario of the simulator view's ``scenarios.json``, as the view reads it back.
+
+    The view carries a scenario's ``drivers``, ``couple``, ``noise``,
+    ``archiver`` and other blocks verbatim, and its reader holds each to the
+    view's scenario record; a block the record refuses is refused here, at the
+    build, rather than by the simulator that reads the view.
+
+    Args:
+        entry: The scenario as the view states it.
+
+    Returns:
+        The scenario's record.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a block breaks the record; the
+            detail names the key and the reason.
+    """
+    from pydantic import ValidationError
+
+    from osprey_connectors.simulation.records import ScenarioRecord
+
+    try:
+        return ScenarioRecord.model_validate(entry)
+    except ValidationError as refusal:
+        error = refusal.errors()[0]
+        key = ".".join(str(part) for part in error["loc"])
+        name = str(entry.get("name"))
+        raise _error(
+            "value-invalid",
+            name,
+            [f"scenarios/{name}.yaml"],
+            f"`{key}` is {error['input']!r}: {error['msg']}",
+            f"correct `{key}`",
+        ) from None
 
 
 def scenario_logbook(

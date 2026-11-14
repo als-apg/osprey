@@ -105,12 +105,13 @@ def channel_labels(channel: ChannelRecord | Mapping[str, Sequence[str] | None]) 
     """The labels of a bool or enum channel record.
 
     Args:
-        channel: The channel record.
+        channel: The channel record, or a mapping stating its ``options``.
 
     Returns:
         The record's ``options``, or :data:`DEFAULT_BOOL_OPTIONS` without them.
     """
-    return list(channel.get("options") or DEFAULT_BOOL_OPTIONS)
+    options = channel.get("options") if isinstance(channel, Mapping) else channel.options
+    return list(options or DEFAULT_BOOL_OPTIONS)
 
 
 def _size(shape: Sequence[int] | None) -> int:

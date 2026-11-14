@@ -281,6 +281,7 @@ def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> 
             is below the motion envelope of the readback it pairs with.
     """
     from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.simulation.records import SeedRecord
 
     rules = load_rules() if rules is None else rules
     seeds = reseed(tree, rules=rules)
@@ -303,7 +304,8 @@ def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> 
         if row is None:
             raise ReseedError(f"{address}: no tolerance rule matches it")
         value = convert(row["tolerance"], channel.get("unit", ""))
-        envelope = motion_envelope(seeds.get(channel.get("pair", address)))
+        seed = seeds.get(channel.get("pair", address))
+        envelope = motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
         if value is None or value < envelope:
             raise ReseedError(
                 f"{address}: tolerance {value} is below its readback's envelope {envelope:g}"

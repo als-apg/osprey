@@ -101,8 +101,8 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     burst_seed = VIEW.seed(e2e_conftest.BURST_CHANNEL)
     assert burst.role != "setpoint" and VIEW.binding(e2e_conftest.BURST_CHANNEL) is None
     assert burst_seed is not None
-    nominal = float(burst_seed["nominal"])
-    sigma = _noise_sigma(burst_seed.get("noise"), nominal)
+    nominal = float(burst_seed.nominal)
+    sigma = _noise_sigma(burst_seed.noise, nominal)
     assert sigma > 0.0
     assert e2e_conftest.BURST_VALUE - nominal > 100 * sigma
 
@@ -134,7 +134,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     assert texture_channel.pair is not None and texture_channel.pair != texture
     assert texture not in limits
     assert texture_seed is not None
-    assert e2e_conftest.OPERATING_POINT[texture] != texture_seed["nominal"]
+    assert e2e_conftest.OPERATING_POINT[texture] != texture_seed.nominal
 
     for address in e2e_conftest.CHROMATICITY:
         output = VIEW.binding(address)

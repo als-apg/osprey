@@ -372,7 +372,7 @@ class TestSeedKnobs:
     def test_a_non_dividing_cadence_names_both_knobs(self):
         """The fix needs both numbers; naming one leaves the reader guessing."""
         with pytest.raises(ValueError, match="tail_cadence_sec.*hot_cadence_sec"):
-            SeedKnobs(hot_cadence_sec=7, tail_cadence_sec=60).validate()
+            SeedKnobs(hot_cadence_sec=7, tail_cadence_sec=60)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +495,7 @@ class TestFingerprint:
         ],
     )
     def test_every_knob_that_changes_coverage_changes_the_fingerprint(self, field, value):
-        changed = SeedKnobs(**{**SMALL.__dict__, field: value})
+        changed = SeedKnobs.model_validate({**SMALL.model_dump(), field: value})
 
         assert self._fingerprint(knobs=changed) != self._fingerprint()
 
@@ -1030,4 +1030,4 @@ def test_the_manifest_document_is_json_serializable_apart_from_its_dates():
 
 
 def test_a_comparison_describes_nothing_when_nothing_moved():
-    assert FingerprintComparison(SeedState.MATCH).describe() == ""
+    assert FingerprintComparison(state=SeedState.MATCH).describe() == ""

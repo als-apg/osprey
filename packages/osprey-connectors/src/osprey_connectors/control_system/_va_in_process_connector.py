@@ -368,7 +368,7 @@ class VAInProcessConnector(ControlSystemConnector):
         state_dir = simulation_state_dir(view.path)
         try:
             self._records = {
-                str(entry["address"]): entry for entry in view.document(VARIABLES_FILE)["channels"]
+                entry.address: entry for entry in view.document(VARIABLES_FILE).channels
             }
             self._channels = frozenset(view.channels())
             self._served = (
@@ -518,13 +518,12 @@ class VAInProcessConnector(ControlSystemConnector):
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
-            if record.get("role") != SETPOINT:
+            if record.role != SETPOINT:
                 return address, "not a setpoint"
-            if record.get("writable") is not True:
+            if not record.writable:
                 return address, NOT_WRITABLE
-            # Read from the view's JSON, not trusted to its record type: a null
-            # side is unbounded, as the simulator's texture reads the band.
-            band: Sequence[float | None] | None = record.get("value_range")
+            # A null side is unbounded, as the simulator's texture reads the band.
+            band = record.value_range
             if band:
                 low, high = band
                 number = value if isinstance(value, int | float) else None
@@ -614,7 +613,7 @@ class VAInProcessConnector(ControlSystemConnector):
         record = self._records.get(address)
         if record is None:
             return value
-        value_type = record.get("value_type")
+        value_type = record.value_type
         if value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
@@ -623,7 +622,7 @@ class VAInProcessConnector(ControlSystemConnector):
         if value_type == "waveform":
             import numpy as np
 
-            shape = tuple(int(size) for size in record.get("shape") or ())
+            shape = record.shape or ()
             return np.asarray(value, dtype=np.float64).reshape(shape or (-1,))
         return value
 
@@ -631,17 +630,17 @@ class VAInProcessConnector(ControlSystemConnector):
         """Metadata from the channel record, alarm from the composite's severity."""
         record = self._records.get(address)
         variable = composite.supported_variables[address]
-        unit = getattr(variable, "unit", None) or (record and record.get("unit")) or ""
+        unit = getattr(variable, "unit", None) or (record and record.unit) or ""
         severity = composite.output_severity([address])
         labels: list[str] | None = None
-        if record is not None and record.get("value_type") in LABELLED_TYPES:
+        if record is not None and record.value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             labels = values.channel_labels(record)
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),
-            description=None if record is None else record.get("description"),
+            description=None if record is None else record.description,
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,
             enum_labels=labels,
@@ -745,9 +744,7 @@ class VAInProcessConnector(ControlSystemConnector):
         record = self._records[address]
         if hasattr(value, "tolist"):
             value = value.tolist()
-        return values.coerce(
-            value, record.get("value_type"), record.get("options"), record.get("shape")
-        )
+        return values.coerce(value, record.value_type, record.options, record.shape)
 
     @override
     def _write_precheck(

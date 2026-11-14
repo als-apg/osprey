@@ -71,13 +71,13 @@ from typing_extensions import override
 
 from osprey_connectors.simulation import pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
+from osprey_connectors.simulation.records import LinearTerm
 from osprey_connectors.simulation.view import SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import (
         ChannelRecord,
         GateRecord,
-        LinearTerm,
         ModelEntry,
         NoiseRecord,
         PulseRecord,
@@ -109,7 +109,7 @@ _INT_UNBOUNDED = 2**63 - 1
 
 def channel_value_type(channel: ChannelRecord) -> str:
     """A channel record's ``value_type``, ``float`` when it states none."""
-    return channel.get("value_type") or values.DEFAULT_VALUE_TYPE
+    return channel.value_type or values.DEFAULT_VALUE_TYPE
 
 
 def is_float_channel(channel: ChannelRecord) -> bool:
@@ -119,7 +119,7 @@ def is_float_channel(channel: ChannelRecord) -> bool:
 
 def _bounds(channel: ChannelRecord) -> tuple[float | None, float | None] | None:
     """The view's ``value_range`` as ``(low, high)``; ``None`` when both sides are null."""
-    bounds: Sequence[float | None] | None = channel.get("value_range")
+    bounds = channel.value_range
     if bounds is None:
         return None
     low, high = bounds
@@ -157,8 +157,8 @@ def _linear_terms(linear: Mapping[str, float | LinearTerm]) -> list[tuple[str, f
     terms: list[tuple[str, float]] = []
     for address in sorted(linear):
         term = linear[address]
-        coefficient = term["coefficient"] if isinstance(term, Mapping) else term
-        terms.append((str(address), float(coefficient)))
+        coefficient = term.coefficient if isinstance(term, LinearTerm) else term
+        terms.append((address, float(coefficient)))
     return terms
 
 
@@ -195,10 +195,10 @@ def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Var
     Returns:
         The variable, named by the channel's address.
     """
-    address = str(channel["address"])
-    read_only = not (channel.get("role") == SETPOINT and channel.get("writable") is True)
+    address = channel.address
+    read_only = not (channel.role == SETPOINT and channel.writable)
     value_type = channel_value_type(channel)
-    unit = channel.get("unit")
+    unit = channel.unit
     if value_type in values.LABELLED_TYPES:
         options = values.channel_labels(channel)
         return EnumVariable(
@@ -212,7 +212,7 @@ def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Var
             {"name": address, "default_value": nominal, "read_only": read_only}
         )
     if value_type == "waveform":
-        shape = tuple(int(size) for size in channel["shape"])
+        shape = channel.shape or ()
         return NDVariable(
             name=address,
             shape=shape,
@@ -241,6 +241,13 @@ def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Var
     )
 
 
+def _noise_term(record: NoiseRecord | None) -> tuple[Literal["absolute", "relative"], float]:
+    """The term a noise record states and its value; no record is an absolute 0.0."""
+    if record is not None and _RELATIVE in record.model_fields_set:
+        return _RELATIVE, float(record.relative or 0.0)
+    return _ABSOLUTE, float(0.0 if record is None else record.absolute or 0.0)
+
+
 class TextureModel(LUMEModel):
     """Serve the texture-owned channels of a simulator view.
 
@@ -259,27 +266,25 @@ class TextureModel(LUMEModel):
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._clock = clock
-        self._seeds: dict[str, SeedRecord] = {
-            str(address): seed for address, seed in (seeds.get("seeds") or {}).items()
-        }
+        self._seeds: dict[str, SeedRecord] = dict(seeds.seeds)
         self._channels: dict[str, ChannelRecord] = {
-            str(channel["address"]): channel for channel in variables.get("channels", [])
+            channel.address: channel for channel in variables.channels
         }
-        models = variables.get("models", [])
+        models = variables.models
         unserved_defaults = self._unserved_wiring_defaults(models)
-        unserved = {str(model["name"]) for model in models if not model.get("served")}
+        unserved = {model.name for model in models if not model.served}
 
         owned = sorted(
             address
             for address, channel in self._channels.items()
-            if channel.get("owner", TEXTURE_OWNER) in (TEXTURE_OWNER, *unserved)
+            if channel.owner in (TEXTURE_OWNER, *unserved)
         )
         self._echo: dict[str, str] = {
-            address: str(self._channels[address]["pair"])
+            address: pair
             for address in owned
-            if self._channels[address].get("role") == SETPOINT
-            and self._channels[address].get("pair") not in (None, address)
-            and str(self._channels[address]["pair"]) in owned
+            if self._channels[address].role == SETPOINT
+            and (pair := self._channels[address].pair) not in (None, address)
+            and pair in owned
         }
 
         self._nominals: dict[str, values.StoredValue] = {
@@ -302,32 +307,28 @@ class TextureModel(LUMEModel):
     def _unserved_wiring_defaults(models: Sequence[ModelEntry]) -> dict[str, object]:
         defaults: dict[str, object] = {}
         for model in models:
-            if model.get("served"):
+            if model.served:
                 continue
-            for record in model.get("wiring") or []:
-                if "default" in record:
-                    defaults.setdefault(str(record["address"]), record["default"])
+            for record in model.wiring:
+                if "default" in record.model_fields_set:
+                    defaults.setdefault(record.address, record.default)
         return defaults
 
     def _coerce(self, address: str, value: object) -> values.StoredValue:
         channel = self._channels[address]
-        return values.coerce(
-            value, channel_value_type(channel), channel.get("options"), channel.get("shape")
-        )
+        return values.coerce(value, channel_value_type(channel), channel.options, channel.shape)
 
     def _nominal(self, address: str, wiring_default: object) -> values.StoredValue:
         channel = self._channels[address]
-        seed = self._seeds.get(address, {})
+        seed = self._seeds.get(address)
         held = topoff.held_value(seed, self._seeds.get)
         if held is not None:
             return self._coerce(address, held)
-        if seed.get("nominal") is not None:
-            return self._coerce(address, seed["nominal"])
+        if seed is not None and seed.nominal is not None:
+            return self._coerce(address, seed.nominal)
         if wiring_default is not None:
             return self._coerce(address, wiring_default)
-        return values.zero(
-            channel_value_type(channel), channel.get("options"), channel.get("shape")
-        )
+        return values.zero(channel_value_type(channel), channel.options, channel.shape)
 
     @property
     @override
@@ -386,13 +387,14 @@ class TextureModel(LUMEModel):
         """
         downstream: dict[str, set[str]] = {}
         for address in self._variables:
-            seed = self._seeds.get(address) or {}
-            sources = [source for source, _ in _linear_terms(seed.get("linear") or {})]
-            gate = seed.get("gate")
-            sources += [source for source, _ in _gate_inputs(gate.get("inputs") if gate else None)]
+            seed = self._seeds.get(address)
+            linear = None if seed is None else seed.linear
+            sources = [source for source, _ in _linear_terms(linear or {})]
+            gate = None if seed is None else seed.gate
+            sources += [source for source, _ in _gate_inputs(None if gate is None else gate.inputs)]
             record = self._pulse(address)
             if record is not None:
-                sources += [str(record["driver"]), str(record["enable"])]
+                sources += [record.driver, record.enable]
             for source in sources:
                 downstream.setdefault(source, set()).add(address)
         reach: dict[str, frozenset[str]] = {}
@@ -420,7 +422,8 @@ class TextureModel(LUMEModel):
         self, address: str, held: Mapping[str, values.StoredValue]
     ) -> values.StoredValue:
         """``held[address]``, or for a ``linear`` channel the weighted sum of its inputs."""
-        linear = self._seeds.get(address, {}).get("linear")
+        seed = self._seeds.get(address)
+        linear = None if seed is None else seed.linear
         if not linear:
             return held[address]
         return sum(
@@ -432,10 +435,11 @@ class TextureModel(LUMEModel):
         self, address: str, value: values.StoredValue, held: Mapping[str, values.StoredValue]
     ) -> values.StoredValue:
         """``value``, or the seed's gated value while any ``gate`` input blocks."""
-        gate = self._seeds.get(address, {}).get("gate")
-        if not gate or not self._blocked(gate, held):
+        seed = self._seeds.get(address)
+        gate = None if seed is None else seed.gate
+        if gate is None or not self._blocked(gate, held):
             return value
-        gated = gate["gated"]
+        gated = gate.gated
         value_type = channel_value_type(self._channels[address])
         if value_type == "float":
             return values._real(value) * values._real(gated)
@@ -451,7 +455,7 @@ class TextureModel(LUMEModel):
             source in held
             and source in self._channels
             and self._derived(source, held) == self._coerce(source, label)
-            for source, label in _gate_inputs(gate.get("inputs"))
+            for source, label in _gate_inputs(gate.inputs)
         )
 
     def set_motion(
@@ -474,7 +478,7 @@ class TextureModel(LUMEModel):
             still: Addresses served without motion.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
-        self._noise = {str(address): {**entry} for address, entry in noise.items()}
+        self._noise = dict(noise)
         self._still = frozenset(str(address) for address in still)
 
     def motion(self, address: str, t_s: object, base: object = 0.0) -> npt.NDArray[np.float64]:
@@ -503,13 +507,11 @@ class TextureModel(LUMEModel):
         channel = self._channels.get(address)
         if channel is None or not is_float_channel(channel) or address in self._still:
             return total.reshape(times.shape)
-        seed = self._seeds.get(address) or {}
+        seed = self._seeds.get(address)
         key = series.channel_key_bytes(address)
-        drift = seed.get("drift")
-        if drift:
-            total = total + series.wander(
-                key, flat, float(drift["amplitude"]), float(drift["period_s"])
-            )
+        drift = None if seed is None else seed.drift
+        if drift is not None:
+            total = total + series.wander(key, flat, float(drift.amplitude), float(drift.period_s))
         for coupling in self._couple.get(address, ()):
             total = total + self._coupling(address, coupling, flat)
         record = topoff.topoff_record(seed)
@@ -539,12 +541,12 @@ class TextureModel(LUMEModel):
         channel = self._channels.get(address)
         if channel is None or not is_float_channel(channel) or address in self._still:
             return False
-        seed = self._seeds.get(address) or {}
+        seed = self._seeds.get(address)
         if self._couple.get(address) or topoff.topoff_record(seed) is not None:
             return True
         if address not in self._noise:
             return declares_motion(seed)
-        return bool(seed.get("drift") or self._noise_term(address)[1])
+        return bool((seed is not None and seed.drift is not None) or self._noise_term(address)[1])
 
     def _noise_term(self, address: str) -> tuple[str, float, bytes]:
         """The noise record acting on *address*: ``(term, value, stream subkey)``.
@@ -554,14 +556,13 @@ class TextureModel(LUMEModel):
         the channel's key. No record is an absolute term of 0.0.
         """
         replacement = self._noise.get(address)
-        term: Literal["absolute", "relative"]
         if replacement is None:
-            record = (self._seeds.get(address) or {}).get("noise") or {}
-            term = _RELATIVE if _RELATIVE in record else _ABSOLUTE
-            return term, float(record.get(term) or 0.0), b""
-        term = _RELATIVE if _RELATIVE in replacement else _ABSOLUTE
+            seed = self._seeds.get(address)
+            term, value = _noise_term(None if seed is None else seed.noise)
+            return term, value, b""
+        term, value = _noise_term(replacement)
         subkey = _SCENARIO_RELATIVE_SUBKEY if term == _RELATIVE else _SCENARIO_ABSOLUTE_SUBKEY
-        return term, float(replacement.get(term) or 0.0), subkey
+        return term, value, subkey
 
     @staticmethod
     def _tooth(
@@ -582,24 +583,24 @@ class TextureModel(LUMEModel):
         address: str, coupling: ResolvedCoupling, times: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]:
         """``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling."""
-        driver = str(coupling["driver"])
-        drive = coupling["drive"]
+        driver = coupling.driver
+        drive = coupling.drive
         signal = series.wander(
             series.driver_key_bytes(driver),
             times,
-            float(drive["amplitude"]),
-            float(drive["period_s"]),
+            float(drive.amplitude),
+            float(drive.period_s),
         )
-        gain: float | npt.NDArray[np.float64] = float(coupling["gain"])
-        envelope = coupling.get("gain_wander")
-        if envelope:
+        gain: float | npt.NDArray[np.float64] = float(coupling.gain)
+        envelope = coupling.gain_wander
+        if envelope is not None:
             gain = gain * (
                 1.0
                 + series.wander(
                     series.channel_key_bytes(address) + _GAIN_WANDER_SUBKEY + driver.encode(),
                     times,
-                    float(envelope["amplitude"]),
-                    float(envelope["period_s"]),
+                    float(envelope.amplitude),
+                    float(envelope.period_s),
                 )
             )
         return np.asarray(gain * signal, dtype=np.float64)
@@ -609,7 +610,8 @@ class TextureModel(LUMEModel):
         channel = self._channels.get(address)
         if channel is None or not values.is_waveform(channel_value_type(channel)):
             return None
-        return (self._seeds.get(address) or {}).get("pulse") or None
+        seed = self._seeds.get(address)
+        return None if seed is None else seed.pulse
 
     def _pulse_trace(
         self, address: str, record: PulseRecord, t_s: float
@@ -619,8 +621,8 @@ class TextureModel(LUMEModel):
         A driver or enable channel the model does not hold counts as zero or
         off, so the trace reads flat zero.
         """
-        driver_address = str(record["driver"])
-        enable_address = str(record["enable"])
+        driver_address = record.driver
+        enable_address = record.enable
         driver = (
             values._real(self._held_value(driver_address)) if driver_address in self._held else 0.0
         )
@@ -632,7 +634,8 @@ class TextureModel(LUMEModel):
 
     def clamp(self, address: str, value: float) -> float:
         """Clamp a float into the seed's ``clamp`` band; a null side is unbounded."""
-        band = self._seeds.get(address, {}).get("clamp")
+        seed = self._seeds.get(address)
+        band = None if seed is None else seed.clamp
         if not band:
             return value
         return series.clamp(value, band[0], band[1])
@@ -650,9 +653,7 @@ class TextureModel(LUMEModel):
             elif values.is_waveform(channel_value_type(channel)):
                 record = self._pulse(name)
                 array = held if record is None else self._pulse_trace(name, record, t_s)
-                outputs[name] = np.asarray(array, dtype=np.float64).reshape(
-                    tuple(int(size) for size in channel["shape"])
-                )
+                outputs[name] = np.asarray(array, dtype=np.float64).reshape(channel.shape or ())
             else:
                 outputs[name] = held
         return outputs

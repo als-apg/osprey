@@ -21,7 +21,9 @@ from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
+from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
 from osprey_connectors.simulation.series import anchored_instant, step_end
+from tests._archiver_events import event as view_event
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 LIFETIME = "SR:DIAG:DCCT:01:LIFETIME:RB"
@@ -53,14 +55,14 @@ def archive(built_demo) -> ArchiveComposite:
 @pytest.fixture(scope="module")
 def dump(facility) -> dict[str, Any]:
     """The scenario's one DCCT event and the window it holds the current over."""
-    (event,) = next(
+    (stated,) = next(
         item["events"] for item in facility["scenario"]["archiver"] if item["channel"] == DCCT
     )
     tz = get_facility_timezone()
-    start = anchored_instant(event, RF_ANCHOR_S, tz)
-    end = step_end(event, RF_ANCHOR_S, tz)
+    start = anchored_instant(view_event(stated), RF_ANCHOR_S, tz)
+    end = step_end(view_event(stated), RF_ANCHOR_S, tz)
     assert end is not None, "the dump is a bounded step"
-    return {"event": event, "start": start, "end": end}
+    return {"event": stated, "start": start, "end": end}
 
 
 def _noise(seed: dict[str, Any]) -> float:
@@ -86,14 +88,14 @@ def test_after_the_recovery_the_stored_current_carries_the_sawtooth(
 ) -> None:
     seed = facility["seeds"][DCCT]
     record = seed["topoff"]
-    held = topoff.held_value(seed)
+    held = topoff.held_value(SeedRecord.model_validate(seed))
     assert held is not None
     # One hour of stored documents, starting a minute after the recovery.
     epoch = np.arange(dump["end"] + 60.0, dump["end"] + 3660.0, CADENCE_S)
     field = field_name(DCCT)
     stored = np.array([document[field] for document in _synthesize_documents(archive, epoch)])
     # A full tooth: from a refill to just before the next.
-    tau, period = topoff.tau_period(record)
+    tau, period = topoff.tau_period(TopoffRecord.model_validate(record))
     full_tooth = record["ceiling"] * (1.0 - np.exp(-(period - 1e-6) / tau))
     assert np.ptp(stored) >= full_tooth, (float(np.ptp(stored)), full_tooth)
     assert np.ptp(stored) <= full_tooth + 2 * NOISE_SIGMAS * _noise(seed)

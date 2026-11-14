@@ -172,7 +172,7 @@ def _read_simulator_view(render_root: Path) -> str:
     dict(view.status_addresses())
     scenarios = view.scenarios()
     for scenario in scenarios:
-        view.scenario_dir(str(scenario["name"]))
+        view.scenario_dir(scenario.name)
     return (
         f"simulator view OK: {len(models)} models ({len(physics)} physics), "
         f"{len(channels)} channels ({bound} bound), {len(scenarios)} scenarios"

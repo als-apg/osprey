@@ -99,10 +99,10 @@ def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
     render_facility_outputs(render_dir, document, {}, facility_dir)
 
     view = SimulatorView.open(render_dir / "data" / "simulator")
-    hush = {str(s["name"]): s for s in view.scenarios()}[name]
+    hush = {s.name: s for s in view.scenarios()}[name]
     floats = [a for a in view.channels() if view.channel(a).value_type == "float"]
     assert floats
-    assert list(hush["still"]) == floats
+    assert list(hush.still) == floats
     seeds = {address: {"nominal": 1.0, "noise": {"absolute": 0.1}} for address in floats}
     assert set(active_envelopes(seeds, {name: hush}, [name]).values()) == {0.0}
 

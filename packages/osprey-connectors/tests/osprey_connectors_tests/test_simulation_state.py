@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.simulation.records import ScenarioRecord
 from osprey_connectors.simulation.state import (
     Overlap,
     composed_set,
@@ -48,8 +49,19 @@ def test_an_unknown_name_is_refused() -> None:
 # -- still -------------------------------------------------------------------------
 
 
+def _record(name: str, scenario: dict) -> ScenarioRecord:
+    """A scenario's blocks as the view's record, a facility file's ``faults`` as ``{writes}``."""
+    faults = {
+        model: writes if "writes" in writes else {"writes": writes}
+        for model, writes in (scenario.get("faults") or {}).items()
+    }
+    return ScenarioRecord.model_validate(
+        {"name": name, **scenario, **({"faults": faults} if faults else {})}
+    )
+
+
 def _targets(**scenarios: dict) -> dict[str, set[str]]:
-    return {name: scenario_targets(scenario) for name, scenario in scenarios.items()}
+    return {name: scenario_targets(_record(name, scenario)) for name, scenario in scenarios.items()}
 
 
 def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
@@ -162,7 +174,9 @@ def _demo_history() -> dict:
 
 
 def test_an_archiver_entry_writes_no_target() -> None:
-    assert scenario_targets({"archiver": [{"channel": "SR:VAC:PRESSURE", "events": []}]}) == set()
+    scenario = _record("logged", {"archiver": [{"channel": "SR:VAC:PRESSURE", "events": []}]})
+
+    assert scenario_targets(scenario) == set()
 
 
 def test_archiver_events_on_one_channel_compose() -> None:

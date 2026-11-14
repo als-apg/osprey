@@ -51,7 +51,9 @@ def write_scenarios_view(
     Args:
         render: The render's root.
         scenarios: Scenario name -> its blocks (``description``, ``archiver``,
-            ``logbook``, ...), carried verbatim.
+            ``logbook``, ...), carried verbatim but for a facility file's
+            ``faults``, ``{model: writes}``, which the build writes as
+            ``{model: {writes}}``.
         files: A facility ``scenarios/`` directory whose ``<name>/``
             subdirectories, holding the files the entries attach, are copied
             beside the view as the build copies them.
@@ -61,7 +63,7 @@ def write_scenarios_view(
     """
     document = {
         "schema": SCENARIOS_SCHEMA,
-        "scenarios": [{"name": name, **dict(scenarios[name])} for name in sorted(scenarios)],
+        "scenarios": [_view_scenario(name, scenarios[name]) for name in sorted(scenarios)],
     }
     path = render / "data" / "simulator" / SCENARIOS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +76,18 @@ def write_scenarios_view(
             if (files / name).is_dir():
                 shutil.copytree(files / name, path.parent / SCENARIOS_DIR / name)
     return path
+
+
+def _view_scenario(name: str, blocks: Mapping[str, object]) -> dict[str, object]:
+    """A scenario's blocks as ``scenarios.json`` states them."""
+    scenario = {"name": name, **dict(blocks)}
+    faults = scenario.get("faults")
+    if faults is not None:
+        scenario["faults"] = {
+            model: writes if "writes" in writes else {"writes": writes}
+            for model, writes in faults.items()
+        }
+    return scenario
 
 
 def facility_scenarios(directory: Path) -> dict[str, dict[str, Any]]:

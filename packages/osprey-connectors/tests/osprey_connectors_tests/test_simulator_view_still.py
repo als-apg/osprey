@@ -20,7 +20,7 @@ from osprey_connectors.simulation.view import (
 
 def _view(tmp_path: Path, scenario: dict[str, Any]) -> SimulatorView:
     (tmp_path / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA}), encoding="utf-8"
+        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), encoding="utf-8"
     )
     (tmp_path / SCENARIOS_FILE).write_text(
         json.dumps({"schema": SCENARIOS_SCHEMA, "scenarios": [scenario]}), encoding="utf-8"
@@ -39,4 +39,4 @@ def test_a_still_other_than_a_list_of_addresses_is_refused(tmp_path: Path, still
 def test_a_still_of_addresses_reads_as_it_is(tmp_path: Path) -> None:
     view = _view(tmp_path, {"name": "quiet", "still": ["SR:RF:TEMP"]})
 
-    assert view.scenarios()[0]["still"] == ("SR:RF:TEMP",)
+    assert view.scenarios()[0].still == ("SR:RF:TEMP",)

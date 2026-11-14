@@ -130,6 +130,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.records import ResolvedCoupling
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -166,7 +167,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         CouplingTerm,
         DriveRecord,
         NoiseRecord,
-        ResolvedCoupling,
         ScenarioRecord,
     )
 
@@ -422,17 +422,17 @@ class Composite(LUMEModel):
 
         variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, ScenarioRecord] = {
-            str(scenario["name"]): scenario for scenario in view.scenarios()
+            scenario.name: scenario for scenario in view.scenarios()
         }
         self._channels: dict[str, ChannelRecord] = {
-            str(channel["address"]): channel for channel in variables["channels"]
+            channel.address: channel for channel in variables.channels
         }
         models = {model.name: model for model in view.physics_models()}
         physics = sorted(models)
 
         self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
         self._owner: dict[str, str] = {
-            address: (owner if (owner := str(record.get("owner"))) in physics else TEXTURE_OWNER)
+            address: (owner if (owner := record.owner) in physics else TEXTURE_OWNER)
             for address, record in self._channels.items()
         }
         children = {name: self._child(models[name]) for name in physics}
@@ -512,15 +512,13 @@ class Composite(LUMEModel):
     def _start_value(self, child: _Child, address: str) -> values.StoredValue:
         """A physics channel's start value: its active write, its wiring default, or zero."""
         channel = self._channels[address]
-        value_type = channel.get("value_type")
+        value_type = channel.value_type
         if address in child.active:
-            return values.coerce(
-                child.active[address], value_type, channel.get("options"), channel.get("shape")
-            )
+            return values.coerce(child.active[address], value_type, channel.options, channel.shape)
         default = child.defaults.get(address)
         if default is not None:
-            return values.coerce(default, value_type, channel.get("options"), channel.get("shape"))
-        return values.zero(value_type, channel.get("options"), channel.get("shape"))
+            return values.coerce(default, value_type, channel.options, channel.shape)
+        return values.zero(value_type, channel.options, channel.shape)
 
     def _start_inputs(self, child: _Child) -> dict[str, values.StoredValue]:
         """A child's setpoints at their start values."""
@@ -778,27 +776,34 @@ class Composite(LUMEModel):
             if scenario is None:
                 # ``nominal`` when the view does not list it: a scenario that writes nothing.
                 continue
-            overrides.update(scenario.get("overrides") or {})
-            overridden_by[str(name)] = {str(a) for a in scenario.get("overrides") or {}}
-            for model, fault in (scenario.get("faults") or {}).items():
-                if not fault.get("inactive"):
-                    faults.setdefault(str(model), {}).update(fault.get("writes") or {})
-                    faulted_by.setdefault(str(model), set()).add(str(name))
-            drivers.update(scenario.get("drivers") or {})
-            for address, terms in (scenario.get("couple") or {}).items():
-                couple.setdefault(str(address), []).extend(terms)
-            noise.update(scenario.get("noise") or {})
-            still.update(str(address) for address in scenario.get("still") or ())
-            channel_faults.update(scenario.get("channel_faults") or {})
+            overrides.update(scenario.overrides)
+            overridden_by[str(name)] = set(scenario.overrides)
+            for model, fault in scenario.faults.items():
+                if not fault.inactive:
+                    faults.setdefault(model, {}).update(fault.writes)
+                    faulted_by.setdefault(model, set()).add(str(name))
+            drivers.update(scenario.drivers)
+            for address, terms in scenario.couple.items():
+                couple.setdefault(address, []).extend(terms)
+            noise.update(scenario.noise)
+            still.update(scenario.still)
+            channel_faults.update(scenario.channel_faults)
 
         resolved: dict[str, list[ResolvedCoupling]] = {}
-        for address, terms in couple.items():
-            for term in terms:
-                drive = drivers.get(str(term["driver"]))
+        for address, merged in couple.items():
+            for term in merged:
+                drive = drivers.get(term.driver)
                 if drive is None:
-                    logger.warning(f"{address} couples to undeclared driver {term['driver']!r}")
+                    logger.warning(f"{address} couples to undeclared driver {term.driver!r}")
                     continue
-                resolved.setdefault(address, []).append({**term, "drive": drive})
+                resolved.setdefault(address, []).append(
+                    ResolvedCoupling(
+                        driver=term.driver,
+                        gain=term.gain,
+                        gain_wander=term.gain_wander,
+                        drive=drive,
+                    )
+                )
         self._texture.set_motion(resolved, noise, still=frozenset(still))
         self._moving = frozenset(
             address
@@ -864,12 +869,12 @@ class Composite(LUMEModel):
             if fault is None or channel is None:
                 logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
                 continue
-            if channel.get("role") != SETPOINT:
+            if channel.role != SETPOINT:
                 faulted[str(address)] = fault
                 continue
             if fault.write:
                 held.add(str(address))
-            pair = str(channel.get("pair") or address)
+            pair = channel.pair or str(address)
             if fault.read is None:
                 continue
             if pair != address and pair in self._channels:
@@ -1013,7 +1018,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        return channel.get("role") != SETPOINT and is_float_channel(channel)
+        return channel.role != SETPOINT and is_float_channel(channel)
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, object]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
@@ -1120,9 +1125,7 @@ class Composite(LUMEModel):
             elif name in child.last_good:
                 outputs[name] = child.last_good[name]
             else:
-                outputs[name] = values.zero(
-                    value_type, channel.get("options"), channel.get("shape")
-                )
+                outputs[name] = values.zero(value_type, channel.options, channel.shape)
         return outputs
 
     def readout_group(self, address: str) -> tuple[str, ...]:
@@ -1306,9 +1309,9 @@ class Composite(LUMEModel):
             try:
                 coerced[name] = values.coerce(
                     value.tolist() if isinstance(value, np.ndarray) else value,
-                    channel.get("value_type"),
-                    channel.get("options"),
-                    channel.get("shape"),
+                    channel.value_type,
+                    channel.options,
+                    channel.shape,
                 )
                 variable.validate_value(_for_variable(variable, coerced[name]))
             except ValueError as exc:
