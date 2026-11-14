@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
+from typing import TypeGuard
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
@@ -198,6 +199,11 @@ def _finite_real_or_reason(value: object) -> tuple[float | None, str | None]:
     return number, None
 
 
+def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
+    """Whether ``value`` is a JSON object: a ``dict``, whose keys :mod:`json` makes ``str``."""
+    return isinstance(value, dict)
+
+
 def step_read_timeout_seconds(
     config: Mapping[str, object] | None, connector_type: str | None = None
 ) -> float:
@@ -286,12 +292,13 @@ class LimitsValidator:
         self,
         limits_database: dict[str, ChannelLimitsConfig],
         policy_config: Mapping[str, object],
-        raw_db: dict | None = None,
+        raw_db: Mapping[str, object] | None = None,
         failsafe_reason: str | None = None,
-    ):
+    ) -> None:
         self.limits = limits_database
         self.policy = policy_config
-        self._raw_db = raw_db  # Keep raw database for confirm-policy access
+        # Keep raw database for confirm-policy access; none given is an empty one.
+        self._raw_db: Mapping[str, object] = {} if raw_db is None else raw_db
         # Set only by the empty-DB failsafe paths in from_config: the database
         # could not be loaded, so every write is blocked. validate() uses it to
         # refuse with a load-failure message instead of the unlisted-channel
@@ -373,7 +380,9 @@ class LimitsValidator:
         if config_lookup is None:
             from osprey_connectors.config import default_config_path, get_config_value
 
-            config_lookup = get_config_value
+            # Bound through a ConfigLookup, so the lookup answers ``object``.
+            live_lookup: ConfigLookup = get_config_value
+            config_lookup = live_lookup
             if config_path is None:
                 config_path = default_config_path()
 
@@ -394,7 +403,7 @@ class LimitsValidator:
         *,
         config_lookup: ConfigLookup | None = None,
         config_path: str | None = None,
-    ) -> tuple[tuple[dict[str, ChannelLimitsConfig], dict] | None, str | None]:
+    ) -> tuple[tuple[dict[str, ChannelLimitsConfig], dict[str, object]] | None, str | None]:
         """Resolve and load the deployment-wide limits database.
 
         The database path is deployment-wide even where the posture is not: a
@@ -521,7 +530,7 @@ class LimitsValidator:
         try:
             from osprey_connectors.config import get_config_value
 
-            section = get_config_value("control_system", {})
+            section: object = get_config_value("control_system", {})
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
@@ -558,7 +567,7 @@ class LimitsValidator:
         try:
             from osprey_connectors.config import get_config_value
 
-            section = get_config_value("control_system", {})
+            section: object = get_config_value("control_system", {})
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
@@ -624,7 +633,7 @@ class LimitsValidator:
             # Both entries are JSON-serialisable: the python executor embeds
             # this dict verbatim into the sandbox (wrapper.py), so the
             # tri-state rides as null rather than as anything richer.
-            policy = {
+            policy: dict[str, object] = {
                 "mode": posture.mode,
                 "mode_key": posture.key("mode"),
             }
@@ -665,12 +674,12 @@ class LimitsValidator:
         Returns:
             True when the write must be confirmed (the fleet default).
         """
-        raw_db = getattr(self, "_raw_db", None)
+        raw_db = self._raw_db
         if not isinstance(raw_db, dict):
             return True
 
         channel_config = raw_db.get(channel_address)
-        if isinstance(channel_config, dict) and "confirm" in channel_config:
+        if _is_json_object(channel_config) and "confirm" in channel_config:
             return bool(channel_config["confirm"])
 
         return True
@@ -685,7 +694,37 @@ class LimitsValidator:
         return channel_config is not None and channel_config.max_step is not None
 
     @staticmethod
-    def _validate_channel_config(channel_name: str, config_dict: dict) -> None:
+    def _numeric_field(config_dict: Mapping[str, object], field: str) -> float | None:
+        """One numeric field of a channel entry; ``None`` when absent or null.
+
+        Raises:
+            ValueError: The field holds something that is not a number.
+        """
+        value = config_dict.get(field)
+        if value is not None and not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Field '{field}' must be numeric, got {type(value).__name__} = {value}"
+            )
+        return value
+
+    @staticmethod
+    def _boolean_field(config_dict: Mapping[str, object], field: str) -> bool | None:
+        """One boolean field of a channel entry; ``None`` when absent.
+
+        Raises:
+            ValueError: The field is present and is not a boolean.
+        """
+        if field not in config_dict:
+            return None
+        value = config_dict[field]
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"Field '{field}' must be boolean, got {type(value).__name__} = {value}"
+            )
+        return value
+
+    @staticmethod
+    def _validate_channel_config(channel_name: str, config_dict: Mapping[str, object]) -> None:
         """Validate a single channel configuration structure.
 
         Args:
@@ -716,24 +755,16 @@ class LimitsValidator:
 
         # Validate numeric fields
         for field in ["min_value", "max_value", "max_step"]:
-            if field in config_dict:
-                value = config_dict[field]
-                if value is not None and not isinstance(value, (int, float)):
-                    raise ValueError(
-                        f"Field '{field}' must be numeric, got {type(value).__name__} = {value}"
-                    )
+            LimitsValidator._numeric_field(config_dict, field)
 
         # Validate boolean fields
         for field in ["writable", "confirm"]:
-            if field in config_dict:
-                value = config_dict[field]
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"Field '{field}' must be boolean, got {type(value).__name__} = {value}"
-                    )
+            LimitsValidator._boolean_field(config_dict, field)
 
     @staticmethod
-    def _load_limits_database(db_path: str) -> tuple[dict[str, ChannelLimitsConfig], dict]:
+    def _load_limits_database(
+        db_path: str,
+    ) -> tuple[dict[str, ChannelLimitsConfig], dict[str, object]]:
         """Load and validate limits database from JSON file.
 
         The database holds:
@@ -763,9 +794,9 @@ class LimitsValidator:
                 raise ValueError(f"Channel limits database not found: {db_path}")
 
             with open(path) as f:
-                raw_db = json.load(f)
+                raw_db: object = json.load(f)
 
-            if not isinstance(raw_db, dict):
+            if not _is_json_object(raw_db):
                 raise ValueError(
                     f"Limits database must be a JSON object/dict, got {type(raw_db).__name__}"
                 )
@@ -779,7 +810,7 @@ class LimitsValidator:
                 )
 
             # Load channel configurations
-            limits_db = {}
+            limits_db: dict[str, ChannelLimitsConfig] = {}
             for channel_name, config_dict in raw_db.items():
                 # Skip metadata fields (underscore prefix)
                 if channel_name in METADATA_FIELDS or channel_name.startswith("_"):
@@ -787,7 +818,7 @@ class LimitsValidator:
                     continue
 
                 # Validate it's a dict
-                if not isinstance(config_dict, dict):
+                if not _is_json_object(config_dict):
                     raise ValueError(
                         f"Invalid config for channel '{channel_name}': "
                         f"must be a dictionary, got {type(config_dict).__name__}"
@@ -799,15 +830,16 @@ class LimitsValidator:
 
                     # Writability is never assumed: an entry that does not
                     # state it fails the load.
-                    if "writable" not in config_dict:
+                    writable = LimitsValidator._boolean_field(config_dict, "writable")
+                    if writable is None:
                         raise ValueError(f"Channel '{channel_name}' does not state 'writable'")
 
                     config = ChannelLimitsConfig(
                         channel_address=channel_name,
-                        min_value=config_dict.get("min_value"),
-                        max_value=config_dict.get("max_value"),
-                        max_step=config_dict.get("max_step"),
-                        writable=config_dict["writable"],
+                        min_value=LimitsValidator._numeric_field(config_dict, "min_value"),
+                        max_value=LimitsValidator._numeric_field(config_dict, "max_value"),
+                        max_step=LimitsValidator._numeric_field(config_dict, "max_step"),
+                        writable=writable,
                     )
 
                     # Log performance warning for max_step

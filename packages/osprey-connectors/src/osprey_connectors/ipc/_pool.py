@@ -212,16 +212,16 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Callable, Coroutine, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -233,6 +233,7 @@ from osprey_connectors.ipc._launch import (
 from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
+    _expect,
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
@@ -266,6 +267,8 @@ __all__ = [
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.
 logger = logging.getLogger("osprey_connectors.ipc.pool")
+
+_T = TypeVar("_T")
 
 #: The one execution mode a key may carry besides ``None``.
 READONLY = "readonly"
@@ -358,7 +361,7 @@ class ConnectorHostError(ConnectorUnavailableError):
         target: str,
         execution_mode: str | None,
         pid: int | None,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         super().__init__(message, recovery=recovery)
         self.target = target
@@ -495,7 +498,7 @@ class ConnectorHostLostError(ConnectorHostError):
         pid: int | None,
         cause: str,
         returncode: int | None,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         super().__init__(
             message,
@@ -520,9 +523,9 @@ class ConnectorHostSlowCallError(TimeoutError):
     ``child_kept`` record, as on :class:`ConnectorUnavailableError`.
     """
 
-    def __init__(self, message: str, *, recovery: Sequence[Mapping[str, str]] = ()) -> None:
+    def __init__(self, message: str, *, recovery: Sequence[RecoveryRecord] = ()) -> None:
         super().__init__(message)
-        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
+        self.recovery: tuple[RecoveryRecord, ...] = tuple(recovery)
 
 
 class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
@@ -662,7 +665,7 @@ class ConnectorHostPool:
 
     def __init__(
         self,
-        control_system: Mapping[str, Any],
+        control_system: Mapping[str, object],
         *,
         config_file: str | PathLike[str] | None = None,
         python: str = sys.executable,
@@ -673,7 +676,7 @@ class ConnectorHostPool:
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
         kill_on_write_timeout: bool = False,
     ) -> None:
-        self._section = copy.deepcopy(dict(control_system))
+        self._section: dict[str, object] = copy.deepcopy(dict(control_system))
         self._config_file = str(Path(config_file).resolve()) if config_file else None
         self._python = python
         self._start_timeout_s = start_timeout_s
@@ -769,12 +772,23 @@ class ConnectorHostPool:
 
     # -- calls -------------------------------------------------------------
 
-    async def _invoke(self, key: _Key, method: str, *args: object, **kwargs: object) -> Any:
-        """Run one call on *key*'s child. Never retried."""
+    async def _invoke(self, key: _Key, method: str, *args: object, **kwargs: object) -> object:
+        """Run the proxy method named *method* on *key*'s child. Never retried."""
+
+        async def call(proxy: ConnectorHostProxy) -> object:
+            bound: Callable[..., Awaitable[object]] = getattr(proxy, method)
+            return await bound(*args, **kwargs)
+
+        return await self._call(key, method, call)
+
+    async def _call(
+        self, key: _Key, method: str, call: Callable[[ConnectorHostProxy], Awaitable[_T]]
+    ) -> _T:
+        """Run *call*, the proxy's *method*, on *key*'s child. Never retried."""
         child = await self._ensure(key)
         ticket = self._policy.begin()
         try:
-            return await getattr(child.proxy, method)(*args, **kwargs)
+            return await call(child.proxy)
         except ChildUnresponsiveError as exc:
             if child.retired is not None:
                 # Another call already retired this child; its cause stands.
@@ -829,7 +843,7 @@ class ConnectorHostPool:
 
     async def _recovered(
         self, child: _PoolChild, method: str, exc: BaseException, ticket: int
-    ) -> tuple[dict[str, str], ...]:
+    ) -> tuple[RecoveryRecord, ...]:
         """The record of the recovery that replaced a retired child; none when the pool stopped it."""
         if child.retired == CAUSE_STOPPED:
             return ()
@@ -897,7 +911,7 @@ class ConnectorHostPool:
         cause: str,
         method: str,
         *,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> ConnectorHostLostError:
         target, mode, _owner, _authorization = _key_parts(child.key)
         error_class: type[ConnectorHostLostError] = ConnectorHostLostError
@@ -997,7 +1011,7 @@ class ConnectorHostPool:
         """
         target, mode, _owner, _authorization = _key_parts(key)
         readonly = mode == READONLY
-        section = resolve_env_vars(copy.deepcopy(self._section))
+        section: dict[str, object] = resolve_env_vars(copy.deepcopy(self._section))
         # Derived once, so the config refusal and the post-connect verification
         # judge the same posture snapshot.
         derivation, readonly_run, writes = self._derive(key, section)
@@ -1130,7 +1144,9 @@ class ConnectorHostPool:
         )
         return child
 
-    def _derive(self, key: _Key, section: dict[str, Any]) -> tuple[TargetDerivation, bool, bool]:
+    def _derive(
+        self, key: _Key, section: Mapping[str, object]
+    ) -> tuple[TargetDerivation, bool, bool]:
         """The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.
 
         That posture is what the child will select its gateway on, and the
@@ -1150,7 +1166,7 @@ class ConnectorHostPool:
         )
         return derivation, readonly_run, writes
 
-    def _key_writes_allowed(self, section: dict[str, Any], key: _Key) -> bool:
+    def _key_writes_allowed(self, section: Mapping[str, object], key: _Key) -> bool:
         """:meth:`_writes_allowed` for *key*; a two-part key asks it with two arguments."""
         target, _mode, owner, authorization = _key_parts(key)
         if owner is None and authorization is None:
@@ -1159,7 +1175,7 @@ class ConnectorHostPool:
 
     @staticmethod
     def _writes_allowed(
-        section: dict[str, Any],
+        section: Mapping[str, object],
         target: str,
         owner: str | None = None,
         authorization: str | None = None,
@@ -1180,7 +1196,7 @@ class ConnectorHostPool:
     def _writes_moved(
         self,
         key: _Key,
-        section: dict[str, Any],
+        section: Mapping[str, object],
         readonly_run: bool,
         writes: bool,
         report: dict[str, object],
@@ -1197,7 +1213,7 @@ class ConnectorHostPool:
         return self._key_writes_allowed(section, key) is not writes
 
     def _config_refusal(
-        self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
+        self, key: _Key, section: Mapping[str, object], derivation: TargetDerivation
     ) -> str | None:
         """Why *key* must not be spawned at all, from config alone, or ``None``.
 
@@ -1404,18 +1420,18 @@ class PooledConnector:
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
-        result: ChannelValue = await self._pool._invoke(
-            self._key, "read_channel", channel_address, timeout
+        return await self._pool._call(
+            self._key, "read_channel", lambda proxy: proxy.read_channel(channel_address, timeout)
         )
-        return result
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
-        result: dict[str, ChannelValue] = await self._pool._invoke(
-            self._key, "read_multiple_channels", channel_addresses, timeout
+        return await self._pool._call(
+            self._key,
+            "read_multiple_channels",
+            lambda proxy: proxy.read_multiple_channels(channel_addresses, timeout),
         )
-        return result
 
     async def write_channel(
         self,
@@ -1424,10 +1440,11 @@ class PooledConnector:
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
-        result: ChannelWriteResult = await self._pool._invoke(
-            self._key, "write_channel", channel_address, value, timeout, confirm
+        return await self._pool._call(
+            self._key,
+            "write_channel",
+            lambda proxy: proxy.write_channel(channel_address, value, timeout, confirm),
         )
-        return result
 
     async def write_multiple_channels(
         self,
@@ -1435,10 +1452,11 @@ class PooledConnector:
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
-        result: list[ChannelWriteResult] = await self._pool._invoke(
-            self._key, "write_multiple_channels", operations, timeout, confirm
+        return await self._pool._call(
+            self._key,
+            "write_multiple_channels",
+            lambda proxy: proxy.write_multiple_channels(operations, timeout, confirm),
         )
-        return result
 
     async def write_channel_checked(
         self, channel_address: str, value: object, **kwargs: object
@@ -1450,14 +1468,17 @@ class PooledConnector:
         that was sent but not confirmed. ``confirm`` and ``timeout`` pass
         through to :meth:`write_channel`.
         """
-        result: ChannelWriteResult = await self._pool._invoke(
+        # The proxy's own write_channel_checked is the base class's function,
+        # bound by name: it is typed for a ControlSystemConnector, not the proxy.
+        result = await self._pool._invoke(
             self._key, "write_channel_checked", channel_address, value, **kwargs
         )
-        return result
+        return _expect(result, ChannelWriteResult, "write_channel_checked")
 
     async def validate_channel(self, channel_address: str) -> bool:
-        result: bool = await self._pool._invoke(self._key, "validate_channel", channel_address)
-        return result
+        return await self._pool._call(
+            self._key, "validate_channel", lambda proxy: proxy.validate_channel(channel_address)
+        )
 
     async def disconnect(self) -> None:
         """Stop this key's child. A later call on this handle starts a fresh one.

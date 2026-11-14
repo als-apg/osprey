@@ -1431,7 +1431,7 @@ keys:
   # while nothing OSPREY ships writes one.
   control_system.connector.epics.gateways:
     rendered: false
-    evidence: 'gateways = config\.get\("gateways", \{\}\)'
+    evidence: 'gateways: _Gateways = config\.get\("gateways"\)'
     note: >-
       Anchored on the EPICS connector's read of the block: the bare word
       `gateways` is past the vacuity cap (31 files under the evidence roots)

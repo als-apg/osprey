@@ -9,14 +9,18 @@ derivation) imports it from here rather than restating it.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Final, Literal
 
-ROLE_READ_ONLY = "read_only"
-ROLE_WRITE_ACCESS = "write_access"
+#: A gateway role: the key of one entry of a connector block's ``gateways`` table.
+GatewayRole = Literal["read_only", "write_access"]
+
+ROLE_READ_ONLY: Final = "read_only"
+ROLE_WRITE_ACCESS: Final = "write_access"
 
 
 def _selected_role(
     gateways: Mapping[str, object], *, writes_enabled: bool, readonly_run: bool
-) -> str:
+) -> GatewayRole:
     """The gateway role a connector for this gateways table selects — the one place the rule lives.
 
     ``EPICSConnector.connect()``, the connector host's report and the pool's

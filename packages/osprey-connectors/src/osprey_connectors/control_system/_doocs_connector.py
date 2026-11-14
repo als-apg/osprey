@@ -21,6 +21,9 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
+    _CheckNotMade,
+    _SendFailed,
+    _SendStep,
     values_match,
 )
 from osprey_connectors.control_system._limits_validator import (
@@ -232,7 +235,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def current_value_reader(self) -> CurrentValueReader | None:
+    def current_value_reader(self) -> CurrentValueReader:
         """The property's present value, read through this connector's own client.
 
         ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
@@ -288,14 +291,14 @@ class DOOCSConnector(ControlSystemConnector):
         #
         # A limits violation propagates unchanged; any other validation error
         # means the check could not be made, and an unmade check is not
-        # permission to write — the closure hands that case back as a sentinel
-        # and the refusal itself is built on the loop, by the base class's one
+        # permission to write — the closure hands that case back as a
+        # _CheckNotMade and the refusal itself is built on the loop, by the base class's one
         # helper, so all four connectors word it identically.
         #
         # The offload is bounded, and a send that outlives its bound is
         # unconfirmed: the worker thread cannot be stopped, so the set may
         # still arrive.
-        def _validate_and_set():
+        def _validate_and_set() -> _SendStep:
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
@@ -305,18 +308,16 @@ class DOOCSConnector(ControlSystemConnector):
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
-                    return ("refused", e)  # sentinel: no set issued
+                    return _CheckNotMade(e)  # no set issued
             try:
                 self._doocs.set(channel_address, value)
             except Exception as e:
-                return ("send_failed", e)
-            return ("ok", None)
+                return _SendFailed(e)
+            return None
 
         bound = self._bound(timeout)
         try:
-            send_result, payload = await asyncio.wait_for(
-                asyncio.to_thread(_validate_and_set), bound
-            )
+            step = await asyncio.wait_for(asyncio.to_thread(_validate_and_set), bound)
         except TimeoutError:
             logger.warning(f"DOOCS set of {channel_address} did not return within {bound}s")
             return ChannelWriteResult(
@@ -330,15 +331,15 @@ class DOOCSConnector(ControlSystemConnector):
                 notes="The value may still arrive; what the property holds is unknown",
             )
 
-        if send_result == "refused":
-            return self._validation_refusal(channel_address, value, payload)
+        if isinstance(step, _CheckNotMade):
+            return self._validation_refusal(channel_address, value, step.error)
 
-        if send_result == "send_failed":
+        if isinstance(step, _SendFailed):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {payload}",
+                error_message=f"Failed to write to '{channel_address}': {step.error}",
                 notes="DOOCS did not take the value",
             )
 
@@ -373,7 +374,7 @@ class DOOCSConnector(ControlSystemConnector):
                 notes="The value was sent; what the property holds is unknown",
             )
 
-        observed = readback.value
+        observed: object = readback.value
         confirmed = values_match(value, observed)
 
         logger.debug(

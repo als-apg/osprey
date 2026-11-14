@@ -55,8 +55,7 @@ Example:
 import asyncio
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from types import ModuleType
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -64,6 +63,7 @@ import pandas as pd
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     Processing,
+    ProcessingMode,
     aggregate_long_frame,
     long_frame,
     reject_non_numeric,
@@ -81,7 +81,7 @@ logger = get_logger("mya_archiver_connector")
 #: reports duration/integration/rms/updateCount, which OSPREY has no mode for.
 #: ``median`` is absent because MYA does not compute one; see
 #: :meth:`MYAArchiverConnector.get_data`.
-_MYSTATS_STAT = {
+_MYSTATS_STAT: dict[ProcessingMode, str] = {
     "mean": "mean",
     "min": "min",
     "max": "max",
@@ -102,6 +102,102 @@ _DEFAULT_TIMEOUT_S = 60
 #: guard in :meth:`MYAArchiverConnector._localize` refuses that silently-wrong
 #: data rather than serving it.
 _REQUIRED_CLIENT = "4.0.1"
+
+
+class _MyquerySettings(Protocol):
+    """``jlab_archiver_client.config.config``, the library's endpoint settings."""
+
+    myquery_server: str
+    protocol: str
+    interval_path: str
+    mystats_path: str
+    channel_path: str
+
+
+class _ConfigModule(Protocol):
+    """``jlab_archiver_client.config``."""
+
+    config: _MyquerySettings
+
+
+class _QueryModule(Protocol):
+    """``jlab_archiver_client.query``: the request objects, one per endpoint."""
+
+    def IntervalQuery(
+        self,
+        *,
+        channel: str,
+        begin: datetime,
+        end: datetime,
+        deployment: str,
+        unix_timestamps_ms: bool,
+        prior_point: bool,
+    ) -> object: ...
+
+    def MyStatsQuery(
+        self,
+        *,
+        pvlist: list[str],
+        start: datetime,
+        end: datetime,
+        num_bins: int,
+        deployment: str,
+        unix_timestamps_ms: bool,
+    ) -> object: ...
+
+    def ChannelQuery(self, *, pattern: str, deployment: str) -> object: ...
+
+
+class _Interval(Protocol):
+    """An ``interval`` request; ``data`` is set by ``run()``."""
+
+    data: "pd.Series | None"
+
+    def run(self) -> None: ...
+
+
+class _IntervalModule(Protocol):
+    """``jlab_archiver_client.interval``."""
+
+    def Interval(self, query: object, *, url: str) -> _Interval: ...
+
+
+class _MyStats(Protocol):
+    """A ``mystats`` request; ``data`` is set by ``run()``."""
+
+    data: "pd.DataFrame | None"
+
+    def run(self) -> None: ...
+
+
+class _MyStatsModule(Protocol):
+    """``jlab_archiver_client.mystats``."""
+
+    def MyStats(self, query: object, *, url: str) -> _MyStats: ...
+
+
+class _Channel(Protocol):
+    """A ``channel`` lookup; ``matches`` is set by ``run()``."""
+
+    matches: list[Mapping[str, object]] | None
+
+    def run(self) -> None: ...
+
+
+class _ChannelModule(Protocol):
+    """``jlab_archiver_client.channel``."""
+
+    def Channel(self, query: object, *, url: str) -> _Channel: ...
+
+
+class _JlabArchiverClient(Protocol):
+    """The surface of ``jlab_archiver_client`` the connector calls; it ships no types."""
+
+    config: _ConfigModule
+    query: _QueryModule
+    interval: _IntervalModule
+    mystats: _MyStatsModule
+    channel: _ChannelModule
 
 
 def _like_literal(channel: str) -> str:
@@ -135,8 +231,7 @@ class MYAArchiverConnector(ArchiverConnector):
     def __init__(self) -> None:
         self._connected = False
         # The client library, bound in connect() and read through _library().
-        # jlab_archiver_client ships no stubs, so what it holds is untyped.
-        self._client: ModuleType | None = None
+        self._client: _JlabArchiverClient | None = None
         self._urls: dict[str, str] = {}
         self._timeout: float = _DEFAULT_TIMEOUT_S
         self._deployment = _DEFAULT_DEPLOYMENT
@@ -180,13 +275,14 @@ class MYAArchiverConnector(ArchiverConnector):
             ),
         )
         try:
-            import jlab_archiver_client as jac
+            import jlab_archiver_client
         except ImportError:
             raise ImportError(
                 "jlab_archiver_client is required for the MYA archiver connector. "
                 f"Install with: pip install 'jlab-archiver-client>={_REQUIRED_CLIENT}'"
             ) from None
 
+        jac: _JlabArchiverClient = jlab_archiver_client
         self._client = jac
 
         try:
@@ -324,7 +420,7 @@ class MYAArchiverConnector(ArchiverConnector):
                 ) from e
             raise
 
-    def _library(self) -> ModuleType:
+    def _library(self) -> _JlabArchiverClient:
         """The client library connect() bound.
 
         Raises:
@@ -496,8 +592,7 @@ class MYAArchiverConnector(ArchiverConnector):
         )
         found = client.channel.Channel(query, url=self._urls["channel"])
         found.run()
-        matches: list[Mapping[str, object]] = found.matches or []
-        return matches
+        return found.matches or []
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Look up archiving metadata for one channel.

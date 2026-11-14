@@ -240,6 +240,11 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
+            if not isinstance(ariel_config, dict):
+                raise ValueError(
+                    f"'ariel' in {_config_file(project_dir)} must be a mapping, "
+                    f"got {type(ariel_config).__name__}"
+                )
             logbook = _view_logbook(scenarios, active, view.path / SCENARIOS_DIR)
             with seed_payload(logbook, t0) as (entries, pictures):
                 seeded, purged = _run_coro(

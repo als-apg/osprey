@@ -22,9 +22,10 @@ switch covers the call.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import (
@@ -115,9 +116,22 @@ class Unresolved:
 UNRESOLVED = Unresolved()
 
 
-def _is_write_tool(tool_name: str, write_tools: Iterable[object] | None) -> bool:
+def _entries(value: object) -> Iterable[object]:
+    """A hook-config list as the hooks iterate it: nothing when unset or empty.
+
+    A value that does not iterate raises :class:`TypeError`, as iterating it
+    would, so :func:`write_target_for_tool` places that write nowhere.
+    """
+    if not value:
+        return ()
+    if not isinstance(value, Iterable):
+        raise TypeError(f"a hook-config list is a {type(value).__name__}, which does not iterate")
+    return value
+
+
+def _is_write_tool(tool_name: str, write_tools: object) -> bool:
     """Whether *tool_name* is covered by *write_tools*: exact names and ``.*`` matchers."""
-    for entry in write_tools or ():
+    for entry in _entries(write_tools):
         if not isinstance(entry, str):
             continue
         if entry == tool_name:
@@ -163,7 +177,7 @@ def _hook_prefixes(hook_config: Mapping[str, object]) -> list[str]:
     return prefixes
 
 
-def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
+def _is_facility_tool(tool_name: str, hook_config: Mapping[str, object]) -> bool:
     """Whether *tool_name* is a write tool the deployment declared, not the framework.
 
     The rendered ``facility_write_tools`` set, plus the ``control_system.write_tools``
@@ -175,14 +189,14 @@ def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
         if _is_write_tool(tool_name, declared):
             return True
     else:
-        for entry in hook_config.get("write_tools") or ():
+        for entry in _entries(hook_config.get("write_tools")):
             if (
                 isinstance(entry, str)
                 and entry.endswith(_MATCHER_WILDCARD)
                 and _is_write_tool(tool_name, [entry])
             ):
                 return True
-    extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
+    extras = _entries(hook_config.get(_FACILITY_EXTRAS_KEY))
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 
 
@@ -250,7 +264,7 @@ def write_target_for_tool(
     tool_name: str,
     tool_input: object,
     *,
-    hook_config: Mapping[str, Any] | None,
+    hook_config: Mapping[str, object] | None,
     short_name: str | None = None,
     record_path: Path | None = None,
     stamped: bool | None = None,
@@ -282,7 +296,7 @@ def write_target_for_tool(
             call is stamped; ``None`` asks this process's environment.
     """
     try:
-        hooks: Mapping[str, Any] = hook_config if isinstance(hook_config, Mapping) else {}
+        hooks: Mapping[str, object] = hook_config if isinstance(hook_config, Mapping) else {}
         write_tools = hooks.get("write_tools", _FALLBACK_WRITE_TOOLS)
         if not _is_write_tool(tool_name, write_tools):
             return None
@@ -295,7 +309,7 @@ def write_target_for_tool(
             return _session_machine(config, record_path, stamped)
         if _is_facility_tool(tool_name, hooks):
             return TARGET_LIVE
-        if short_name in tuple(hooks.get(_LANE_ADDRESSED_KEY) or ()):
+        if short_name in tuple(_entries(hooks.get(_LANE_ADDRESSED_KEY))):
             return _lane_machine(config, tool_input)
         return _session_machine(config, record_path, stamped)
     except Exception:
@@ -306,7 +320,7 @@ def write_target_for_tool(
 def frame_target(
     target: str | None | Unresolved,
     *,
-    state_dir: object = None,
+    state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, str] | None:
     """C-FRAME's ``target``: ``{key, machine_kind, kind_words}``, or ``None``.
 

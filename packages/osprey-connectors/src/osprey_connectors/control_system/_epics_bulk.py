@@ -43,15 +43,14 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable, Iterable
-from types import ModuleType
-from typing import TYPE_CHECKING, Protocol, TypeVarTuple
+from typing import TYPE_CHECKING, Literal, Protocol, TypeVarTuple, overload
 
 from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
-    from osprey_connectors.control_system._ca_loop import CaLoop
+    from osprey_connectors.control_system._ca_loop import CaLoop, CaTools
 
 __all__ = ["CABulk", "normalise_address"]
 
@@ -91,7 +90,7 @@ class Aioca(Protocol):
     DBE_PROPERTY: int
     DBE_VALUE: int
     DBE_ALARM: int
-    _catools: ModuleType
+    _catools: CaTools
 
     async def connect(self, pv: str, *, timeout: CaTimeout, throw: bool = ...) -> object: ...
 
@@ -105,9 +104,18 @@ class Aioca(Protocol):
         throw: bool = ...,
     ) -> object: ...
 
-    # With ``throw=False`` a failed call answers an instance of ``CANothing``
-    # in place of its result; every caller tests for it with ``isinstance``.
-    async def cainfo(self, pv: str, *, timeout: CaTimeout, throw: bool = ...) -> CaInfo: ...
+    # With ``throw=False`` a failed call answers the ``CANothing`` it failed
+    # with in place of its result (aioca's ``maybe_throw``): an exception, which
+    # no ``CaInfo`` is, so a caller tells the two apart with ``isinstance``.
+    @overload
+    async def cainfo(
+        self, pv: str, *, timeout: CaTimeout, throw: Literal[True] = ...
+    ) -> CaInfo: ...
+
+    @overload
+    async def cainfo(
+        self, pv: str, *, timeout: CaTimeout, throw: Literal[False]
+    ) -> CaInfo | Exception: ...
 
     async def caput(
         self,
@@ -340,14 +348,18 @@ class CABulk:
         return not record.closed and record.ctrl_monitor is None and record.time_monitor is None
 
     def _close_monitors(self, record: _Record) -> None:
-        for attr in ("ctrl_monitor", "time_monitor"):
-            handle = getattr(record, attr)
-            setattr(record, attr, None)
-            if handle is not None:
-                try:
-                    handle.close()
-                except Exception as exc:  # teardown is best effort
-                    logger.debug("Closing a CA monitor of '%s' failed: %s", record.name, exc)
+        handle, record.ctrl_monitor = record.ctrl_monitor, None
+        self._close_monitor(record, handle)
+        handle, record.time_monitor = record.time_monitor, None
+        self._close_monitor(record, handle)
+
+    @staticmethod
+    def _close_monitor(record: _Record, handle: CaMonitor | None) -> None:
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception as exc:  # teardown is best effort
+                logger.debug("Closing a CA monitor of '%s' failed: %s", record.name, exc)
 
     def _monitor_closed(self, record: _Record) -> bool:
         """True when aioca closed one of the record's monitors on its own."""

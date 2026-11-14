@@ -181,7 +181,7 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
             if not line.strip():
                 continue
             try:
-                parsed = json.loads(line)
+                parsed: object = json.loads(line)
                 stopped = parsed == _STOPPED_MARKER
                 if not stopped:
                     messages.append(_message(parsed))

@@ -54,7 +54,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 from lume.model import LUMEModel
@@ -71,6 +71,16 @@ from osprey_connectors.simulation import pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
 from osprey_connectors.simulation.view import SETPOINT
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation._records import (
+        ChannelRecord,
+        GateRecord,
+        LinearTerm,
+        ModelEntry,
+        PulseRecord,
+        SeedRecord,
+    )
+
 __all__ = [
     "TEXTURE_OWNER",
     "TextureModel",
@@ -84,8 +94,8 @@ TEXTURE_OWNER = "texture"
 
 _MS_PER_S = 1000.0
 _GAIN_WANDER_SUBKEY = b":gain_wander:"
-_ABSOLUTE = "absolute"
-_RELATIVE = "relative"
+_ABSOLUTE: Final = "absolute"
+_RELATIVE: Final = "relative"
 _SCENARIO_RELATIVE_SUBKEY = b":noise"
 _SCENARIO_ABSOLUTE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
@@ -101,26 +111,42 @@ def is_float_channel(channel: Mapping[str, Any]) -> bool:
     return channel_value_type(channel) == "float"
 
 
-def _value_range(channel: Mapping[str, Any]) -> tuple[Any, Any] | None:
-    """The variable's range from the view's ``value_range``; a null side is unbounded."""
-    bounds = channel.get("value_range")
+def _bounds(channel: Mapping[str, Any]) -> tuple[float | None, float | None] | None:
+    """The view's ``value_range`` as ``(low, high)``; ``None`` when both sides are null."""
+    bounds: Sequence[float | None] | None = channel.get("value_range")
     if bounds is None:
         return None
     low, high = bounds
     if low is None and high is None:
         return None
-    if channel_value_type(channel) == "int":
-        return (
-            -_INT_UNBOUNDED if low is None else int(low),
-            _INT_UNBOUNDED if high is None else int(high),
-        )
+    return low, high
+
+
+def _int_range(channel: Mapping[str, Any]) -> tuple[int, int] | None:
+    """An ``int`` variable's range from the view's ``value_range``; a null side is unbounded."""
+    bounds = _bounds(channel)
+    if bounds is None:
+        return None
+    low, high = bounds
+    return (
+        -_INT_UNBOUNDED if low is None else int(low),
+        _INT_UNBOUNDED if high is None else int(high),
+    )
+
+
+def _float_range(channel: Mapping[str, Any]) -> tuple[float, float] | None:
+    """A scalar variable's range from the view's ``value_range``; a null side is unbounded."""
+    bounds = _bounds(channel)
+    if bounds is None:
+        return None
+    low, high = bounds
     return (
         -math.inf if low is None else float(low),
         math.inf if high is None else float(high),
     )
 
 
-def _linear_terms(linear: Mapping[str, Any]) -> list[tuple[str, float]]:
+def _linear_terms(linear: Mapping[str, float | LinearTerm]) -> list[tuple[str, float]]:
     """``(input address, coefficient)`` pairs of a seed's ``linear`` map, sorted."""
     terms: list[tuple[str, float]] = []
     for address in sorted(linear):
@@ -130,15 +156,16 @@ def _linear_terms(linear: Mapping[str, Any]) -> list[tuple[str, float]]:
     return terms
 
 
-def _gate_inputs(inputs: Any) -> list[tuple[str, object]]:
+def _gate_inputs(inputs: Mapping[str, object] | None) -> list[tuple[str, object]]:
     """``(input address, blocking label)`` pairs of a seed's ``gate.inputs``, sorted.
 
     ``inputs`` is ``{<address>: <blocking_label>}``; a value may also be the
     record ``{blocking_label: <label>}``.
     """
     pairs: list[tuple[str, object]] = []
-    for address in sorted(inputs or {}, key=str):
-        label = inputs[address]
+    stated = inputs or {}
+    for address in sorted(stated, key=str):
+        label = stated[address]
         if isinstance(label, Mapping):
             label = label["blocking_label"]
         pairs.append((str(address), label))
@@ -182,11 +209,18 @@ def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
             unit=unit,
             read_only=read_only,
         )
-    variable_class = IntVariable if value_type == "int" else ScalarVariable
-    return variable_class(
+    if value_type == "int":
+        return IntVariable(
+            name=address,
+            default_value=nominal,
+            value_range=_int_range(channel),
+            unit=unit,
+            read_only=read_only,
+        )
+    return ScalarVariable(
         name=address,
         default_value=nominal,
-        value_range=_value_range(channel),
+        value_range=_float_range(channel),
         unit=unit,
         read_only=read_only,
     )
@@ -210,16 +244,17 @@ class TextureModel(LUMEModel):
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._clock = clock
-        self._seeds: dict[str, Mapping[str, Any]] = {
-            str(address): seed for address, seed in (seeds.get("seeds") or {}).items()
+        seeded: Mapping[str, SeedRecord] = seeds.get("seeds") or {}
+        self._seeds: dict[str, SeedRecord] = {
+            str(address): seed for address, seed in seeded.items()
         }
-        self._channels: dict[str, Mapping[str, Any]] = {
-            str(channel["address"]): channel for channel in variables.get("channels", [])
+        channels: Sequence[ChannelRecord] = variables.get("channels", [])
+        self._channels: dict[str, ChannelRecord] = {
+            str(channel["address"]): channel for channel in channels
         }
-        unserved_defaults = self._unserved_wiring_defaults(variables.get("models", []))
-        unserved = {
-            str(model["name"]) for model in variables.get("models", []) if not model.get("served")
-        }
+        models: Sequence[ModelEntry] = variables.get("models", [])
+        unserved_defaults = self._unserved_wiring_defaults(models)
+        unserved = {str(model["name"]) for model in models if not model.get("served")}
 
         owned = sorted(
             address
@@ -251,7 +286,7 @@ class TextureModel(LUMEModel):
         self.reset()
 
     @staticmethod
-    def _unserved_wiring_defaults(models: Sequence[Mapping[str, Any]]) -> dict[str, object]:
+    def _unserved_wiring_defaults(models: Sequence[ModelEntry]) -> dict[str, object]:
         defaults: dict[str, object] = {}
         for model in models:
             if model.get("served"):
@@ -312,7 +347,7 @@ class TextureModel(LUMEModel):
             self._active, self._held = previous, held
             raise
 
-    def held(self, names: Sequence[str]) -> dict[str, Any]:
+    def held(self, names: Sequence[str]) -> dict[str, values.StoredValue]:
         """Each channel's held value, without motion or clamp.
 
         A ``linear`` channel holds the weighted sum of its inputs' held values;
@@ -338,9 +373,8 @@ class TextureModel(LUMEModel):
         for address in self._variables:
             seed = self._seeds.get(address) or {}
             sources = [source for source, _ in _linear_terms(seed.get("linear") or {})]
-            sources += [
-                source for source, _ in _gate_inputs((seed.get("gate") or {}).get("inputs"))
-            ]
+            gate = seed.get("gate")
+            sources += [source for source, _ in _gate_inputs(gate.get("inputs") if gate else None)]
             record = self._pulse(address)
             if record is not None:
                 sources += [str(record["driver"]), str(record["enable"])]
@@ -360,24 +394,28 @@ class TextureModel(LUMEModel):
             reach[address] = frozenset(found)
         return reach
 
-    def _held_value(self, address: str) -> Any:
+    def _held_value(self, address: str) -> values.StoredValue:
         return self._derived(address, self._held)
 
-    def _derived(self, address: str, held: Mapping[str, Any]) -> Any:
+    def _derived(self, address: str, held: Mapping[str, values.StoredValue]) -> values.StoredValue:
         """A channel's value from ``held``: its weighted sum, then its gate."""
         return self._gated(address, self._weighted_sum(address, held), held)
 
-    def _weighted_sum(self, address: str, held: Mapping[str, Any]) -> Any:
+    def _weighted_sum(
+        self, address: str, held: Mapping[str, values.StoredValue]
+    ) -> values.StoredValue:
         """``held[address]``, or for a ``linear`` channel the weighted sum of its inputs."""
         linear = self._seeds.get(address, {}).get("linear")
         if not linear:
             return held[address]
         return sum(
-            coefficient * float(self._derived(source, held)) if source in held else 0.0
+            coefficient * values._real(self._derived(source, held)) if source in held else 0.0
             for source, coefficient in _linear_terms(linear)
         )
 
-    def _gated(self, address: str, value: Any, held: Mapping[str, Any]) -> Any:
+    def _gated(
+        self, address: str, value: values.StoredValue, held: Mapping[str, values.StoredValue]
+    ) -> values.StoredValue:
         """``value``, or the seed's gated value while any ``gate`` input blocks."""
         gate = self._seeds.get(address, {}).get("gate")
         if not gate or not self._blocked(gate, held):
@@ -385,14 +423,14 @@ class TextureModel(LUMEModel):
         gated = gate["gated"]
         value_type = channel_value_type(self._channels[address])
         if value_type == "float":
-            return float(value) * float(gated)
+            return values._real(value) * values._real(gated)
         if value_type == "int":
             return int(gated)
         if value_type in values.LABELLED_TYPES:
             return self._coerce(address, gated)
         return value
 
-    def _blocked(self, gate: Mapping[str, Any], held: Mapping[str, Any]) -> bool:
+    def _blocked(self, gate: GateRecord, held: Mapping[str, values.StoredValue]) -> bool:
         """Whether any input of ``gate`` holds its blocking label."""
         return any(
             source in held
@@ -500,14 +538,14 @@ class TextureModel(LUMEModel):
         the channel's key. No record is an absolute term of 0.0.
         """
         replacement = self._noise.get(address)
+        term: Literal["absolute", "relative"]
         if replacement is None:
             record = (self._seeds.get(address) or {}).get("noise") or {}
-            subkeys = {_ABSOLUTE: b"", _RELATIVE: b""}
-        else:
-            record = replacement
-            subkeys = {_ABSOLUTE: _SCENARIO_ABSOLUTE_SUBKEY, _RELATIVE: _SCENARIO_RELATIVE_SUBKEY}
-        term = _RELATIVE if _RELATIVE in record else _ABSOLUTE
-        return term, float(record.get(term) or 0.0), subkeys[term]
+            term = _RELATIVE if _RELATIVE in record else _ABSOLUTE
+            return term, float(record.get(term) or 0.0), b""
+        term = _RELATIVE if _RELATIVE in replacement else _ABSOLUTE
+        subkey = _SCENARIO_RELATIVE_SUBKEY if term == _RELATIVE else _SCENARIO_ABSOLUTE_SUBKEY
+        return term, float(replacement.get(term) or 0.0), subkey
 
     @staticmethod
     def _tooth(record: Mapping[str, Any], times: np.ndarray, base: object) -> np.ndarray:
@@ -543,14 +581,14 @@ class TextureModel(LUMEModel):
             )
         return np.asarray(gain * signal, dtype=np.float64)
 
-    def _pulse(self, address: str) -> Mapping[str, Any] | None:
+    def _pulse(self, address: str) -> PulseRecord | None:
         """The ``pulse`` record of a waveform channel, ``None`` when it has none."""
         channel = self._channels.get(address)
         if channel is None or not values.is_waveform(channel_value_type(channel)):
             return None
         return (self._seeds.get(address) or {}).get("pulse") or None
 
-    def _pulse_trace(self, address: str, record: Mapping[str, Any], t_s: float) -> np.ndarray:
+    def _pulse_trace(self, address: str, record: PulseRecord, t_s: float) -> np.ndarray:
         """The trace of a ``pulse`` channel at *t_s* from its driver and enable held values.
 
         A driver or enable channel the model does not hold counts as zero or
@@ -558,7 +596,9 @@ class TextureModel(LUMEModel):
         """
         driver_address = str(record["driver"])
         enable_address = str(record["enable"])
-        driver = float(self._held_value(driver_address)) if driver_address in self._held else 0.0
+        driver = (
+            values._real(self._held_value(driver_address)) if driver_address in self._held else 0.0
+        )
         enable = False
         if enable_address in self._held:
             labels = values.channel_labels(self._channels[enable_address])
@@ -572,16 +612,15 @@ class TextureModel(LUMEModel):
             return value
         return series.clamp(value, band[0], band[1])
 
-    def _get(self, names: list[str]) -> dict[str, Any]:
+    def _get(self, names: list[str]) -> dict[str, object]:
         t_s = float(self._clock())
-        outputs: dict[str, Any] = {}
+        outputs: dict[str, object] = {}
         for name in names:
             held = self._held_value(name)
             channel = self._channels[name]
             if is_float_channel(channel):
-                outputs[name] = self.clamp(
-                    name, float(held) + float(self.motion(name, t_s, base=float(held)))
-                )
+                level = values._real(held)
+                outputs[name] = self.clamp(name, level + float(self.motion(name, t_s, base=level)))
             elif values.is_waveform(channel_value_type(channel)):
                 record = self._pulse(name)
                 array = held if record is None else self._pulse_trace(name, record, t_s)

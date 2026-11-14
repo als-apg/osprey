@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeGuard
 
 import pandas as pd
 
@@ -29,6 +29,43 @@ from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("epics_archiver_connector")
+
+#: The fields of one sample in a ``getData.json`` reply.
+_SAMPLE_FIELDS = ("secs", "nanos", "val")
+
+
+def _is_json_array(value: object) -> TypeGuard[list[object]]:
+    """Whether a decoded JSON value is an array."""
+    return isinstance(value, list)
+
+
+def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
+    """Whether a decoded JSON value is an object; JSON object keys are strings."""
+    return isinstance(value, dict)
+
+
+def _data_points(payload: object, pv: str) -> list[dict[str, object]]:
+    """The samples of a ``getData.json`` reply, ``[]`` for an empty one.
+
+    The appliance answers ``[{"meta": {...}, "data": [{"secs", "nanos", "val"}, ...]}]``;
+    an empty reply is ``[]`` or a series whose ``data`` is empty.
+
+    Raises:
+        ValueError: If the reply is not of that shape, naming the PV.
+    """
+    if not payload:
+        return []
+    if not _is_json_array(payload) or not _is_json_object(series := payload[0]):
+        raise ValueError(f"Unexpected archiver reply for {pv}: not a list of series objects")
+    data_points = series.get("data", [])
+    if not data_points:
+        return []
+    if not _is_json_array(data_points):
+        raise ValueError(f"Unexpected archiver reply for {pv}: `data` is not a list")
+    samples = [dp for dp in data_points if _is_json_object(dp)]
+    if len(samples) != len(data_points):
+        raise ValueError(f"Unexpected archiver reply for {pv}: a sample is not an object")
+    return samples
 
 
 class EPICSArchiverConnector(ArchiverConnector):
@@ -100,6 +137,8 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._url = settings.url.rstrip("/")
         self._timeout = settings.timeout_or(60)
         retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
+        if not isinstance(retrieval_path, str):
+            raise ValueError("`archiver.settings.retrieval_path` must be a string")
         self._retrieval_path = "/" + retrieval_path.strip("/")
         self._opener = urllib_opener(settings)
         if settings.login is not None:
@@ -149,7 +188,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             # Every request this connector makes goes through the opener built at
             # connect, which carries the login and the CA.
             with opener.open(req, timeout=self._timeout) as resp:
-                payload = json.loads(resp.read().decode())
+                payload: object = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise ConnectorUnavailableError(self._refused_login_message(e.code)) from e
@@ -168,15 +207,17 @@ class EPICSArchiverConnector(ArchiverConnector):
             ) from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
-        if not payload:
-            return pd.Series(dtype=float, name=pv)
-        data_points = payload[0].get("data", [])
+        data_points = _data_points(payload, pv)
         if not data_points:
             return pd.Series(dtype=float, name=pv)
 
         # Check for waveform PV (array-valued val)
         if isinstance(data_points[0].get("val"), list):
             raise ValueError(f"Waveform PVs not supported: {pv}")
+        if any(field not in dp for dp in data_points for field in _SAMPLE_FIELDS):
+            raise ValueError(
+                f"Unexpected archiver reply for {pv}: a sample lacks secs, nanos or val"
+            )
 
         timestamps = pd.to_datetime(
             [dp["secs"] for dp in data_points], unit="s", utc=True
@@ -263,7 +304,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         # A None operator here can only mean full resolution.
         operator = resolved.epics_operator
 
-        def fetch_all():
+        def fetch_all() -> dict[str, pd.Series]:
             return {
                 pv: self._fetch_single_pv(
                     f"{operator}({pv})" if operator else pv, start_str, end_str
@@ -341,4 +382,4 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         if not self._connected:
             raise RuntimeError("Archiver not connected")
-        return dict.fromkeys(channels, None)
+        return dict[str, bool | None].fromkeys(channels, None)

@@ -80,13 +80,14 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
-from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
+from osprey_connectors.simulation.view import SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
 
     from pymongo.collection import Collection
 
+    from osprey_connectors.simulation._records import ChannelRecord, ScenarioRecord
     from osprey_connectors.simulation.composite import Composite
 
 logger = get_logger("archive")
@@ -325,14 +326,14 @@ class ArchiveComposite:
     def __init__(
         self,
         channels: Mapping[str, Mapping[str, Any]],
-        held: Mapping[str, Any],
-        events: Mapping[str, list[dict[str, Any]]],
+        held: Mapping[str, object],
+        events: Mapping[str, Sequence[Mapping[str, Any]]],
         composite: Composite,
         *,
         anchor_s: float,
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
-        pulses: Mapping[str, Mapping[str, str]] | None = None,
+        pulses: Mapping[str, Mapping[str, object]] | None = None,
         topoffs: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         self._channels = dict(channels)
@@ -348,7 +349,7 @@ class ArchiveComposite:
                         f"the pulse seed of {address} names {role} {source}, "
                         "which is not a channel of the simulator view"
                     )
-        self._held = dict(held)
+        self._held: dict[str, object] = dict(held)
         self._events = {address: list(scripts) for address, scripts in events.items()}
         self._composite = composite
         self._state = state
@@ -426,7 +427,7 @@ class ArchiveComposite:
             for moment, level, on in zip(times, drive, enabled, strict=True)
         ]
 
-    def held(self, address: str) -> Any:
+    def held(self, address: str) -> object:
         """A channel's held value at the start state, in its stored representation.
 
         Raises:
@@ -435,7 +436,7 @@ class ArchiveComposite:
         self._require(address)
         return self._held[address]
 
-    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[Any]:
+    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[object]:
         """One channel's samples at absolute epoch seconds, in the wire representation.
 
         A ``float`` channel holds its start-state value, moved by the active
@@ -460,7 +461,7 @@ class ArchiveComposite:
 
     def samples(
         self, addresses: Sequence[str], t_s: Sequence[float] | np.ndarray
-    ) -> dict[str, list[Any]]:
+    ) -> dict[str, list[object]]:
         """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
 
         The float channels are read together, so a physics model's readout
@@ -488,7 +489,7 @@ class ArchiveComposite:
             for name in self._composite.readout_group(address)
         }
         read = self._composite.readings(levels, times) if levels else {}
-        out: dict[str, list[Any]] = {}
+        out: dict[str, list[object]] = {}
         for address in addresses:
             if address in read:
                 out[address] = [float(value) for value in read[address]]
@@ -520,7 +521,10 @@ class ArchiveComposite:
             return self._level(address, times)
         channel = self._channels[address]
         stored = self._stepped(channel, self._held[address], self._events.get(address, []), times)
-        return np.asarray([float(self._wire(channel, value)) for value in stored], dtype=np.float64)
+        return np.asarray(
+            [channel_values._real(self._wire(channel, value)) for value in stored],
+            dtype=np.float64,
+        )
 
     def _require(self, address: str) -> None:
         if address not in self._channels:
@@ -529,7 +533,7 @@ class ArchiveComposite:
     def _level(self, address: str, times: np.ndarray) -> np.ndarray:
         """A float channel's start-state value moved by its archiver events."""
         count = len(times)
-        start = np.full(count, float(self._held[address]), dtype=np.float64)
+        start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
         events = self._events.get(address, [])
         return apply_events(
             start, events, count, times, self._anchor_s, self._tz, self._topoffs.get(address)
@@ -541,7 +545,7 @@ class ArchiveComposite:
         held: object,
         events: Sequence[Mapping[str, Any]],
         times: np.ndarray,
-    ) -> list[Any]:
+    ) -> list[object]:
         """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
         stored = [held] * len(times)
         fractions = np.linspace(0.0, 1.0, len(times))
@@ -551,19 +555,18 @@ class ArchiveComposite:
             target = channel_values.coerce(
                 event["to"], channel.get("value_type"), channel.get("options"), channel.get("shape")
             )
-            for axis, at in event_positions(
-                dict(event), fractions, times, self._anchor_s, self._tz
-            ):
+            for axis, at in event_positions(event, fractions, times, self._anchor_s, self._tz):
                 for index in np.flatnonzero(axis >= at):
                     stored[int(index)] = target
         return stored
 
     @staticmethod
-    def _wire(channel: Mapping[str, Any], value: Any) -> Any:
+    def _wire(channel: Mapping[str, Any], value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
         value_type = channel.get("value_type")
         if value_type in channel_values.LABELLED_TYPES:
-            return channel_values.channel_labels(channel).index(value)
+            labels: Sequence[object] = channel_values.channel_labels(channel)
+            return labels.index(value)
         return value
 
 
@@ -625,10 +628,13 @@ def build(
 
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
-    scenarios = {str(scenario["name"]): scenario for scenario in view.scenarios()}
-    records = {
-        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
+    scenarios: dict[str, ScenarioRecord] = {
+        str(scenario["name"]): scenario for scenario in view._scenarios()
     }
+    records: dict[str, ChannelRecord] = {
+        str(channel["address"]): channel for channel in view._channel_entries()
+    }
+    seeds = view._seeds()
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
@@ -653,11 +659,11 @@ def build(
 
         events = scenario_events(scenarios, composite.active)
         pulses = {
-            address: seed["pulse"]
+            address: pulse_seed
             for address in archived
             if channel_values.is_waveform(records[address].get("value_type"))
-            and (seed := view.seed(address)) is not None
-            and seed.get("pulse") is not None
+            and (seed := seeds.get(address)) is not None
+            and (pulse_seed := seed.get("pulse")) is not None
         }
 
         return ArchiveComposite(
@@ -673,7 +679,7 @@ def build(
                 address: record
                 for address in events
                 if address in records
-                and (record := topoff.topoff_record(view.seed(address))) is not None
+                and (record := topoff.topoff_record(seeds.get(address))) is not None
             },
         )
     except BaseException:

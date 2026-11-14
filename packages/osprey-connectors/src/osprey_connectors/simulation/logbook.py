@@ -186,7 +186,7 @@ def _plot_spec(prefix: str, rel: str, path: Path) -> PlotSpec:
     if not path.is_file():
         raise ValueError(f"{prefix}: plot spec {rel!r} not found at {path}")
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw: object = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError(f"{prefix}: plot spec {rel!r} is not valid JSON: {exc}") from exc
     return parse_plot_spec(raw, f"{prefix}: plot spec {rel!r}")

@@ -12,8 +12,9 @@ and :meth:`ConnectorFactory.create_service`.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from osprey_connectors import types
 from osprey_connectors.control_system._base import ControlSystemConnector
@@ -53,20 +54,114 @@ def _unknown_service_kind(kind: str) -> ValueError:
     return ValueError(f"Unknown service kind: {kind!r}. Service kinds: {list(_SERVICE_KINDS)}")
 
 
-def _dotted_class(connector_type: str) -> Any:
-    """Import the class a dotted out-of-tree type names.
+_Class = TypeVar("_Class")
+
+
+class _NotASubclassError(TypeError):
+    """An imported name is not a subclass of the base its registry holds."""
+
+    def __init__(self, module_path: str, class_name: str, bases: str) -> None:
+        super().__init__(f"{module_path}.{class_name} is not a subclass of {bases}")
+
+
+def _imported(module_path: str, class_name: str) -> object:
+    """The name *class_name* of the module *module_path*.
 
     Raises:
-        ValueError: The module does not import, or has no such class.
+        ImportError: The module does not import.
+        AttributeError: The module has no such name.
+    """
+    found: object = getattr(importlib.import_module(module_path), class_name)
+    return found
+
+
+def _control_system_class(module_path: str, class_name: str) -> type[ControlSystemConnector]:
+    """The control system connector class *class_name* of *module_path*.
+
+    Raises:
+        ImportError: The module does not import.
+        AttributeError: The module has no such name.
+        _NotASubclassError: The name is not a ``ControlSystemConnector`` subclass.
+    """
+    found = _imported(module_path, class_name)
+    if isinstance(found, type) and issubclass(found, ControlSystemConnector):
+        return found
+    raise _NotASubclassError(module_path, class_name, "ControlSystemConnector")
+
+
+def _archiver_class(module_path: str, class_name: str) -> type[ArchiverConnector]:
+    """The archiver connector class *class_name* of *module_path*.
+
+    The base is imported here, not at module scope: it would make pandas a hard
+    dependency of the lean control-system import chain.
+
+    Raises:
+        ImportError: The module does not import.
+        AttributeError: The module has no such name.
+        _NotASubclassError: The name is not an ``ArchiverConnector`` subclass.
+    """
+    from osprey_connectors.archiver._base import ArchiverConnector
+
+    found = _imported(module_path, class_name)
+    if isinstance(found, type) and issubclass(found, ArchiverConnector):
+        return found
+    raise _NotASubclassError(module_path, class_name, "ArchiverConnector")
+
+
+def _service_class(module_path: str, class_name: str) -> type[_ServiceBackend]:
+    """A service backend class: a subclass of one of the four service bases.
+
+    The four bases together are the type the service registries hold. They are
+    imported here, not at module scope, so the lean control-system import chain
+    does not load the service packages.
+
+    Raises:
+        ImportError: The module does not import.
+        AttributeError: The module has no such name.
+        _NotASubclassError: The name subclasses none of the four bases.
+    """
+    from osprey_connectors.alarm_log import AlarmLog
+    from osprey_connectors.alarm_state import AlarmState
+    from osprey_connectors.directory import ChannelDirectory
+    from osprey_connectors.put_log import PutLog
+
+    found = _imported(module_path, class_name)
+    if isinstance(found, type) and issubclass(
+        found, (ChannelDirectory, AlarmState, AlarmLog, PutLog)
+    ):
+        return found
+    raise _NotASubclassError(
+        module_path, class_name, "ChannelDirectory, AlarmState, AlarmLog or PutLog"
+    )
+
+
+def _dotted_class(connector_type: str, load: Callable[[str, str], _Class]) -> _Class:
+    """Import the class a dotted out-of-tree type names, through *load*.
+
+    Raises:
+        ValueError: The module does not import, has no such class, or the class
+            is not a subclass of the base *load* requires.
     """
     module_path, class_name = connector_type.rsplit(".", 1)
     try:
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
+        return load(module_path, class_name)
     except ImportError as e:
         raise ValueError(f"Could not import connector module '{module_path}': {e}") from e
     except AttributeError as e:
         raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+    except _NotASubclassError as e:
+        raise ValueError(f"Connector type '{connector_type}': {e}") from e
+
+
+def _mapping_section(value: object, path: str) -> Mapping[str, object]:
+    """*value* as the config mapping read from *path*.
+
+    Raises:
+        ValueError: *value* is not a mapping.
+    """
+    if isinstance(value, Mapping):
+        return value
+    raise ValueError(f"'{path}' must be a mapping, got {type(value).__name__}")
 
 
 class ConnectorFactory:
@@ -142,8 +237,8 @@ class ConnectorFactory:
 
     @classmethod
     def build_control_system_connector(
-        cls, config: dict[str, Any] | None = None, *, control_target: str | None = None
-    ) -> tuple[ControlSystemConnector, dict[str, Any]]:
+        cls, config: Mapping[str, object] | None = None, *, control_target: str | None = None
+    ) -> tuple[ControlSystemConnector, dict[str, object]]:
         """
         Build a control system connector and its type config, without connecting.
 
@@ -174,7 +269,10 @@ class ConnectorFactory:
             derivable from the first, so they travel together.
 
         Raises:
-            ValueError: If connector type is unknown or config is invalid
+            ValueError: If connector type is unknown or config is invalid: a
+                dotted type that names no ``ControlSystemConnector`` subclass,
+                or a section, ``connector`` block or type block that is not a
+                mapping.
             FileNotFoundError: If ``config`` is None and no config is found.
                 The error names where it looked; nothing is built in its place.
 
@@ -188,7 +286,7 @@ class ConnectorFactory:
         if config is None:
             from osprey_connectors.config import get_config_value
 
-            config = get_config_value("control_system", {})
+            config = _mapping_section(get_config_value("control_system", {}), "control_system")
 
         # Fail closed: an under-specified config must never bring up a live
         # control system. A blank value is treated as absent for the same
@@ -215,7 +313,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                connector_class = _dotted_class(connector_type)
+                connector_class = _dotted_class(connector_type, _control_system_class)
                 cls._control_system_connectors[connector_type] = connector_class
             else:
                 if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
@@ -245,15 +343,22 @@ class ConnectorFactory:
         connector._control_target = control_target
 
         # Get type-specific configuration
-        connector_configs = config.get("connector", {})
+        connector_configs = _mapping_section(
+            config.get("connector", {}), "control_system.connector"
+        )
         type_config = connector_configs.get(connector_type, {})
+        if not isinstance(type_config, dict):
+            raise ValueError(
+                f"'control_system.connector.{connector_type}' must be a mapping, "
+                f"got {type(type_config).__name__}"
+            )
 
         logger.debug(f"Built control system connector: {connector_type}")
         return connector, type_config
 
     @classmethod
     async def create_control_system_connector(
-        cls, config: dict[str, Any] | None = None, *, control_target: str | None = None
+        cls, config: Mapping[str, object] | None = None, *, control_target: str | None = None
     ) -> ControlSystemConnector:
         """
         Create, configure and connect a control system connector.
@@ -298,7 +403,7 @@ class ConnectorFactory:
 
     @classmethod
     async def create_archiver_connector(
-        cls, config: dict[str, Any] | None = None
+        cls, config: Mapping[str, object] | None = None
     ) -> ArchiverConnector:
         """
         Create and configure an archiver connector.
@@ -319,7 +424,9 @@ class ConnectorFactory:
             Initialized and connected ArchiverConnector
 
         Raises:
-            ValueError: If connector type is unknown or config is invalid
+            ValueError: If connector type is unknown or config is invalid: a
+                dotted type that names no ``ArchiverConnector`` subclass, or a
+                section that is not a mapping.
             FileNotFoundError: If ``config`` is None and no config is found.
                 The error names where it looked; nothing is built in its place.
             ConnectionError: If connection fails
@@ -340,7 +447,7 @@ class ConnectorFactory:
         if config is None:
             from osprey_connectors.config import get_config_value
 
-            config = get_config_value("archiver", {})
+            config = _mapping_section(get_config_value("archiver", {}), "archiver")
 
         # Fail closed: a config with no `archiver:` section is under-specified,
         # not a declaration that a facility archiver exists. A blank value is
@@ -358,7 +465,7 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                connector_class = _dotted_class(connector_type)
+                connector_class = _dotted_class(connector_type, _archiver_class)
                 cls._archiver_connectors[connector_type] = connector_class
             else:
                 available = list(cls._archiver_connectors.keys())
@@ -398,7 +505,8 @@ class ConnectorFactory:
 
         Raises:
             ValueError: The kind is not one of the four, the type is unknown, or a
-                dotted type does not resolve.
+                dotted type does not resolve to a subclass of one of the four
+                service bases.
         """
         registry = cls._service_backends.get(spec.kind)
         if registry is None:
@@ -412,7 +520,7 @@ class ConnectorFactory:
                     f"Available types: {list(registry)}. "
                     f"Use a dotted module path for custom connectors."
                 )
-            backend_class = _dotted_class(spec.type)
+            backend_class = _dotted_class(spec.type, _service_class)
             registry[spec.type] = backend_class
         given = {name: seam for name, seam in seams.items() if seam is not None}
         backend: _ServiceBackend = backend_class(spec, project_dir=project_dir, **given)
@@ -446,9 +554,15 @@ class BuiltinConnector:
     class_name: str
     description: str
 
-    def load(self) -> Any:
-        """Import the module and return the connector class."""
-        return getattr(importlib.import_module(self.module_path), self.class_name)
+    def load(self) -> type[ControlSystemConnector] | type[ArchiverConnector]:
+        """Import the module and return the connector class.
+
+        Raises:
+            TypeError: The class is not a subclass of the base its kind names.
+        """
+        if self.kind == "archiver":
+            return _archiver_class(self.module_path, self.class_name)
+        return _control_system_class(self.module_path, self.class_name)
 
 
 #: Every built-in connector, in registration order.
@@ -553,9 +667,13 @@ class _ServiceBuiltin:
     class_name: str
     description: str
 
-    def load(self) -> Any:
-        """Import the module and return the backend class."""
-        return getattr(importlib.import_module(self.module_path), self.class_name)
+    def load(self) -> type[_ServiceBackend]:
+        """Import the module and return the backend class.
+
+        Raises:
+            TypeError: The class subclasses none of the four service bases.
+        """
+        return _service_class(self.module_path, self.class_name)
 
 
 #: Every built-in service backend, in registration order. ``simulator_view``
@@ -643,10 +761,14 @@ def register_builtin_connectors() -> None:
     for builtin in BUILTIN_CONNECTORS:
         if builtin.kind == "control_system":
             if builtin.name not in ConnectorFactory._control_system_connectors:
-                ConnectorFactory.register_control_system(builtin.name, builtin.load())
+                ConnectorFactory.register_control_system(
+                    builtin.name, _control_system_class(builtin.module_path, builtin.class_name)
+                )
         elif builtin.kind == "archiver":
             if builtin.name not in ConnectorFactory._archiver_connectors:
-                ConnectorFactory.register_archiver(builtin.name, builtin.load())
+                ConnectorFactory.register_archiver(
+                    builtin.name, _archiver_class(builtin.module_path, builtin.class_name)
+                )
         else:
             raise ValueError(
                 f"built-in connector {builtin.name!r} has unknown kind {builtin.kind!r}"

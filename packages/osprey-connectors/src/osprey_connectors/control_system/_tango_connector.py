@@ -27,6 +27,9 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
+    _CheckNotMade,
+    _SendFailed,
+    _SendStep,
     values_match,
 )
 from osprey_connectors.control_system._limits_validator import (
@@ -222,7 +225,8 @@ class TangoConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("PyTango (the 'pytango' package) is required.") from None
 
-        self._tango_host = config.get("tango_host") or None
+        tango_host: str | None = config.get("tango_host") or None
+        self._tango_host = tango_host
         self._timeout_s = call_timeout_s(config, TANGO)
 
         # Initialize limits validator for automatic validation and confirm policy
@@ -339,13 +343,13 @@ class TangoConnector(ControlSystemConnector):
             ) from exc
 
         value = attr.value
-        quality = getattr(attr, "quality", None)
+        quality: object = getattr(attr, "quality", None)
         alarm_status, severity = _quality_fields(quality)
         timestamp = _attribute_timestamp(attr, get_facility_timezone())
 
         enum_labels: list[str] | None = None
         enum_label: str | None = None
-        attr_type = getattr(attr, "type", None)
+        attr_type: object = getattr(attr, "type", None)
         if attr_type is not None and "DevEnum" in str(attr_type):
             enum_labels = self._labels_for(proxy, device_name, attribute)
             enum_label = _enum_label_for(enum_labels, value)
@@ -403,7 +407,7 @@ class TangoConnector(ControlSystemConnector):
                 f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
             ) from None
 
-    def current_value_reader(self) -> CurrentValueReader | None:
+    def current_value_reader(self) -> CurrentValueReader:
         """The attribute's present value, read through this connector's own proxy."""
 
         def read_current(channel_address: str) -> object:
@@ -471,14 +475,14 @@ class TangoConnector(ControlSystemConnector):
         # thread offload, so a caller on the event loop is never stalled by the
         # blocking read_attribute that max_step validation performs — nor by
         # the two device round trips that follow it, which used to cost an
-        # offload each. The closure decides nothing: it hands back a three-way
-        # sentinel and every result is built on the loop, in the words the
+        # offload each. The closure decides nothing: it hands back what became
+        # of the send (a _SendStep) and every result is built on the loop, in the words the
         # cross-connector contract owns.
         #
         # The offload is bounded, and a write that outlives its bound is
         # unconfirmed: the worker thread cannot be stopped, so the value may
         # still arrive.
-        def _validate_and_write():
+        def _validate_and_write() -> _SendStep:
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
@@ -489,18 +493,18 @@ class TangoConnector(ControlSystemConnector):
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
                     # An unmade check is not permission to write: nothing is sent.
-                    return ("refused", e)
+                    return _CheckNotMade(e)
             try:
                 # Creating a DeviceProxy is itself a database round trip, so a
                 # cold cache is filled in the thread too.
                 self._get_proxy(device_name).write_attribute(attribute, value)
             except Exception as e:
-                return ("send_failed", e)
-            return ("ok", None)
+                return _SendFailed(e)
+            return None
 
         ceiling = timeout if timeout is not None else self._timeout_s
         try:
-            step, payload = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
+            step = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
         except TimeoutError:
             logger.warning(f"TANGO write of {channel_address} did not return within {ceiling}s")
             return ChannelWriteResult(
@@ -514,15 +518,15 @@ class TangoConnector(ControlSystemConnector):
                 notes="The value may still arrive; what the attribute holds is unknown",
             )
 
-        if step == "refused":
-            return self._validation_refusal(channel_address, value, payload)
+        if isinstance(step, _CheckNotMade):
+            return self._validation_refusal(channel_address, value, step.error)
 
-        if step == "send_failed":
+        if isinstance(step, _SendFailed):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {payload}",
+                error_message=f"Failed to write to '{channel_address}': {step.error}",
                 notes="TANGO did not take the value",
             )
 
@@ -556,9 +560,9 @@ class TangoConnector(ControlSystemConnector):
                 notes="The value was sent; what the attribute holds is unknown",
             )
 
-        observed = readback.value
+        observed: object = readback.value
         confirmed = values_match(value, observed, enum_label=readback.metadata.enum_label)
-        raw = readback.metadata.raw_metadata or {}
+        severity: object = (readback.metadata.raw_metadata or {}).get("severity")
 
         logger.debug(
             f"TANGO write ({'confirmed' if confirmed else 'mismatch'}): "
@@ -571,7 +575,7 @@ class TangoConnector(ControlSystemConnector):
             outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
             observed_value=observed,
             alarm_status=readback.metadata.alarm_status,
-            alarm_severity=raw.get("severity"),
+            alarm_severity=severity if isinstance(severity, int) else None,
             notes=(
                 f"Observed {observed!r}" if confirmed else f"Observed {observed!r}, sent {value!r}"
             ),
@@ -614,7 +618,7 @@ class TangoConnector(ControlSystemConnector):
             """Wrapper converting a TANGO change event to OSPREY format."""
             if getattr(event, "err", False):
                 return
-            attr = getattr(event, "attr_value", None)
+            attr: _DeviceAttribute | None = getattr(event, "attr_value", None)
             if attr is None:
                 return
             alarm_status, severity = _quality_fields(getattr(attr, "quality", None))

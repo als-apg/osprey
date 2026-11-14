@@ -181,7 +181,7 @@ def _parse_value(
     if not value:
         return None
     try:
-        parsed = json.loads(value)
+        parsed: object = json.loads(value)
     except (ValueError, UnicodeDecodeError):
         return _UNPARSEABLE
     return parsed if isinstance(parsed, dict) else _UNPARSEABLE

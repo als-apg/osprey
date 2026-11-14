@@ -15,7 +15,7 @@ import os
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import pandas as pd
 
@@ -90,6 +90,11 @@ _VERIFY_OFF_OPTIONS = frozenset(
 )
 
 _ROUTE_LOGGED = False
+
+
+def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
+    """Whether a config value is a mapping, keys and values unvalidated."""
+    return isinstance(value, Mapping)
 
 
 def check_mongo_url(url: str, *, key: str) -> None:
@@ -182,12 +187,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> )
     """
 
-    # pymongo exception classes, bound by connect(). Declared here so every
-    # method can reference them on a connector that never completed a connect()
-    # — including the stub connectors tests wire up by hand.
-    _MongoClient: type[MongoClient[_Document]] | None = None
+    # pymongo's connection-failure class, bound by connect(). Declared here so
+    # every method can reference it on a connector that never completed a
+    # connect() — including the stub connectors tests wire up by hand.
     _ConnectionFailure: type[Exception] | None = None
-    _ConfigurationError: type[Exception] | None = None
 
     def __init__(self) -> None:
         self._connected = False
@@ -237,17 +240,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             from pymongo import MongoClient
             from pymongo.errors import ConfigurationError, ConnectionFailure
 
-            # Store classes in self for lazy import pattern:
-            # 1. Allows module import even if pymongo isn't installed (fails only when connect() is called)
-            # 2. Makes classes available in exception handlers (import scope is local to this method)
-            # 3. Enables reuse in other methods if needed
-            self._MongoClient = MongoClient
+            # Imported here, not at module scope, so the module imports without
+            # pymongo; the failure class is kept for get_data's handler, which
+            # runs outside this method.
             self._ConnectionFailure = ConnectionFailure
-            self._ConfigurationError = ConfigurationError
         except ImportError as e:
             raise ImportError(PYMONGO_INSTALL_HINT) from e
 
-        raw_url = config.get("url")
+        raw_url: object = config.get("url")
         if raw_url is not None and not isinstance(raw_url, str):
             raise ValueError(f"`{_WHERE}.url` must be a string")
         url = raw_url if raw_url and raw_url.strip() else None
@@ -278,7 +278,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             raise ValueError("collection is required for MongoDB archiver")
 
         auth = config.get("auth")
-        auth_block = auth if isinstance(auth, Mapping) else {}
+        auth_block: Mapping[object, object] = auth if _is_mapping(auth) else {}
         if url is None:
             # No literal fallback, and deliberately not one. For a store this
             # deployment publishes, the host port is its ``mongo`` layout slot —
@@ -534,8 +534,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
-            timestamps: dict[str, list] = {channel: [] for channel in channels}
-            values: dict[str, list] = {channel: [] for channel in channels}
+            timestamps: dict[str, list[object]] = {channel: [] for channel in channels}
+            values: dict[str, list[object]] = {channel: [] for channel in channels}
             traced: set[str] = set()
             found = 0
             for store in self._stores():
@@ -704,7 +704,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             return dict(await asyncio.to_thread(check_channels))
         except Exception as e:
             logger.warning(f"Error checking channel availability: {e}")
-            return dict.fromkeys(channels, None)
+            return dict[str, bool | None].fromkeys(channels, None)
 
     async def store_extent(self) -> ArchiveExtent:
         """The channels the store records now, and its oldest and newest sample.

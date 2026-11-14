@@ -11,7 +11,7 @@ reached through the connector when asked.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
     "STATUS_NO_DECK",
@@ -30,6 +30,13 @@ STATUS_OK = "ok"
 STATUS_NO_DECK = "no deck"
 
 _COMPOSITE_ATTRIBUTE = "_composite"
+
+
+@runtime_checkable
+class _StatusSource(Protocol):
+    """What a status lookup reads: the composite a connector serves in process."""
+
+    def status(self, model: str) -> str: ...
 
 
 def is_error(status: str) -> bool:
@@ -64,11 +71,10 @@ def model_status(connector: object, model: str) -> str:
         ValueError: ``model`` is not a served physics model, the message naming
             the served ones; or the connector serves no composite in process.
     """
-    composite = getattr(connector, _COMPOSITE_ATTRIBUTE, None)
-    if composite is None:
+    composite: object = getattr(connector, _COMPOSITE_ATTRIBUTE, None)
+    if not isinstance(composite, _StatusSource):
         raise ValueError(f"{type(connector).__name__} serves no simulator in process")
-    status: str = composite.status(model)
-    return status
+    return composite.status(model)
 
 
 async def read_model_status(connector: Any, address: str) -> str:

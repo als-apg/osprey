@@ -25,7 +25,7 @@ import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex
 
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
@@ -42,7 +42,16 @@ __all__ = [
 _POLL_INTERVAL_S = 0.05
 
 
-def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float | None:
+def _as_float(value: object) -> float:
+    """``float(value)``, refusing with ``float``'s own errors what ``float`` refuses."""
+    if isinstance(value, str | bytes | bytearray | SupportsFloat | SupportsIndex):
+        return float(value)
+    raise TypeError(
+        f"float() argument must be a string or a real number, not {type(value).__name__!r}"
+    )
+
+
+def declared_tolerance(record: Mapping[str, object] | None, demand: float) -> float | None:
     """The bound a ``tolerance`` record states for a move to ``demand``.
 
     Args:
@@ -57,14 +66,14 @@ def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float
     if not isinstance(record, Mapping):
         return None
     if "absolute" in record:
-        return abs(float(record["absolute"]))
+        return abs(_as_float(record["absolute"]))
     if "relative" in record:
-        return abs(float(record["relative"])) * abs(float(demand))
+        return abs(_as_float(record["relative"])) * abs(float(demand))
     return None
 
 
 def settle_bound(
-    tolerance: Mapping[str, Any] | None,
+    tolerance: Mapping[str, object] | None,
     demand: float,
     *,
     motion: float = 0.0,
@@ -176,10 +185,10 @@ async def settle(
         unsettled: list[tuple[Landing, object]] = []
         for landing in pending:
             try:
-                reading = await connector.read_channel(landing.readback)
+                reading: object = await connector.read_channel(landing.readback)
             except ChannelError as exc:
                 raise SettleReadError(landing, exc) from exc
-            value = getattr(reading, "value", None)
+            value: object = getattr(reading, "value", None)
             if value is None:
                 raise SettleReadError(landing, None)
             if not _within(value, landing):
