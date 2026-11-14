@@ -17,7 +17,8 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from types import ModuleType
+from typing import Any, ParamSpec, Protocol, Required, TypedDict, TypeVar, TypeVarTuple
 
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
@@ -32,9 +33,10 @@ from osprey_connectors.control_system._base import (
     values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
-from osprey_connectors.control_system._epics_bulk import CABulk, normalise_address
+from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
 from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    CurrentValueReader,
     c_numeral,
     step_read_timeout_seconds,
 )
@@ -49,6 +51,10 @@ from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
 logger = get_logger("epics_connector")
+
+P = ParamSpec("P")
+T = TypeVar("T")
+Ts = TypeVarTuple("Ts")
 
 #: Seconds between two stale-transport probes of :meth:`EPICSConnector.wait_stale`.
 STALE_PROBE_INTERVAL_S = 1.0
@@ -95,8 +101,10 @@ class _WriteExecutor(concurrent.futures.Executor):
         self._threads: set[threading.Thread] = set()
         self._serial = 0
 
-    def submit(self, fn, /, *args, **kwargs):
-        future: concurrent.futures.Future = concurrent.futures.Future()
+    def submit(
+        self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+    ) -> concurrent.futures.Future[T]:
+        future: concurrent.futures.Future[T] = concurrent.futures.Future()
 
         def run() -> None:
             try:
@@ -226,7 +234,7 @@ def _is_enum_type(pv_type: object) -> bool:
     return "enum" in str(pv_type)
 
 
-def _ca_plain(value: object) -> Any:
+def _ca_plain(value: object) -> object:
     """An aioca reading as a plain Python value.
 
     aioca hands back subclasses of ``str``/``int``/``float`` and of
@@ -286,7 +294,7 @@ def _whole_number(element: Any, field_type: int) -> int:
     return int(number)
 
 
-def _whole_numbers(value: object, field_type: int) -> Any:
+def _whole_numbers(value: object, field_type: int) -> int | list[int]:
     """``value`` as the whole number, or list of them, a whole-number field holds."""
     if isinstance(value, list | tuple):
         return [_whole_number(element, field_type) for element in value]
@@ -300,7 +308,7 @@ def _whole_numbers(value: object, field_type: int) -> Any:
     return _whole_number(value, field_type)
 
 
-def _ca_put_form(value: Any, field_type: Any, count: Any) -> tuple[Any, bool]:
+def _ca_put_form(value: object, field_type: int, count: int) -> tuple[object, bool]:
     """``value`` as it is put to a field of ``field_type``, and whether it goes as text.
 
     Left to itself, aioca sends any ``str`` as ``DBR_STRING`` and the IOC
@@ -341,7 +349,7 @@ def _ca_put_form(value: Any, field_type: Any, count: Any) -> tuple[Any, bool]:
     return value, False
 
 
-def _char_text(value: object) -> Any:
+def _char_text(value: object) -> object:
     """A char array read back as the text it holds, up to its first NUL."""
     if hasattr(value, "__array__") and not isinstance(value, str):
         import numpy
@@ -501,12 +509,39 @@ def _pva_field(container: Any, name: str, default: Any = None) -> Any:
     return default if found is None else found
 
 
-def _pva_color_mode(value: object) -> Any:
+def _pva_color_mode(value: object) -> object:
     """Extract the areaDetector ColorMode NTAttribute, or None when absent."""
     for entry in _pva_field(value, "attribute", []) or []:
         if _pva_field(entry, "name", "") == "ColorMode":
             return _pva_field(entry, "value")
     return None
+
+
+class _Closable(Protocol):
+    """A transport handle released with ``close()``."""
+
+    def close(self) -> None: ...
+
+
+class _PvaContext(Protocol):
+    """The surface of a p4p client ``Context`` the connector calls; p4p ships no types."""
+
+    def get(self, name: str, request: str | None = ..., timeout: float = ...) -> object: ...
+
+    def monitor(
+        self, name: str, cb: Callable[[object], None], *, notify_disconnect: bool = ...
+    ) -> _Closable: ...
+
+    def close(self) -> None: ...
+
+
+class _PvaPayload(TypedDict, total=False):
+    """One normative type's reading: its value, and what it adds to the metadata."""
+
+    value: Required[object]
+    raw_metadata: dict[str, object]
+    enum_labels: list[str] | None
+    enum_label: str | None
 
 
 class _ChannelSubscription:
@@ -527,7 +562,7 @@ class _ChannelSubscription:
 
     __slots__ = ("_closed", "ca_loop", "handle", "kind")
 
-    def __init__(self, kind: str, handle: Any, ca_loop: Any = None) -> None:
+    def __init__(self, kind: str, handle: _Closable | None, ca_loop: CaLoop | None = None) -> None:
         self.kind = kind
         self.handle = handle
         self.ca_loop = ca_loop
@@ -546,7 +581,7 @@ class _ChannelSubscription:
         try:
             if self.ca_loop is not None:
                 self.ca_loop.call_soon(self._release)
-            else:
+            elif self.handle is not None:
                 self.handle.close()
         except Exception as exc:  # teardown is best effort, never fatal
             logger.debug(f"Subscription teardown failed for {self.kind} handle: {exc}")
@@ -596,9 +631,11 @@ class _PvaMetadataSlot:
         self.address = address
         self.lock = threading.Lock()
         self.metadata: ChannelMetadata | None = None
-        self.waiters: list[asyncio.Future] = []
+        self.waiters: list[asyncio.Future[ChannelMetadata | None]] = []
 
-    def settle(self, waiters: list[asyncio.Future], result: ChannelMetadata | None) -> None:
+    def settle(
+        self, waiters: list[asyncio.Future[ChannelMetadata | None]], result: ChannelMetadata | None
+    ) -> None:
         """Hand ``result`` to each waiter on the loop that owns it."""
         for waiter in waiters:
             # A waiter whose loop is closed has nobody waiting on it.
@@ -606,7 +643,9 @@ class _PvaMetadataSlot:
                 waiter.get_loop().call_soon_threadsafe(_settle_waiter, waiter, result)
 
 
-def _settle_waiter(waiter: asyncio.Future, result: ChannelMetadata | None) -> None:
+def _settle_waiter(
+    waiter: asyncio.Future[ChannelMetadata | None], result: ChannelMetadata | None
+) -> None:
     """Resolve a parked ``get_metadata`` future unless it already finished."""
     if not waiter.done():
         waiter.set_result(result)
@@ -663,9 +702,9 @@ class EPICSConnector(ControlSystemConnector):
         self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
         # The `fresh_reads` key, kept readable; every CA read goes to the wire.
         self._fresh_reads = False
-        self._subscriptions: dict[str, Any] = {}
+        self._subscriptions: dict[str, _ChannelSubscription] = {}
         # aioca, and the CA loop every call to it runs on; both set by connect().
-        self._aioca: Any = None
+        self._aioca: Aioca | None = None
         self._ca: CaLoop | None = None
         # Per channel, the CTRL-form reading that carries units, precision,
         # enum labels and limits for one-shot reads: fetched on a channel's
@@ -674,7 +713,7 @@ class EPICSConnector(ControlSystemConnector):
         # _epics_bulk); the two can differ after a record's limits change: a
         # one-shot read describes the record as first seen, a subscription as
         # it is now. Touched only on the CA loop.
-        self._ca_ctrl: dict[str, Any] = {}
+        self._ca_ctrl: dict[str, object] = {}
         self._epics_configured = False
         # The gateway role connect() pointed Channel Access at, and whether the
         # block configures a write gateway at all. A write the verdict allows
@@ -686,8 +725,8 @@ class EPICSConnector(ControlSystemConnector):
         # PVA routing state. Empty globs => this connector is pure Channel
         # Access: p4p is never imported and no PVA environment variable is set.
         self._pva_channel_globs: list[str] = []
-        self._p4p: Any = None
-        self._pva_context: Any = None
+        self._p4p: ModuleType | None = None
+        self._pva_context: _PvaContext | None = None
         # Per PVA subscription id: the metadata its monitor delivered.
         self._pva_metadata_slots: dict[str, _PvaMetadataSlot] = {}
         # The Channel Access subscription path (_epics_bulk), built on first need.
@@ -961,7 +1000,7 @@ class EPICSConnector(ControlSystemConnector):
             # read: concurrent reads (read_multiple_channels gathers several
             # asyncio.to_thread calls) would otherwise race to build it.
             try:
-                self._pva_context = self._p4p.client.thread.Context("pva")
+                self._pva_context = p4p.client.thread.Context("pva")
             except (RuntimeError, OSError) as exc:
                 raise ConnectorUnavailableError(
                     f"PVA client context could not be built: {exc}"
@@ -1084,9 +1123,9 @@ class EPICSConnector(ControlSystemConnector):
     # fresh allowance per call.
     # ------------------------------------------------------------------
 
-    async def _ca_connect(self, name: str, deadline: tuple[float]) -> Any:
+    async def _ca_connect(self, name: str, deadline: tuple[float]) -> object:
         """Connect ``name`` within ``deadline``; record the outcome for :meth:`wait_stale`."""
-        connected = await self._aioca.connect(name, timeout=deadline, throw=False)
+        connected = await self._ca_client.connect(name, timeout=deadline, throw=False)
         if connected:
             # A new connect: the channel's first, or its first since it failed,
             # and not one a subscription record already holds connected. A
@@ -1118,7 +1157,7 @@ class EPICSConnector(ControlSystemConnector):
         write confirmation compares -- the one thing it needs them for.
         ``timeout`` is only quoted in the error.
         """
-        aioca = self._aioca
+        aioca = self._ca_client
         connected = await self._ca_connect(name, deadline)
         if not connected:
             raise ChannelUnreachableError(
@@ -1138,7 +1177,7 @@ class EPICSConnector(ControlSystemConnector):
                 writable = getattr(info, "write", None)
         return self._ca_channel_value(reading, fields, writable)
 
-    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> Any:
+    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> object:
         """The channel's CTRL-form reading (units, precision, labels, limits), or ``None``.
 
         Fetched once per channel and reused: these fields describe the record,
@@ -1150,7 +1189,7 @@ class EPICSConnector(ControlSystemConnector):
         cached = self._ca_ctrl.get(name)
         if cached is not None:
             return cached
-        aioca = self._aioca
+        aioca = self._ca_client
         fields = await aioca.caget(
             name, format=aioca.FORMAT_CTRL, count=1, timeout=deadline, throw=False
         )
@@ -1241,7 +1280,7 @@ class EPICSConnector(ControlSystemConnector):
         Any other failure is raised: it leaves the outcome genuinely unknown,
         and every answer above claims to know it.
         """
-        aioca = self._aioca
+        aioca = self._ca_client
         connected = await self._ca_connect(channel_address, deadline)
         if not connected:
             return "not_sent", f"did not connect: {connected}"
@@ -1330,7 +1369,22 @@ class EPICSConnector(ControlSystemConnector):
             )
         return ca
 
-    def _require_pva_context(self, channel_address: str, action: str) -> Any:
+    @property
+    def _ca_client(self) -> Aioca:
+        """aioca, as connect() imported it.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so there is no
+                Channel Access client to call.
+        """
+        aioca = self._aioca
+        if aioca is None:
+            raise ConnectorUnavailableError(
+                "No Channel Access client: connect() imports aioca for this connector."
+            )
+        return aioca
+
+    def _require_pva_context(self, channel_address: str, action: str) -> _PvaContext:
         """The PVA client context, or the connector's own unavailability.
 
         Raises:
@@ -1345,7 +1399,7 @@ class EPICSConnector(ControlSystemConnector):
             )
         return context
 
-    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> Any:
+    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> object:
         """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
 
         Failures are raised through :meth:`_pva_failure`, the one funnel that
@@ -1457,7 +1511,7 @@ class EPICSConnector(ControlSystemConnector):
             return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
         return datetime.now(get_facility_timezone())
 
-    def _pva_alarm_metadata(self, value: object) -> dict[str, Any]:
+    def _pva_alarm_metadata(self, value: object) -> dict[str, object]:
         """Alarm fields, recorded raw so nothing about the alarm state is lost."""
         alarm = _pva_field(value, "alarm")
         if alarm is None:
@@ -1469,7 +1523,7 @@ class EPICSConnector(ControlSystemConnector):
             "alarm_message": str(message),
         }
 
-    def _pva_scalar_value(self, value: object) -> dict[str, Any]:
+    def _pva_scalar_value(self, value: object) -> _PvaPayload:
         """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
         scalar = _pva_field(value, "value")
         dtype = getattr(scalar, "dtype", None)
@@ -1478,7 +1532,7 @@ class EPICSConnector(ControlSystemConnector):
             "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
         }
 
-    def _pva_enum_value(self, value: object) -> dict[str, Any]:
+    def _pva_enum_value(self, value: object) -> _PvaPayload:
         """NTEnum: the INDEX is the value; the choices become enum metadata.
 
         Both halves of a state reading reach the operator, and each in the place
@@ -1509,7 +1563,7 @@ class EPICSConnector(ControlSystemConnector):
             },
         }
 
-    def _pva_ndarray_value(self, channel_address: str, value: object) -> dict[str, Any]:
+    def _pva_ndarray_value(self, channel_address: str, value: object) -> _PvaPayload:
         """NTNDArray: the carried array, reshaped per its dimension list.
 
         The array is taken from the selected union member exactly as p4p decoded
@@ -1532,7 +1586,7 @@ class EPICSConnector(ControlSystemConnector):
 
         array = _pva_field(value, "value")
         color_mode = _pva_color_mode(value)
-        raw_metadata: dict[str, Any] = {
+        raw_metadata: dict[str, object] = {
             "dtype": str(getattr(array, "dtype", type(array).__name__)),
             "dimensions": dimensions,
             "color_mode": color_mode,
@@ -1556,7 +1610,7 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
         return {"value": array, "raw_metadata": raw_metadata}
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> CurrentValueReader | None:
         """The channel's present value, read with the client this connector connected with.
 
         The limits validator calls this synchronously from a worker thread, so
@@ -1569,12 +1623,12 @@ class EPICSConnector(ControlSystemConnector):
         the CA client must not be pointed at an address routed over PVAccess.
         """
 
-        def read_current(channel_address: str) -> Any:
+        def read_current(channel_address: str) -> object:
             if self._is_pva_channel(channel_address):
                 return None
-            aioca = self._aioca
             budget = self._step_read_timeout
             try:
+                aioca = self._ca_client
                 # One budget S for connection and get together (aioca bounds
                 # both under one timeout); the extra second only backs up a
                 # CA loop that does not answer at all.
@@ -1598,7 +1652,7 @@ class EPICSConnector(ControlSystemConnector):
                 self._write_executor = _WriteExecutor()
             return self._write_executor
 
-    async def _run_write_phase(self, fn: Callable[..., Any], *args: Any) -> Any:
+    async def _run_write_phase(self, fn: Callable[[*Ts], T], *args: *Ts) -> T:
         """Run one blocking write phase on the write executor, inside the caller's context.
 
         ``loop.run_in_executor`` alone starts the worker from a fresh context;
@@ -1729,7 +1783,7 @@ class EPICSConnector(ControlSystemConnector):
         # executor, so a caller on the event loop is never stalled by the
         # blocking read that max_step validation waits for, and the validation
         # never queues behind PVA reads on the default executor.
-        def _validate():
+        def _validate() -> Exception | None:
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
@@ -1904,22 +1958,22 @@ class EPICSConnector(ControlSystemConnector):
         is started. A record that did not answer maps to ``None``, which fails
         its step check closed.
         """
-        aioca = self._aioca
         budget = self._step_read_timeout
 
-        async def read_all() -> list[Any]:
+        async def read_all() -> list[object | BaseException]:
             return await asyncio.gather(
                 *(aioca.caget(name, timeout=budget, throw=False) for name in channel_addresses),
                 return_exceptions=True,
             )
 
         try:
+            aioca = self._ca_client
             # The extra second only backs up a CA loop that does not answer at all.
             readings = await asyncio.wait_for(self._ca_loop.run(read_all()), budget + 1.0)
         except Exception as exc:
             logger.debug(f"max_step read of {len(channel_addresses)} channels failed: {exc}")
             return dict.fromkeys(channel_addresses)
-        held: dict[str, Any] = {}
+        held: dict[str, object] = {}
         for name, reading in zip(channel_addresses, readings, strict=True):
             if isinstance(reading, BaseException):
                 if not isinstance(reading, Exception | aioca.CANothing):
@@ -2063,7 +2117,7 @@ class EPICSConnector(ControlSystemConnector):
         with self._bulk_lock:
             if self._bulk is None:
                 self._bulk = CABulk(
-                    self._aioca,
+                    self._ca_client,
                     self._ca_loop,
                     value_factory=self._ca_channel_value,
                     metadata_factory=self._ca_ctrl_metadata,
@@ -2157,7 +2211,7 @@ class EPICSConnector(ControlSystemConnector):
         is absent here, and so is not held down.
         """
         try:
-            infos = self._aioca.get_channel_infos()
+            infos = self._ca_client.get_channel_infos()
         except Exception:
             return {}
         return {info.name: bool(info.connected) for info in infos}
@@ -2269,7 +2323,7 @@ class EPICSConnector(ControlSystemConnector):
             if not connected and on_connection is not None:
                 loop.call_soon_threadsafe(on_connection, True)
             connected = True
-            waiters: list[asyncio.Future] = []
+            waiters: list[asyncio.Future[ChannelMetadata | None]] = []
             with slot.lock:
                 if slot.metadata is None:
                     slot.metadata = channel_value.metadata
@@ -2374,7 +2428,7 @@ class EPICSConnector(ControlSystemConnector):
         :class:`ChannelUnreachableError` when no update arrived within
         ``timeout_s``.
         """
-        waiter: asyncio.Future = asyncio.get_running_loop().create_future()
+        waiter: asyncio.Future[ChannelMetadata | None] = asyncio.get_running_loop().create_future()
         parked: list[_PvaMetadataSlot] = []
         try:
             for slot in slots:

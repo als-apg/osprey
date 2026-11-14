@@ -39,9 +39,10 @@ import os
 import sys
 import threading
 from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TypeVarTuple
 
 T = TypeVar("T")
+Ts = TypeVarTuple("Ts")
 
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.
@@ -50,7 +51,7 @@ logger = logging.getLogger("osprey_connectors.control_system.ca_loop")
 #: Runs at interpreter shutdown before any ``atexit`` hook; private, but the
 #: stdlib's own ``concurrent.futures`` relies on it for the same reason.
 #: CPython has had it since 3.9.
-_register_before_atexit: Callable[[Callable[[], None]], Any] = getattr(
+_register_before_atexit: Callable[[Callable[[], None]], object] = getattr(
     threading, "_register_atexit", atexit.register
 )
 
@@ -225,8 +226,8 @@ class CaLoop:
             return await coro
         return await asyncio.wrap_future(self.submit(coro))
 
-    def run_sync(self, coro: Coroutine[Any, Any, T], timeout: float | None = None) -> T:
-        """Run ``coro`` on the CA loop and block the calling thread for its result.
+    def run_sync(self, coro: Coroutine[Any, Any, T], timeout: float) -> T:
+        """Run ``coro`` on the CA loop; block the calling thread up to ``timeout`` s for its result.
 
         Blocking the loop's own thread on work queued to that same loop would
         never return, so that is refused outright rather than left to hang.
@@ -236,7 +237,7 @@ class CaLoop:
             raise RuntimeError("blocking on the Channel Access loop from its own thread")
         return self.submit(coro).result(timeout)
 
-    def call_soon(self, callback: Callable[..., Any], *args: Any) -> None:
+    def call_soon(self, callback: Callable[[*Ts], object], *args: *Ts) -> None:
         """Run a plain callback on the loop thread, from any thread."""
         self._refuse_in_a_forked_child()
         self._loop.call_soon_threadsafe(callback, *args)

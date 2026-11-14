@@ -42,13 +42,98 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterable
+from types import ModuleType
+from typing import TYPE_CHECKING, Protocol, TypeVarTuple
 
 from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.logger import get_logger
 
+if TYPE_CHECKING:
+    from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
+    from osprey_connectors.control_system._ca_loop import CaLoop
+
 __all__ = ["CABulk", "normalise_address"]
+
+Ts = TypeVarTuple("Ts")
+
+#: An aioca timeout: seconds, or an absolute ``(time.time() + T,)`` deadline.
+CaTimeout = float | tuple[float]
+
+
+class CaMonitor(Protocol):
+    """An aioca ``Subscription``, as a record holds it."""
+
+    def close(self) -> None: ...
+
+
+class CaInfo(Protocol):
+    """What ``cainfo`` reports about a connected channel."""
+
+    datatype: int
+    count: int
+
+
+class CaChannelInfo(Protocol):
+    """One entry of aioca's channel cache."""
+
+    name: str
+    connected: bool
+
+
+class Aioca(Protocol):
+    """The surface of :mod:`aioca` the connector and its records call; aioca ships no types."""
+
+    CANothing: type[Exception]
+    FORMAT_TIME: int
+    FORMAT_CTRL: int
+    DBR_CHAR_STR: int
+    DBE_PROPERTY: int
+    DBE_VALUE: int
+    DBE_ALARM: int
+    _catools: ModuleType
+
+    async def connect(self, pv: str, *, timeout: CaTimeout, throw: bool = ...) -> object: ...
+
+    async def caget(
+        self,
+        pv: str,
+        *,
+        format: int = ...,
+        count: int = ...,
+        timeout: CaTimeout,
+        throw: bool = ...,
+    ) -> object: ...
+
+    # With ``throw=False`` a failed call answers an instance of ``CANothing``
+    # in place of its result; every caller tests for it with ``isinstance``.
+    async def cainfo(self, pv: str, *, timeout: CaTimeout, throw: bool = ...) -> CaInfo: ...
+
+    async def caput(
+        self,
+        pv: str,
+        value: object,
+        *,
+        datatype: int | None = ...,
+        wait: bool = ...,
+        timeout: CaTimeout,
+        throw: bool = ...,
+    ) -> object: ...
+
+    def camonitor(
+        self,
+        pv: str,
+        callback: Callable[[object], None],
+        *,
+        events: int = ...,
+        format: int = ...,
+        count: int = ...,
+        all_updates: bool = ...,
+        notify_disconnect: bool = ...,
+    ) -> CaMonitor: ...
+
+    def get_channel_infos(self) -> Iterable[CaChannelInfo]: ...
+
 
 logger = get_logger("epics_bulk")
 
@@ -61,7 +146,7 @@ def normalise_address(address: str) -> str:
     return address.removeprefix(CA_SCHEME)
 
 
-def _ca_write_access(aioca: Any, name: str) -> bool | None:
+def _ca_write_access(aioca: Aioca, name: str) -> bool | None:
     """This client's write access to channel ``name``, or ``None`` if it cannot be told.
 
     A local libca query on the connected channel, no round trip; callable only
@@ -77,7 +162,7 @@ def _ca_write_access(aioca: Any, name: str) -> bool | None:
         return None
 
 
-def _ca_channel_connected(aioca: Any, name: str) -> bool | None:
+def _ca_channel_connected(aioca: Aioca, name: str) -> bool | None:
     """Whether libca holds channel ``name`` connected right now; ``None`` if it cannot be told.
 
     Called from record handlers only: they never run on a purged channel, and
@@ -99,7 +184,7 @@ class _Subscriber:
 
     def __init__(
         self,
-        callback: Callable[[Any], None],
+        callback: Callable[[ChannelValue], None],
         loop: asyncio.AbstractEventLoop,
         on_connection: Callable[[bool], None] | None,
     ) -> None:
@@ -114,21 +199,21 @@ class _Record:
     def __init__(self, name: str) -> None:
         self.name = name
         self.subscribers: dict[str, _Subscriber] = {}
-        self.ctrl_monitor: Any = None
-        self.time_monitor: Any = None
+        self.ctrl_monitor: CaMonitor | None = None
+        self.time_monitor: CaMonitor | None = None
         self.connected = False
         self.ever_connected = False
         # Down from the moment it is opened until its first CTRL event.
         self.down_since: float | None = time.monotonic()
-        self.ctrl: Any = None
+        self.ctrl: object = None
         self.writable: bool | None = None
-        self.held: Any = None
+        self.held: object = None
         self.held_timer: asyncio.TimerHandle | None = None
         # The missing-control-data warning, once per connection.
         self.ctrl_missing_warned = False
-        self.last_value: Any = None
+        self.last_value: ChannelValue | None = None
         self.counts = {"ctrl": 0, "time": 0}
-        self.waiters: list[asyncio.Future] = []
+        self.waiters: list[asyncio.Future[ChannelMetadata | None]] = []
         self.reopened_this_connection = False
         # The second-closure warning, once per connection.
         self.second_closure_warned = False
@@ -141,11 +226,11 @@ class CABulk:
 
     def __init__(
         self,
-        aioca: Any,
-        ca_loop: Any,
+        aioca: Aioca,
+        ca_loop: CaLoop,
         *,
-        value_factory: Callable[[Any, Any, bool | None], Any],
-        metadata_factory: Callable[[Any, bool | None], Any],
+        value_factory: Callable[[object, object, bool | None], ChannelValue],
+        metadata_factory: Callable[[object, bool | None], ChannelMetadata],
         held_warning_s: float,
     ) -> None:
         self._aioca = aioca
@@ -164,7 +249,7 @@ class CABulk:
         self,
         address: str,
         sub_id: str,
-        callback: Callable[[Any], None],
+        callback: Callable[[ChannelValue], None],
         loop: asyncio.AbstractEventLoop,
         on_connection: Callable[[bool], None] | None,
         released: Callable[[], bool] | None = None,
@@ -272,7 +357,9 @@ class CABulk:
             for handle in (record.ctrl_monitor, record.time_monitor)
         )
 
-    def _guarded(self, record: _Record, handler: Callable[[_Record, Any], None], reading: object):
+    def _guarded(
+        self, record: _Record, handler: Callable[[_Record, object], None], reading: object
+    ) -> None:
         """Run a monitor handler so nothing it raises reaches aioca.
 
         aioca closes a subscription whose callback raises, and nothing would
@@ -285,7 +372,7 @@ class CABulk:
         except Exception:
             logger.warning("Dropped a CA monitor event for '%s'", record.name, exc_info=True)
 
-    def _on_ctrl(self, record: _Record, reading: Any) -> None:
+    def _on_ctrl(self, record: _Record, reading: object) -> None:
         if isinstance(reading, self._aioca.CANothing):
             self._on_drop(record)
             return
@@ -313,7 +400,7 @@ class CABulk:
         if record.waiters:
             self._settle_waiters(record, self._current_metadata(record))
 
-    def _on_time(self, record: _Record, reading: Any) -> None:
+    def _on_time(self, record: _Record, reading: object) -> None:
         if isinstance(reading, self._aioca.CANothing):
             self._on_drop(record)
             return
@@ -441,7 +528,12 @@ class CABulk:
             self._post(record, sub_id, subscriber, _report_connection, subscriber.on_connection, up)
 
     def _post(
-        self, record: _Record, sub_id: str, subscriber: _Subscriber, fn: Callable, *args: Any
+        self,
+        record: _Record,
+        sub_id: str,
+        subscriber: _Subscriber,
+        fn: Callable[[*Ts], object],
+        *args: *Ts,
     ) -> None:
         try:
             subscriber.loop.call_soon_threadsafe(fn, *args)
@@ -454,18 +546,18 @@ class CABulk:
 
     # -- metadata and diagnostics -----------------------------------------
 
-    def _current_metadata(self, record: _Record) -> Any:
+    def _current_metadata(self, record: _Record) -> ChannelMetadata:
         if record.last_value is not None:
             return record.last_value.metadata
         return self._metadata_factory(record.ctrl, record.writable)
 
-    def _settle_waiters(self, record: _Record, result: object) -> None:
+    def _settle_waiters(self, record: _Record, result: ChannelMetadata | None) -> None:
         waiters, record.waiters = record.waiters, []
         for waiter in waiters:
             if not waiter.done():
                 waiter.set_result(result)
 
-    async def metadata(self, address: str, timeout: float) -> Any:
+    async def metadata(self, address: str, timeout: float) -> ChannelMetadata | None:
         """Metadata of a subscribed address, awaiting its CTRL event. CA loop.
 
         ``None`` when nothing subscribes to ``address``, when the record has no
@@ -479,7 +571,7 @@ class CABulk:
             return None
         if record.connected and record.ctrl is not None:
             return self._current_metadata(record)
-        waiter: asyncio.Future = asyncio.get_running_loop().create_future()
+        waiter: asyncio.Future[ChannelMetadata | None] = asyncio.get_running_loop().create_future()
         record.waiters.append(waiter)
         try:
             return await asyncio.wait_for(waiter, timeout)
