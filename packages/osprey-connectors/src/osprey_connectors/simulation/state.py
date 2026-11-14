@@ -24,11 +24,14 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ScenarioRecord
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
@@ -211,7 +214,7 @@ class Overlap:
         )
 
 
-def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
+def scenario_targets(scenario: ScenarioRecord) -> set[str]:
     """The targets a scenario writes: addresses, engine variables and coupled channels.
 
     Args:
@@ -231,7 +234,8 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     for fault in (scenario.get("faults") or {}).values():
         targets.update(fault.get("writes") or {})
     targets.update(str(address) for address in scenario.get("channel_faults") or {})
-    moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
+    moved = {str(address) for address in scenario.get("couple") or {}}
+    moved.update(str(address) for address in scenario.get("noise") or {})
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
     targets.update(_STILLS + str(address) for address in scenario.get("still") or ())
