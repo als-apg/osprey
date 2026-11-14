@@ -637,6 +637,45 @@ exclude = [
     "^src/osprey/facility/schema/_generated/",
 ]
 
+# The connectors package is held to mypy's strict checks, plus the error codes
+# that catch dead or doubtful code. An explicit `Any` is refused everywhere in
+# it except `_contract_types`, which names each value a public contract leaves
+# untyped, so a new `Any` is a decision written there rather than an annotation.
+[[tool.mypy.overrides]]
+module = ["osprey_connectors", "osprey_connectors.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_any_unimported = true
+disallow_any_decorated = true
+disallow_any_explicit = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+warn_unreachable = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-cast",
+    "redundant-self",
+    "redundant-expr",
+    "possibly-undefined",
+    "truthy-bool",
+    "truthy-iterable",
+    "unused-awaitable",
+    "explicit-override",
+    "mutable-override",
+    "unimported-reveal",
+    "deprecated",
+    "exhaustive-match",
+]
+
+[[tool.mypy.overrides]]
+module = ["osprey_connectors._contract_types"]
+disallow_any_explicit = false
+
 # Specific modules to ignore due to optional dependencies
 [[tool.mypy.overrides]]
 module = [
@@ -863,6 +902,7 @@ protected_modules = [
     "osprey_connectors.archiver.*",
     "osprey_connectors.ipc.*",
     "osprey_connectors._config_read",
+    "osprey_connectors._contract_types",
     "osprey_connectors._service_http",
 ]
 allowed_importers = ["osprey_connectors"]
@@ -925,7 +965,7 @@ layers = [
     "osprey_connectors.simulator",
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
-    "osprey_connectors._config_read",
+    "osprey_connectors._config_read | osprey_connectors._contract_types",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The
