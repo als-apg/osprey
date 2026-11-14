@@ -29,6 +29,7 @@ _NOT_A_CLIENT: dict[str, str] = {
     "lume": "the simulator's model interface, in process",
     "pymongo": "a database client for an archive, not the control system",
     "jlab_archiver_client": "an HTTP client for an archive, not the control system",
+    "typing_extensions": "typing backports (`override` on Python 3.11), no I/O",
 }
 
 #: Shared libraries the client packages ship that are no client on their own,
