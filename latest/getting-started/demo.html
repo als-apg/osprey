@@ -770,7 +770,7 @@ osprey<span class="w"> </span>build
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes the value into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so it stays in effect for
 every later build — you can also just edit that file instead.</p>
 <p>See <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for a comparison of the strategies.</p>
-<p><strong>Tune how much history the archive keeps.</strong> Two settings decide the store’s
+<p id="demo-archive-size"><strong>Tune how much history the archive keeps.</strong> Two settings decide the store’s
 size and reach: <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> (how far back it goes — 30 by default) and
 <code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code> (how much of that is kept at the dense 10-second cadence —
 48 by default; everything older is kept at 60 seconds). Both live in the
@@ -787,6 +787,10 @@ longer matches what the profile asks for, says what changed, and reseeds it
 (pass <code class="docutils literal notranslate"><span class="pre">--keep-archiver-base</span></code> to leave the old data alone instead). Do <strong>not</strong>
 copy these keys into the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the build writes that file
 from the block, and a second copy is free to disagree with the first.</p>
+<p>Size the host for the seed. At the defaults (about 4,700 channels over 30
+days) MongoDB reached 7.4 GB of memory while seeding, and a Docker VM with
+less OOM-kills it and the seed fails. Give the container engine that much
+memory, or lower <code class="docutils literal notranslate"><span class="pre">retention_days</span></code>.</p>
 <p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility
 in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — EPICS here, as the example:</p>

@@ -540,7 +540,7 @@
 <p><strong>CANOPY</strong> shows the machine the way a control-room display does: screens with
 live readbacks, setpoints and buttons, plus <strong>Trace</strong> for archived history, a
 correlation plot and a waveform view. In an OSPREY deployment it is the
-<strong>CANOPY</strong> tab of the web terminal, and the agent works in it with you: it
+<strong>Canopy</strong> panel in the web terminal’s sidebar, and the agent works in it with you: it
 opens the screen you ask for, arranges tabs, and builds new screens.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
@@ -657,11 +657,13 @@ with CANOPY’s Python packages and web pages, built from the canopy repository.
 <li><p><strong>Build the payload</strong> with the canopy repository’s
 <code class="docutils literal notranslate"><span class="pre">scripts/build-payload.sh</span></code> (its <code class="docutils literal notranslate"><span class="pre">--help</span></code> lists the inputs). Build it at
 the commits this OSPREY release was tested against, which this command
-prints:</p>
+prints with everything else the build needs:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.integrations.canopy<span class="w"> </span>--pins
 </pre></div>
 </div>
-<p>A payload built at any other commit stops the build.</p>
+<p>A payload built at any other canopy or PyDMConverter commit stops the
+build. <a class="reference internal" href="#canopy-build-payload"><span class="std std-ref">Build the payload from public sources</span></a> walks through it from the public
+repositories.</p>
 </li>
 <li><p><strong>Name the payload</strong> in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload
@@ -687,13 +689,89 @@ other profile, add <code class="docutils literal notranslate"><span class="pre">
 </pre></div>
 </div>
 </li>
-<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The <strong>CANOPY</strong> tab is in the
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The <strong>Canopy</strong> panel is in the
 sidebar.</p></li>
 </ol>
 <p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_CANOPY_PAYLOAD</span></code> is unset, the build leaves the panel and its
 skills out and says so in one line. To leave the panel out of one tier, list
 <code class="docutils literal notranslate"><span class="pre">canopy</span></code> under <code class="docutils literal notranslate"><span class="pre">exclude.web_panels</span></code> and the three skills under
 <code class="docutils literal notranslate"><span class="pre">exclude.skills</span></code> (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<section id="build-the-payload-from-public-sources">
+<span id="canopy-build-payload"></span><h3>Build the payload from public sources<a class="headerlink" href="#build-the-payload-from-public-sources" title="Link to this heading">#</a></h3>
+<p>Every input is public on GitHub, in the <code class="docutils literal notranslate"><span class="pre">als-apg/canopy-osprey-mirror-*</span></code>
+repositories:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">canopy-osprey-mirror-canopy</span></code>: CANOPY, and the builder,
+<code class="docutils literal notranslate"><span class="pre">scripts/build-payload.sh</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">canopy-osprey-mirror-pydm-converter-tool</span></code>: PyDMConverter.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">canopy-osprey-mirror-screen-runtime</span></code>: the screen viewer.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">canopy-osprey-mirror-react-trace</span></code>: Trace.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">canopy-osprey-mirror-sdk-js</span></code>: the JavaScript SDK. Its release carries
+the packs the build installs.</p></li>
+</ul>
+<p>A mirror’s default branch is not the pin. Build each repository at the
+commit <code class="docutils literal notranslate"><span class="pre">--pins</span></code> names, never a branch head.</p>
+<p>The build needs git, Node.js, pnpm <strong>11.1.1</strong> exactly (the version the
+commits’ <code class="docutils literal notranslate"><span class="pre">packageManager</span></code> names; the builder refuses any other pnpm on
+<code class="docutils literal notranslate"><span class="pre">PATH</span></code>), uv, python3 and curl.</p>
+<ol class="arabic">
+<li><p>Print the pins from an OSPREY clone. This runs with a bare <code class="docutils literal notranslate"><span class="pre">python3</span></code>,
+before anything is installed:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>src/osprey/integrations/canopy/proven.py<span class="w"> </span>--pins<span class="w"> </span>&gt;<span class="w"> </span>pins
+pin<span class="o">()</span><span class="w"> </span><span class="o">{</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;s/^</span><span class="nv">$1</span><span class="s2">=//p&quot;</span><span class="w"> </span>pins<span class="p">;</span><span class="w"> </span><span class="o">}</span>
+</pre></div>
+</div>
+<p>Each repository has a <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;=&lt;commit&gt;</span></code> and a <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.mirror=&lt;url&gt;</span></code>
+line. <code class="docutils literal notranslate"><span class="pre">builder</span></code> is the canopy commit whose <code class="docutils literal notranslate"><span class="pre">build-payload.sh</span></code> runs
+(on branch <code class="docutils literal notranslate"><span class="pre">builder.branch</span></code>). <code class="docutils literal notranslate"><span class="pre">SDK_PACKS</span></code> and <code class="docutils literal notranslate"><span class="pre">pnpm</span></code> are the
+build’s settings. <code class="docutils literal notranslate"><span class="pre">canopy.version</span></code> and <code class="docutils literal notranslate"><span class="pre">PyDMConverter.version</span></code> are the
+versions the build is expected to give the two wheels.</p>
+</li>
+<li><p>Clone the mirrors in full, with their tags: the builder refuses a shallow
+clone, and derives each wheel’s version from the tag reachable from its
+pin. The canopy clone is the builder: check out <code class="docutils literal notranslate"><span class="pre">builder</span></code> there, and the
+build takes the canopy pin from the same clone by <code class="docutils literal notranslate"><span class="pre">CANOPY_SHA</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="k">for</span><span class="w"> </span>name<span class="w"> </span><span class="k">in</span><span class="w"> </span>PyDMConverter<span class="w"> </span>canopy-screen-runtime<span class="w"> </span>react-trace<span class="w"> </span>canopy-sdk-js<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span>git<span class="w"> </span>clone<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$name</span><span class="s2">.mirror&quot;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$name</span><span class="s2">&quot;</span>
+<span class="k">done</span>
+git<span class="w"> </span>clone<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>builder.mirror<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span>canopy
+git<span class="w"> </span>-C<span class="w"> </span>canopy<span class="w"> </span>checkout<span class="w"> </span>--detach<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>builder<span class="k">)</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p>Build. Every repository is built at the commit named here, whatever is
+checked out:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYDM</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/PyDMConverter&quot;</span><span class="w"> </span><span class="nv">PYDM_SHA</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>PyDMConverter<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">RT</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/canopy-screen-runtime&quot;</span><span class="w"> </span><span class="nv">RT_SHA</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>canopy-screen-runtime<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">SDK</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/canopy-sdk-js&quot;</span><span class="w"> </span><span class="nv">SDK_SHA</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>canopy-sdk-js<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">SDK_PACKS</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>SDK_PACKS<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">TRACE</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/react-trace&quot;</span><span class="w"> </span><span class="nv">TRACE_REF</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>react-trace<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">CANOPY_SHA</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>pin<span class="w"> </span>canopy<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>bash<span class="w"> </span>canopy/scripts/build-payload.sh<span class="w"> </span>/srv/canopy/payload
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">SDK_PACKS</span></code> is the SDK release URL; the builder fetches its packs and
+checks them against the release’s <code class="docutils literal notranslate"><span class="pre">SHA512SUMS</span></code>. Check the result:
+<code class="docutils literal notranslate"><span class="pre">canopy_version</span></code> and <code class="docutils literal notranslate"><span class="pre">pydm_version</span></code> in the payload’s <code class="docutils literal notranslate"><span class="pre">STAGED.json</span></code>
+equal <code class="docutils literal notranslate"><span class="pre">canopy.version</span></code> and <code class="docutils literal notranslate"><span class="pre">PyDMConverter.version</span></code>. If the build
+reports that no tag is reachable from a pin, fetch the tags from that
+repository’s mirror (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">-C</span> <span class="pre">&lt;clone&gt;</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>) and build again.</p>
+</li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload</span></code> in the deployment’s
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p></li>
+<li><p>Install OSPREY from its clone <strong>editable</strong>, and build and start with
+<code class="docutils literal notranslate"><span class="pre">--dev</span></code>, so the images carry that checkout rather than a PyPI release:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>&lt;osprey-clone&gt;
+osprey<span class="w"> </span>build<span class="w"> </span>--dev
+osprey<span class="w"> </span>up<span class="w"> </span>--dev
+</pre></div>
+</div>
+<p>A non-editable install of an unreleased checkout cannot be pinned, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops with <em>Cannot pin osprey-framework</em>.</p>
+</li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset seeds an archive on the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; size the
+host for it (<a class="reference internal" href="../../getting-started/demo.html#demo-archive-size"><span class="std std-ref">archive size</span></a>).</p>
 <p>The panel’s optional settings are flat keys under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, for example the
 screen CANOPY opens first and the channel Trace starts with:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
@@ -703,6 +781,7 @@ screen CANOPY opens first and the channel Trace starts with:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a <code class="docutils literal notranslate"><span class="pre">home_screen</span></code> the library does not hold. Every key
 is in <a class="reference internal" href="../../reference/configuration/config.html#config-web-panels-canopy"><span class="std std-ref">the configuration reference</span></a>.</p>
+</section>
 </section>
 <section id="use-the-panel">
 <h2>Use the panel<a class="headerlink" href="#use-the-panel" title="Link to this heading">#</a></h2>
@@ -874,7 +953,10 @@ commit of step 3, and rebuild.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-fits-together">How it fits together</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on">Turn it on</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-it-on">Turn it on</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-the-payload-from-public-sources">Build the payload from public sources</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-panel">Use the panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
