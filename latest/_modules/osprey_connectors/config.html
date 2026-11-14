@@ -1776,7 +1776,7 @@
 
 <div class="viewcode-block" id="get_config_value">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.get_config_value">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_config_value</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_config_value</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a specific configuration value by dot-separated path.</span>
 
@@ -1790,7 +1790,9 @@
 <span class="sd">        config_path: Optional explicit path to configuration file</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        The configuration value at the specified path, or default if not found</span>
+<span class="sd">        The configuration value at the specified path, or default if not found.</span>
+<span class="sd">        It is typed ``object`` because the YAML decides its shape: a caller</span>
+<span class="sd">        checks for the shape it needs before using it.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: If path is empty or None</span>

@@ -814,13 +814,15 @@ an explicit configuration file path can be provided.</p>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The configuration value at the specified path, or default if not found</p>
+<dd class="field-even"><p>The configuration value at the specified path, or default if not found.
+It is typed <code class="docutils literal notranslate"><span class="pre">object</span></code> because the YAML decides its shape: a caller
+checks for the shape it needs before using it.</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>ValueError</strong> – If path is empty or None</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><em>Any</em></p>
+<dd class="field-even"><p>object</p>
 </dd>
 </dl>
 <p class="rubric">Examples</p>
