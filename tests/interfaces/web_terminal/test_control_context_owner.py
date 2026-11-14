@@ -39,8 +39,8 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     Mutation,
 )
 from osprey_connectors import control_context
-from osprey_connectors._model import evolve
 from osprey_connectors.control_context import ControlContext, Owner
+from osprey_connectors.model import evolve
 
 TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=4242, port=8080)
 OTHER_TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=9999, port=8090)

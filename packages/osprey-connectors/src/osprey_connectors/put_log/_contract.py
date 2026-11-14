@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 

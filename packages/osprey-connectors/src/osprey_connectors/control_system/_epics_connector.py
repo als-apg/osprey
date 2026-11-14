@@ -38,7 +38,6 @@ from pydantic import Field
 from typing_extensions import Buffer, override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -68,6 +67,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 

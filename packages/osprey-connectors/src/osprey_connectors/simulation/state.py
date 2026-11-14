@@ -27,9 +27,9 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

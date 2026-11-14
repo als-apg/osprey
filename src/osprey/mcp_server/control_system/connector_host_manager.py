@@ -141,6 +141,7 @@ from osprey_connectors.ipc import (
     stop_host,
     verify_host_report,
 )
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.recovery import RecoveryAction
@@ -2081,14 +2082,7 @@ class ConnectorHostManager:
 
 def _on_read_role(derivation: TargetDerivation) -> TargetDerivation:
     """*derivation* with its ``read_only`` row selected, everything else as derived."""
-    return TargetDerivation(
-        target=derivation.target,
-        connector_type=derivation.connector_type,
-        endpoints=derivation.endpoints,
-        selected_role=ROLE_READ_ONLY,
-        transport=derivation.transport,
-        gateways_declared=derivation.gateways_declared,
-    )
+    return evolve(derivation, selected_role=ROLE_READ_ONLY)
 
 
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:

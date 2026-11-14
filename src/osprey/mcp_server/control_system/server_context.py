@@ -94,6 +94,7 @@ from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
 from osprey_connectors.errors import RecoveryRecord as Recovery
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
+from osprey_connectors.model import evolve
 from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
 
@@ -198,9 +199,7 @@ def claim_control_context(
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, owner=owner)
             if record is None
-            else control_context.ControlContext.model_validate(
-                {**dict(control_context.claimed(record, baseline)), "owner": owner}
-            )
+            else evolve(control_context.claimed(record, baseline), owner=owner)
         )
         control_context.write_record(claimed)
 

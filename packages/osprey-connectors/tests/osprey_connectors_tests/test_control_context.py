@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors._model import evolve
+from osprey_connectors.model import evolve
 from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
 

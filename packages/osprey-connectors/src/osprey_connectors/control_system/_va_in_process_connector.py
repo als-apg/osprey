@@ -56,7 +56,6 @@ from pydantic import ConfigDict
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -73,6 +72,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (

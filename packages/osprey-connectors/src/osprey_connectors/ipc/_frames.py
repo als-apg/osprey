@@ -103,7 +103,6 @@ from typing import TypeAlias, TypeGuard
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -115,6 +114,7 @@ from osprey_connectors.ipc._exceptions import (
     exception_fields,
     reconstruct_exception,
 )
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "MAGIC",

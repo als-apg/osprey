@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import Unavailable, _Backend
 
 _SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}

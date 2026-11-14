@@ -18,7 +18,6 @@ from pathlib import Path
 from pydantic import ConfigDict, ValidationError, field_validator
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
@@ -35,6 +34,7 @@ from osprey_connectors.alarm_state._fold import (
     state_rows,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("alarm_replay")

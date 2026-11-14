@@ -11,8 +11,8 @@ from typing import TypeGuard
 
 from pydantic import ValidationError
 
-from osprey_connectors._model import FrozenModel, MutableModel
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel, MutableModel
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,

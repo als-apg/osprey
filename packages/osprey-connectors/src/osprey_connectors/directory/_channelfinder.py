@@ -35,7 +35,6 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
@@ -44,6 +43,7 @@ from osprey_connectors.directory._contract import (
     DirectoryRecord,
     DirectoryRow,
 )
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable, _Recorded
 
 _CHANNELS = "/resources/channels"

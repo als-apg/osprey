@@ -354,7 +354,7 @@ _SIGNAL_TIMEOUT_S = 60
 #: (``cc`` is :mod:`osprey_connectors.control_context`).
 _RACE_PRELUDE = """
 import json, os, sys, time
-from osprey_connectors._model import evolve
+from osprey_connectors.model import evolve
 from pathlib import Path
 
 from osprey_connectors import control_context as cc

@@ -29,9 +29,9 @@ from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import MutableModel
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
+from osprey_connectors.model import MutableModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
 

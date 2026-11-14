@@ -20,6 +20,9 @@ such record is validated the same way, at the moment it is built:
 :class:`MutableModel` is one whose fields may be reassigned, each assignment
 validated like the construction was.
 
+:func:`evolve` is how a caller, in the package or outside it, copies one of
+these records with some fields changed.
+
 The module imports only pydantic and the standard library, and nothing from
 the package.
 """

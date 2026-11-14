@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from osprey_connectors._model import evolve
+from osprey_connectors.model import evolve
 
 
 def context_for(manager: Any) -> Any:

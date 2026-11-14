@@ -30,7 +30,7 @@ import math
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.simulation.view import READBACK, SETPOINT
 
 __all__ = [

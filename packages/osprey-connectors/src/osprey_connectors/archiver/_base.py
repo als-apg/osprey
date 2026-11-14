@@ -12,7 +12,7 @@ from datetime import datetime
 import pandas as pd
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel, MutableModel
 
 
 class ArchiverMetadata(MutableModel):

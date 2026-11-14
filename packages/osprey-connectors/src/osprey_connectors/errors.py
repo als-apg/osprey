@@ -29,7 +29,7 @@ with its channel, so a public failure needs no registry entry of its own.
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

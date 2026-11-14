@@ -27,8 +27,8 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import SupportsFloat, SupportsIndex
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "Landing",

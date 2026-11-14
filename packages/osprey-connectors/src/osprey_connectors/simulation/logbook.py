@@ -16,7 +16,7 @@ from typing import Annotated, TypeAlias
 from pydantic import BeforeValidator, Field, ValidationError, ValidationInfo, field_validator
 from pydantic_core import ErrorDetails, PydanticCustomError
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.relative_time import RelativeTimestamp
 
 __all__ = [

@@ -152,8 +152,8 @@ from pydantic import (
 )
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors._model import FrozenModel, evolve
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir

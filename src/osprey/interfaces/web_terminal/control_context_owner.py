@@ -88,6 +88,7 @@ from osprey_connectors.control_context import (
     unchanged_detail,
     write_record,
 )
+from osprey_connectors.model import evolve
 
 logger = logging.getLogger(__name__)
 
@@ -286,9 +287,7 @@ class ControlContextOwner:
             return mutation.result
 
         try:
-            owned = ControlContext.model_validate(
-                {**dict(mutation.record), "owner": self._identity}
-            )
+            owned = evolve(mutation.record, owner=self._identity)
             write_record(owned, path=path)
         except Exception as exc:  # reported to the operator as a 503
             logger.warning(

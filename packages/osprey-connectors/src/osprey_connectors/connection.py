@@ -44,7 +44,7 @@ from typing import Literal
 from pydantic import Field
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "ConnectionSettings",

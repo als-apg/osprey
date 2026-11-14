@@ -77,7 +77,6 @@ from collections.abc import Mapping
 from pydantic import Field
 
 from osprey_connectors import errors
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.errors import (
     ChannelError,
     ChannelLimitsViolationError,
@@ -88,6 +87,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
 )
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "EXCEPTION_SPECS",

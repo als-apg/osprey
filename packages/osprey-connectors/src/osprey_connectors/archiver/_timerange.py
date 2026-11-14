@@ -15,8 +15,8 @@ import pandas as pd
 from pydantic import InstanceOf
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import localize_facility
+from osprey_connectors.model import FrozenModel
 
 #: A canonical processing mode, one of :data:`PROCESSING_MODES`.
 ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]

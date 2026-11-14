@@ -211,10 +211,10 @@ from typing import TYPE_CHECKING, Protocol, SupportsFloat
 
 from pydantic import Field
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:

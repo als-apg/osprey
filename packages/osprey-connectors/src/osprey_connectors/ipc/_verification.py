@@ -29,7 +29,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import SupportsIndex, SupportsInt
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._gateway_role import (
     ROLE_READ_ONLY,
@@ -37,6 +36,7 @@ from osprey_connectors.control_system._gateway_role import (
     _selected_role,
     readonly_gateway_refusal,
 )
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,

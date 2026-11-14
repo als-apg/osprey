@@ -54,7 +54,7 @@ from typing import Annotated, Final, Literal, TypeGuard
 
 from pydantic import ConfigDict, JsonValue, Strict, TypeAdapter, ValidationError
 
-from osprey_connectors._model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel, MutableModel
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [

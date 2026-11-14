@@ -79,7 +79,7 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from ._model import FrozenModel
+from .model import FrozenModel
 from .types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,

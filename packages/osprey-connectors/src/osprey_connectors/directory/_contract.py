@@ -14,7 +14,7 @@ from typing import Literal, Self
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     Outcome,
     Source,

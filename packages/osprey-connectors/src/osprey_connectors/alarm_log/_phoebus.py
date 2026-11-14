@@ -31,10 +31,10 @@ from pathlib import Path
 from pydantic import ConfigDict, OnErrorOmit, TypeAdapter, ValidationError
 from typing_extensions import override
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     BackendSpec,
     HistoryPage,

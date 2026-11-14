@@ -41,7 +41,7 @@ from pydantic import (
     model_validator,
 )
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "AddressesDocument",

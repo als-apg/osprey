@@ -145,8 +145,8 @@ from typing import Generic, Literal, TypeVar
 from pydantic import Field
 
 from osprey_connectors import posture_store
-from osprey_connectors._model import FrozenModel, evolve
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,

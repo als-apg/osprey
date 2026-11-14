@@ -67,10 +67,10 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import ValidationError, model_validator
 
-from osprey_connectors._model import FrozenModel, MutableModel
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel, MutableModel
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (

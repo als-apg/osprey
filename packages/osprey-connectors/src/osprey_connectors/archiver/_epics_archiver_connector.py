@@ -20,7 +20,6 @@ from pydantic import ConfigDict, Field, ValidationError, field_validator
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     SampleSeries,
@@ -32,6 +31,7 @@ from osprey_connectors.archiver._timerange import (
 from osprey_connectors.connection import read_connection_settings, urllib_opener
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 
 logger = get_logger("epics_archiver_connector")
 

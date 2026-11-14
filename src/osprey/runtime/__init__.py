@@ -82,6 +82,7 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
@@ -1296,7 +1297,7 @@ def channel_limits(address: str) -> "ChannelLimitsConfig | None":
     if config is None:
         return None
     # Rebuilt from its fields, and validated like a new one.
-    return type(config)(**config.model_dump())
+    return evolve(config)
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:

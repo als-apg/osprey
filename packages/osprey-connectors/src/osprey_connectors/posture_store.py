@@ -140,8 +140,8 @@ from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
 from typing_extensions import override
 
 from osprey_connectors import session_hold
-from osprey_connectors._model import FrozenModel, evolve
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     CONTROL_TARGETS,

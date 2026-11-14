@@ -64,7 +64,6 @@ from typing import Protocol
 
 from pydantic import field_validator
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
@@ -73,6 +72,7 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
     RecoveryRecord,
 )
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "Recovery",

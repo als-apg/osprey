@@ -57,6 +57,7 @@ from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
 from osprey_connectors.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.model import evolve
 from osprey_connectors.types import baseline_target, resolve_archiver_type
 
 __all__ = ["DirectoryService"]
@@ -274,7 +275,7 @@ class DirectoryService:
         hidden = self._hidden()
         row = self._hide_row(backend, answer.row, hidden)
         record = as_payload(
-            _rebuilt(
+            evolve(
                 answer,
                 properties={k: v for k, v in answer.properties.items() if k not in hidden},
             )
@@ -420,7 +421,7 @@ class DirectoryService:
             path = resolve_replay_file(value, self._project_dir)
         except ValueError:
             return spec  # the replay backend answers an unresolved name as unavailable
-        return _rebuilt(spec, settings={**spec.settings, "replay_file": str(path)})
+        return evolve(spec, settings={**spec.settings, "replay_file": str(path)})
 
     async def _probe(self, kind: str, target: str) -> dict[str, Any]:
         backend, source, reason = await self._resolve(kind)
@@ -559,7 +560,7 @@ class DirectoryService:
     # -- searching -------------------------------------------------------
 
     async def _count(self, at: Any, backend: Any, server: Any, deadline: float) -> Any:
-        key = ("count", _rebuilt(server, page=0, page_size=0))
+        key = ("count", evolve(server, page=0, page_size=0))
         cached = self._cached(at, key)
         if cached is not None:
             return cached
@@ -578,7 +579,7 @@ class DirectoryService:
         deadline: float,
     ) -> Any:
         """Every row *server* matches, or why the set cannot be had."""
-        key = ("set", _rebuilt(server, page=0, page_size=0))
+        key = ("set", evolve(server, page=0, page_size=0))
         cached = self._cached(at, key)
         if cached is not None:
             return cached
@@ -591,7 +592,7 @@ class DirectoryService:
         if total == 0:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
-        answer = await backend.search(_rebuilt(server, page=0, page_size=total), left)
+        answer = await backend.search(evolve(server, page=0, page_size=total), left)
         if answer.outcome == Outcome.UNAVAILABLE:
             return Unavailable(reason=answer.reason or "no answer")
         fetched = _FullSet(list(answer.rows), answer.request)
@@ -687,7 +688,7 @@ class DirectoryService:
             return row
         by_property = backend.field_properties
         cleared = {field: None for field, name in by_property.items() if name in hidden}
-        return _rebuilt(row, **cleared) if cleared else row
+        return evolve(row, **cleared) if cleared else row
 
     # -- small helpers ---------------------------------------------------
 
@@ -888,11 +889,6 @@ def _tally(values: Iterable[Any]) -> list[Mapping[str, Any]]:
             counts[value] = counts.get(value, 0) + 1
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [{"value": value, "count": count} for value, count in ordered]
-
-
-def _rebuilt(record: Any, **changes: Any) -> Any:
-    """*record*, a connectors model, rebuilt with *changes* and validated like a new one."""
-    return type(record).model_validate({**dict(record), **changes})
 
 
 def _split_filters(

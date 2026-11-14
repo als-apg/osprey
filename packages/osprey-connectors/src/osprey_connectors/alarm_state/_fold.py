@@ -18,13 +18,13 @@ from typing import Literal
 
 from pydantic import Field
 
-from osprey_connectors._model import MutableModel
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmStateRecord,
     AlarmStateRow,
     severity_rank,
 )
+from osprey_connectors.model import MutableModel
 from osprey_connectors.service_answers import _flag, _text
 
 FEED_LOADING = "alarm feed still loading"

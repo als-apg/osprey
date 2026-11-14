@@ -16,9 +16,9 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal, TypeVar
 
 from osprey_connectors import types
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
     from pathlib import Path

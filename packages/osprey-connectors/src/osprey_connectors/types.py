@@ -56,7 +56,7 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Final, Literal, TypeGuard
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "CLI_CONTROL_SYSTEM_TYPES",

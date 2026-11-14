@@ -11,8 +11,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Literal
 
-from osprey_connectors._model import FrozenModel
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 

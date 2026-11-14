@@ -32,7 +32,7 @@ from typing import Final, Literal, overload
 
 from pydantic import BaseModel, ValidationError
 
-from osprey_connectors._model import FrozenModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.simulation.records import (
     AddressesDocument,
     ChannelRecord,

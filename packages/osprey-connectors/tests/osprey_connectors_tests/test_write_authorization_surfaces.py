@@ -21,7 +21,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors import write_authorization as wa
-from osprey_connectors._model import evolve
+from osprey_connectors.model import evolve
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefused,
