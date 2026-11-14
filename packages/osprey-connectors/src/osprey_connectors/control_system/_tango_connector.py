@@ -16,8 +16,8 @@ the connector contract — the same reason the EPICS connector refuses PVA RPC.
 import asyncio
 import secrets
 from collections.abc import Callable
-from datetime import datetime
-from typing import Any
+from datetime import datetime, tzinfo
+from typing import Any, Protocol
 
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
@@ -29,7 +29,10 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import (
+    CurrentValueReader,
+    LimitsValidator,
+)
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import TANGO
@@ -37,6 +40,53 @@ from osprey_connectors.types import TANGO
 logger = get_logger("tango_connector")
 
 _ADDRESS_FORM = "domain/family/member/attribute"
+
+
+class _DeviceAttribute(Protocol):
+    """A PyTango ``DeviceAttribute``: one reading of an attribute."""
+
+    value: object
+
+
+class _DeviceProxy(Protocol):
+    """The surface of a PyTango ``DeviceProxy`` the connector calls; PyTango ships no types."""
+
+    def set_timeout_millis(self, timeout: int) -> None: ...
+
+    def read_attribute(self, attribute: str) -> _DeviceAttribute: ...
+
+    def write_attribute(self, attribute: str, value: object) -> None: ...
+
+    def get_attribute_config(self, attribute: str) -> object: ...
+
+    def subscribe_event(
+        self, attribute: str, event_type: object, callback: Callable[[object], None]
+    ) -> int: ...
+
+    def unsubscribe_event(self, event_id: int) -> None: ...
+
+
+class _Database(Protocol):
+    """A PyTango ``Database`` client."""
+
+    def get_info(self) -> object: ...
+
+
+class _EventType(Protocol):
+    """PyTango's ``EventType`` enumeration."""
+
+    CHANGE_EVENT: object
+
+
+class _PyTango(Protocol):
+    """The surface of :mod:`tango` the connector calls."""
+
+    EventType: _EventType
+
+    def Database(self, *host_port: str) -> _Database: ...
+
+    def DeviceProxy(self, name: str) -> _DeviceProxy: ...
+
 
 #: TANGO attribute quality mapped onto the protocol-agnostic alarm fields:
 #: the name OSPREY reports and an integer severity (0 healthy, higher worse).
@@ -99,7 +149,7 @@ def _quality_fields(quality: object) -> tuple[str | None, int | None]:
     return fields
 
 
-def _attribute_timestamp(attr: Any, tz: Any) -> datetime:
+def _attribute_timestamp(attr: object, tz: tzinfo) -> datetime:
     """The reading's own timestamp, or now when the device reported none."""
     time_val = getattr(attr, "time", None)
     tv_sec = getattr(time_val, "tv_sec", None)
@@ -136,10 +186,13 @@ class TangoConnector(ControlSystemConnector):
 
     def __init__(self):
         self._connected: bool = False
-        self._proxies: dict[str, Any] = {}
-        self._subscriptions: dict[str, tuple[Any, int]] = {}
+        self._proxies: dict[str, _DeviceProxy] = {}
+        self._subscriptions: dict[str, tuple[_DeviceProxy, int]] = {}
         self._enum_labels: dict[str, list[str] | None] = {}
         self._timeout_s: float = DEFAULT_TIMEOUT_S
+        # PyTango and the ``tango_host`` override, both set by connect().
+        self._tango: _PyTango | None = None
+        self._tango_host: str | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -169,7 +222,7 @@ class TangoConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("PyTango (the 'pytango' package) is required.") from None
 
-        self._tango_host: str | None = config.get("tango_host") or None
+        self._tango_host = config.get("tango_host") or None
         self._timeout_s = call_timeout_s(config, TANGO)
 
         # Initialize limits validator for automatic validation and confirm policy
@@ -182,9 +235,9 @@ class TangoConnector(ControlSystemConnector):
         try:
             if self._tango_host:
                 host, _, port = self._tango_host.partition(":")
-                database = await asyncio.to_thread(self._tango.Database, host, port or "10000")
+                database = await asyncio.to_thread(self._pytango.Database, host, port or "10000")
             else:
-                database = await asyncio.to_thread(self._tango.Database)
+                database = await asyncio.to_thread(self._pytango.Database)
             info = await asyncio.to_thread(database.get_info)
             logger.debug(f"TANGO connector: database reachable — {str(info).splitlines()[0]}")
         except Exception as e:
@@ -207,14 +260,29 @@ class TangoConnector(ControlSystemConnector):
         self._connected = False
         logger.info("TANGO connector disconnected")
 
-    def _get_proxy(self, device_name: str) -> Any:
+    @property
+    def _pytango(self) -> _PyTango:
+        """PyTango, as connect() imported it.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so there is no
+                TANGO client to call.
+        """
+        tango = self._tango
+        if tango is None:
+            raise ConnectorUnavailableError(
+                "No TANGO client: connect() imports PyTango for this connector."
+            )
+        return tango
+
+    def _get_proxy(self, device_name: str) -> _DeviceProxy:
         """The cached ``DeviceProxy`` for a device, created on first use."""
         proxy = self._proxies.get(device_name)
         if proxy is None:
             name = device_name
             if self._tango_host and not device_name.lower().startswith("tango://"):
                 name = f"tango://{self._tango_host}/{device_name}"
-            proxy = self._tango.DeviceProxy(name)
+            proxy = self._pytango.DeviceProxy(name)
             try:
                 proxy.set_timeout_millis(int(self._timeout_s * 1000))
             except Exception:  # a proxy that cannot take a timeout keeps its default
@@ -222,7 +290,9 @@ class TangoConnector(ControlSystemConnector):
             self._proxies[device_name] = proxy
         return proxy
 
-    def _labels_for(self, proxy: Any, device_name: str, attribute: str) -> list[str] | None:
+    def _labels_for(
+        self, proxy: _DeviceProxy, device_name: str, attribute: str
+    ) -> list[str] | None:
         """Enum labels for a ``DevEnum`` attribute, cached per attribute.
 
         Fails soft to ``None``: labels are an enrichment, never a precondition
@@ -333,10 +403,10 @@ class TangoConnector(ControlSystemConnector):
                 f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
             ) from None
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> CurrentValueReader | None:
         """The attribute's present value, read through this connector's own proxy."""
 
-        def read_current(channel_address: str) -> Any:
+        def read_current(channel_address: str) -> object:
             device_name, attribute = _split_address(channel_address)
             return self._get_proxy(device_name).read_attribute(attribute).value
 
@@ -562,7 +632,7 @@ class TangoConnector(ControlSystemConnector):
         event_id = await asyncio.to_thread(
             proxy.subscribe_event,
             attribute,
-            self._tango.EventType.CHANGE_EVENT,
+            self._pytango.EventType.CHANGE_EVENT,
             tango_callback,
         )
 

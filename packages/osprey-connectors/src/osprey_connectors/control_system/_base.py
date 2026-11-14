@@ -16,18 +16,24 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system._limits_validator import (
+        CurrentValueReader,
+        LimitsValidator,
+    )
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -531,7 +537,7 @@ _READONLY_SCRIPT_REMEDY = (
 )
 
 
-def _monitor_section() -> Any:
+def _monitor_section() -> object:
     """The ``control_system`` section the reference monitor judges by.
 
     Empty for a read-only run, which is answered before any config is read: it
@@ -619,7 +625,9 @@ def _verdict_refusal(
 
 
 def _authorized_refusal(
-    connector: "ControlSystemConnector", operations: list[tuple[Any, Any]], authorization: str
+    connector: "ControlSystemConnector",
+    operations: Sequence[tuple[str, object]],
+    authorization: str,
 ) -> "WriteVerdict | None":
     """The verdict refusing one write call of a process that names an authorization.
 
@@ -748,7 +756,9 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
     return results
 
 
-def _limits_refusal(channel_address: str, value: object, error: BaseException) -> ChannelWriteResult:
+def _limits_refusal(
+    channel_address: str, value: object, error: BaseException
+) -> ChannelWriteResult:
     """The REFUSED result a batch answers for a write the limits refused.
 
     One line per channel, the violation's type and reason, where a single
@@ -767,7 +777,7 @@ def _limits_refusal(channel_address: str, value: object, error: BaseException) -
 
 
 def _refused_batch(
-    named: list[tuple[str, Any]], refusals: list[ChannelWriteResult | None]
+    named: Sequence[tuple[str, object]], refusals: Sequence[ChannelWriteResult | None]
 ) -> list[ChannelWriteResult]:
     """One result per write of a batch that was not sent because a write was refused."""
     refused = [refusal for refusal in refusals if refusal is not None]
@@ -806,7 +816,9 @@ def _repeated_refusal(channel_address: str, value: object, times: int) -> Channe
     )
 
 
-def _batch_send_verdict(channel_address: str, value: object, error: Exception) -> ChannelWriteResult:
+def _batch_send_verdict(
+    channel_address: str, value: object, error: Exception
+) -> ChannelWriteResult:
     """The result of one write of a batch whose send raised, or the raise itself.
 
     A limits refusal at send time is a ``LIMITS`` refusal. A channel that
@@ -831,7 +843,7 @@ def _batch_send_verdict(channel_address: str, value: object, error: Exception) -
     raise error
 
 
-def _accepts_on_connection(subscribe: Callable[..., Any]) -> bool:
+def _accepts_on_connection(subscribe: Callable[..., object]) -> bool:
     """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
     parameters = inspect.signature(subscribe).parameters.values()
     return any(
@@ -907,7 +919,7 @@ class ControlSystemConnector(ABC):
         >>>     await connector.disconnect()
     """
 
-    _limits_validator: Any = None  # Initialized by subclasses in connect()
+    _limits_validator: "LimitsValidator | None" = None  # Initialized by subclasses in connect()
     # The connector type this instance was built as. Stamped by
     # ConnectorFactory.build_control_system_connector() between construction and
     # connect(), so connect() can already read the posture
@@ -943,7 +955,7 @@ class ControlSystemConnector(ABC):
     # A subclass's own ``write_channel`` before the guard wrapped it, set by
     # ``__init_subclass__``: what an authorized batch writes each operation
     # through once the whole call was judged and its step spent.
-    _unguarded_write_channel: Callable[..., Any]
+    _unguarded_write_channel: Callable[..., Awaitable[ChannelWriteResult]]
 
     @property
     def _writes_enabled(self) -> bool:
@@ -970,7 +982,7 @@ class ControlSystemConnector(ABC):
         self._last_verdict = verdict
         return verdict.allowed
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> "CurrentValueReader | None":
         """This connector's own way to read a channel's present value.
 
         Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check
@@ -1054,11 +1066,19 @@ class ControlSystemConnector(ABC):
         if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
             cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)  # type: ignore[method-assign]  # wraps the subclass's own method
 
-        original_write = cls.__dict__.get("write_channel")
+        original_write: Callable[..., Awaitable[ChannelWriteResult]] | None = cls.__dict__.get(
+            "write_channel"
+        )
         if original_write is not None:
 
             @functools.wraps(original_write)
-            async def _guarded_write(self, channel_address, value, *args, **kwargs):
+            async def _guarded_write(
+                self: "ControlSystemConnector",
+                channel_address: str,
+                value: object,
+                *args: object,
+                **kwargs: object,
+            ) -> ChannelWriteResult:
                 authorization = write_authorization.named_authorization()
                 if authorization is not None:
                     refused = _authorized_refusal(self, [(channel_address, value)], authorization)
@@ -1081,11 +1101,18 @@ class ControlSystemConnector(ABC):
             # and spent whole (:meth:`write_multiple_channels`).
             cls._unguarded_write_channel = original_write
 
-        original_multi = cls.__dict__.get("write_multiple_channels")
+        original_multi: Callable[..., Awaitable[list[ChannelWriteResult]]] | None = (
+            cls.__dict__.get("write_multiple_channels")
+        )
         if original_multi is not None:
 
             @functools.wraps(original_multi)
-            async def _guarded_multi(self, operations, *args, **kwargs):
+            async def _guarded_multi(
+                self: "ControlSystemConnector",
+                operations: list[tuple[str, object]],
+                *args,
+                **kwargs,
+            ) -> list[ChannelWriteResult]:
                 if write_authorization.named_authorization() is not None:
                     # Under an authorization a batch is the base class's: one
                     # step for the call, then each operation past the guard.
@@ -1437,8 +1464,8 @@ class ControlSystemConnector(ABC):
         if reader is None:
             return None
 
-        def read_all() -> dict[str, Any]:
-            held: dict[str, Any] = {}
+        def read_all() -> dict[str, object]:
+            held: dict[str, object] = {}
             for address in channel_addresses:
                 try:
                     held[address] = reader(address)
@@ -1450,7 +1477,7 @@ class ControlSystemConnector(ABC):
 
     async def _check_batch(
         self, batch: list[tuple[str, Any]]
-    ) -> tuple[list[tuple[str, Any]], list[ChannelWriteResult | None]]:
+    ) -> tuple[list[tuple[str, object]], list[ChannelWriteResult | None]]:
         """Check every write of a batch; nothing is sent.
 
         Returns the writes under the names :meth:`_write_precheck` gave them,
@@ -1458,7 +1485,7 @@ class ControlSystemConnector(ABC):
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        named: list[tuple[str, Any]] = []
+        named: list[tuple[str, object]] = []
         refusals: list[ChannelWriteResult | None] = []
         for address, value in batch:
             name, refusal = self._write_precheck(address, value)
@@ -1487,7 +1514,7 @@ class ControlSystemConnector(ABC):
         ]
         held = await self._current_values(stepped) if stepped else {}
 
-        def read_current(name: str) -> Any:
+        def read_current(name: str) -> object:
             current = held.get(name) if held is not None else None
             if isinstance(current, BaseException):
                 raise current
@@ -1544,7 +1571,7 @@ class ControlSystemConnector(ABC):
         control system takes concurrent puts sends them together, and asks
         once, immediately before the puts start.
         """
-        kwargs: dict[str, Any] = {"timeout": timeout}
+        kwargs: dict[str, float | bool | None] = {"timeout": timeout}
         if confirm is not None:
             kwargs["confirm"] = confirm
         write = type(self)._unguarded_write_channel
