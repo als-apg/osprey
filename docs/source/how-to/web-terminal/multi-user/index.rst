@@ -635,7 +635,7 @@ own ``sidecar`` spool directory, which no terminal mounts at all.
 
 That makes the agent record the place a question spanning several people is
 answered, by a reader whose record login covers those identities
-(:doc:`/how-to/health-and-monitoring/read-the-record`). :ref:`The audit trail
+(:ref:`agent-record-readers`). :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
 
@@ -715,7 +715,7 @@ whole list, so write every entry you keep into it.
   ``authorization.roles`` the person holds, shows every user's sessions.
 - **A reader** — a roster user named under ``agent_record.readers``, or a
   reader recognised by its ``oidc_subject`` — sees every user's sessions,
-  bounded by that reader's ``kinds`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+  bounded by that reader's ``kinds`` and ``days_back`` (:ref:`agent-record-readers`).
   The reader entry takes precedence over ``history:``.
 
 The rules at the edges:

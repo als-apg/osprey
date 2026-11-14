@@ -1,166 +1,23 @@
-=====================
-Keep the Agent Record
-=====================
+.. _how-to-read-the-record:
 
-Use this page to turn the archive on or off, set how long the record keeps
-entries, and check that the record and the archive are healthy. It also lists
-where each part lives, what deletes it, and what the archive keeps.
+================
+The Agent Record
+================
 
 The **agent record** holds what the agent was asked, what it answered and what
-it did. The ``agent-record`` service keeps every entry for
-``agent_record.retention_days``. It also exports each closed day into an
-append-only **archive** on the deployment host. The ``archive`` service copies
-the files the agent produced and the plan-queue history into the same archive
-once a day.
+it did, and what was decided about each call. The ``agent-record`` service
+keeps every entry for ``agent_record.retention_days``. Each closed day also goes
+into an append-only **archive** on the deployment host, which keeps it for
+good.
 
-For who may read the record, see :doc:`read-the-record`.
+.. dropdown:: What You'll Learn
+   :color: primary
+   :icon: book
 
-Where the record lives
-======================
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 26 30 22
-
-   * - What it holds
-     - Where
-     - Deleted by
-     - In the archive
-   * - The agent record's entries: prompts, answers, tool calls, transcripts,
-       safety decisions, dispatch runs and bridge turns
-     - ``var/agent_record/`` (``backend: embedded``), or the
-       ``agent_record_clickhouse_data`` volume (``backend: clickhouse``)
-     - ``agent_record.retention_days`` (default 14), only for days the archive
-       holds; ``osprey reset --purge-audit``
-     - yes, one Parquet file per day
-   * - The spool every writer appends to before the record ingests it
-     - ``var/spool/<identity>/``
-     - the record, once a segment is ingested; ``osprey reset --purge-audit``
-     - no; what it carried is in the record
-   * - Web-terminal transcripts
-     - each user's ``<user>-claude-config`` volume, ``projects/``
-     - Claude Code at startup, after the larger of
-       ``agent_record.retention_days`` and 30 days
-     - no; the record ingests them as they are written
-   * - Dispatch transcripts
-     - the worker's agent-data volume, ``claude-config/projects/``
-     - Claude Code, after the same key
-     - no; the record ingests them as they are written
-   * - Host-session transcripts (``osprey chat``, ``osprey web`` on the host)
-     - your own ``~/.claude/projects/``, the folder for the deployment's build
-     - Claude Code, after its own setting
-     - no; the record ingests them as they are written
-   * - Web-terminal artifact stores
-     - each user's ``<user>-agent-data`` volume, ``artifacts/`` (files and
-       ``artifacts.json``)
-     - deleting an artifact in the gallery, and removing the user's volumes
-     - yes, files and index
-   * - Dispatch artifact store
-     - the worker's agent-data volume, ``artifacts/`` (files and
-       ``artifacts.json``)
-     - ``RETENTION_DAYS``, and deleting an artifact in the gallery
-     - yes, files and index
-   * - Plan-queue history
-     - each lane's Redis volume
-     - removing the volume
-     - yes, as Redis persistence files
-   * - The archive
-     - ``var/archive/<YYYY-MM-DD>/``, with ``MANIFEST.jsonl``
-     - nothing but ``osprey reset --purge-audit``, which removes the record's
-       exports only
-     - —
-
-The larger of ``agent_record.retention_days`` and 30 days also sets how long
-Claude Code keeps its file history, shell snapshots, plan files and debug logs
-on these volumes. Host settings are never written.
-
-How long the record keeps an entry
-==================================
-
-Set ``agent_record.retention_days`` (default 14, at least 1) to the number of
-days the record keeps. The record counts days by **arrival day**: the UTC day
-an entry reached the record. An arrival day earlier than that many days before
-today is past retention.
-
-Once a day, right after the export, the record removes the days past retention,
-oldest first. It removes only the days the archive holds, and stops at the
-first day the archive does not hold. Nothing is ever removed that has no
-lasting copy. So an export that is down for longer than the window removes
-nothing, and the record grows until the export catches up. The record removes
-whole days, never single entries.
-
-A removed day stays out. A transcript that Claude Code rewrites still carries
-the lines of removed days. The record skips every line older than its oldest
-remaining day, so it does not take those lines in a second time. The export
-never goes back to a day before the record's oldest day either.
-
-A lower ``agent_record.retention_days`` takes effect at the next daily run. A
-higher value keeps the days the record still holds, not the ones it already
-removed. Those are in the archive.
-
-Turn the archive on and off
-===========================
-
-The demo preset deploys the archive service. To turn it on in any other
-profile, add it under ``services:``:
-
-.. code-block:: yaml
-
-   services:
-     archive:
-       template: osprey.archive
-
-To turn it off, delete the block. Either way, run ``osprey build`` and
-``osprey up`` to carry the change into the deployment.
-
-Without the archive service, the record still exports its own days into
-``var/archive/``. Only the artifact and plan-queue copies stop.
-
-``services.archive.interval_seconds`` sets the time between passes (default
-``86400``, one day). ``osprey health`` warns when the last pass is older than
-twice that, or when it recorded errors.
-
-Check it
-========
-
-Run ``osprey health`` to see one ``agent_record`` group of rows: the record's
-own account of itself. Every problem is a warning, because the record keeps
-working in part; the row says where.
-
-- ``agent_record_backend`` — the store the record writes. A warning names why
-  it is not ok, or that it refused a spool pass.
-- ``agent_record_spool`` — only when the spool set aside paths it would not
-  read.
-- ``agent_record_source.<identity>`` — one per spool directory, that is, per
-  writer identity. It reads **receiving** while entries arrive. It reads
-  **idle** when the source has no live session and nothing waiting. Both are
-  fine. It warns when:
-
-  - the source is **stopped**: a live session, or lines waiting, and nothing
-    from it reached the record for 5 minutes;
-  - its **backlog grows**: lines not yet in the record are older than 2
-    minutes;
-  - the record **refused** its lines in the last 24 hours;
-  - its writers logged errors or abandoned segments.
-
-- ``agent_record_transcripts.<identity>`` — one per transcript folder, the
-  same way: receiving, idle, stopped, or a folder or file that cannot be read.
-- ``agent_record_export`` — how far the export to the archive is behind. One
-  closed day behind is normal, because the next daily run exports yesterday.
-  It warns at more than one closed day, when the last export failed, or when
-  the archive cannot be read.
-
-On the host, a plain ``osprey health`` shows one skipped row instead when
-nothing in that shell points at a record. Two host commands ask the record
-directly. When no stack or host session runs the record, each command starts
-the host-local one for the call:
-
-- ``osprey agent-record health`` prints every source, transcript folder, the
-  backend and the export lag, and names each problem.
-- ``osprey agent-record export`` runs the catch-up export now and prints the
-  days it wrote.
-
-See :doc:`/reference/cli` for both.
+   - How to read a session on the Activity page
+   - How to let another person read the record
+   - How long the record keeps an entry, and how to check that it is healthy
+   - What the archive holds, and what the record can vouch for
 
 .. _agent-record-read-a-session:
 
@@ -214,110 +71,237 @@ for the reason:
 The session in the terminal is read again every 10 seconds. A session picked
 from the sidebar is read again only while it is live.
 
-Permissions
-===========
+.. _agent-record-readers:
 
-``var/archive/`` is shared by two writers through its group, the same way
-``var/agent_record/`` is. The archive is the lasting half of the audit trail.
-Its two writers each run in their own container under their own user:
+Let others read it
+==================
 
-- agent-record exports the record's closed days into it;
-- the archive service copies artifacts and Bluesky history into it.
+Each person reads their own sessions. To let someone read beyond them, for
+example a shift lead or an auditor, name them as a **reader** in the profile's
+top-level ``agent_record:`` block:
 
-The modes are:
+.. code-block:: yaml
 
-.. list-table::
-   :header-rows: 1
-   :widths: 34 66
+   agent_record:
+     readers:
+       - name: carol                 # a roster user: same name, same person
+       - name: dana
+         oidc_subject: 7f3c9e1a-...  # recognised by sign-on in the browser
+         kinds: [audit, run]         # default: every kind
+         days_back: 3                # default: retention_days
 
-   * - Path
-     - Mode
-   * - ``var/archive/``
-     - ``2770``, set by every ``osprey build``: setgid, read and write for the
-       owner and the group, nothing for anyone else. Its group is the one
-       ``var/agent_record/`` has.
-   * - Each directory either writer creates
-     - The root's mode.
-   * - Each file either writer creates
-     - The root's mode without the setgid and execute bits.
+- ``name`` — lowercase letters, digits, ``_`` and ``-``, starting with a letter
+  or digit; each reader is named once.
+- ``oidc_subject`` — the sign-on subject that is this reader in a browser, when
+  the web terminals sign people on with ``oidc``. A reader with the same name as
+  a roster user is that user already, and may not carry a subject.
+- ``kinds`` — the kinds of entry the reader may read (``prompt``, ``answer``,
+  ``tool_call``, ``audit``, ``run`` and the rest).
+- ``days_back`` — how far back the reader sees, at most
+  ``agent_record.retention_days``.
 
-So that group can read every copy, artifact and Bluesky copies included. Only
-agent-record and the archive service mount the directory, and the agent's own
-code may not touch it.
+The demo preset declares one reader, the deployment's admin roster user
+(``carol``).
 
-You own the directory and belong to its group. So the commands you run on the
-host can read and delete what either container wrote. These include
-``osprey health``, an export and ``osprey reset --purge-audit``.
+Run ``osprey up``. It mints each new reader's key into
+``.env.agent-record.reader.<name>`` at the repo root, mode 0600, and prints the
+file's path, never the key. The file holds one line,
+``OSPREY_AGENT_RECORD_LOGIN=reader.<name>:<key>``; give the key to the person
+out of band.
 
-- Under rootless podman, a container's root is your own user, so you own its
-  copies.
-- Under rootful docker, the archive service hands every path it creates to the
-  owner and group of ``var/archive/``.
+.. dropdown:: Rotate, withdraw or narrow a reader
+   :icon: key
 
-Read it
-=======
+   - **Rotate** a key: delete the file and run ``osprey up``. The old key stops
+     working and ``osprey up`` writes a new file.
+   - **Withdraw** a reader: delete the entry and run ``osprey up``. The key
+     stops working. The key file is set aside as
+     ``.env.agent-record.reader.<name>.withdrawn-<date>``, so re-adding the name
+     later mints a fresh key.
+   - **Narrow** a reader: change ``kinds`` or ``days_back`` and run
+     ``osprey up``.
 
-Each day directory holds:
+Within its ``kinds`` and ``days_back``, a reader sees every identity's
+sessions, with its key and in a browser alike. It writes nothing. In a browser
+it reads on the history page, ``/history/`` on the web tier's second server
+(``modules.web_terminals.history_port``, or ``history_origin`` behind a load
+balancer). Pages on the terminals' origin, where agent-written HTML runs,
+cannot read from it. A roster user named as a reader signs in as themselves;
+one off the roster is recognised by its ``oidc_subject``. See
+:ref:`multi-user-history-page`.
 
-- the files copied that day, under ``<kind>/<name>/<path>``;
-- the record's export of that day, under ``agent_record/entries.parquet``;
-- one ``MANIFEST.jsonl``.
-
-The manifest is appended to and never rewritten. It has these kinds of line:
-
-- ``file`` — one copied or exported file: its ``source``, its ``path`` in the
-  archive, its ``size`` and ``sha256``; the record's export file also carries
-  its ``day`` and ``rows``;
-- ``agent_record_day`` — the record's export of that day is whole: its ``day``
-  and ``rows``. It is the last line of the export. A day with no entries gets
-  it with ``rows: 0`` and no file. A day without it is not exported, and the
-  next export writes that day again, over any file it left;
-- ``agent_record_purged`` — the record's export of that day was purged; it
-  clears the day's earlier ``agent_record_day`` lines;
-- ``pass`` — the last line of every archive-service pass: when it ran, how many
-  files and bytes it copied, and any errors.
-
-Agent-record exports each UTC day once, by arrival day, after the day has
-closed. It runs when the service starts and then daily. It catches up every
-closed day a stopped service missed, oldest first.
-
-The archive service copies a file again only when its content changed. It
-copies a changed file whole. A second copy on the same day gets the pass time
-before its suffix, for example ``artifacts.T142233Z.json``.
-
-To restore a lane's plan-queue history, point ``redis-server --appendonly yes``
-at a copied ``appendonlydir``. A copy taken mid-write can end on a torn command;
-``redis-check-aof --fix`` repairs it.
-
-Audit files from before the record
+How long the record keeps an entry
 ==================================
 
-A deployment that wrote safety decisions before it had the agent record keeps
-those files in ``var/audit/``. They stay on disk as they were:
+Set ``agent_record.retention_days`` (default 14, at least 1). The record counts
+days by **arrival day**: the UTC day an entry reached the record.
 
-- the record does not read them;
-- they are not archived;
-- the agent's own code may not write them.
+Once a day, right after the export, the record removes the days past retention,
+oldest first. It removes only the days the archive holds, so an export that is
+down for longer than the window removes nothing, and the record grows until the
+export catches up.
 
-``osprey reset`` keeps them, and only ``osprey reset --purge-audit`` deletes
-them. To read them, use ``grep`` or ``jq`` on the host, as before.
+.. dropdown:: Removed days, and changing the window
+   :icon: info
 
-Removing a user
-===============
+   The record removes whole days, never single entries. A removed day stays
+   out: a transcript that Claude Code rewrites still carries the lines of
+   removed days, and the record skips every line older than its oldest
+   remaining day. The export never goes back to a day before the record's
+   oldest day either.
 
-``osprey users remove`` and ``osprey users prune`` with ``--archive`` or
-``--purge`` run a last archive pass first, because the archive reads every
-user's volumes. They then remove the archive container before they remove the
-volumes. To recreate the archive container without those volumes, run
-``osprey build``, then ``osprey up``.
+   A lower ``agent_record.retention_days`` takes effect at the next daily run.
+   A higher value keeps the days the record still holds, not the ones it
+   already removed. Those are in the archive.
 
-What is not archived
-====================
+Check it
+========
 
-- The Tiled catalog of a plan lane: it is beamline data, with its own
-  retention and backup, not a record of what the agent was asked and did.
-- The audit files from before the record, in ``var/audit/``.
-- An artifact deleted between two archive passes, or a dispatch run's
-  artifacts cleared or expired before the first pass after they were written.
-- Anything a user's volumes held when they are purged while the archive service
-  is not running.
+Run ``osprey health``. Its ``agent_record`` rows are the record's own account
+of itself. Every problem is a warning, because the record keeps working in
+part; the row says where.
+
+.. dropdown:: What each row says
+   :icon: pulse
+
+   - ``agent_record_backend`` — the store the record writes. A warning names
+     why it is not ok, or that it refused a spool pass.
+   - ``agent_record_spool`` — only when the spool set aside paths it would not
+     read.
+   - ``agent_record_source.<identity>`` — one per writer identity. It reads
+     **receiving** while entries arrive and **idle** when the source has no
+     live session and nothing waiting; both are fine. It warns when the source
+     is **stopped** (a live session or lines waiting, and nothing reached the
+     record for 5 minutes), when its **backlog** is older than 2 minutes, when
+     the record **refused** its lines in the last 24 hours, or when its
+     writers logged errors.
+   - ``agent_record_transcripts.<identity>`` — one per transcript folder, the
+     same way.
+   - ``agent_record_export`` — how far the export to the archive is behind. It
+     warns at more than one closed day, when the last export failed, or when
+     the archive cannot be read.
+
+On the host, two commands ask the record directly, starting the host-local one
+for the call when nothing else runs it:
+
+- ``osprey agent-record health`` prints every source, transcript folder, the
+  backend and the export lag, and names each problem.
+- ``osprey agent-record export`` runs the catch-up export now and prints the
+  days it wrote.
+
+The archive
+===========
+
+The record exports each closed UTC day into ``var/archive/<YYYY-MM-DD>/``. The
+``archive`` service copies the agent's artifacts and the plan-queue history
+into the same day directories. The demo preset deploys it; in another profile,
+add it under ``services:`` and run ``osprey build`` and ``osprey up``:
+
+.. code-block:: yaml
+
+   services:
+     archive:
+       template: osprey.archive
+
+Without the service, the record still exports its own days; only the artifact
+and plan-queue copies stop. ``services.archive.interval_seconds`` sets the time
+between passes (default ``86400``); ``osprey health`` warns when the last pass
+is older than twice that.
+
+.. dropdown:: Where everything lives, and what deletes it
+   :icon: database
+
+   - **Entries** (prompts, answers, tool calls, transcripts, safety decisions,
+     dispatch runs and bridge turns): ``var/agent_record/``
+     (``backend: embedded``) or the ``agent_record_clickhouse_data`` volume
+     (``backend: clickhouse``). Deleted by retention, only for days the
+     archive holds, and by ``osprey reset --purge-audit``. Archived as one
+     Parquet file per day.
+   - **Spool**: ``var/spool/<identity>/``, where every writer appends before
+     the record ingests it. Deleted once ingested, and by
+     ``osprey reset --purge-audit``. Not archived; what it carried is in the
+     record.
+   - **Transcripts**: each web terminal user's ``<user>-claude-config`` volume
+     and the dispatch worker's ``claude-config/``, under ``projects/``; for
+     host sessions (``osprey chat``, ``osprey web``), your own
+     ``~/.claude/projects/``. Claude Code deletes them after the larger of
+     ``agent_record.retention_days`` and 30 days (host sessions: its own
+     setting). Not archived; the record ingests them as they are written.
+   - **Artifacts**: ``artifacts/`` on each user's ``<user>-agent-data`` volume
+     and on the dispatch worker's. Deleted in the gallery, with the user's
+     volumes, and for dispatch after ``RETENTION_DAYS``. Archived, files and
+     index.
+   - **Plan-queue history**: each lane's Redis volume. Archived as Redis
+     persistence files.
+   - **The archive**: nothing deletes it but ``osprey reset --purge-audit``,
+     which removes the record's exports only.
+
+   The 30-day floor also sets how long Claude Code keeps its file history,
+   shell snapshots, plan files and debug logs on these volumes. Host settings
+   are never written.
+
+.. dropdown:: What a day directory holds
+   :icon: file-directory
+
+   - the files copied that day, under ``<kind>/<name>/<path>``;
+   - the record's export of that day, under ``agent_record/entries.parquet``;
+   - one ``MANIFEST.jsonl``, appended to and never rewritten: a ``file`` line
+     per copied or exported file (``source``, ``path``, ``size``, ``sha256``);
+     ``agent_record_day`` when the day's export is whole (a day without it is
+     exported again); ``agent_record_purged`` when it was purged; and a
+     ``pass`` line closing every archive-service pass.
+
+   The archive service copies a file again only when its content changed. A
+   second copy on the same day gets the pass time before its suffix, for
+   example ``artifacts.T142233Z.json``. To restore a lane's plan-queue history,
+   point ``redis-server --appendonly yes`` at a copied ``appendonlydir``;
+   ``redis-check-aof --fix`` repairs a copy taken mid-write.
+
+.. dropdown:: Permissions
+   :icon: lock
+
+   ``var/archive/`` has mode ``2770``, set by every ``osprey build``, and the
+   group of ``var/agent_record/``. Its two writers, agent-record and the
+   archive service, each run in their own container under their own user;
+   what they create takes the root's mode. Only those two mount the directory,
+   and the agent's own code may not touch it. You own it and belong to its
+   group, so ``osprey health``, an export and ``osprey reset --purge-audit``
+   on the host can read and delete what either wrote. Under rootful docker the
+   archive service hands every path it creates to the owner and group of
+   ``var/archive/``.
+
+.. dropdown:: Not archived, older audit files, and removing a user
+   :icon: info
+
+   - **Not archived:** a plan lane's Tiled catalog (beamline data, with its own
+     retention); an artifact deleted between two passes; anything a user's
+     volumes held when purged while the archive service was not running.
+   - **Audit files from before the record** stay in ``var/audit/`` as they
+     were: the record does not read them, they are not archived, and the
+     agent's own code may not write them. ``osprey reset`` keeps them; only
+     ``osprey reset --purge-audit`` deletes them. Read them with ``grep`` or
+     ``jq``.
+   - **Removing a user:** ``osprey users remove`` and ``osprey users prune``
+     with ``--archive`` or ``--purge`` run a last archive pass first, then
+     remove the archive container before the volumes. ``osprey build`` and
+     ``osprey up`` recreate it.
+
+What the record can vouch for
+=============================
+
+The record is as trustworthy as the processes that write to it:
+
+- **Containers are the boundary.** Each sender's container holds the login of
+  the one identity it records as. On a deployment whose agent runs on the
+  host, the agent runs as the operator's own user, and the credential files
+  are within its reach.
+- **Within one container, any process can write that user's record.**
+- **Prompts and events are reported by the sender.** The record files an entry
+  under the identity it arrived from, never under a name the sender wrote;
+  what the entry says happened is the sender's account.
+- **Agent-authored session plans run inside the queueserver container.** On a
+  person's own history page, a preflight entry appears only when it matches
+  their own queue-submit call within 60 seconds.
+- **Each fact is stored once.** A restart, a resumed session or a rewritten
+  transcript adds no second copy. While the store is unreachable the senders
+  keep their spools, and ``osprey health`` shows each backlog.

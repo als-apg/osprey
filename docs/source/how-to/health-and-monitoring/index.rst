@@ -22,26 +22,16 @@ what the agent was asked, what it answered and what it did, kept by the
       ``config.yml`` -- set through the profile's ``config:`` block -- adds a
       facility's own probes and tunes the suite's timing.
 
-   .. grid-item-card:: Keep the Agent Record
+   .. grid-item-card:: The Agent Record
       :link: agent-record
       :link-type: doc
       :shadow: md
 
-      Where the record of what the agent was asked and did lives, how long it
-      keeps an entry, how to check on it, and the daily append-only archive
-      that keeps it for good.
-
-   .. grid-item-card:: Read the Record
-      :link: read-the-record
-      :link-type: doc
-      :shadow: md
-
-      Name the people who may read the record, hand over their keys, and know
-      what each one can see and what the record can vouch for.
+      Read a session on the Activity page, let others read the record, and
+      know how long it keeps an entry and what the daily archive keeps for good.
 
 .. toctree::
    :hidden:
 
    configure-health-checks
    agent-record
-   read-the-record
