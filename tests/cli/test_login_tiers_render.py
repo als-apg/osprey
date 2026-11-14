@@ -3,7 +3,9 @@
 The map is written only into the staged configs of the tree-bound shared
 containers: ``build/services/bluesky/config.yml``, the untiered dispatch
 worker's ``build/services/dispatch_worker/config.yml``, and the tiered worker's
-staged copy — the tier's container-rooted render plus the map. Every other
+staged copy — the tier's container-rooted render plus the map. The first two are
+otherwise the root flatten, its deployed machines named by service when the
+container is on the compose network (``in_network_gateways``). Every other
 render (the root, each terminal-served render, each image render) carries none.
 
 Every build here runs with ``OSPREY_AUDIT_IDENTITY`` pinned, so the build
@@ -116,6 +118,24 @@ def _without_map(document: dict[str, Any]) -> dict[str, Any]:
     return staged
 
 
+def _expected_flatten(build: Path, staged_path: Path) -> dict[str, Any]:
+    """The root flatten as the container staged at *staged_path* must hold it.
+
+    A container on the compose network names the deployed machines by service:
+    the Bluesky lanes always, the dispatch worker unless its ``network:`` is host.
+    """
+    from osprey.deployment.compose_generator import in_network_gateways
+
+    root = _load(build / "config.yml")
+    service = staged_path.parent.name
+    if (
+        service != "bluesky"
+        and ((root.get("services") or {}).get(service) or {}).get("network") == "host"
+    ):
+        return root
+    return in_network_gateways(root, list(root.get("deployed_services") or []))
+
+
 def _expected_map() -> dict[str, str]:
     """From first principles: each roster card at its render's tier, the build account at root."""
     return {**_ROSTER_TIERS, BUILD_ACCOUNT: "asked"}
@@ -220,16 +240,17 @@ def test_bluesky_config_carries_the_map_and_is_otherwise_the_root_flatten(tiered
     build = tiered / "build"
     staged = _load(build / _BLUESKY)
     assert staged["control_system"]["login_tiers"] == _expected_map()
-    assert _without_map(staged) == _load(build / "config.yml")
+    assert _without_map(staged) == _expected_flatten(build, _BLUESKY)
+    # The exemplar deploys a machine at loopback, so the readdressing is not a no-op.
+    assert _expected_flatten(build, _BLUESKY) != _load(build / "config.yml")
 
 
 def test_untiered_worker_and_bluesky_carry_the_same_map_over_the_root(untiered: Path) -> None:
     build = untiered / "build"
-    root = _load(build / "config.yml")
     for staged_path in (_BLUESKY, _WORKER):
         staged = _load(build / staged_path)
         assert staged["control_system"]["login_tiers"] == _expected_map(), staged_path
-        assert _without_map(staged) == root, staged_path
+        assert _without_map(staged) == _expected_flatten(build, staged_path), staged_path
 
 
 def test_no_other_render_carries_the_map(tiered: Path) -> None:
@@ -303,11 +324,10 @@ def test_flatten_failure_fallback_still_stages_the_map(
 
     _redeploy(repo, output_root=".")
 
-    root = _load(build / "config.yml")
     for staged_path in (_BLUESKY, _WORKER):
         staged = _load(build / staged_path)
         assert staged["control_system"]["login_tiers"] == _expected_map(), staged_path
-        assert _without_map(staged) == root, staged_path
+        assert _without_map(staged) == _expected_flatten(build, staged_path), staged_path
 
 
 # -- who is in the map (BB-1, BB-8) -----------------------------------------------
