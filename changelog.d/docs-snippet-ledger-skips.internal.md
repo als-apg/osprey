@@ -1,1 +1,0 @@
-The docs snippet coverage report shows blocks only a parser reads as parse-only, lists blocks nothing in the repository can test under `not_testable:` with a reason (they leave the ratchet), and records the block-syntax and command-name guards' claims.

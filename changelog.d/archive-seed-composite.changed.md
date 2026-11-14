@@ -1,1 +1,0 @@
-The archive's seeded history, and every window `osprey sim apply` rewrites, is computed by the same composite the simulator serves, readout faults and clamps included; existing stores reseed once on the next `osprey up`. `osprey sim apply` activates the scenarios the simulator view lists and seeds the logbook from their entries.

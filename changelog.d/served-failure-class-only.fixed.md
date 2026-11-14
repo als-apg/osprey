@@ -1,1 +1,0 @@
-The `directory_properties` tool, the archive extent and the `archiver_read` coverage notes name a failed backend call by its exception class only; the exception text, which can carry a URL with a login, goes to the server log.
