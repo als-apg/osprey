@@ -18,7 +18,18 @@ from __future__ import annotations
 import math
 import numbers
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, SupportsFloat, SupportsIndex, TypeAlias, TypeGuard, overload
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    SupportsFloat,
+    SupportsIndex,
+    TypeAlias,
+    TypeGuard,
+    overload,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ChannelRecord
 
 _VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
 #: The value types whose channels carry labels.
@@ -90,7 +101,7 @@ def _labels(value_type: str, options: Sequence[str] | None) -> list[str]:
     return [str(label) for label in options]
 
 
-def channel_labels(channel: Mapping[str, Any]) -> list[str]:
+def channel_labels(channel: ChannelRecord | Mapping[str, Sequence[str] | None]) -> list[str]:
     """The labels of a bool or enum channel record.
 
     Args:
