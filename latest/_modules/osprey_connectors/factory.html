@@ -442,8 +442,9 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">types</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ControlSystemConnector</span>
@@ -483,20 +484,114 @@
     <span class="k">return</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown service kind: </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s2">. Service kinds: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">_SERVICE_KINDS</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Import the class a dotted out-of-tree type names.</span>
+<span class="n">_Class</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;_Class&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_NotASubclassError</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An imported name is not a subclass of the base its registry holds.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">bases</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2"> is not a subclass of </span><span class="si">{</span><span class="n">bases</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_imported</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The name *class_name* of the module *module_path*.</span>
 
 <span class="sd">    Raises:</span>
-<span class="sd">        ValueError: The module does not import, or has no such class.</span>
+<span class="sd">        ImportError: The module does not import.</span>
+<span class="sd">        AttributeError: The module has no such name.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">found</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_path</span><span class="p">),</span> <span class="n">class_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">found</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_control_system_class</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The control system connector class *class_name* of *module_path*.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ImportError: The module does not import.</span>
+<span class="sd">        AttributeError: The module has no such name.</span>
+<span class="sd">        _NotASubclassError: The name is not a ``ControlSystemConnector`` subclass.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">found</span> <span class="o">=</span> <span class="n">_imported</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">ControlSystemConnector</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">found</span>
+    <span class="k">raise</span> <span class="n">_NotASubclassError</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="s2">&quot;ControlSystemConnector&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_archiver_class</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">ArchiverConnector</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The archiver connector class *class_name* of *module_path*.</span>
+
+<span class="sd">    The base is imported here, not at module scope: it would make pandas a hard</span>
+<span class="sd">    dependency of the lean control-system import chain.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ImportError: The module does not import.</span>
+<span class="sd">        AttributeError: The module has no such name.</span>
+<span class="sd">        _NotASubclassError: The name is not an ``ArchiverConnector`` subclass.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.archiver._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArchiverConnector</span>
+
+    <span class="n">found</span> <span class="o">=</span> <span class="n">_imported</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">ArchiverConnector</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">found</span>
+    <span class="k">raise</span> <span class="n">_NotASubclassError</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="s2">&quot;ArchiverConnector&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_service_class</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">_ServiceBackend</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A service backend class: a subclass of one of the four service bases.</span>
+
+<span class="sd">    The four bases together are the type the service registries hold. They are</span>
+<span class="sd">    imported here, not at module scope, so the lean control-system import chain</span>
+<span class="sd">    does not load the service packages.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ImportError: The module does not import.</span>
+<span class="sd">        AttributeError: The module has no such name.</span>
+<span class="sd">        _NotASubclassError: The name subclasses none of the four bases.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.alarm_log</span><span class="w"> </span><span class="kn">import</span> <span class="n">AlarmLog</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.alarm_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">AlarmState</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.directory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelDirectory</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.put_log</span><span class="w"> </span><span class="kn">import</span> <span class="n">PutLog</span>
+
+    <span class="n">found</span> <span class="o">=</span> <span class="n">_imported</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">issubclass</span><span class="p">(</span>
+        <span class="n">found</span><span class="p">,</span> <span class="p">(</span><span class="n">ChannelDirectory</span><span class="p">,</span> <span class="n">AlarmState</span><span class="p">,</span> <span class="n">AlarmLog</span><span class="p">,</span> <span class="n">PutLog</span><span class="p">)</span>
+    <span class="p">):</span>
+        <span class="k">return</span> <span class="n">found</span>
+    <span class="k">raise</span> <span class="n">_NotASubclassError</span><span class="p">(</span>
+        <span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="s2">&quot;ChannelDirectory, AlarmState, AlarmLog or PutLog&quot;</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">load</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">_Class</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">_Class</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Import the class a dotted out-of-tree type names, through *load*.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: The module does not import, has no such class, or the class</span>
+<span class="sd">            is not a subclass of the base *load* requires.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span> <span class="o">=</span> <span class="n">connector_type</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_path</span><span class="p">)</span>
-        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">load</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not import connector module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
     <span class="k">except</span> <span class="ne">AttributeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Module &#39;</span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&#39; has no class &#39;</span><span class="si">{</span><span class="n">class_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="n">_NotASubclassError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Connector type &#39;</span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_mapping_section</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;*value* as the config mapping read from *path*.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *value* is not a mapping.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; must be a mapping, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="ConnectorFactory">
@@ -585,8 +680,8 @@
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.build_control_system_connector">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">build_control_system_connector</span><span class="p">(</span>
-        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Build a control system connector and its type config, without connecting.</span>
 
@@ -617,7 +712,10 @@
 <span class="sd">            derivable from the first, so they travel together.</span>
 
 <span class="sd">        Raises:</span>
-<span class="sd">            ValueError: If connector type is unknown or config is invalid</span>
+<span class="sd">            ValueError: If connector type is unknown or config is invalid: a</span>
+<span class="sd">                dotted type that names no ``ControlSystemConnector`` subclass,</span>
+<span class="sd">                or a section, ``connector`` block or type block that is not a</span>
+<span class="sd">                mapping.</span>
 <span class="sd">            FileNotFoundError: If ``config`` is None and no config is found.</span>
 <span class="sd">                The error names where it looked; nothing is built in its place.</span>
 
@@ -631,7 +729,7 @@
         <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-            <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">_mapping_section</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{}),</span> <span class="s2">&quot;control_system&quot;</span><span class="p">)</span>
 
         <span class="c1"># Fail closed: an under-specified config must never bring up a live</span>
         <span class="c1"># control system. A blank value is treated as absent for the same</span>
@@ -658,7 +756,7 @@
 
         <span class="k">if</span> <span class="ow">not</span> <span class="n">connector_class</span><span class="p">:</span>
             <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">connector_type</span><span class="p">:</span>
-                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span>
+                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">,</span> <span class="n">_control_system_class</span><span class="p">)</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_control_system_connectors</span><span class="p">[</span><span class="n">connector_type</span><span class="p">]</span> <span class="o">=</span> <span class="n">connector_class</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">if</span> <span class="n">connector_type</span> <span class="ow">in</span> <span class="n">types</span><span class="o">.</span><span class="n">RETIRED_CONTROL_SYSTEM_TYPES</span><span class="p">:</span>
@@ -688,8 +786,15 @@
         <span class="n">connector</span><span class="o">.</span><span class="n">_control_target</span> <span class="o">=</span> <span class="n">control_target</span>
 
         <span class="c1"># Get type-specific configuration</span>
-        <span class="n">connector_configs</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">connector_configs</span> <span class="o">=</span> <span class="n">_mapping_section</span><span class="p">(</span>
+            <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">,</span> <span class="p">{}),</span> <span class="s2">&quot;control_system.connector&quot;</span>
+        <span class="p">)</span>
         <span class="n">type_config</span> <span class="o">=</span> <span class="n">connector_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">connector_type</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">type_config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;&#39;control_system.connector.</span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&#39; must be a mapping, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">type_config</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
 
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Built control system connector: </span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">connector</span><span class="p">,</span> <span class="n">type_config</span></div>
@@ -699,7 +804,7 @@
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.create_control_system_connector">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_control_system_connector</span><span class="p">(</span>
-        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">control_target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ControlSystemConnector</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Create, configure and connect a control system connector.</span>
@@ -747,7 +852,7 @@
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.create_archiver_connector">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_archiver_connector</span><span class="p">(</span>
-        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArchiverConnector</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Create and configure an archiver connector.</span>
@@ -768,7 +873,9 @@
 <span class="sd">            Initialized and connected ArchiverConnector</span>
 
 <span class="sd">        Raises:</span>
-<span class="sd">            ValueError: If connector type is unknown or config is invalid</span>
+<span class="sd">            ValueError: If connector type is unknown or config is invalid: a</span>
+<span class="sd">                dotted type that names no ``ArchiverConnector`` subclass, or a</span>
+<span class="sd">                section that is not a mapping.</span>
 <span class="sd">            FileNotFoundError: If ``config`` is None and no config is found.</span>
 <span class="sd">                The error names where it looked; nothing is built in its place.</span>
 <span class="sd">            ConnectionError: If connection fails</span>
@@ -789,7 +896,7 @@
         <span class="k">if</span> <span class="n">config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-            <span class="n">config</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">_mapping_section</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">,</span> <span class="p">{}),</span> <span class="s2">&quot;archiver&quot;</span><span class="p">)</span>
 
         <span class="c1"># Fail closed: a config with no `archiver:` section is under-specified,</span>
         <span class="c1"># not a declaration that a facility archiver exists. A blank value is</span>
@@ -807,7 +914,7 @@
 
         <span class="k">if</span> <span class="ow">not</span> <span class="n">connector_class</span><span class="p">:</span>
             <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">connector_type</span><span class="p">:</span>
-                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span>
+                <span class="n">connector_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">connector_type</span><span class="p">,</span> <span class="n">_archiver_class</span><span class="p">)</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="p">[</span><span class="n">connector_type</span><span class="p">]</span> <span class="o">=</span> <span class="n">connector_class</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">available</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
@@ -850,7 +957,8 @@
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: The kind is not one of the four, the type is unknown, or a</span>
-<span class="sd">                dotted type does not resolve.</span>
+<span class="sd">                dotted type does not resolve to a subclass of one of the four</span>
+<span class="sd">                service bases.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">registry</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_service_backends</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">kind</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">registry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -864,7 +972,7 @@
                     <span class="sa">f</span><span class="s2">&quot;Available types: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">registry</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
                     <span class="sa">f</span><span class="s2">&quot;Use a dotted module path for custom connectors.&quot;</span>
                 <span class="p">)</span>
-            <span class="n">backend_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
+            <span class="n">backend_class</span> <span class="o">=</span> <span class="n">_dotted_class</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="n">_service_class</span><span class="p">)</span>
             <span class="n">registry</span><span class="p">[</span><span class="n">spec</span><span class="o">.</span><span class="n">type</span><span class="p">]</span> <span class="o">=</span> <span class="n">backend_class</span>
         <span class="n">given</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">seam</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">seam</span> <span class="ow">in</span> <span class="n">seams</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">seam</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
         <span class="n">backend</span><span class="p">:</span> <span class="n">_ServiceBackend</span> <span class="o">=</span> <span class="n">backend_class</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">project_dir</span><span class="o">=</span><span class="n">project_dir</span><span class="p">,</span> <span class="o">**</span><span class="n">given</span><span class="p">)</span>
@@ -910,9 +1018,15 @@
 
 <div class="viewcode-block" id="BuiltinConnector.load">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.factory.BuiltinConnector.load">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Import the module and return the connector class.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span></div>
+    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">ControlSystemConnector</span><span class="p">]</span> <span class="o">|</span> <span class="nb">type</span><span class="p">[</span><span class="n">ArchiverConnector</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Import the module and return the connector class.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            TypeError: The class is not a subclass of the base its kind names.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;archiver&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_archiver_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_control_system_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span></div>
 </div>
 
 
@@ -1019,9 +1133,13 @@
     <span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Import the module and return the backend class.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">_ServiceBackend</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Import the module and return the backend class.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            TypeError: The class subclasses none of the four service bases.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_service_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">module_path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
 
 
 <span class="c1">#: Every built-in service backend, in registration order. ``simulator_view``</span>
@@ -1111,10 +1229,14 @@
     <span class="k">for</span> <span class="n">builtin</span> <span class="ow">in</span> <span class="n">BUILTIN_CONNECTORS</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">builtin</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;control_system&quot;</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">builtin</span><span class="o">.</span><span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">_control_system_connectors</span><span class="p">:</span>
-                <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">register_control_system</span><span class="p">(</span><span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">builtin</span><span class="o">.</span><span class="n">load</span><span class="p">())</span>
+                <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">register_control_system</span><span class="p">(</span>
+                    <span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">_control_system_class</span><span class="p">(</span><span class="n">builtin</span><span class="o">.</span><span class="n">module_path</span><span class="p">,</span> <span class="n">builtin</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
+                <span class="p">)</span>
         <span class="k">elif</span> <span class="n">builtin</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;archiver&quot;</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">builtin</span><span class="o">.</span><span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">_archiver_connectors</span><span class="p">:</span>
-                <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">register_archiver</span><span class="p">(</span><span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">builtin</span><span class="o">.</span><span class="n">load</span><span class="p">())</span>
+                <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">register_archiver</span><span class="p">(</span>
+                    <span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">_archiver_class</span><span class="p">(</span><span class="n">builtin</span><span class="o">.</span><span class="n">module_path</span><span class="p">,</span> <span class="n">builtin</span><span class="o">.</span><span class="n">class_name</span><span class="p">)</span>
+                <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;built-in connector </span><span class="si">{</span><span class="n">builtin</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> has unknown kind </span><span class="si">{</span><span class="n">builtin</span><span class="o">.</span><span class="n">kind</span><span class="si">!r}</span><span class="s2">&quot;</span>

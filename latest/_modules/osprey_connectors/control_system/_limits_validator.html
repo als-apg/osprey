@@ -439,6 +439,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">field</span> <span class="k">as</span> <span class="n">dataclass_field</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeGuard</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -628,6 +629,11 @@
     <span class="k">return</span> <span class="n">number</span><span class="p">,</span> <span class="kc">None</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_json_object</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TypeGuard</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether ``value`` is a JSON object: a ``dict``, whose keys :mod:`json` makes ``str``.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+
+
 <div class="viewcode-block" id="step_read_timeout_seconds">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.step_read_timeout_seconds">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">step_read_timeout_seconds</span><span class="p">(</span>
@@ -729,12 +735,13 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">limits_database</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span>
         <span class="n">policy_config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
-        <span class="n">raw_db</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">raw_db</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">failsafe_reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">):</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">limits</span> <span class="o">=</span> <span class="n">limits_database</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">policy</span> <span class="o">=</span> <span class="n">policy_config</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_raw_db</span> <span class="o">=</span> <span class="n">raw_db</span>  <span class="c1"># Keep raw database for confirm-policy access</span>
+        <span class="c1"># Keep raw database for confirm-policy access; none given is an empty one.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_raw_db</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">raw_db</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">raw_db</span>
         <span class="c1"># Set only by the empty-DB failsafe paths in from_config: the database</span>
         <span class="c1"># could not be loaded, so every write is blocked. validate() uses it to</span>
         <span class="c1"># refuse with a load-failure message instead of the unlisted-channel</span>
@@ -822,7 +829,9 @@
         <span class="k">if</span> <span class="n">config_lookup</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">default_config_path</span><span class="p">,</span> <span class="n">get_config_value</span>
 
-            <span class="n">config_lookup</span> <span class="o">=</span> <span class="n">get_config_value</span>
+            <span class="c1"># Bound through a ConfigLookup, so the lookup answers ``object``.</span>
+            <span class="n">live_lookup</span><span class="p">:</span> <span class="n">ConfigLookup</span> <span class="o">=</span> <span class="n">get_config_value</span>
+            <span class="n">config_lookup</span> <span class="o">=</span> <span class="n">live_lookup</span>
             <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">config_path</span> <span class="o">=</span> <span class="n">default_config_path</span><span class="p">()</span>
 
@@ -846,7 +855,7 @@
         <span class="o">*</span><span class="p">,</span>
         <span class="n">config_lookup</span><span class="p">:</span> <span class="n">ConfigLookup</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve and load the deployment-wide limits database.</span>
 
 <span class="sd">        The database path is deployment-wide even where the posture is not: a</span>
@@ -979,7 +988,7 @@
         <span class="k">try</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-            <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="n">section</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
         <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="c1"># Config not available (test environment, etc.) - limits checking disabled</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits validator not initialized (config unavailable): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -1019,7 +1028,7 @@
         <span class="k">try</span><span class="p">:</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
 
-            <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="n">section</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
         <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="c1"># Config not available (test environment, etc.) - limits checking disabled</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Limits validator not initialized (config unavailable): </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -1086,7 +1095,7 @@
             <span class="c1"># Both entries are JSON-serialisable: the python executor embeds</span>
             <span class="c1"># this dict verbatim into the sandbox (wrapper.py), so the</span>
             <span class="c1"># tri-state rides as null rather than as anything richer.</span>
-            <span class="n">policy</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">policy</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
                 <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="n">posture</span><span class="o">.</span><span class="n">mode</span><span class="p">,</span>
                 <span class="s2">&quot;mode_key&quot;</span><span class="p">:</span> <span class="n">posture</span><span class="o">.</span><span class="n">key</span><span class="p">(</span><span class="s2">&quot;mode&quot;</span><span class="p">),</span>
             <span class="p">}</span>
@@ -1129,12 +1138,12 @@
 <span class="sd">        Returns:</span>
 <span class="sd">            True when the write must be confirmed (the fleet default).</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">raw_db</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_raw_db&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">raw_db</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw_db</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw_db</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
             <span class="k">return</span> <span class="kc">True</span>
 
         <span class="n">channel_config</span> <span class="o">=</span> <span class="n">raw_db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">channel_config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;confirm&quot;</span> <span class="ow">in</span> <span class="n">channel_config</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_is_json_object</span><span class="p">(</span><span class="n">channel_config</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;confirm&quot;</span> <span class="ow">in</span> <span class="n">channel_config</span><span class="p">:</span>
             <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">channel_config</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">])</span>
 
         <span class="k">return</span> <span class="kc">True</span></div>
@@ -1153,7 +1162,37 @@
 
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_channel_config</span><span class="p">(</span><span class="n">channel_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_numeric_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">field</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One numeric field of a channel entry; ``None`` when absent or null.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The field holds something that is not a number.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be numeric, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_boolean_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">field</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;One boolean field of a channel entry; ``None`` when absent.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: The field is present and is not a boolean.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">field</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be boolean, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_channel_config</span><span class="p">(</span><span class="n">channel_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate a single channel configuration structure.</span>
 
 <span class="sd">        Args:</span>
@@ -1184,24 +1223,16 @@
 
         <span class="c1"># Validate numeric fields</span>
         <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;min_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_value&quot;</span><span class="p">,</span> <span class="s2">&quot;max_step&quot;</span><span class="p">]:</span>
-            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
-                <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
-                <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be numeric, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
-                    <span class="p">)</span>
+            <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_numeric_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="n">field</span><span class="p">)</span>
 
         <span class="c1"># Validate boolean fields</span>
         <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">,</span> <span class="s2">&quot;confirm&quot;</span><span class="p">]:</span>
-            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
-                <span class="n">value</span> <span class="o">=</span> <span class="n">config_dict</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
-                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field</span><span class="si">}</span><span class="s2">&#39; must be boolean, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
-                    <span class="p">)</span>
+            <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_boolean_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="n">field</span><span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_load_limits_database</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_load_limits_database</span><span class="p">(</span>
+        <span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Load and validate limits database from JSON file.</span>
 
 <span class="sd">        The database holds:</span>
@@ -1231,9 +1262,9 @@
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel limits database not found: </span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
             <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-                <span class="n">raw_db</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="n">raw_db</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
 
-            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw_db</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_json_object</span><span class="p">(</span><span class="n">raw_db</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;Limits database must be a JSON object/dict, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">raw_db</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
@@ -1247,7 +1278,7 @@
                 <span class="p">)</span>
 
             <span class="c1"># Load channel configurations</span>
-            <span class="n">limits_db</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">limits_db</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelLimitsConfig</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
             <span class="k">for</span> <span class="n">channel_name</span><span class="p">,</span> <span class="n">config_dict</span> <span class="ow">in</span> <span class="n">raw_db</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                 <span class="c1"># Skip metadata fields (underscore prefix)</span>
                 <span class="k">if</span> <span class="n">channel_name</span> <span class="ow">in</span> <span class="n">METADATA_FIELDS</span> <span class="ow">or</span> <span class="n">channel_name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">):</span>
@@ -1255,7 +1286,7 @@
                     <span class="k">continue</span>
 
                 <span class="c1"># Validate it&#39;s a dict</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_json_object</span><span class="p">(</span><span class="n">config_dict</span><span class="p">):</span>
                     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                         <span class="sa">f</span><span class="s2">&quot;Invalid config for channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39;: &quot;</span>
                         <span class="sa">f</span><span class="s2">&quot;must be a dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">config_dict</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -1267,15 +1298,16 @@
 
                     <span class="c1"># Writability is never assumed: an entry that does not</span>
                     <span class="c1"># state it fails the load.</span>
-                    <span class="k">if</span> <span class="s2">&quot;writable&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config_dict</span><span class="p">:</span>
+                    <span class="n">writable</span> <span class="o">=</span> <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_boolean_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="s2">&quot;writable&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">writable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Channel &#39;</span><span class="si">{</span><span class="n">channel_name</span><span class="si">}</span><span class="s2">&#39; does not state &#39;writable&#39;&quot;</span><span class="p">)</span>
 
                     <span class="n">config</span> <span class="o">=</span> <span class="n">ChannelLimitsConfig</span><span class="p">(</span>
                         <span class="n">channel_address</span><span class="o">=</span><span class="n">channel_name</span><span class="p">,</span>
-                        <span class="n">min_value</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;min_value&quot;</span><span class="p">),</span>
-                        <span class="n">max_value</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max_value&quot;</span><span class="p">),</span>
-                        <span class="n">max_step</span><span class="o">=</span><span class="n">config_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;max_step&quot;</span><span class="p">),</span>
-                        <span class="n">writable</span><span class="o">=</span><span class="n">config_dict</span><span class="p">[</span><span class="s2">&quot;writable&quot;</span><span class="p">],</span>
+                        <span class="n">min_value</span><span class="o">=</span><span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_numeric_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="s2">&quot;min_value&quot;</span><span class="p">),</span>
+                        <span class="n">max_value</span><span class="o">=</span><span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_numeric_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="s2">&quot;max_value&quot;</span><span class="p">),</span>
+                        <span class="n">max_step</span><span class="o">=</span><span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_numeric_field</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="s2">&quot;max_step&quot;</span><span class="p">),</span>
+                        <span class="n">writable</span><span class="o">=</span><span class="n">writable</span><span class="p">,</span>
                     <span class="p">)</span>
 
                     <span class="c1"># Log performance warning for max_step</span>

@@ -631,7 +631,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorInternalError</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc</span><span class="w"> </span><span class="kn">import</span> <span class="n">_frames</span> <span class="k">as</span> <span class="n">frames</span>
@@ -639,6 +639,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">POSTURE_ENV_VAR</span><span class="p">,</span> <span class="n">SANDBOX_MODE</span><span class="p">,</span> <span class="n">is_readonly_run</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="n">ControlSystemConnector</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -911,7 +913,7 @@
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">tier_allows</span>
 
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">section</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">section</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;control_system&quot;</span><span class="p">,</span> <span class="p">{})</span>
     <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">return</span> <span class="n">tier_allows</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
@@ -1026,14 +1028,37 @@
     <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_init_block</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">where</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A nested block of the init payload&#39;s section: empty when unset, refused when no mapping.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: *value* is set but is not a mapping.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;connector host init: </span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2"> must be a mapping, not a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_post_connect_report</span><span class="p">(</span>
     <span class="n">connector</span><span class="p">:</span> <span class="n">ControlSystemConnector</span><span class="p">,</span>
     <span class="n">connector_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_PostConnectReport</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Describe what ``connect()`` configured, for the parent to verify.&quot;&quot;&quot;</span>
-    <span class="n">connector_block</span> <span class="o">=</span> <span class="p">(</span><span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">connector_type</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Describe what ``connect()`` configured, for the parent to verify.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: The section&#39;s ``connector`` block, or its block for</span>
+<span class="sd">            *connector_type*, is set but is not a mapping.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">connectors</span> <span class="o">=</span> <span class="n">_init_block</span><span class="p">(</span><span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;connector&quot;</span><span class="p">),</span> <span class="s2">&quot;control_system.connector&quot;</span><span class="p">)</span>
+    <span class="n">connector_block</span> <span class="o">=</span> <span class="n">_init_block</span><span class="p">(</span>
+        <span class="n">connectors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">connector_type</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;control_system.connector.</span><span class="si">{</span><span class="n">connector_type</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
     <span class="n">gateways</span> <span class="o">=</span> <span class="n">connector_block</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;gateways&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">gateways</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="n">gateways</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1271,8 +1296,12 @@
         <span class="k">raise</span> <span class="ne">TimeoutError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="k">else</span> <span class="n">reason</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
 
 
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run one request against the connector.&quot;&quot;&quot;</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run one request against the connector.</span>
+
+<span class="sd">    *method* and *kwargs* are the request frame&#39;s, unvalidated: a bad one is</span>
+<span class="sd">    refused here, in that request&#39;s error frame.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;ping&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">kwargs</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
@@ -1281,8 +1310,9 @@
         <span class="p">)</span>
     <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;spawn_probe&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="k">await</span> <span class="n">_spawn_probe</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">PROXY_METHODS</span><span class="p">:</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">PROXY_METHODS</span><span class="p">:</span>
+        <span class="n">served</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">served</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;connector host does not serve </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">; it serves &quot;</span>
         <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="o">*</span><span class="n">PROXY_METHODS</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;spawn_probe&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ping&#39;</span><span class="p">))</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -1354,13 +1384,13 @@
         <span class="k">return</span> <span class="n">EXIT_OK</span>
     <span class="n">marks</span><span class="o">.</span><span class="n">mark</span><span class="p">(</span><span class="s2">&quot;init&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">RequestFrame</span><span class="p">)</span> <span class="ow">or</span> <span class="n">init</span><span class="o">.</span><span class="n">method</span> <span class="o">!=</span> <span class="n">INIT_METHOD</span><span class="p">:</span>
-        <span class="n">request_id</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="s2">&quot;request_id&quot;</span><span class="p">,</span> <span class="s2">&quot;init&quot;</span><span class="p">)</span>
+        <span class="n">got</span> <span class="o">=</span> <span class="n">init</span><span class="o">.</span><span class="n">method</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="n">frames</span><span class="o">.</span><span class="n">RequestFrame</span><span class="p">)</span> <span class="k">else</span> <span class="nb">type</span><span class="p">(</span><span class="n">init</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
         <span class="k">await</span> <span class="n">writer</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
             <span class="n">_error_frame</span><span class="p">(</span>
-                <span class="n">request_id</span><span class="p">,</span>
+                <span class="n">init</span><span class="o">.</span><span class="n">request_id</span><span class="p">,</span>
                 <span class="ne">ConnectionError</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;connector host expected a </span><span class="si">{</span><span class="n">INIT_METHOD</span><span class="si">!r}</span><span class="s2"> request as its first frame, &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">init</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;method&#39;</span><span class="p">,</span><span class="w"> </span><span class="nb">type</span><span class="p">(</span><span class="n">init</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span><span class="si">!r}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="n">got</span><span class="si">!r}</span><span class="s2">&quot;</span>
                 <span class="p">),</span>
             <span class="p">)</span>
         <span class="p">)</span>

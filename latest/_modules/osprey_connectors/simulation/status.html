@@ -444,7 +444,7 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">runtime_checkable</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;STATUS_NO_DECK&quot;</span><span class="p">,</span>
@@ -463,6 +463,13 @@
 <span class="n">STATUS_NO_DECK</span> <span class="o">=</span> <span class="s2">&quot;no deck&quot;</span>
 
 <span class="n">_COMPOSITE_ATTRIBUTE</span> <span class="o">=</span> <span class="s2">&quot;_composite&quot;</span>
+
+
+<span class="nd">@runtime_checkable</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_StatusSource</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;What a status lookup reads: the composite a connector serves in process.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>
 
 
 <div class="viewcode-block" id="is_error">
@@ -502,11 +509,10 @@
 <span class="sd">        ValueError: ``model`` is not a served physics model, the message naming</span>
 <span class="sd">            the served ones; or the connector serves no composite in process.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">composite</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">_COMPOSITE_ATTRIBUTE</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">composite</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">composite</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">_COMPOSITE_ATTRIBUTE</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">composite</span><span class="p">,</span> <span class="n">_StatusSource</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">connector</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> serves no simulator in process&quot;</span><span class="p">)</span>
-    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">composite</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">status</span></div>
+    <span class="k">return</span> <span class="n">composite</span><span class="o">.</span><span class="n">status</span><span class="p">(</span><span class="n">model</span><span class="p">)</span></div>
 
 
 

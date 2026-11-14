@@ -736,7 +736,10 @@
 
 <span class="c1">#: The target each self-standing machine&#39;s type is the baseline of. A type</span>
 <span class="c1">#: absent from this table describes the facility&#39;s own machine, hence ``live``.</span>
-<span class="n">_BASELINE_TARGETS</span> <span class="o">=</span> <span class="p">{</span><span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span> <span class="n">TARGET_VA</span><span class="p">,</span> <span class="n">LIVE_STANDIN</span><span class="p">:</span> <span class="n">TARGET_STANDIN</span><span class="p">}</span>
+<span class="n">_BASELINE_TARGETS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ControlTarget</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">VIRTUAL_ACCELERATOR</span><span class="p">:</span> <span class="n">TARGET_VA</span><span class="p">,</span>
+    <span class="n">LIVE_STANDIN</span><span class="p">:</span> <span class="n">TARGET_STANDIN</span><span class="p">,</span>
+<span class="p">}</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_type</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">fallback</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -1082,7 +1085,7 @@
 
 <div class="viewcode-block" id="baseline_target">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.baseline_target">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">baseline_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">baseline_target</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ControlTarget</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The target a deployment&#39;s own ``control_system:`` section selects.</span>
 
 <span class="sd">    ``va`` for the simulator, in whichever venue its leaf names (a section</span>
@@ -1188,7 +1191,7 @@
 
 <div class="viewcode-block" id="configured_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.configured_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">configured_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">configured_targets</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ControlTarget</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The targets a session on this deployment can actually be pointed at.</span>
 
 <span class="sd">    In :data:`CONTROL_TARGETS` order, which is the order every render, roster</span>
@@ -1359,7 +1362,7 @@
 <div class="viewcode-block" id="published_machine_kind">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.types.published_machine_kind">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">published_machine_kind</span><span class="p">(</span>
-    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">state_dir</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">target</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">state_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">PathLike</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;real&quot;</span><span class="p">,</span> <span class="s2">&quot;rehearsal&quot;</span><span class="p">,</span> <span class="s2">&quot;simulator&quot;</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The kind of machine *target* is, as this deployment&#39;s controls server publishes it.</span>
 

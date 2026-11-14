@@ -710,7 +710,7 @@ discarded the child).</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>control_system</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> config section, as loaded.
+<li><p><strong>control_system</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The <code class="docutils literal notranslate"><span class="pre">control_system</span></code> config section, as loaded.
 Copied; <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in it are resolved at each spawn.</p></li>
 <li><p><strong>config_file</strong> (<em>str</em><em> | </em><em>PathLike</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The project config the children read their write posture
 and limits from. Without one, a child finds whatever
@@ -1229,8 +1229,10 @@ in when the caller happens to resume. A failure about one channel is no
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.Endpoint.port">
-<span class="sig-name descname"><span class="pre">port</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Any</span></span><a class="headerlink" href="#osprey_connectors.ipc.Endpoint.port" title="Link to this definition">#</a></dt>
-<dd></dd></dl>
+<span class="sig-name descname"><span class="pre">port</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">object</span></span><a class="headerlink" href="#osprey_connectors.ipc.Endpoint.port" title="Link to this definition">#</a></dt>
+<dd><p>The <code class="docutils literal notranslate"><span class="pre">port</span></code> the gateway block carries, as written (or the default the
+derivation filled in): usually an <code class="docutils literal notranslate"><span class="pre">int</span></code>, but whatever the config holds.</p>
+</dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.Endpoint.mode">
@@ -1431,7 +1433,7 @@ and keeps the default.</p>
 this file: a top-level dotted line in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> configures nothing.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1537,7 +1539,7 @@ with.</p>
 <dd><p>One nested section of <em>section</em>, or an empty mapping when it is absent or not one.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p>dict[str, object]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1725,7 +1727,7 @@ alive.</p></li>
 <dd><p>The record as a failure’s <code class="docutils literal notranslate"><span class="pre">recovery</span></code> carries it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, str]</p>
+<dd class="field-odd"><p><a class="reference internal" href="errors-logging.html#osprey_connectors.errors.RecoveryRecord" title="osprey_connectors.errors.RecoveryRecord"><em>RecoveryRecord</em></a></p>
 </dd>
 </dl>
 </dd></dl>

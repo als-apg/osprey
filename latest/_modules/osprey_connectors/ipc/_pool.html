@@ -642,16 +642,16 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Coroutine</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Coroutine</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">os</span><span class="w"> </span><span class="kn">import</span> <span class="n">PathLike</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypeVar</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">posture_store</span><span class="p">,</span> <span class="n">write_authorization</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_env_vars</span><span class="p">,</span> <span class="n">unresolved_placeholders</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="n">ChannelWriteResult</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorUnavailableError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorUnavailableError</span><span class="p">,</span> <span class="n">RecoveryRecord</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._host</span><span class="w"> </span><span class="kn">import</span> <span class="n">START_PHASES</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._launch</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AttributedReader</span><span class="p">,</span>
@@ -663,6 +663,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._proxy</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ChildUnresponsiveError</span><span class="p">,</span>
     <span class="n">ConnectorHostProxy</span><span class="p">,</span>
+    <span class="n">_expect</span><span class="p">,</span>
     <span class="n">raised_by_child</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._verification</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -696,6 +697,8 @@
 <span class="c1"># Named for the public namespace, not this private module, so a logging config</span>
 <span class="c1"># keyed on the name keeps matching whatever the module is called.</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;osprey_connectors.ipc.pool&quot;</span><span class="p">)</span>
+
+<span class="n">_T</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;_T&quot;</span><span class="p">)</span>
 
 <span class="c1">#: The one execution mode a key may carry besides ``None``.</span>
 <span class="n">READONLY</span> <span class="o">=</span> <span class="s2">&quot;readonly&quot;</span>
@@ -792,7 +795,7 @@
         <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">execution_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">recovery</span><span class="o">=</span><span class="n">recovery</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">target</span> <span class="o">=</span> <span class="n">target</span>
@@ -941,7 +944,7 @@
         <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">cause</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">returncode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
             <span class="n">message</span><span class="p">,</span>
@@ -971,9 +974,9 @@
 <span class="sd">    ``child_kept`` record, as on :class:`ConnectorUnavailableError`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">recovery</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">recovery</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">())</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">recovery</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">recovery</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="ConnectorHostWriteTimeoutError">
@@ -1120,7 +1123,7 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostPool.__init__">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">control_system</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">control_system</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">config_file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PathLike</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">python</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span>
@@ -1131,7 +1134,7 @@
         <span class="n">terminate_grace_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">DEFAULT_TERMINATE_GRACE_S</span><span class="p">,</span>
         <span class="n">kill_on_write_timeout</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_section</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">control_system</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">control_system</span><span class="p">))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_config_file</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span> <span class="k">if</span> <span class="n">config_file</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_python</span> <span class="o">=</span> <span class="n">python</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_start_timeout_s</span> <span class="o">=</span> <span class="n">start_timeout_s</span>
@@ -1237,12 +1240,23 @@
 
     <span class="c1"># -- calls -------------------------------------------------------------</span>
 
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run one call on *key*&#39;s child. Never retried.&quot;&quot;&quot;</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the proxy method named *method* on *key*&#39;s child. Never retried.&quot;&quot;&quot;</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">proxy</span><span class="p">:</span> <span class="n">ConnectorHostProxy</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+            <span class="n">bound</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">bound</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">call</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_call</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">call</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">ConnectorHostProxy</span><span class="p">],</span> <span class="n">Awaitable</span><span class="p">[</span><span class="n">_T</span><span class="p">]]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_T</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run *call*, the proxy&#39;s *method*, on *key*&#39;s child. Never retried.&quot;&quot;&quot;</span>
         <span class="n">child</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="n">ticket</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_policy</span><span class="o">.</span><span class="n">begin</span><span class="p">()</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="k">return</span> <span class="k">await</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">proxy</span><span class="p">,</span> <span class="n">method</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">call</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">proxy</span><span class="p">)</span>
         <span class="k">except</span> <span class="n">ChildUnresponsiveError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">retired</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="c1"># Another call already retired this child; its cause stands.</span>
@@ -1297,7 +1311,7 @@
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_recovered</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_PoolChild</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">,</span> <span class="n">ticket</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The record of the recovery that replaced a retired child; none when the pool stopped it.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">retired</span> <span class="o">==</span> <span class="n">CAUSE_STOPPED</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">()</span>
@@ -1365,7 +1379,7 @@
         <span class="n">cause</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
-        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+        <span class="n">recovery</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">RecoveryRecord</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConnectorHostLostError</span><span class="p">:</span>
         <span class="n">target</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">_owner</span><span class="p">,</span> <span class="n">_authorization</span> <span class="o">=</span> <span class="n">_key_parts</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">key</span><span class="p">)</span>
         <span class="n">error_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">ConnectorHostLostError</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConnectorHostLostError</span>
@@ -1465,7 +1479,7 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">target</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">_owner</span><span class="p">,</span> <span class="n">_authorization</span> <span class="o">=</span> <span class="n">_key_parts</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="n">readonly</span> <span class="o">=</span> <span class="n">mode</span> <span class="o">==</span> <span class="n">READONLY</span>
-        <span class="n">section</span> <span class="o">=</span> <span class="n">resolve_env_vars</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">))</span>
+        <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolve_env_vars</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_section</span><span class="p">))</span>
         <span class="c1"># Derived once, so the config refusal and the post-connect verification</span>
         <span class="c1"># judge the same posture snapshot.</span>
         <span class="n">derivation</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">,</span> <span class="n">writes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_derive</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">section</span><span class="p">)</span>
@@ -1598,7 +1612,9 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">child</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_derive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">TargetDerivation</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_derive</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">TargetDerivation</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.</span>
 
 <span class="sd">        That posture is what the child will select its gateway on, and the</span>
@@ -1618,7 +1634,7 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">derivation</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">,</span> <span class="n">writes</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_key_writes_allowed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_key_writes_allowed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;:meth:`_writes_allowed` for *key*; a two-part key asks it with two arguments.&quot;&quot;&quot;</span>
         <span class="n">target</span><span class="p">,</span> <span class="n">_mode</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">authorization</span> <span class="o">=</span> <span class="n">_key_parts</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">authorization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1627,7 +1643,7 @@
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_writes_allowed</span><span class="p">(</span>
-        <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
         <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">authorization</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1648,7 +1664,7 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_writes_moved</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span>
-        <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
         <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
         <span class="n">writes</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
         <span class="n">report</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
@@ -1665,7 +1681,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_key_writes_allowed</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">writes</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_config_refusal</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">_Key</span><span class="p">,</span> <span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">derivation</span><span class="p">:</span> <span class="n">TargetDerivation</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Why *key* must not be spawned at all, from config alone, or ``None``.</span>
 
@@ -1880,10 +1896,9 @@
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_channel</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelValue</span><span class="p">:</span>
-        <span class="n">result</span><span class="p">:</span> <span class="n">ChannelValue</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;read_channel&quot;</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">timeout</span>
-        <span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;read_channel&quot;</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">proxy</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.read_multiple_channels">
@@ -1891,10 +1906,11 @@
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_multiple_channels</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]:</span>
-        <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelValue</span><span class="p">]</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">,</span> <span class="n">channel_addresses</span><span class="p">,</span> <span class="n">timeout</span>
-        <span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span>
+            <span class="s2">&quot;read_multiple_channels&quot;</span><span class="p">,</span>
+            <span class="k">lambda</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">proxy</span><span class="o">.</span><span class="n">read_multiple_channels</span><span class="p">(</span><span class="n">channel_addresses</span><span class="p">,</span> <span class="n">timeout</span><span class="p">),</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.write_channel">
@@ -1906,10 +1922,11 @@
         <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
-        <span class="n">result</span><span class="p">:</span> <span class="n">ChannelWriteResult</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;write_channel&quot;</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">confirm</span>
-        <span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span>
+            <span class="s2">&quot;write_channel&quot;</span><span class="p">,</span>
+            <span class="k">lambda</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">proxy</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">confirm</span><span class="p">),</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.write_multiple_channels">
@@ -1920,10 +1937,11 @@
         <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">confirm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]:</span>
-        <span class="n">result</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ChannelWriteResult</span><span class="p">]</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">,</span> <span class="n">operations</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">confirm</span>
-        <span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span>
+            <span class="s2">&quot;write_multiple_channels&quot;</span><span class="p">,</span>
+            <span class="k">lambda</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">proxy</span><span class="o">.</span><span class="n">write_multiple_channels</span><span class="p">(</span><span class="n">operations</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">confirm</span><span class="p">),</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.write_channel_checked">
@@ -1938,17 +1956,20 @@
 <span class="sd">        that was sent but not confirmed. ``confirm`` and ``timeout`` pass</span>
 <span class="sd">        through to :meth:`write_channel`.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">result</span><span class="p">:</span> <span class="n">ChannelWriteResult</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
+        <span class="c1"># The proxy&#39;s own write_channel_checked is the base class&#39;s function,</span>
+        <span class="c1"># bound by name: it is typed for a ControlSystemConnector, not the proxy.</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;write_channel_checked&quot;</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
         <span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="n">_expect</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">ChannelWriteResult</span><span class="p">,</span> <span class="s2">&quot;write_channel_checked&quot;</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.validate_channel">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.PooledConnector.validate_channel">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">validate_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-        <span class="n">result</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_invoke</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;validate_channel&quot;</span><span class="p">,</span> <span class="n">channel_address</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">result</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">,</span> <span class="s2">&quot;validate_channel&quot;</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">proxy</span><span class="p">:</span> <span class="n">proxy</span><span class="o">.</span><span class="n">validate_channel</span><span class="p">(</span><span class="n">channel_address</span><span class="p">)</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PooledConnector.disconnect">

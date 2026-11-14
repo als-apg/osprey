@@ -458,7 +458,7 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">SupportsIndex</span><span class="p">,</span> <span class="n">SupportsInt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">SupportsIndex</span><span class="p">,</span> <span class="n">SupportsInt</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config_flag</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._gateway_role</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -538,7 +538,9 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Where one gateway role points, and how the child will say so to EPICS.&quot;&quot;&quot;</span>
 
     <span class="n">host</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">port</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="c1">#: The ``port`` the gateway block carries, as written (or the default the</span>
+    <span class="c1">#: derivation filled in): usually an ``int``, but whatever the config holds.</span>
+    <span class="n">port</span><span class="p">:</span> <span class="nb">object</span>
     <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span>
 
 <div class="viewcode-block" id="Endpoint.as_dict">
@@ -624,7 +626,7 @@
 
 <div class="viewcode-block" id="config_section">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.config_section">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">config_section</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">config_section</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One top-level section of a rendered config, or an empty mapping.</span>
 
 <span class="sd">    Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read</span>
@@ -639,7 +641,7 @@
 
 <div class="viewcode-block" id="subsection">
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.subsection">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">subsection</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">subsection</span><span class="p">(</span><span class="n">section</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;One nested section of *section*, or an empty mapping when it is absent or not one.&quot;&quot;&quot;</span>
     <span class="n">value</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span></div>

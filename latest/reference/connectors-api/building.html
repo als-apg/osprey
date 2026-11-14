@@ -544,8 +544,11 @@ its entries from here rather than restating the private paths.</p>
 <span class="sig-name descname"><span class="pre">load</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/factory.html#BuiltinConnector.load"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.factory.BuiltinConnector.load" title="Link to this definition">#</a></dt>
 <dd><p>Import the module and return the connector class.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Any</em></p>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>TypeError</strong> – The class is not a subclass of the base its kind names.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type">type</a>[<a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system.ControlSystemConnector">ControlSystemConnector</a>] | <a class="reference internal" href="services.html#osprey_connectors.service_answers.BackendSpec.type" title="osprey_connectors.service_answers.BackendSpec.type">type</a>[<a class="reference internal" href="contracts.html#osprey_connectors.archiver.ArchiverConnector" title="osprey_connectors.archiver.ArchiverConnector">ArchiverConnector</a>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -632,7 +635,7 @@ by <a class="reference internal" href="#osprey_connectors.factory.ConnectorFacto
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Control system configuration dict, or None to read the
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – <p>Control system configuration dict, or None to read the
 <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section of the config this process loads
 (see <a class="reference internal" href="configuration.html#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a>). Its
 keys:</p>
@@ -662,13 +665,16 @@ derivable from the first, so they travel together.</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid</p></li>
+<li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid: a
+    dotted type that names no <code class="docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> subclass,
+    or a section, <code class="docutils literal notranslate"><span class="pre">connector</span></code> block or type block that is not a
+    mapping.</p></li>
 <li><p><strong>FileNotFoundError</strong> – If <code class="docutils literal notranslate"><span class="pre">config</span></code> is None and no config is found.
     The error names where it looked; nothing is built in its place.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>tuple[<a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system._base.ControlSystemConnector"><em>ControlSystemConnector</em></a>, dict[str, <em>Any</em>]]</p>
+<dd class="field-even"><p>tuple[<a class="reference internal" href="contracts.html#osprey_connectors.control_system.ControlSystemConnector" title="osprey_connectors.control_system._base.ControlSystemConnector"><em>ControlSystemConnector</em></a>, dict[str, object]]</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -689,7 +695,7 @@ the type stamp and <code class="docutils literal notranslate"><span class="pre">
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Control system configuration dict, as
+<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – Control system configuration dict, as
 <a class="reference internal" href="#osprey_connectors.factory.ConnectorFactory.build_control_system_connector" title="osprey_connectors.factory.ConnectorFactory.build_control_system_connector"><code class="xref py py-meth docutils literal notranslate"><span class="pre">build_control_system_connector()</span></code></a> documents it.</p></li>
 <li><p><strong>control_target</strong> (<em>str</em><em> | </em><em>None</em>) – The control target this connector is being built
 for, stamped on the instance as
@@ -730,7 +736,7 @@ for, stamped on the instance as
 <dd><p>Create and configure an archiver connector.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – <p>Archiver configuration dict, or None to read the
+<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – <p>Archiver configuration dict, or None to read the
 <code class="docutils literal notranslate"><span class="pre">archiver</span></code> section of the config this process loads (see
 <a class="reference internal" href="configuration.html#osprey_connectors.config.get_config_value" title="osprey_connectors.config.get_config_value"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.config.get_config_value()</span></code></a>). Its keys:</p>
 <ul class="simple">
@@ -748,7 +754,9 @@ read when settings is absent; both at once raise ValueError.</p></li>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid</p></li>
+<li><p><strong>ValueError</strong> – If connector type is unknown or config is invalid: a
+    dotted type that names no <code class="docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> subclass, or a
+    section that is not a mapping.</p></li>
 <li><p><strong>FileNotFoundError</strong> – If <code class="docutils literal notranslate"><span class="pre">config</span></code> is None and no config is found.
     The error names where it looked; nothing is built in its place.</p></li>
 <li><p><strong>ConnectionError</strong> – If connection fails</p></li>
@@ -788,7 +796,8 @@ converges, so every create call can afford to.</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><p><strong>ValueError</strong> – The kind is not one of the four, the type is unknown, or a
-    dotted type does not resolve.</p>
+    dotted type does not resolve to a subclass of one of the four
+    service bases.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>_ServiceBackend</p>
@@ -1190,7 +1199,7 @@ the supervisor, the switch predicate below, and every baseline-pinned reader
 — and three answers to it is three ways for one deployment to be described.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>str</p>
+<dd class="field-odd"><p><em>Literal</em>[‘live’, ‘va’, ‘standin’]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1231,7 +1240,7 @@ malformed still has a baseline, and that one target is what such a
 deployment is on.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list[str]</p>
+<dd class="field-odd"><p>list[<em>Literal</em>[‘live’, ‘va’, ‘standin’]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1465,7 +1474,7 @@ rehearsal.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>object</em>) – The control target.</p></li>
-<li><p><strong>state_dir</strong> (<em>object</em>) – The directory holding the servers’ reports; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads
+<li><p><strong>state_dir</strong> (<em>str</em><em> | </em><em>PathLike</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The directory holding the servers’ reports; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads
 <a class="reference internal" href="write-safety.html#osprey_connectors.posture_store.state_dir" title="osprey_connectors.posture_store.state_dir"><code class="xref py py-func docutils literal notranslate"><span class="pre">osprey_connectors.posture_store.state_dir()</span></code></a>.</p></li>
 </ul>
 </dd>

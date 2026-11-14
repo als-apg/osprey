@@ -963,7 +963,7 @@ behind, and leaving it is what stops one run’s owner from gating the next
 run’s writes.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Iterator</em>[dict[str, <em>Any</em>]]</p>
+<dd class="field-odd"><p><em>Iterator</em>[dict[str, object]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3953,7 +3953,7 @@ server has not vouched for reads as the real machine.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>str</em><em> | </em><em>None</em><em> | </em><a class="reference internal" href="#osprey_connectors.write_target.Unresolved" title="osprey_connectors.write_target.Unresolved"><em>Unresolved</em></a>) – An answer of <a class="reference internal" href="#osprey_connectors.write_target.write_target_for_tool" title="osprey_connectors.write_target.write_target_for_tool"><code class="xref py py-func docutils literal notranslate"><span class="pre">write_target_for_tool()</span></code></a>.</p></li>
-<li><p><strong>state_dir</strong> (<em>object</em>) – The servers’ report directory; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads this process’s.</p></li>
+<li><p><strong>state_dir</strong> (<em>str</em><em> | </em><em>PathLike</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>) – The servers’ report directory; <code class="docutils literal notranslate"><span class="pre">None</span></code> reads this process’s.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -3983,7 +3983,7 @@ while answering.</p>
 <li><p><strong>config</strong> (<em>object</em>) – The loaded <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mapping, for the lane map and baseline.</p></li>
 <li><p><strong>tool_name</strong> (<em>str</em>) – The full tool name.</p></li>
 <li><p><strong>tool_input</strong> (<em>object</em>) – The call’s arguments.</p></li>
-<li><p><strong>hook_config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The render’s <code class="docutils literal notranslate"><span class="pre">.claude/hooks/hook_config.json</span></code> mapping;
+<li><p><strong>hook_config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The render’s <code class="docutils literal notranslate"><span class="pre">.claude/hooks/hook_config.json</span></code> mapping;
 <code class="docutils literal notranslate"><span class="pre">None</span></code> or <code class="docutils literal notranslate"><span class="pre">{}</span></code> reads as an empty one.</p></li>
 <li><p><strong>short_name</strong> (<em>str</em><em> | </em><em>None</em>) – <em>tool_name</em> without its server prefix; <code class="docutils literal notranslate"><span class="pre">None</span></code> resolves it
 from <em>hook_config</em>’s prefix lists.</p></li>
@@ -4103,7 +4103,7 @@ read answered no value.</p></li>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>record</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> record, <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">x}</span></code> in the
+<li><p><strong>record</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> record, <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">x}</span></code> in the
 channel’s unit or <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">f}</span></code>, a fraction of the demand.</p></li>
 <li><p><strong>demand</strong> (<em>float</em>) – The value the setpoint is driven to.</p></li>
 </ul>
@@ -4156,7 +4156,7 @@ reading that is not a finite number is never inside.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>tolerance</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – The setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> record, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>tolerance</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>] </em><em>| </em><em>None</em>) – The setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> record, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
 <li><p><strong>demand</strong> (<em>float</em>) – The value the setpoint is driven to.</p></li>
 <li><p><strong>motion</strong> (<em>float</em>) – The readback’s motion band.</p></li>
 <li><p><strong>simulated</strong> (<em>bool</em>) – Whether the machine is the simulator; only there does the
