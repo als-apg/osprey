@@ -1009,7 +1009,7 @@ key. A layer with a literal <code class="docutils literal notranslate"><span cla
 <code class="docutils literal notranslate"><span class="pre">writes:</span> <span class="pre">allowed</span></code> — for every machine, not only the type it named; any
 other value reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A shared login always reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. A file that
 spells both the retired and the new key is refused. The retired keys are
-refused from 2026.12.0.</p></li>
+refused in the next stable release.</p></li>
 <li><p><strong>A render built before this release</strong> is not reread with the old rule: at
 run time it has no tier key and reads <code class="docutils literal notranslate"><span class="pre">never</span></code> until it is rebuilt.</p></li>
 <li><p><strong>Every machine starts at off.</strong> After the rebuild, nothing writes until a
@@ -1019,7 +1019,8 @@ queue item with no owner no longer writes at all.</p></li>
 <code class="docutils literal notranslate"><span class="pre">claude_code.permissions.remove_deny</span></code> that lifts <code class="docutils literal notranslate"><span class="pre">Bash</span></code> or <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>
 fails the build: a shell reaches the switch and the connectors around every
 gate. On a <code class="docutils literal notranslate"><span class="pre">never</span></code> render it stays a warning.</p></li>
-<li><p><strong>Two countdowns, warn now, refused from 2026.12.0.</strong> A facility tool that
+<li><p><strong>Two countdowns, warn now, refused in the next stable release.</strong> A facility
+tool that
 a server lists under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code>, or whose name carries a
 destructive marker, and that is missing from that server’s
 <code class="docutils literal notranslate"><span class="pre">mcp_servers.&lt;server&gt;.writes</span></code> list, is a build warning.
