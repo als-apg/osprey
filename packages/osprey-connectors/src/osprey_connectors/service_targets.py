@@ -33,7 +33,7 @@ job in the framework.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Literal
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS
 from osprey_connectors.service_answers import BackendSpec
@@ -50,7 +50,7 @@ _Kind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
 _KINDS: tuple[_Kind, ...] = ("directory", "alarm_log", "alarm_state", "put_log")
 
 
-def service_targets(config: Mapping[str, Any]) -> dict[str, dict[str, BackendSpec | None]]:
+def service_targets(config: Mapping[str, object]) -> dict[str, dict[str, BackendSpec | None]]:
     """The source of every section on every target, per the module table.
 
     Args:
@@ -97,7 +97,7 @@ def service_targets(config: Mapping[str, Any]) -> dict[str, dict[str, BackendSpe
 
 
 def _facility_row(
-    kind: _Kind, block: Mapping[str, Any], fold: Mapping[str, Any] | None = None
+    kind: _Kind, block: Mapping[str, object], fold: Mapping[str, object] | None = None
 ) -> dict[str, BackendSpec | None]:
     """A row with *block*'s ``type`` on the facility's targets and nothing elsewhere."""
     service = _text(block.get("type"))
@@ -111,7 +111,7 @@ def _facility_row(
 
 
 def _spec(
-    kind: _Kind, service: str, target: ControlTarget, settings: Mapping[str, Any]
+    kind: _Kind, service: str, target: ControlTarget, settings: Mapping[str, object]
 ) -> BackendSpec:
     return BackendSpec(
         kind=kind,
@@ -122,21 +122,21 @@ def _spec(
     )
 
 
-def _caveats(block: Mapping[str, Any]) -> dict[str, Any]:
+def _caveats(block: Mapping[str, object]) -> dict[str, object]:
     return _present(caveats=block.get("caveats"))
 
 
-def _present(**values: Any) -> dict[str, Any]:
+def _present(**values: object) -> dict[str, object]:
     """The keyword arguments the section set; a key it did not set is not folded."""
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _copied(settings: Mapping[str, Any]) -> dict[str, Any]:
+def _copied(settings: Mapping[str, object]) -> dict[str, object]:
     """*settings* with its folded lists copied, so a spec never aliases the config."""
     return {key: list(v) if isinstance(v, list) else v for key, v in settings.items()}
 
 
-def _mapping(value: object) -> Mapping[str, Any]:
+def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 

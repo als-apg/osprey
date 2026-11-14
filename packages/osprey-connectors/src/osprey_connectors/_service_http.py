@@ -44,7 +44,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
+from typing import Protocol
 
 from osprey_connectors.connection import (
     ConnectionSettings,
@@ -74,6 +74,32 @@ _PLAIN_SEGMENTS = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*")
 _HTML_SNIFF_BYTES = 1024
 _READ_CHUNK_BYTES = 65536
 
+#: A request's query: a mapping, or a sequence of pairs that may repeat a key.
+Params = Mapping[str, object] | Sequence[tuple[str, object]]
+
+
+class Transport(Protocol):
+    """What a backend's ``transport`` keyword takes: :meth:`ReadOnlyTransport.request`."""
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Params | None = None,
+        json_body: object = None,
+        deadline: float,
+    ) -> object: ...
+
+
+class _Reply(Protocol):
+    """The part of an answer, or of an ``HTTPError`` standing for one, that is read."""
+
+    @property
+    def length(self) -> int | None: ...
+
+    def read1(self, size: int = ..., /) -> bytes: ...
+
 
 class _RefuseRedirects(urllib.request.BaseHandler):
     """Turn a redirect into the error it is here, ahead of urllib's following handler."""
@@ -102,7 +128,7 @@ class ReadOnlyTransport:
     """
 
     def __init__(
-        self, settings: Mapping[str, Any], allowed: Iterable[tuple[str, str]], *, where: str
+        self, settings: Mapping[str, object], allowed: Iterable[tuple[str, str]], *, where: str
     ) -> None:
         self._exact: set[tuple[str, str]] = set()
         self._prefixes: list[tuple[str, str]] = []
@@ -125,10 +151,10 @@ class ReadOnlyTransport:
         method: str,
         path: str,
         *,
-        params: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
+        params: Params | None = None,
         json_body: object = None,
         deadline: float,
-    ) -> Any:
+    ) -> object:
         """One request, finished within *deadline* seconds or the block's ``timeout_s``.
 
         Args:
@@ -173,8 +199,8 @@ class ReadOnlyTransport:
         connection: ConnectionSettings,
         method: str,
         path: str,
-        params: Any,
-        json_body: Any,
+        params: Params | None,
+        json_body: object,
     ) -> urllib.request.Request | Unavailable:
         base = connection.url or ""
         if "?" in base or "#" in base:
@@ -207,7 +233,7 @@ class ReadOnlyTransport:
             self._opener = opener
         return self._opener
 
-    def _exchange(self, request: urllib.request.Request, bound: float) -> Any:
+    def _exchange(self, request: urllib.request.Request, bound: float) -> object:
         """Runs in a worker thread, abandoned by the caller once *bound* has passed.
 
         The read loop ends the thread at *bound* while a body arrives. Dripped response
@@ -245,7 +271,7 @@ class ReadOnlyTransport:
         return f"`{self._where}`: the url or login cannot be sent"
 
 
-def _read_until(response: Any, ends_at: float) -> bytes | Unavailable:
+def _read_until(response: _Reply, ends_at: float) -> bytes | Unavailable:
     # A socket timeout restarts with every byte, so a slow drip would outlast it.
     too_large = Unavailable(f"answered more than {_MAX_BODY_BYTES // (1024 * 1024)} MiB")
     if response.length is not None and response.length > _MAX_BODY_BYTES:
@@ -265,7 +291,7 @@ def _read_until(response: Any, ends_at: float) -> bytes | Unavailable:
     return b"".join(chunks)
 
 
-def _read_answer(status: int, content_type: str, body: bytes) -> Any:
+def _read_answer(status: int, content_type: str, body: bytes) -> object:
     html = "html" in content_type.lower() or _is_html(body)
     if 300 <= status < 400 or (html and status in _LOGIN_PAGE_STATUSES):
         return Unavailable(LOGIN_PAGE_REASON)

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
@@ -53,7 +54,9 @@ class ReplayAlarmState(AlarmState):
     read during the load waits for it up to its deadline.
     """
 
-    def __init__(self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any) -> None:
+    def __init__(
+        self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: object
+    ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         self._task: asyncio.Task[None] | None = None
         self._snapshot: FeedSnapshot | None = None
@@ -137,6 +140,8 @@ class ReplayAlarmState(AlarmState):
         value = self.spec.settings.get("replay_file")
         if not value:
             return Unavailable("alarm_state.replay_file is not set")
+        if not isinstance(value, str | os.PathLike):
+            return Unavailable("alarm_state.replay_file is not a path")
         if str(value).startswith("demo:"):
             return Unavailable(f"alarm replay {value} was not resolved to a file")
         path = Path(value)
@@ -158,8 +163,8 @@ class ReplayAlarmState(AlarmState):
 
 @dataclass(frozen=True)
 class _Message:
-    key: Any
-    value: Any
+    key: str | None
+    value: Mapping[str, object] | str | None
     time: datetime | None
 
 
@@ -198,18 +203,21 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
 def _message(parsed: object) -> _Message:
     if not isinstance(parsed, dict):
         raise ValueError("a message is a JSON object")
+    key = parsed.get("key")
+    if key is not None and not isinstance(key, str):
+        raise ValueError("a message's key is a string or null")
     value = parsed.get("value")
     if value is not None and not isinstance(value, dict | str):
         raise ValueError("a message's value is a JSON object, a string or null")
     recorded = parsed.get("time")
     if recorded is None:
-        return _Message(parsed.get("key"), value, None)
+        return _Message(key, value, None)
     if not isinstance(recorded, str):
         raise ValueError("a message's time is an ISO-8601 string")
     moment = datetime.fromisoformat(recorded)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
-    return _Message(parsed.get("key"), value, moment)
+    return _Message(key, value, moment)
 
 
 def _iso(moment: datetime) -> str:

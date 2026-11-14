@@ -11,7 +11,7 @@ by importing it.
 
 import os
 import ssl
-from typing import Any
+from typing import TypedDict
 
 __all__ = [
     "CA_FILE_ERRORS",
@@ -71,6 +71,18 @@ def address_overrides() -> tuple[str | None, int | None]:
         raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
 
 
+class MongoClientKwargs(TypedDict, total=False):
+    """The keyword arguments :func:`mongo_client_kwargs` sets, by pymongo's names."""
+
+    host: str | None
+    port: int | None
+    username: str
+    password: str | None
+    authSource: str
+    tlsCAFile: str
+    serverSelectionTimeoutMS: int
+
+
 def mongo_client_kwargs(
     *,
     url: str | None,
@@ -81,7 +93,7 @@ def mongo_client_kwargs(
     auth_source: str | None,
     ca_bundle: str | None,
     timeout_s: float,
-) -> dict[str, Any]:
+) -> MongoClientKwargs:
     """The keyword arguments for ``pymongo.MongoClient``.
 
     Every MongoDB client OSPREY opens takes its arguments from here: the agent's
@@ -108,7 +120,7 @@ def mongo_client_kwargs(
         ca_bundle: A CA file to trust; setting it turns TLS on.
         timeout_s: Seconds to wait for a server.
     """
-    kwargs: dict[str, Any] = {"host": url} if url is not None else {"host": host, "port": port}
+    kwargs: MongoClientKwargs = {"host": url} if url is not None else {"host": host, "port": port}
     if username is not None:
         kwargs["username"] = username
         kwargs["password"] = password

@@ -9,7 +9,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
@@ -25,8 +24,8 @@ class PutRow:
     at: str | None = None
     channel: str | None = None
     field: str | None = None
-    old: Any = None
-    new: Any = None
+    old: object = None
+    new: object = None
     user: str | None = None
     client: str | None = None
 

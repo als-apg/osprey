@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import importlib
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
@@ -54,6 +54,34 @@ def _wall_now() -> datetime:
     return datetime.now(UTC)
 
 
+class _Record(Protocol):
+    """One topic message, as the consumer hands it over."""
+
+    @property
+    def key(self) -> str | bytes | None: ...
+
+    @property
+    def value(self) -> str | bytes | None: ...
+
+
+class _Consumer(Protocol):
+    """The part of aiokafka's ``AIOKafkaConsumer`` read here; a partition is opaque."""
+
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+    def assignment(self) -> object: ...
+
+    async def end_offsets(self, partitions: object) -> Mapping[object, int]: ...
+
+    async def seek_to_beginning(self) -> object: ...
+
+    async def position(self, partition: object) -> int: ...
+
+    async def getmany(self, *, timeout_ms: int) -> Mapping[object, Sequence[_Record]]: ...
+
+
 class PhoebusAlarmState(AlarmState):
     """Follow one alarm configuration's topic and answer from the folded snapshot.
 
@@ -71,8 +99,8 @@ class PhoebusAlarmState(AlarmState):
         spec: BackendSpec,
         *,
         project_dir: Path | None = None,
-        consumer_factory: Callable[[Mapping[str, Any]], Any] | None = None,
-        **seams: Any,
+        consumer_factory: Callable[[Mapping[str, object]], _Consumer] | None = None,
+        **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         self._consumer_factory = consumer_factory
@@ -231,7 +259,7 @@ class PhoebusAlarmState(AlarmState):
                 await consumer.stop()
 
 
-async def _reached(consumer: Any, targets: Mapping[Any, int]) -> bool:
+async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     # position waits without end for a partition with no valid position.
     try:
         async with asyncio.timeout(_LOAD_DEADLINE_S):
@@ -243,12 +271,13 @@ async def _reached(consumer: Any, targets: Mapping[Any, int]) -> bool:
     return True
 
 
-def _aiokafka_consumer(settings: Mapping[str, Any]) -> Any:
+def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
     aiokafka = importlib.import_module("aiokafka")
-    return aiokafka.AIOKafkaConsumer(
+    consumer: _Consumer = aiokafka.AIOKafkaConsumer(
         settings["topic"],
         bootstrap_servers=settings["bootstrap_servers"],
         group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
     )
+    return consumer

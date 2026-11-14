@@ -25,11 +25,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
-from osprey_connectors._service_http import ReadOnlyTransport
+from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.put_log._contract import PutLog, PutRow
-from osprey_connectors.service_answers import BackendSpec, HistoryPage, Outcome, Unavailable
+from osprey_connectors.service_answers import (
+    BackendSpec,
+    HistoryPage,
+    Outcome,
+    Unavailable,
+    _text,
+)
 
 _SEARCH_PATH = "/search"
 _WHERE = "pv_directory.put_log.settings"
@@ -40,6 +46,13 @@ _MALFORMED_REASON = "malformed response"
 _MAX_ROWS = 200
 
 _EARLIEST = datetime.min.replace(tzinfo=UTC)
+
+
+class _Envelope(TypedDict):
+    """What an answer is read for, once ``results`` is checked a list of objects."""
+
+    results: list[dict[str, object]]
+    totalResults: object
 
 
 class CaPutLog(PutLog):
@@ -59,8 +72,8 @@ class CaPutLog(PutLog):
         spec: BackendSpec,
         *,
         project_dir: Path | None = None,
-        transport: Any = None,
-        **seams: Any,
+        transport: Transport | None = None,
+        **seams: object,
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
@@ -95,14 +108,12 @@ class CaPutLog(PutLog):
         envelope = await self._search("", 1, deadline)
         return envelope if isinstance(envelope, Unavailable) else "search answered"
 
-    async def _search(
-        self, term: str, rows: int, deadline: float
-    ) -> Mapping[str, Any] | Unavailable:
+    async def _search(self, term: str, rows: int, deadline: float) -> _Envelope | Unavailable:
         body = {
             "state": {"searchTerm": term, "current": 1, "resultsPerPage": rows},
             "queryConfig": {"search_fields": {"pv": {}}},
         }
-        answer: Any = await self._transport.request(
+        answer = await self._transport.request(
             "POST", _SEARCH_PATH, json_body=body, deadline=deadline
         )
         if isinstance(answer, Unavailable):
@@ -112,7 +123,7 @@ class CaPutLog(PutLog):
         results = answer.get("results")
         if not isinstance(results, list) or not all(isinstance(hit, dict) for hit in results):
             return Unavailable(_MALFORMED_REASON)
-        return answer
+        return _Envelope(results=results, totalResults=answer.get("totalResults"))
 
     def _page(
         self,
@@ -132,7 +143,7 @@ class CaPutLog(PutLog):
         )
 
 
-def _recorded(hit: Mapping[str, Any], name: str) -> Any:
+def _recorded(hit: Mapping[str, object], name: str) -> object:
     """One result field, out of the ``{"raw": value}`` box the service wraps it in."""
     value = hit.get(name)
     return value["raw"] if isinstance(value, dict) and "raw" in value else value
@@ -142,7 +153,7 @@ def _is_write_to(recorded: object, pv: str) -> bool:
     return isinstance(recorded, str) and (recorded == pv or recorded.startswith(f"{pv}."))
 
 
-def _at(hit: Mapping[str, Any]) -> Any:
+def _at(hit: Mapping[str, object]) -> object:
     # The IOC's own stamp is when the put happened; @timestamp is when it was indexed.
     for name in ("ioctimestamp", "@timestamp", "timestamp"):
         if (value := _recorded(hit, name)) is not None:
@@ -150,7 +161,7 @@ def _at(hit: Mapping[str, Any]) -> Any:
     return None
 
 
-def _stamp(hit: Mapping[str, Any]) -> datetime | None:
+def _stamp(hit: Mapping[str, object]) -> datetime | None:
     """The instant of *hit*, or ``None`` for a time this cannot place, such as IOC local time."""
     value = _at(hit)
     if not isinstance(value, str):
@@ -166,20 +177,21 @@ def _as_utc(moment: datetime) -> datetime:
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
-def _left_unread(envelope: Mapping[str, Any], limit: int) -> bool:
+def _left_unread(envelope: _Envelope, limit: int) -> bool:
     read = len(envelope["results"])
-    total = envelope.get("totalResults")
+    total = envelope["totalResults"]
     return total > read if isinstance(total, int) else read > limit
 
 
-def _row(hit: Mapping[str, Any], channel: str) -> PutRow:
-    recorded = _recorded(hit, "pv")
+def _row(hit: Mapping[str, object], channel: str) -> PutRow:
+    # A hit is kept only when it records a string pv, so str() changes nothing.
+    recorded = str(_recorded(hit, "pv"))
     return PutRow(
-        at=_at(hit),
+        at=_text(_at(hit)),
         channel=recorded,
         field=recorded[len(channel) :] or None,
         old=_recorded(hit, "old"),
         new=_recorded(hit, "new"),
-        user=_recorded(hit, "user"),
-        client=_recorded(hit, "client"),
+        user=_text(_recorded(hit, "user")),
+        client=_text(_recorded(hit, "client")),
     )
