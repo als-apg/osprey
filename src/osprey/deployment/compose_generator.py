@@ -2483,12 +2483,12 @@ def _rewrite_staged_config(out_dir, transform):
         yaml_loader.safe_dump(transform(document), f, default_flow_style=False, sort_keys=False)
 
 
-#: The deployed machines a bridged container reaches by compose service name.
-#: Each is both a ``deployed_services`` key and its connector block's key; its
-#: service name is the key with ``-`` for ``_`` (the virtual_accelerator
-#: compose template). The rendered config addresses them as ``localhost``, right
-#: on the host and in the host-network web terminals; inside a container on the
-#: compose network that name is the container itself.
+#: The deployed machines a bridged container that drives the target reaches by
+#: compose service name. Each is both a ``deployed_services`` key and its
+#: connector block's key; its service name is the key with ``-`` for ``_`` (the
+#: virtual_accelerator compose template). The rendered config addresses them as
+#: ``localhost``, right on the host and in the host-network web terminals; inside
+#: a container on the compose network that name is the container itself.
 _IN_NETWORK_MACHINES = ("virtual_accelerator", "live_standin")
 
 
@@ -2525,12 +2525,14 @@ def in_network_gateways(document, deployed_services):
     return out
 
 
-def _stage_in_network_gateways(config, source_dir, out_dir):
-    """Readdress the deployed machines in the optimizer's staged ``config.yml``.
+def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
+    """Readdress the deployed machines in a bridged target driver's staged ``config.yml``.
 
-    The optimizer runs the connector-host pool on the compose network
-    (:func:`in_network_gateways`); every other context is left alone, as is one
-    with no staged file.
+    Applies to every context whose service drives the target
+    (:func:`service_role`) and is not on the host network: it reaches the
+    machines across the compose network (:func:`in_network_gateways`). Every
+    other context is left alone, as are the tiered worker's copy (the tier's
+    render, written by ``osprey build``) and a context with no staged file.
 
     :param config: Deploy config.
     :type config: dict
@@ -2538,8 +2540,17 @@ def _stage_in_network_gateways(config, source_dir, out_dir):
     :type source_dir: str
     :param out_dir: The service's output directory.
     :type out_dir: str
+    :param service_key: The ``services.<k>`` key being rendered; ``None`` takes
+        the directory basename of *source_dir*
+    :type service_key: str or None
     """
-    if os.path.basename(os.path.normpath(source_dir)) != "optimizer":
+    key = service_key or _service_key(source_dir)
+    if not service_role(config, key, SERVICE_ROLE_DRIVES_TARGET):
+        return
+    block = (config.get("services") or {}).get(key)
+    if isinstance(block, Mapping) and block.get("network") == "host":
+        return
+    if not _stages_runtime_config(config, source_dir):
         return
     deployed = [str(s) for s in (config.get("deployed_services") or [])]
     _rewrite_staged_config(out_dir, lambda document: in_network_gateways(document, deployed))
@@ -6660,7 +6671,7 @@ def setup_build_dir(
         # After both branches above: a shared container's staged config carries
         # the login→tier map whichever of them wrote it.
         _stage_login_tiers(config, source_dir, out_dir, login_tiers, service_key=service_key)
-        _stage_in_network_gateways(config, source_dir, out_dir)
+        _stage_in_network_gateways(config, source_dir, out_dir, service_key=service_key)
 
     return compose_filepath
 
@@ -6776,7 +6787,7 @@ def _incremental_setup_build_dir(
     # The config.yml left in place carries the map this render computed, as in
     # setup_build_dir.
     _stage_login_tiers(config, source_dir, out_dir, login_tiers, service_key=service_key)
-    _stage_in_network_gateways(config, source_dir, out_dir)
+    _stage_in_network_gateways(config, source_dir, out_dir, service_key=service_key)
 
     return compose_filepath
 

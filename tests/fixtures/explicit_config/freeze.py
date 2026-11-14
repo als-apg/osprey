@@ -539,6 +539,27 @@ def _is_service_copy(relative: Path) -> bool:
     return bool(relative.parts) and relative.parts[0] == "services"
 
 
+def _is_bridged_target_driver(root: Mapping[str, Any], context: Path) -> bool:
+    """Whether the build readdresses the copy staged into service *context*.
+
+    True for a container that drives the target, is not on the host network,
+    and stages the root flatten (not the tiered worker's tier render).
+    """
+    from osprey.deployment.compose_generator import (
+        SERVICE_ROLE_DRIVES_TARGET,
+        _stages_runtime_config,
+        service_role,
+    )
+
+    key = context.name
+    block = (root.get("services") or {}).get(key)
+    if isinstance(block, Mapping) and block.get("network") == "host":
+        return False
+    return service_role(root, key, SERVICE_ROLE_DRIVES_TARGET) and _stages_runtime_config(
+        root, str(context)
+    )
+
+
 def split_login_tiers(document: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
     """Separate the staged login map from a service's ``config.yml``.
 
@@ -603,7 +624,11 @@ def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any
     distinct document is caught here instead of leaving a hole in the fixture.
     A ``build/services/*`` copy is compared with ``control_system.login_tiers``
     removed: that map is staged into the shared containers only, and is frozen
-    on its own (:func:`collect_login_tiers`).
+    on its own (:func:`collect_login_tiers`). The copy of a container on the
+    compose network that drives the target is compared with the captures
+    readdressed as the build readdresses it
+    (:func:`osprey.deployment.compose_generator.in_network_gateways`), and only
+    with those.
 
     Args:
         project: The deployment repo.
@@ -615,16 +640,27 @@ def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any
     Raises:
         RuntimeError: If some ``config.yml`` matches no captured document.
     """
+    from osprey.deployment.compose_generator import in_network_gateways
+
     build = project / "build"
+    root_path = build / "config.yml"
+    root = (
+        (yaml.safe_load(root_path.read_text(encoding="utf-8")) or {}) if root_path.is_file() else {}
+    )
+    deployed = [str(name) for name in root.get("deployed_services") or []]
+    readdressed = [in_network_gateways(captured, deployed) for captured in masked.values()]
     checked: list[str] = []
     unmatched: list[str] = []
     for path in sorted(build.rglob("config.yml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        candidates = list(masked.values())
         if _is_service_copy(path.relative_to(build)):
             document, _ = split_login_tiers(document)
+            if _is_bridged_target_driver(root, path.parent):
+                candidates = readdressed
         document = mask_document(document)
         relative = str(path.relative_to(build))
-        if any(document == captured for captured in masked.values()):
+        if any(document == captured for captured in candidates):
             checked.append(relative)
         else:
             unmatched.append(relative)

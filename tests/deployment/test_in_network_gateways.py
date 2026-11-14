@@ -1,9 +1,10 @@
-"""The optimizer's staged config names the deployed machines by compose service name.
+"""A bridged container that drives the target names the deployed machines by service name.
 
 The rendered config addresses the simulator and the stand-in as ``localhost``,
-which is right on the host and in the host-network web terminals. The optimizer
-runs on the compose network, where ``localhost`` is its own container, so its
-staged copy names each deployed machine's service instead.
+which is right on the host and in the host-network web terminals. A container
+on the compose network — the optimizer, a projected application — sees its own
+container at ``localhost``, so its staged copy names each deployed machine's
+service instead.
 """
 
 from __future__ import annotations
@@ -85,11 +86,12 @@ def test_the_document_given_is_not_changed() -> None:
     assert _gateways(doc, "virtual_accelerator") == {"localhost"}
 
 
-def test_setup_build_dir_readdresses_the_optimizers_staged_config_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, services: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Stage each of *services* (``services.<key>`` blocks) and return its staged config."""
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"project_name": "p", **_config()}))
-    for service in ("optimizer", "worker"):
+    for service in services:
         service_dir = tmp_path / "services" / service
         service_dir.mkdir(parents=True)
         (service_dir / "docker-compose.yml.j2").write_text(
@@ -99,16 +101,50 @@ def test_setup_build_dir_readdresses_the_optimizers_staged_config_only(
     config = {
         "project_name": "p",
         "build_dir": "./build",
-        "deployed_services": ["virtual_accelerator"],
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+        "services": services,
     }
 
-    for service in ("optimizer", "worker"):
+    for service in services:
         setup_build_dir(
-            str(Path("services") / service / "docker-compose.yml.j2"), config, {"copy_src": False}
+            str(Path("services") / service / "docker-compose.yml.j2"),
+            config,
+            {"copy_src": False},
+            service_key=service,
         )
 
     staged = tmp_path / "build" / "services"
-    optimizer = yaml.safe_load((staged / "optimizer" / "config.yml").read_text())
-    worker = yaml.safe_load((staged / "worker" / "config.yml").read_text())
-    assert _gateways(optimizer, "virtual_accelerator") == {"virtual-accelerator"}
-    assert _gateways(worker, "virtual_accelerator") == {"localhost"}
+    return {s: yaml.safe_load((staged / s / "config.yml").read_text()) for s in services}
+
+
+def test_setup_build_dir_readdresses_the_optimizers_staged_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staged = _stage(tmp_path, monkeypatch, {"optimizer": {}})
+    assert _gateways(staged["optimizer"], "virtual_accelerator") == {"virtual-accelerator"}
+
+
+def test_an_application_container_on_the_bridge_names_the_machines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A projected app that drives the target reaches the stand-in by service name."""
+    staged = _stage(tmp_path, monkeypatch, {"trajectory": {"drives_target": True}})
+    assert _gateways(staged["trajectory"], "live_standin") == {"live-standin"}
+    assert _gateways(staged["trajectory"], "virtual_accelerator") == {"virtual-accelerator"}
+
+
+def test_a_container_on_the_host_network_keeps_loopback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the host network ``localhost`` is the host, as in the web terminals."""
+    staged = _stage(
+        tmp_path, monkeypatch, {"trajectory": {"drives_target": True, "network": "host"}}
+    )
+    assert _gateways(staged["trajectory"], "live_standin") == {"localhost"}
+
+
+def test_a_container_that_does_not_drive_the_target_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staged = _stage(tmp_path, monkeypatch, {"worker": {}})
+    assert _gateways(staged["worker"], "virtual_accelerator") == {"localhost"}
