@@ -11,10 +11,7 @@ reached through the connector when asked.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from osprey_connectors.types import ChannelValue
+from typing import Any
 
 __all__ = [
     "STATUS_NO_DECK",
@@ -50,12 +47,6 @@ def is_error(status: str) -> bool:
     return status not in (STATUS_OK, STATUS_NO_DECK)
 
 
-class _ReadsChannels(Protocol):
-    """What :func:`read_model_status` reads through: a connector's ``read_channel``."""
-
-    async def read_channel(self, address: str, /) -> ChannelValue: ...
-
-
 def model_status(connector: object, model: str) -> str:
     """A served physics model's status: ``ok`` or its engine's error text.
 
@@ -80,7 +71,7 @@ def model_status(connector: object, model: str) -> str:
     return status
 
 
-async def read_model_status(connector: _ReadsChannels, address: str) -> str:
+async def read_model_status(connector: Any, address: str) -> str:
     """A served physics model's status, read from its status channel.
 
     Args:

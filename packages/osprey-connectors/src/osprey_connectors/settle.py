@@ -25,7 +25,7 @@ import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
@@ -40,12 +40,6 @@ __all__ = [
 
 #: Seconds between two reads of a readback that is not yet within its bound.
 _POLL_INTERVAL_S = 0.05
-
-
-class _ReadsChannels(Protocol):
-    """What :func:`settle` reads through: a connector's ``read_channel``."""
-
-    async def read_channel(self, address: str, /) -> object: ...
 
 
 def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float | None:
@@ -147,7 +141,7 @@ class SettleReadError(ChannelReadFailedError):
 
 
 async def settle(
-    connector: _ReadsChannels,
+    connector: Any,
     landings: Sequence[Landing],
     *,
     timeout_s: float,

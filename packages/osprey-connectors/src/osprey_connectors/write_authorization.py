@@ -386,9 +386,9 @@ class Grant:
     label: str = ""
     revoked: Revocation | None = None
 
-    def to_payload(self) -> _GrantPayload:
+    def to_payload(self) -> Mapping[str, object]:
         """This grant as the JSON object its file holds."""
-        return {
+        payload: _GrantPayload = {
             "schema": _SCHEMA_VERSION,
             "id": self.id,
             "owner": self.owner,
@@ -415,6 +415,7 @@ class Grant:
                 else {"at_ns": self.revoked.at_ns, "by": self.revoked.by}
             ),
         }
+        return payload
 
     def live_at(self, now_ns: int) -> bool:
         """Not revoked and not expired at *now_ns*. The lease is the ledger's."""
@@ -453,9 +454,9 @@ class Ledger:
     lease_until_ns: int
     steps: tuple[LedgerStep, ...] = field(default_factory=tuple)
 
-    def to_payload(self) -> _LedgerPayload:
+    def to_payload(self) -> Mapping[str, object]:
         """This ledger as the JSON object its file holds."""
-        return {
+        payload: _LedgerPayload = {
             "schema": _SCHEMA_VERSION,
             "authorization": self.authorization,
             "holder_pid": self.holder_pid,
@@ -467,6 +468,7 @@ class Ledger:
                 for step in self.steps
             ],
         }
+        return payload
 
 
 class AuthorizationRefused(Exception):
@@ -2217,9 +2219,9 @@ class WriteRequest:
     label: str = ""
     completion: Literal["none", "apply_best", "restore"] = "none"
 
-    def to_payload(self) -> _RequestPayload:
+    def to_payload(self) -> Mapping[str, object]:
         """This request as the JSON object its file holds."""
-        return {
+        payload: _RequestPayload = {
             "schema": _SCHEMA_VERSION,
             "id": self.id,
             "owner": self.owner,
@@ -2236,6 +2238,7 @@ class WriteRequest:
             "label": self.label,
             "completion": self.completion,
         }
+        return payload
 
     def grant(self, *, switch_epoch: int, approver: Approver, issued_at_ns: int) -> Grant:
         """The grant approving this request exactly as asked, under its id."""
