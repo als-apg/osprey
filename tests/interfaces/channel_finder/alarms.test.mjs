@@ -298,6 +298,19 @@ describe('the summary band', () => {
     expect(pop.textContent).toContain('alarm_replay');
     expect(pop.textContent).toContain('PVs in tree');
     expect(pop.textContent).toContain('3');
+    expect(pop.textContent).toContain('Last contact');
+  });
+
+  test('a replay says replay and when it was loaded, in no live tone', async () => {
+    const { container } = await mount({ alarms: { ...ALARMS, feed: 'replay' } });
+    await loaded(container);
+    const chip = /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="feed"]'));
+    expect(chip.className).toBe('osprey-chip');
+    expect(chip.textContent).toMatch(/^replay · loaded \d+ [a-z]+.* ago$/);
+    chip.click();
+    const pop = /** @type {HTMLElement} */ (document.querySelector('.osprey-info-popover'));
+    expect(pop.textContent).toContain('Loaded');
+    expect(pop.textContent).not.toContain('Last contact');
   });
 });
 

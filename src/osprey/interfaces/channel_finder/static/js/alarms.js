@@ -349,7 +349,10 @@ function render() {
 
   const banner = part('.alarms-banner');
   banner.hidden = !answer.stale;
-  if (answer.stale && writePart(banner, bannerHtml(answer.last_contact))) {
+  if (
+    answer.stale &&
+    writePart(banner, bannerHtml(answer.last_contact, answer.feed === 'replay'))
+  ) {
     banner.prepend(icon('triangle-alert'));
   }
 
