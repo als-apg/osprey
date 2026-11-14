@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from typing import NotRequired, Required, TypedDict
 
 __all__ = [
+    "AddressesDocument",
     "ChannelRecord",
     "CouplingTerm",
     "DriveRecord",
@@ -33,7 +34,12 @@ __all__ = [
     "PulseRecord",
     "ResolvedCoupling",
     "ScenarioRecord",
+    "ScenariosDocument",
     "SeedRecord",
+    "SeedsDocument",
+    "ServedModelsDocument",
+    "VariablesDocument",
+    "WiringRecord",
 ]
 
 
@@ -122,7 +128,11 @@ class SeedRecord(TypedDict, total=False):
 
 
 class ChannelRecord(TypedDict):
-    """One channel entry of ``variables.json``."""
+    """One channel entry of ``variables.json``.
+
+    ``value_range`` is ``[min, max]`` when the channel's limits record states
+    both, else ``None``.
+    """
 
     address: str
     role: str
@@ -131,7 +141,7 @@ class ChannelRecord(TypedDict):
     unit: str | None
     description: str | None
     writable: bool
-    value_range: Sequence[float | None] | None
+    value_range: Sequence[float] | None
     owner: str
     on: Mapping[str, str] | None
     options: NotRequired[Sequence[str]]
@@ -139,7 +149,7 @@ class ChannelRecord(TypedDict):
     precision: NotRequired[int]
 
 
-class _WiringRecord(TypedDict, total=False):
+class WiringRecord(TypedDict, total=False):
     """One wiring record of a model in ``variables.json``."""
 
     id: str
@@ -161,7 +171,7 @@ class ModelEntry(TypedDict):
     served: bool
     settings: Mapping[str, object]
     deck: str | None
-    wiring: Sequence[_WiringRecord]
+    wiring: Sequence[WiringRecord]
     inputs: NotRequired[Sequence[Mapping[str, object]]]
 
 
@@ -221,3 +231,47 @@ class ScenarioRecord(TypedDict, total=False):
     channel_faults: Mapping[str, str]
     still: Sequence[str]
     faults: Mapping[str, _FaultRecord]
+
+
+class ServedModelsDocument(TypedDict):
+    """``served_models.json``: the models the render serves, in serving order."""
+
+    schema: str
+    models: Sequence[str]
+
+
+class AddressesDocument(TypedDict):
+    """``addresses.json``: every channel address, sorted, and the simulator's own addresses.
+
+    ``status`` lists each served physics model's status address and
+    ``ioc_health`` each served model's IOC health addresses; a build before
+    ``ioc_health`` was written lists none.
+    """
+
+    schema: str
+    channels: Sequence[str]
+    status: Sequence[str]
+    ioc_health: NotRequired[Sequence[str]]
+
+
+class VariablesDocument(TypedDict):
+    """``variables.json``: the facility's code, its models sorted by name, its channels sorted."""
+
+    schema: str
+    code: str
+    models: Sequence[ModelEntry]
+    channels: Sequence[ChannelRecord]
+
+
+class SeedsDocument(TypedDict):
+    """``seeds.json``: each seeded channel's seed, by address."""
+
+    schema: str
+    seeds: Mapping[str, SeedRecord]
+
+
+class ScenariosDocument(TypedDict):
+    """``scenarios.json``: every scenario, sorted by name."""
+
+    schema: str
+    scenarios: Sequence[ScenarioRecord]

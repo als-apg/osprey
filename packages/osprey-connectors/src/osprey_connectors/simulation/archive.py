@@ -80,7 +80,7 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
-from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
@@ -88,7 +88,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pymongo.collection import Collection
 
     from osprey_connectors.simulation.composite import Composite
-    from osprey_connectors.simulation.records import ChannelRecord, ScenarioRecord
+    from osprey_connectors.simulation.records import ChannelRecord, PulseRecord, ScenarioRecord
 
 logger = get_logger("archive")
 
@@ -325,7 +325,7 @@ class ArchiveComposite:
 
     def __init__(
         self,
-        channels: Mapping[str, Mapping[str, Any]],
+        channels: Mapping[str, ChannelRecord],
         held: Mapping[str, object],
         events: Mapping[str, Sequence[Mapping[str, Any]]],
         composite: Composite,
@@ -333,7 +333,7 @@ class ArchiveComposite:
         anchor_s: float,
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
-        pulses: Mapping[str, Mapping[str, object]] | None = None,
+        pulses: Mapping[str, PulseRecord] | None = None,
         topoffs: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         self._channels = dict(channels)
@@ -541,7 +541,7 @@ class ArchiveComposite:
 
     def _stepped(
         self,
-        channel: Mapping[str, Any],
+        channel: ChannelRecord,
         held: object,
         events: Sequence[Mapping[str, Any]],
         times: np.ndarray,
@@ -561,7 +561,7 @@ class ArchiveComposite:
         return stored
 
     @staticmethod
-    def _wire(channel: Mapping[str, Any], value: object) -> object:
+    def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
         value_type = channel.get("value_type")
         if value_type in channel_values.LABELLED_TYPES:
@@ -629,12 +629,12 @@ def build(
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
     scenarios: dict[str, ScenarioRecord] = {
-        str(scenario["name"]): scenario for scenario in view._scenarios()
+        str(scenario["name"]): scenario for scenario in view.scenarios()
     }
     records: dict[str, ChannelRecord] = {
-        str(channel["address"]): channel for channel in view._channel_entries()
+        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
     }
-    seeds = view._seeds()
+    seeds = view.document(SEEDS_FILE)["seeds"]
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 

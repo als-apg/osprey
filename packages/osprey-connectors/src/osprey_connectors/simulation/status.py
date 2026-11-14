@@ -11,7 +11,11 @@ reached through the connector when asked.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Awaitable, Sequence
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import numpy as np
 
 __all__ = [
     "STATUS_NO_DECK",
@@ -37,6 +41,20 @@ class _StatusSource(Protocol):
     """What a status lookup reads: the composite a connector serves in process."""
 
     def status(self, model: str) -> str: ...
+
+
+class _Reading(Protocol):
+    """What a read of a status channel returns: its text, or its char waveform."""
+
+    @property
+    def value(self) -> str | Sequence[int] | np.ndarray: ...
+
+
+@runtime_checkable
+class _ChannelReader(Protocol):
+    """What :func:`read_model_status` reads through: a connector's ``read_channel``."""
+
+    def read_channel(self, address: str, /) -> Awaitable[_Reading]: ...
 
 
 def is_error(status: str) -> bool:
@@ -77,7 +95,7 @@ def model_status(connector: object, model: str) -> str:
     return composite.status(model)
 
 
-async def read_model_status(connector: Any, address: str) -> str:
+async def read_model_status(connector: object, address: str) -> str:
     """A served physics model's status, read from its status channel.
 
     Args:
@@ -89,5 +107,8 @@ async def read_model_status(connector: Any, address: str) -> str:
     """
     from osprey_connectors.simulation import decode_char_waveform
 
+    if not isinstance(connector, _ChannelReader):
+        # What reading the channel off such an object raised before it was checked.
+        raise AttributeError(f"{type(connector).__name__!r} object has no attribute 'read_channel'")
     reading = await connector.read_channel(address)
     return decode_char_waveform(reading.value)

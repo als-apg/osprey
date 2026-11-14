@@ -414,10 +414,10 @@ class Composite(LUMEModel):
 
         variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, ScenarioRecord] = {
-            str(scenario["name"]): scenario for scenario in view._scenarios()
+            str(scenario["name"]): scenario for scenario in view.scenarios()
         }
         self._channels: dict[str, ChannelRecord] = {
-            str(channel["address"]): channel for channel in view._channel_entries()
+            str(channel["address"]): channel for channel in variables["channels"]
         }
         models = {model.name: model for model in view.physics_models()}
         physics = sorted(models)
@@ -1236,7 +1236,7 @@ class Composite(LUMEModel):
         self._refresh()
         return self._children[model].status
 
-    def set(self, values_by_name: dict[str, Any]) -> None:
+    def set(self, values_by_name: Mapping[str, object]) -> None:
         """Write channels: physics children first, producers before consumers, the texture last.
 
         Args:
@@ -1252,7 +1252,7 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=True)
 
-    def restore(self, values_by_name: dict[str, Any]) -> None:
+    def restore(self, values_by_name: Mapping[str, object]) -> None:
         """Put channels back as :meth:`set` writes them, without a client write.
 
         For a rollback or a replay: the children's models take the values, and
