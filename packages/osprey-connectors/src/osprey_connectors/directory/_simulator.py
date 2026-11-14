@@ -200,13 +200,13 @@ class SimulatorDirectory(ChannelDirectory):
         if self._records_read is not None:
             return self._records_read
         if self.project_dir is None:
-            return Unavailable("no project directory to find the simulator view under")
+            return Unavailable(reason="no project directory to find the simulator view under")
         try:
             self._records_read = _read_records(SimulatorView.of_project(self.project_dir))
         except NoSimulatorView as absent:
-            return Unavailable(str(absent))
+            return Unavailable(reason=str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
-            return Unavailable(f"the simulator view cannot be read: {failure}")
+            return Unavailable(reason=f"the simulator view cannot be read: {failure}")
         return self._records_read
 
     @override

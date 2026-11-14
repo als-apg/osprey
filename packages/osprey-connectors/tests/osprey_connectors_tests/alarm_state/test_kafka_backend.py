@@ -19,8 +19,8 @@ PV = "DEMO:RF1:CAV:Temp-I"
 STATE_KEY = f"state:/Demo/RF/{PV}".encode()
 CONFIG_KEY = f"config:/Demo/RF/{PV}".encode()
 PARTITION = "topic-0"
-LOADING = Unavailable("alarm feed still loading")
-EMPTY = Unavailable("no message from the feed yet")
+LOADING = Unavailable(reason="alarm feed still loading")
+EMPTY = Unavailable(reason="no message from the feed yet")
 Record = namedtuple("Record", "key value")
 
 
@@ -470,7 +470,7 @@ async def test_a_missing_client_answers_the_install_reason_on_every_read(monkeyp
         await backend.probe(deadline=1.0),
     ):
         assert answer == Unavailable(
-            "Kafka client not installed (install osprey-connectors[alarm-state])"
+            reason="Kafka client not installed (install osprey-connectors[alarm-state])"
         )
     assert backend._task is None
     await backend.aclose()

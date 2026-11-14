@@ -7,14 +7,13 @@ The shared answers and the rules every backend follows are in
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 
-@dataclass(frozen=True, kw_only=True)
-class PutRow:
+class PutRow(FrozenModel):
     """One logged write, as the log recorded it.
 
     ``channel`` is what was written: an EPICS PV, a Tango attribute, a DOOCS

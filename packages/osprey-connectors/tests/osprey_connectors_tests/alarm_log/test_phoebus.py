@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator
-from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -243,7 +242,7 @@ async def test_history_drops_rows_of_a_name_the_search_matched_loosely():
 
 
 async def test_history_service_failure_carries_its_reason():
-    page = await _logger(Recording(search=Unavailable(LOGIN_PAGE_REASON))).history(
+    page = await _logger(Recording(search=Unavailable(reason=LOGIN_PAGE_REASON))).history(
         PV, None, 50, DEADLINE
     )
     assert page.outcome is Outcome.UNAVAILABLE
@@ -315,10 +314,10 @@ async def test_config_not_in_tree_when_the_logger_holds_nothing():
 
 async def test_config_search_failure_keeps_its_reason():
     # A lookup with no answer at all carries why; the record has no field for a reason.
-    record = await _logger(Recording(search=Unavailable("no answer within 6 s"))).config_for(
+    record = await _logger(Recording(search=Unavailable(reason="no answer within 6 s"))).config_for(
         PV, DEADLINE
     )
-    assert record == Unavailable("no answer within 6 s")
+    assert record == Unavailable(reason="no answer within 6 s")
 
 
 async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
@@ -332,7 +331,12 @@ async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
 
 @pytest.mark.parametrize(
     "fallback",
-    [Unavailable("answered HTTP 404"), [], [_config("2026-10-29", path="/Demo/other")], {"a": 1}],
+    [
+        Unavailable(reason="answered HTTP 404"),
+        [],
+        [_config("2026-10-29", path="/Demo/other")],
+        {"a": 1},
+    ],
     ids=["route-fails", "no-rows", "another-pv", "not-a-list"],
 )
 async def test_config_lookup_failure_is_unknown(fallback: Any):
@@ -370,7 +374,7 @@ async def test_config_record_never_carries_the_notification_actions():
     message["actions"] = [{"title": "Mail", "details": "mailto:someone@demo.lab"}]
     row["config_msg"] = json.dumps(message)
     record = await _logger(Recording(search=[row])).config_for(PV, DEADLINE)
-    assert "someone@demo.lab" not in json.dumps(asdict(record))
+    assert "someone@demo.lab" not in record.model_dump_json()
 
 
 # --- probe and the real transport ---------------------------------------------------
@@ -391,9 +395,11 @@ async def test_probe_sends_only_the_slashed_root():
 
 
 async def test_probe_failure_and_a_root_that_is_not_an_object():
-    assert await _logger(Recording(root=Unavailable("x"))).probe(DEADLINE) == Unavailable("x")
+    assert await _logger(Recording(root=Unavailable(reason="x"))).probe(DEADLINE) == Unavailable(
+        reason="x"
+    )
     answer = await _logger(Recording(root=[1])).probe(DEADLINE)
-    assert answer == Unavailable("malformed response")
+    assert answer == Unavailable(reason="malformed response")
 
 
 async def test_probe_names_nothing_it_was_not_told():
