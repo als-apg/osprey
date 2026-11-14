@@ -432,8 +432,7 @@
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">The Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -1198,7 +1197,7 @@ write in another’s name. The authentication service records logins through its
 own <code class="docutils literal notranslate"><span class="pre">sidecar</span></code> spool directory, which no terminal mounts at all.</p>
 <p>That makes the agent record the place a question spanning several people is
 answered, by a reader whose record login covers those identities
-(<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>). <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">The audit trail</span></a> has the record shape, and what append-only does and does
+(<a class="reference internal" href="../../health-and-monitoring/agent-record.html#agent-record-readers"><span class="std std-ref">Let others read it</span></a>). <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">The audit trail</span></a> has the record shape, and what append-only does and does
 not buy you.</p>
 </section>
 </section>
@@ -1269,7 +1268,7 @@ name.</p></li>
 <code class="docutils literal notranslate"><span class="pre">authorization.roles</span></code> the person holds, shows every user’s sessions.</p></li>
 <li><p><strong>A reader</strong> — a roster user named under <code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>, or a
 reader recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> — sees every user’s sessions,
-bounded by that reader’s <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> (<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>).
+bounded by that reader’s <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> (<a class="reference internal" href="../../health-and-monitoring/agent-record.html#agent-record-readers"><span class="std std-ref">Let others read it</span></a>).
 The reader entry takes precedence over <code class="docutils literal notranslate"><span class="pre">history:</span></code>.</p></li>
 </ul>
 <p>The rules at the edges:</p>

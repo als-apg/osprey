@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Keep the Agent Record &#8212; Osprey Framework dev documentation</title>
+    <title>The Agent Record &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -61,7 +61,7 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Read the Record" href="read-the-record.html" />
+    <link rel="next" title="Control Systems" href="../control-systems/index.html" />
     <link rel="prev" title="Configure Health Checks" href="configure-health-checks.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -432,8 +432,7 @@
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Keep the Agent Record</a></li>
-<li class="toctree-l2"><a class="reference internal" href="read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">The Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -519,7 +518,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Health and Monitoring</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Keep the Agent Record</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">The Agent Record</span></li>
   </ul>
 </nav>
 </div>
@@ -536,174 +535,24 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="keep-the-agent-record">
-<h1>Keep the Agent Record<a class="headerlink" href="#keep-the-agent-record" title="Link to this heading">#</a></h1>
-<p>Use this page to turn the archive on or off, set how long the record keeps
-entries, and check that the record and the archive are healthy. It also lists
-where each part lives, what deletes it, and what the archive keeps.</p>
+  <section id="the-agent-record">
+<span id="how-to-read-the-record"></span><h1>The Agent Record<a class="headerlink" href="#the-agent-record" title="Link to this heading">#</a></h1>
 <p>The <strong>agent record</strong> holds what the agent was asked, what it answered and what
-it did. The <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service keeps every entry for
-<code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>. It also exports each closed day into an
-append-only <strong>archive</strong> on the deployment host. The <code class="docutils literal notranslate"><span class="pre">archive</span></code> service copies
-the files the agent produced and the plan-queue history into the same archive
-once a day.</p>
-<p>For who may read the record, see <a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
-<section id="where-the-record-lives">
-<h2>Where the record lives<a class="headerlink" href="#where-the-record-lives" title="Link to this heading">#</a></h2>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 26.0%" />
-<col style="width: 30.0%" />
-<col style="width: 22.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>What it holds</p></th>
-<th class="head"><p>Where</p></th>
-<th class="head"><p>Deleted by</p></th>
-<th class="head"><p>In the archive</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>The agent record’s entries: prompts, answers, tool calls, transcripts,
-safety decisions, dispatch runs and bridge turns</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> (<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">embedded</span></code>), or the
-<code class="docutils literal notranslate"><span class="pre">agent_record_clickhouse_data</span></code> volume (<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">clickhouse</span></code>)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> (default 14), only for days the archive
-holds; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code></p></td>
-<td><p>yes, one Parquet file per day</p></td>
-</tr>
-<tr class="row-odd"><td><p>The spool every writer appends to before the record ingests it</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code></p></td>
-<td><p>the record, once a segment is ingested; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code></p></td>
-<td><p>no; what it carried is in the record</p></td>
-</tr>
-<tr class="row-even"><td><p>Web-terminal transcripts</p></td>
-<td><p>each user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-claude-config</span></code> volume, <code class="docutils literal notranslate"><span class="pre">projects/</span></code></p></td>
-<td><p>Claude Code at startup, after the larger of
-<code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> and 30 days</p></td>
-<td><p>no; the record ingests them as they are written</p></td>
-</tr>
-<tr class="row-odd"><td><p>Dispatch transcripts</p></td>
-<td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">claude-config/projects/</span></code></p></td>
-<td><p>Claude Code, after the same key</p></td>
-<td><p>no; the record ingests them as they are written</p></td>
-</tr>
-<tr class="row-even"><td><p>Host-session transcripts (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> on the host)</p></td>
-<td><p>your own <code class="docutils literal notranslate"><span class="pre">~/.claude/projects/</span></code>, the folder for the deployment’s build</p></td>
-<td><p>Claude Code, after its own setting</p></td>
-<td><p>no; the record ingests them as they are written</p></td>
-</tr>
-<tr class="row-odd"><td><p>Web-terminal artifact stores</p></td>
-<td><p>each user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-agent-data</span></code> volume, <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> (files and
-<code class="docutils literal notranslate"><span class="pre">artifacts.json</span></code>)</p></td>
-<td><p>deleting an artifact in the gallery, and removing the user’s volumes</p></td>
-<td><p>yes, files and index</p></td>
-</tr>
-<tr class="row-even"><td><p>Dispatch artifact store</p></td>
-<td><p>the worker’s agent-data volume, <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> (files and
-<code class="docutils literal notranslate"><span class="pre">artifacts.json</span></code>)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">RETENTION_DAYS</span></code>, and deleting an artifact in the gallery</p></td>
-<td><p>yes, files and index</p></td>
-</tr>
-<tr class="row-odd"><td><p>Plan-queue history</p></td>
-<td><p>each lane’s Redis volume</p></td>
-<td><p>removing the volume</p></td>
-<td><p>yes, as Redis persistence files</p></td>
-</tr>
-<tr class="row-even"><td><p>The archive</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">var/archive/&lt;YYYY-MM-DD&gt;/</span></code>, with <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code></p></td>
-<td><p>nothing but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>, which removes the record’s
-exports only</p></td>
-<td><p>—</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>The larger of <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> and 30 days also sets how long
-Claude Code keeps its file history, shell snapshots, plan files and debug logs
-on these volumes. Host settings are never written.</p>
-</section>
-<section id="how-long-the-record-keeps-an-entry">
-<h2>How long the record keeps an entry<a class="headerlink" href="#how-long-the-record-keeps-an-entry" title="Link to this heading">#</a></h2>
-<p>Set <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> (default 14, at least 1) to the number of
-days the record keeps. The record counts days by <strong>arrival day</strong>: the UTC day
-an entry reached the record. An arrival day earlier than that many days before
-today is past retention.</p>
-<p>Once a day, right after the export, the record removes the days past retention,
-oldest first. It removes only the days the archive holds, and stops at the
-first day the archive does not hold. Nothing is ever removed that has no
-lasting copy. So an export that is down for longer than the window removes
-nothing, and the record grows until the export catches up. The record removes
-whole days, never single entries.</p>
-<p>A removed day stays out. A transcript that Claude Code rewrites still carries
-the lines of removed days. The record skips every line older than its oldest
-remaining day, so it does not take those lines in a second time. The export
-never goes back to a day before the record’s oldest day either.</p>
-<p>A lower <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> takes effect at the next daily run. A
-higher value keeps the days the record still holds, not the ones it already
-removed. Those are in the archive.</p>
-</section>
-<section id="turn-the-archive-on-and-off">
-<h2>Turn the archive on and off<a class="headerlink" href="#turn-the-archive-on-and-off" title="Link to this heading">#</a></h2>
-<p>The demo preset deploys the archive service. To turn it on in any other
-profile, add it under <code class="docutils literal notranslate"><span class="pre">services:</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">archive</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.archive</span>
-</pre></div>
-</div>
-<p>To turn it off, delete the block. Either way, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> to carry the change into the deployment.</p>
-<p>Without the archive service, the record still exports its own days into
-<code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>. Only the artifact and plan-queue copies stop.</p>
-<p><code class="docutils literal notranslate"><span class="pre">services.archive.interval_seconds</span></code> sets the time between passes (default
-<code class="docutils literal notranslate"><span class="pre">86400</span></code>, one day). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> warns when the last pass is older than
-twice that, or when it recorded errors.</p>
-</section>
-<section id="check-it">
-<h2>Check it<a class="headerlink" href="#check-it" title="Link to this heading">#</a></h2>
-<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to see one <code class="docutils literal notranslate"><span class="pre">agent_record</span></code> group of rows: the record’s
-own account of itself. Every problem is a warning, because the record keeps
-working in part; the row says where.</p>
+it did, and what was decided about each call. The <code class="docutils literal notranslate"><span class="pre">agent-record</span></code> service
+keeps every entry for <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>. Each closed day also goes
+into an append-only <strong>archive</strong> on the deployment host, which keeps it for
+good.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_backend</span></code> — the store the record writes. A warning names why
-it is not ok, or that it refused a spool pass.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_spool</span></code> — only when the spool set aside paths it would not
-read.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_source.&lt;identity&gt;</span></code> — one per spool directory, that is, per
-writer identity. It reads <strong>receiving</strong> while entries arrive. It reads
-<strong>idle</strong> when the source has no live session and nothing waiting. Both are
-fine. It warns when:</p>
-<ul>
-<li><p>the source is <strong>stopped</strong>: a live session, or lines waiting, and nothing
-from it reached the record for 5 minutes;</p></li>
-<li><p>its <strong>backlog grows</strong>: lines not yet in the record are older than 2
-minutes;</p></li>
-<li><p>the record <strong>refused</strong> its lines in the last 24 hours;</p></li>
-<li><p>its writers logged errors or abandoned segments.</p></li>
+<li><p class="sd-card-text">How to read a session on the Activity page</p></li>
+<li><p class="sd-card-text">How to let another person read the record</p></li>
+<li><p class="sd-card-text">How long the record keeps an entry, and how to check that it is healthy</p></li>
+<li><p class="sd-card-text">What the archive holds, and what the record can vouch for</p></li>
 </ul>
-</li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_transcripts.&lt;identity&gt;</span></code> — one per transcript folder, the
-same way: receiving, idle, stopped, or a folder or file that cannot be read.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_export</span></code> — how far the export to the archive is behind. One
-closed day behind is normal, because the next daily run exports yesterday.
-It warns at more than one closed day, when the last export failed, or when
-the archive cannot be read.</p></li>
-</ul>
-<p>On the host, a plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows one skipped row instead when
-nothing in that shell points at a record. Two host commands ask the record
-directly. When no stack or host session runs the record, each command starts
-the host-local one for the call:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">health</span></code> prints every source, transcript folder, the
-backend and the export lag, and names each problem.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">export</span></code> runs the catch-up export now and prints the
-days it wrote.</p></li>
-</ul>
-<p>See <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a> for both.</p>
-</section>
-<section id="read-a-session">
+</div>
+</details><section id="read-a-session">
 <span id="agent-record-read-a-session"></span><h2>Read a session<a class="headerlink" href="#read-a-session" title="Link to this heading">#</a></h2>
 <p>The Activity page shows what the agent did in one session and what was decided
 about each call. It reads the record, so a past session reads the same as the
@@ -750,116 +599,234 @@ tries again by itself every 10 seconds.</p></li>
 <p>The session in the terminal is read again every 10 seconds. A session picked
 from the sidebar is read again only while it is live.</p>
 </section>
-<section id="permissions">
-<h2>Permissions<a class="headerlink" href="#permissions" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> is shared by two writers through its group, the same way
-<code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> is. The archive is the lasting half of the audit trail.
-Its two writers each run in their own container under their own user:</p>
-<ul class="simple">
-<li><p>agent-record exports the record’s closed days into it;</p></li>
-<li><p>the archive service copies artifacts and Bluesky history into it.</p></li>
-</ul>
-<p>The modes are:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 34.0%" />
-<col style="width: 66.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Path</p></th>
-<th class="head"><p>Mode</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">2770</span></code>, set by every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>: setgid, read and write for the
-owner and the group, nothing for anyone else. Its group is the one
-<code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code> has.</p></td>
-</tr>
-<tr class="row-odd"><td><p>Each directory either writer creates</p></td>
-<td><p>The root’s mode.</p></td>
-</tr>
-<tr class="row-even"><td><p>Each file either writer creates</p></td>
-<td><p>The root’s mode without the setgid and execute bits.</p></td>
-</tr>
-</tbody>
-</table>
+<section id="let-others-read-it">
+<span id="agent-record-readers"></span><h2>Let others read it<a class="headerlink" href="#let-others-read-it" title="Link to this heading">#</a></h2>
+<p>Each person reads their own sessions. To let someone read beyond them, for
+example a shift lead or an auditor, name them as a <strong>reader</strong> in the profile’s
+top-level <code class="docutils literal notranslate"><span class="pre">agent_record:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agent_record</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">readers</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a roster user: same name, same person</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dana</span>
+<span class="w">      </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7f3c9e1a-...</span><span class="w">  </span><span class="c1"># recognised by sign-on in the browser</span>
+<span class="w">      </span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">audit</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">run</span><span class="p p-Indicator">]</span><span class="w">         </span><span class="c1"># default: every kind</span>
+<span class="w">      </span><span class="nt">days_back</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">                </span><span class="c1"># default: retention_days</span>
+</pre></div>
 </div>
-<p>So that group can read every copy, artifact and Bluesky copies included. Only
-agent-record and the archive service mount the directory, and the agent’s own
-code may not touch it.</p>
-<p>You own the directory and belong to its group. So the commands you run on the
-host can read and delete what either container wrote. These include
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>, an export and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>.</p>
 <ul class="simple">
-<li><p>Under rootless podman, a container’s root is your own user, so you own its
-copies.</p></li>
-<li><p>Under rootful docker, the archive service hands every path it creates to the
-owner and group of <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code> — lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, starting with a letter
+or digit; each reader is named once.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> — the sign-on subject that is this reader in a browser, when
+the web terminals sign people on with <code class="docutils literal notranslate"><span class="pre">oidc</span></code>. A reader with the same name as
+a roster user is that user already, and may not carry a subject.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kinds</span></code> — the kinds of entry the reader may read (<code class="docutils literal notranslate"><span class="pre">prompt</span></code>, <code class="docutils literal notranslate"><span class="pre">answer</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tool_call</span></code>, <code class="docutils literal notranslate"><span class="pre">audit</span></code>, <code class="docutils literal notranslate"><span class="pre">run</span></code> and the rest).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">days_back</span></code> — how far back the reader sees, at most
+<code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>.</p></li>
+</ul>
+<p>The demo preset declares one reader, the deployment’s admin roster user
+(<code class="docutils literal notranslate"><span class="pre">carol</span></code>).</p>
+<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. It mints each new reader’s key into
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;</span></code> at the repo root, mode 0600, and prints the
+file’s path, never the key. The file holds one line,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AGENT_RECORD_LOGIN=reader.&lt;name&gt;:&lt;key&gt;</span></code>; give the key to the person
+out of band.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-key" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 0a5.499 5.499 0 1 1-1.288 10.848l-.932.932a.749.749 0 0 1-.53.22H7v.75a.749.749 0 0 1-.22.53l-.5.5a.749.749 0 0 1-.53.22H5v.75a.749.749 0 0 1-.22.53l-.5.5a.749.749 0 0 1-.53.22h-2A1.75 1.75 0 0 1 0 14.25v-2c0-.199.079-.389.22-.53l4.932-4.932A5.5 5.5 0 0 1 10.5 0Zm-4 5.5c-.001.431.069.86.205 1.269a.75.75 0 0 1-.181.768L1.5 12.56v1.69c0 .138.112.25.25.25h1.69l.06-.06v-1.19a.75.75 0 0 1 .75-.75h1.19l.06-.06v-1.19a.75.75 0 0 1 .75-.75h1.19l1.023-1.025a.75.75 0 0 1 .768-.18A4 4 0 1 0 6.5 5.5ZM11 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">Rotate, withdraw or narrow a reader</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text"><strong>Rotate</strong> a key: delete the file and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The old key stops
+working and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes a new file.</p></li>
+<li><p class="sd-card-text"><strong>Withdraw</strong> a reader: delete the entry and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The key
+stops working. The key file is set aside as
+<code class="docutils literal notranslate"><span class="pre">.env.agent-record.reader.&lt;name&gt;.withdrawn-&lt;date&gt;</span></code>, so re-adding the name
+later mints a fresh key.</p></li>
+<li><p class="sd-card-text"><strong>Narrow</strong> a reader: change <code class="docutils literal notranslate"><span class="pre">kinds</span></code> or <code class="docutils literal notranslate"><span class="pre">days_back</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
+</ul>
+</div>
+</details><p>Within its <code class="docutils literal notranslate"><span class="pre">kinds</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code>, a reader sees every identity’s
+sessions, with its key and in a browser alike. It writes nothing. In a browser
+it reads on the history page, <code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the web tier’s second server
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.history_port</span></code>, or <code class="docutils literal notranslate"><span class="pre">history_origin</span></code> behind a load
+balancer). Pages on the terminals’ origin, where agent-written HTML runs,
+cannot read from it. A roster user named as a reader signs in as themselves;
+one off the roster is recognised by its <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. See
+<a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>.</p>
+</section>
+<section id="how-long-the-record-keeps-an-entry">
+<h2>How long the record keeps an entry<a class="headerlink" href="#how-long-the-record-keeps-an-entry" title="Link to this heading">#</a></h2>
+<p>Set <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> (default 14, at least 1). Days count by
+<strong>arrival day</strong>: the UTC day an entry reached the record.</p>
+<p>Once a day, right after the export, the record removes the days past retention,
+oldest first. It removes only the days the archive holds, so an export that is
+down for longer than the window removes nothing, and the record grows until the
+export catches up.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-info" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">Removed days, and changing the window</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text">The record removes whole days, never single entries. A removed day stays
+out: a transcript that Claude Code rewrites still carries the lines of
+removed days, and the record skips every line older than its oldest
+remaining day. The export never goes back to a day before the record’s
+oldest day either.</p>
+<p class="sd-card-text">A lower <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> takes effect at the next daily run.
+A higher value keeps the days the record still holds, not the ones it
+already removed. Those are in the archive.</p>
+</div>
+</details></section>
+<section id="check-it">
+<h2>Check it<a class="headerlink" href="#check-it" title="Link to this heading">#</a></h2>
+<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>. Its <code class="docutils literal notranslate"><span class="pre">agent_record</span></code> rows are the record’s own account
+of itself. Every problem is a warning, because the record keeps working in
+part; the row says where.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-pulse" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2c.306 0 .582.187.696.471L10 10.731l1.304-3.26A.751.751 0 0 1 12 7h3.25a.75.75 0 0 1 0 1.5h-2.742l-1.812 4.528a.751.751 0 0 1-1.392 0L6 4.77 4.696 8.03A.75.75 0 0 1 4 8.5H.75a.75.75 0 0 1 0-1.5h2.742l1.812-4.529A.751.751 0 0 1 6 2Z"></path></svg></span><span class="sd-summary-text">What each row says</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">agent_record_backend</span></code> — the store the record writes. A warning names
+why it is not ok, or that it refused a spool pass.</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">agent_record_spool</span></code> — only when the spool set aside paths it would not
+read.</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">agent_record_source.&lt;identity&gt;</span></code> — one per writer identity. It reads
+<strong>receiving</strong> while entries arrive and <strong>idle</strong> when the source has no
+live session and nothing waiting; both are fine. It warns when the source
+is <strong>stopped</strong> (a live session or lines waiting, and nothing reached the
+record for 5 minutes), when its <strong>backlog</strong> is older than 2 minutes, when
+the record <strong>refused</strong> its lines in the last 24 hours, or when its
+writers logged errors.</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">agent_record_transcripts.&lt;identity&gt;</span></code> — one per transcript folder, the
+same way.</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">agent_record_export</span></code> — how far the export to the archive is behind. It
+warns at more than one closed day, when the last export failed, or when
+the archive cannot be read.</p></li>
+</ul>
+</div>
+</details><p>On the host, two commands ask the record directly; when no record is running,
+they start a host-local one for the call:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">health</span></code> prints every source, transcript folder, the
+backend and the export lag, and names each problem.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">agent-record</span> <span class="pre">export</span></code> runs the catch-up export now and prints the
+days it wrote.</p></li>
 </ul>
 </section>
-<section id="read-it">
-<h2>Read it<a class="headerlink" href="#read-it" title="Link to this heading">#</a></h2>
-<p>Each day directory holds:</p>
+<section id="the-archive">
+<h2>The archive<a class="headerlink" href="#the-archive" title="Link to this heading">#</a></h2>
+<p>The record exports each closed UTC day into <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;YYYY-MM-DD&gt;/</span></code>. The
+<code class="docutils literal notranslate"><span class="pre">archive</span></code> service copies the agent’s artifacts and the plan-queue history
+into the same day directories. The demo preset deploys it; in another profile,
+add it under <code class="docutils literal notranslate"><span class="pre">services:</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">archive</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.archive</span>
+</pre></div>
+</div>
+<p>Without the service, the record still exports its own days; only the artifact
+and plan-queue copies stop. <code class="docutils literal notranslate"><span class="pre">services.archive.interval_seconds</span></code> sets the time
+between passes (default <code class="docutils literal notranslate"><span class="pre">86400</span></code>); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> warns when the last pass
+is older than twice that.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-database" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5c0-.626.292-1.165.7-1.59.406-.422.956-.767 1.579-1.041C4.525.32 6.195 0 8 0c1.805 0 3.475.32 4.722.869.622.274 1.172.62 1.578 1.04.408.426.7.965.7 1.591v9c0 .626-.292 1.165-.7 1.59-.406.422-.956.767-1.579 1.041C11.476 15.68 9.806 16 8 16c-1.805 0-3.475-.32-4.721-.869-.623-.274-1.173-.62-1.579-1.04-.408-.426-.7-.965-.7-1.591Zm1.5 0c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 5.205 6.353 5.5 8 5.5c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55 0-.133-.058-.318-.282-.551-.227-.237-.591-.483-1.101-.707C11.102 1.795 9.647 1.5 8 1.5c-1.646 0-3.101.295-4.118.742-.508.224-.873.471-1.1.708-.224.232-.282.417-.282.55Zm0 4.5c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 9.705 6.353 10 8 10c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55V5.724c-.241.15-.503.286-.778.407C11.475 6.68 9.805 7 8 7c-1.805 0-3.475-.32-4.721-.869a6.15 6.15 0 0 1-.779-.407Zm0 2.225V12.5c0 .133.058.318.282.55.227.237.592.484 1.1.708 1.016.447 2.471.742 4.118.742 1.647 0 3.102-.295 4.117-.742.51-.224.874-.47 1.101-.707.224-.233.282-.418.282-.551v-2.275c-.241.15-.503.285-.778.406-1.247.549-2.917.869-4.722.869-1.805 0-3.475-.32-4.721-.869a6.327 6.327 0 0 1-.779-.406Z"></path></svg></span><span class="sd-summary-text">Where everything lives, and what deletes it</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p>the files copied that day, under <code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;name&gt;/&lt;path&gt;</span></code>;</p></li>
-<li><p>the record’s export of that day, under <code class="docutils literal notranslate"><span class="pre">agent_record/entries.parquet</span></code>;</p></li>
-<li><p>one <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code>.</p></li>
+<li><p class="sd-card-text"><strong>Entries</strong> (prompts, answers, tool calls, transcripts, safety decisions,
+dispatch runs and bridge turns): <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>
+(<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">embedded</span></code>) or the <code class="docutils literal notranslate"><span class="pre">agent_record_clickhouse_data</span></code> volume
+(<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">clickhouse</span></code>). Deleted by retention, only for days the
+archive holds, and by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>. Archived as one
+Parquet file per day.</p></li>
+<li><p class="sd-card-text"><strong>Spool</strong>: <code class="docutils literal notranslate"><span class="pre">var/spool/&lt;identity&gt;/</span></code>, where every writer appends before
+the record ingests it. Deleted once ingested, and by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>. Not archived; what it carried is in the
+record.</p></li>
+<li><p class="sd-card-text"><strong>Transcripts</strong>: each web terminal user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-claude-config</span></code> volume
+and the dispatch worker’s <code class="docutils literal notranslate"><span class="pre">claude-config/</span></code>, under <code class="docutils literal notranslate"><span class="pre">projects/</span></code>; for
+host sessions (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>), your own
+<code class="docutils literal notranslate"><span class="pre">~/.claude/projects/</span></code>. Claude Code deletes them after the larger of
+<code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code> and 30 days (host sessions: its own
+setting). Not archived; the record ingests them as they are written.</p></li>
+<li><p class="sd-card-text"><strong>Artifacts</strong>: <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code> on each user’s <code class="docutils literal notranslate"><span class="pre">&lt;user&gt;-agent-data</span></code> volume
+and on the dispatch worker’s. Deleted in the gallery, with the user’s
+volumes, and for dispatch after <code class="docutils literal notranslate"><span class="pre">RETENTION_DAYS</span></code>. Archived, files and
+index.</p></li>
+<li><p class="sd-card-text"><strong>Plan-queue history</strong>: each lane’s Redis volume. Archived as Redis
+persistence files.</p></li>
+<li><p class="sd-card-text"><strong>The archive</strong>: nothing deletes it but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>,
+which removes the record’s exports only.</p></li>
 </ul>
-<p>The manifest is appended to and never rewritten. It has these kinds of line:</p>
+<p class="sd-card-text">The 30-day floor also sets how long Claude Code keeps its file history,
+shell snapshots, plan files and debug logs on these volumes. Host settings
+are never written.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-file-directory" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 2.75C0 1.784.784 1 1.75 1H5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.75c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25H7.5c-.55 0-1.07-.26-1.4-.7l-.9-1.2a.25.25 0 0 0-.2-.1Z"></path></svg></span><span class="sd-summary-text">What a day directory holds</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">file</span></code> — one copied or exported file: its <code class="docutils literal notranslate"><span class="pre">source</span></code>, its <code class="docutils literal notranslate"><span class="pre">path</span></code> in the
-archive, its <code class="docutils literal notranslate"><span class="pre">size</span></code> and <code class="docutils literal notranslate"><span class="pre">sha256</span></code>; the record’s export file also carries
-its <code class="docutils literal notranslate"><span class="pre">day</span></code> and <code class="docutils literal notranslate"><span class="pre">rows</span></code>;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_day</span></code> — the record’s export of that day is whole: its <code class="docutils literal notranslate"><span class="pre">day</span></code>
-and <code class="docutils literal notranslate"><span class="pre">rows</span></code>. It is the last line of the export. A day with no entries gets
-it with <code class="docutils literal notranslate"><span class="pre">rows:</span> <span class="pre">0</span></code> and no file. A day without it is not exported, and the
-next export writes that day again, over any file it left;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">agent_record_purged</span></code> — the record’s export of that day was purged; it
-clears the day’s earlier <code class="docutils literal notranslate"><span class="pre">agent_record_day</span></code> lines;</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pass</span></code> — the last line of every archive-service pass: when it ran, how many
-files and bytes it copied, and any errors.</p></li>
+<li><p class="sd-card-text">the files copied that day, under <code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;name&gt;/&lt;path&gt;</span></code>;</p></li>
+<li><p class="sd-card-text">the record’s export of that day, under <code class="docutils literal notranslate"><span class="pre">agent_record/entries.parquet</span></code>;</p></li>
+<li><p class="sd-card-text">one <code class="docutils literal notranslate"><span class="pre">MANIFEST.jsonl</span></code>, appended to and never rewritten: a <code class="docutils literal notranslate"><span class="pre">file</span></code> line
+per copied or exported file (<code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">path</span></code>, <code class="docutils literal notranslate"><span class="pre">size</span></code>, <code class="docutils literal notranslate"><span class="pre">sha256</span></code>);
+<code class="docutils literal notranslate"><span class="pre">agent_record_day</span></code> when the day’s export is whole (a day without it is
+exported again); <code class="docutils literal notranslate"><span class="pre">agent_record_purged</span></code> when it was purged; and a
+<code class="docutils literal notranslate"><span class="pre">pass</span></code> line closing every archive-service pass.</p></li>
 </ul>
-<p>Agent-record exports each UTC day once, by arrival day, after the day has
-closed. It runs when the service starts and then daily. It catches up every
-closed day a stopped service missed, oldest first.</p>
-<p>The archive service copies a file again only when its content changed. It
-copies a changed file whole. A second copy on the same day gets the pass time
-before its suffix, for example <code class="docutils literal notranslate"><span class="pre">artifacts.T142233Z.json</span></code>.</p>
-<p>To restore a lane’s plan-queue history, point <code class="docutils literal notranslate"><span class="pre">redis-server</span> <span class="pre">--appendonly</span> <span class="pre">yes</span></code>
-at a copied <code class="docutils literal notranslate"><span class="pre">appendonlydir</span></code>. A copy taken mid-write can end on a torn command;
-<code class="docutils literal notranslate"><span class="pre">redis-check-aof</span> <span class="pre">--fix</span></code> repairs it.</p>
-</section>
-<section id="audit-files-from-before-the-record">
-<h2>Audit files from before the record<a class="headerlink" href="#audit-files-from-before-the-record" title="Link to this heading">#</a></h2>
-<p>A deployment that wrote safety decisions before it had the agent record keeps
-those files in <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>. They stay on disk as they were:</p>
+<p class="sd-card-text">The archive service copies a file again only when its content changed. A
+second copy on the same day gets the pass time before its suffix, for
+example <code class="docutils literal notranslate"><span class="pre">artifacts.T142233Z.json</span></code>. To restore a lane’s plan-queue history,
+point <code class="docutils literal notranslate"><span class="pre">redis-server</span> <span class="pre">--appendonly</span> <span class="pre">yes</span></code> at a copied <code class="docutils literal notranslate"><span class="pre">appendonlydir</span></code>;
+<code class="docutils literal notranslate"><span class="pre">redis-check-aof</span> <span class="pre">--fix</span></code> repairs a copy taken mid-write.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-lock" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4a4 4 0 0 1 8 0v2h.25c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-5.5C2 6.784 2.784 6 3.75 6H4Zm8.25 3.5h-8.5a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25ZM10.5 6V4a2.5 2.5 0 1 0-5 0v2Z"></path></svg></span><span class="sd-summary-text">Permissions</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> has mode <code class="docutils literal notranslate"><span class="pre">2770</span></code>, set by every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and the
+group of <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>. Its two writers, agent-record and the
+archive service, each run in their own container under their own user;
+what they create takes the root’s mode. Only those two mount the directory,
+and the agent’s own code may not touch it. You own it and belong to its
+group, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>, an export and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code>
+on the host can read and delete what either wrote. Under rootful docker the
+archive service hands every path it creates to the owner and group of
+<code class="docutils literal notranslate"><span class="pre">var/archive/</span></code>.</p>
+</div>
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-info" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">Not archived, older audit files, and removing a user</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p>the record does not read them;</p></li>
-<li><p>they are not archived;</p></li>
-<li><p>the agent’s own code may not write them.</p></li>
+<li><p class="sd-card-text"><strong>Not archived:</strong> a plan lane’s Tiled catalog (beamline data, with its own
+retention); an artifact deleted between two passes; anything a user’s
+volumes held when purged while the archive service was not running.</p></li>
+<li><p class="sd-card-text"><strong>Audit files from before the record</strong> stay in <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> as they
+were: the record does not read them, they are not archived, and the
+agent’s own code may not write them. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps them; only
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code> deletes them. Read them with <code class="docutils literal notranslate"><span class="pre">grep</span></code> or
+<code class="docutils literal notranslate"><span class="pre">jq</span></code>.</p></li>
+<li><p class="sd-card-text"><strong>Removing a user:</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code>
+with <code class="docutils literal notranslate"><span class="pre">--archive</span></code> or <code class="docutils literal notranslate"><span class="pre">--purge</span></code> run a last archive pass first, then
+remove the archive container before the volumes. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recreate it.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps them, and only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span> <span class="pre">--purge-audit</span></code> deletes
-them. To read them, use <code class="docutils literal notranslate"><span class="pre">grep</span></code> or <code class="docutils literal notranslate"><span class="pre">jq</span></code> on the host, as before.</p>
-</section>
-<section id="removing-a-user">
-<h2>Removing a user<a class="headerlink" href="#removing-a-user" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code> with <code class="docutils literal notranslate"><span class="pre">--archive</span></code> or
-<code class="docutils literal notranslate"><span class="pre">--purge</span></code> run a last archive pass first, because the archive reads every
-user’s volumes. They then remove the archive container before they remove the
-volumes. To recreate the archive container without those volumes, run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
-</section>
-<section id="what-is-not-archived">
-<h2>What is not archived<a class="headerlink" href="#what-is-not-archived" title="Link to this heading">#</a></h2>
+</div>
+</details></section>
+<section id="what-the-record-can-vouch-for">
+<h2>What the record can vouch for<a class="headerlink" href="#what-the-record-can-vouch-for" title="Link to this heading">#</a></h2>
+<p>The record is only as trustworthy as the processes that write to it:</p>
 <ul class="simple">
-<li><p>The Tiled catalog of a plan lane: it is beamline data, with its own
-retention and backup, not a record of what the agent was asked and did.</p></li>
-<li><p>The audit files from before the record, in <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>.</p></li>
-<li><p>An artifact deleted between two archive passes, or a dispatch run’s
-artifacts cleared or expired before the first pass after they were written.</p></li>
-<li><p>Anything a user’s volumes held when they are purged while the archive service
-is not running.</p></li>
+<li><p><strong>Containers are the boundary.</strong> Each sender’s container holds the login of
+the one identity it records as. On a deployment whose agent runs on the
+host, the agent runs as the operator’s own user, and the credential files
+are within its reach.</p></li>
+<li><p><strong>Within one container, any process can write that user’s record.</strong></p></li>
+<li><p><strong>Prompts and events are reported by the sender.</strong> The record files an entry
+under the identity it arrived from, never under a name the sender wrote;
+what the entry says happened is the sender’s account.</p></li>
+<li><p><strong>Agent-authored session plans run inside the queueserver container.</strong> On a
+person’s own history page, a preflight entry appears only when it matches
+their own queue-submit call within 60 seconds.</p></li>
+<li><p><strong>Each fact is stored once.</strong> A restart, a resumed session or a rewritten
+transcript adds no second copy. While the store is unreachable the senders
+keep their spools, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows each backlog.</p></li>
 </ul>
 </section>
 </section>
@@ -884,11 +851,11 @@ is not running.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="read-the-record.html"
+       href="../control-systems/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Read the Record</p>
+        <p class="prev-next-title">Control Systems</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -911,16 +878,12 @@ is not running.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-record-lives">Where the record lives</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-long-the-record-keeps-an-entry">How long the record keeps an entry</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-the-archive-on-and-off">Turn the archive on and off</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-it">Check it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-a-session">Read a session</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#permissions">Permissions</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-it">Read it</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-files-from-before-the-record">Audit files from before the record</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-a-user">Removing a user</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-archived">What is not archived</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-others-read-it">Let others read it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-long-the-record-keeps-an-entry">How long the record keeps an entry</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-it">Check it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-archive">The archive</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-record-can-vouch-for">What the record can vouch for</a></li>
 </ul>
   </nav></div>
 

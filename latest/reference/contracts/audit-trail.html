@@ -493,7 +493,7 @@ from there. The entry’s <code class="docutils literal notranslate"><span class
 trail has two halves: the record, which keeps every entry for
 <code class="docutils literal notranslate"><span class="pre">agent_record.retention_days</span></code>, and the archive, which keeps each closed day
 for good, exported as <code class="docutils literal notranslate"><span class="pre">var/archive/&lt;day&gt;/agent_record/entries.parquet</span></code>
-(<a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>). This page is the shape of
+(<a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html"><span class="doc">The Agent Record</span></a>). This page is the shape of
 that trail — which surface files a decision, what each field holds, who can
 read it, and what the trail does not promise. For the policy that produces
 most of the refusals, see <a class="reference internal" href="../configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>. For
@@ -1123,7 +1123,7 @@ another identity’s.</p>
 <p><strong>The deployment-wide view is a reader’s.</strong> A reader is a person the profile
 names under <code class="docutils literal notranslate"><span class="pre">agent_record.readers</span></code>. A question spanning several people
 is answered by a reader, on the history page or with a reader key
-(<a class="reference internal" href="../../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>). Past the retention
+(<a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html#agent-record-readers"><span class="std std-ref">Let others read it</span></a>). Past the retention
 window, it is answered from the archive on the deploy host, where whoever owns
 <code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> reads every day’s export.</p>
 </section>
