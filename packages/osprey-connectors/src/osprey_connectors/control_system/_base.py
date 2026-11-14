@@ -16,12 +16,13 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.control_system.write_door import open_door
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
         CurrentValueReader,
         LimitsValidator,
     )
+    from osprey_connectors.errors import ChannelLimitsViolationError
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -113,20 +115,18 @@ class ChannelMetadata:
         """Ensure raw_metadata is a dict and normalise the limits and ``writable``."""
         if self.raw_metadata is None:
             self.raw_metadata = {}
-        for low_name, high_name in _LIMIT_PAIRS:
-            low, high = normalise_limit_pair(getattr(self, low_name), getattr(self, high_name))
-            setattr(self, low_name, low)
-            setattr(self, high_name, high)
+        # Each limit pair is normalised as one pair.
+        self.display_low, self.display_high = normalise_limit_pair(
+            self.display_low, self.display_high
+        )
+        self.control_low, self.control_high = normalise_limit_pair(
+            self.control_low, self.control_high
+        )
+        self.warning_low, self.warning_high = normalise_limit_pair(
+            self.warning_low, self.warning_high
+        )
+        self.alarm_low, self.alarm_high = normalise_limit_pair(self.alarm_low, self.alarm_high)
         self.writable = _writable_flag(self.writable)
-
-
-#: The limit pairs of :class:`ChannelMetadata`, each normalised as one pair.
-_LIMIT_PAIRS: tuple[tuple[str, str], ...] = (
-    ("display_low", "display_high"),
-    ("control_low", "control_high"),
-    ("warning_low", "warning_high"),
-    ("alarm_low", "alarm_high"),
-)
 
 
 def _limit_bound(value: object) -> float | None:
@@ -207,7 +207,17 @@ class WriteOutcome(StrEnum):
     UNREQUESTED = "unrequested"
 
 
-def _is_sequence(value: object) -> bool:
+class _Vector(Protocol):
+    """What :func:`values_match` compares positionally: a list, a tuple or an ndarray."""
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int, /) -> object: ...
+
+    def __iter__(self) -> Iterator[object]: ...
+
+
+def _is_sequence(value: object) -> TypeGuard[_Vector]:
     """True when ``value`` is a vector rather than a scalar, for comparison.
 
     Admits list, tuple and ndarray. Excluded, in order:
@@ -229,7 +239,7 @@ def _is_sequence(value: object) -> bool:
     )
 
 
-def _unwrap_length_one(value: Any) -> Any:
+def _unwrap_length_one(value: object) -> object:
     """A length-1 sequence reduced to its element; anything else unchanged.
 
     ``[5.0]`` and ``5.0`` name the same reading: control systems differ on
@@ -258,7 +268,7 @@ def _scalars_match(sent: object, observed: object) -> bool:
     return bool(result.all()) if hasattr(result, "all") else bool(result)
 
 
-def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> bool:
+def values_match(sent: object, observed: object, *, enum_label: str | None = None) -> bool:
     """True when ``observed`` is the value ``sent`` — the one comparison rule.
 
     Applied in order, and symmetric: swapping the arguments cannot change the
@@ -293,15 +303,12 @@ def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> 
         sent = _unwrap_length_one(sent)
         observed = _unwrap_length_one(observed)
 
-        sent_is_seq = _is_sequence(sent)
-        observed_is_seq = _is_sequence(observed)
-        if sent_is_seq != observed_is_seq:
-            return False
-
-        if sent_is_seq:
+        if _is_sequence(sent) and _is_sequence(observed):
             if len(sent) != len(observed):
                 return False
             return all(_scalars_match(a, b) for a, b in zip(sent, observed, strict=True))
+        if _is_sequence(sent) or _is_sequence(observed):
+            return False
 
         return _scalars_match(sent, observed)
     except Exception:
@@ -504,11 +511,14 @@ def _in_mcp_server_process() -> bool:
     all, and is read from the posture store further down this function's
     caller.
     """
-    argv = getattr(sys, "argv", None)
-    if not argv:
+    argv: object = getattr(sys, "argv", None)
+    if not isinstance(argv, Sequence) or not argv:
+        return False
+    launched = argv[0]
+    if not isinstance(launched, str | PathLike):
         return False
     try:
-        parts = Path(argv[0]).parts
+        parts = Path(launched).parts
     except (TypeError, ValueError):
         return False
     span = len(_MCP_SERVER_PACKAGE_PARTS)
@@ -757,15 +767,15 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
 
 
 def _limits_refusal(
-    channel_address: str, value: object, error: BaseException
+    channel_address: str, value: object, error: "ChannelLimitsViolationError"
 ) -> ChannelWriteResult:
     """The REFUSED result a batch answers for a write the limits refused.
 
     One line per channel, the violation's type and reason, where a single
     write raises the violation with its banner.
     """
-    kind = getattr(error, "violation_type", None)
-    reason = getattr(error, "violation_reason", None)
+    kind = error.violation_type
+    reason = error.violation_reason
     said = f"({kind}): {reason}" if kind and reason else f": {error}"
     return ChannelWriteResult(
         channel_address=channel_address,
@@ -843,6 +853,28 @@ def _batch_send_verdict(
     raise error
 
 
+@dataclass(frozen=True)
+class _CheckNotMade:
+    """A write whose limits check could not be made, so nothing was sent.
+
+    What a connector's validate-and-send worker hands back to the loop, which
+    builds the refusal (:meth:`ControlSystemConnector._validation_refusal`).
+    """
+
+    error: Exception
+
+
+@dataclass(frozen=True)
+class _SendFailed:
+    """A write the control system did not take: the send itself raised."""
+
+    error: Exception
+
+
+#: What a validate-and-send worker answers: ``None`` when the value was sent.
+_SendStep: TypeAlias = _CheckNotMade | _SendFailed | None
+
+
 def _accepts_on_connection(subscribe: Callable[..., object]) -> bool:
     """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
     parameters = inspect.signature(subscribe).parameters.values()
@@ -853,8 +885,8 @@ def _accepts_on_connection(subscribe: Callable[..., object]) -> bool:
 
 
 def _compat_subscribe_without_on_connection(
-    owner: type, subscribe: Callable[..., Any]
-) -> Callable[..., Any]:
+    owner: type, subscribe: Callable[..., Awaitable[str]]
+) -> Callable[..., Coroutine[object, object, str]]:
     """Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.
 
     A connector that reports no connection state of its own still shows one
@@ -877,7 +909,14 @@ def _compat_subscribe_without_on_connection(
     )
 
     @functools.wraps(subscribe)
-    async def _subscribe(self, channel_address, callback, *args, on_connection=None, **kwargs):
+    async def _subscribe(
+        self: "ControlSystemConnector",
+        channel_address: str,
+        callback: Callable[["ChannelValue"], None],
+        *args: object,
+        on_connection: Callable[[bool], None] | None = None,
+        **kwargs: object,
+    ) -> str:
         if on_connection is None:
             return await subscribe(self, channel_address, callback, *args, **kwargs)
         connected = False
@@ -1411,7 +1450,7 @@ class ControlSystemConnector(ABC):
             call is judged and its one step spent before anything is checked
             or sent; a batch the limits then refuse has still spent it.
         """
-        batch = list(operations)
+        batch: list[tuple[str, object]] = list(operations)
         authorization = write_authorization.named_authorization()
         refused: WriteVerdict | None
         if authorization is not None:
@@ -1476,7 +1515,7 @@ class ControlSystemConnector(ABC):
         return await asyncio.to_thread(read_all)
 
     async def _check_batch(
-        self, batch: list[tuple[str, Any]]
+        self, batch: Sequence[tuple[str, object]]
     ) -> tuple[list[tuple[str, object]], list[ChannelWriteResult | None]]:
         """Check every write of a batch; nothing is sent.
 
@@ -1512,7 +1551,7 @@ class ControlSystemConnector(ABC):
             for (name, _), refusal in zip(named, refusals, strict=True)
             if refusal is None and measured(name)
         ]
-        held = await self._current_values(stepped) if stepped else {}
+        held: Mapping[str, object] | None = await self._current_values(stepped) if stepped else {}
 
         def read_current(name: str) -> object:
             current = held.get(name) if held is not None else None
@@ -1533,7 +1572,7 @@ class ControlSystemConnector(ABC):
                 refusals[index] = self._validation_refusal(name, value, exc)
         return named, refusals
 
-    def _send_refusal(self, batch: list[tuple[str, Any]]) -> "WriteVerdict | None":
+    def _send_refusal(self, batch: Sequence[tuple[str, object]]) -> "WriteVerdict | None":
         """The verdict refusing what a checked batch has not sent yet, or ``None``.
 
         The batch was judged before its checks, and the checks take time: a
@@ -1691,4 +1730,4 @@ class ControlSystemConnector(ABC):
 
 
 #: The base class's own ``_writes_enabled``, which a subclass may override.
-_BASE_WRITES_ENABLED = ControlSystemConnector.__dict__["_writes_enabled"]
+_BASE_WRITES_ENABLED: object = ControlSystemConnector.__dict__["_writes_enabled"]
