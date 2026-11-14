@@ -295,7 +295,7 @@ def epoch_seconds_array(timestamps: "Sequence[object]") -> "np.ndarray | None":
     return np.asarray(values, dtype=np.float64)
 
 
-def anchored_instant(event: dict[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float:
+def anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float:
     """Epoch seconds of an event placed relative to the activation anchor.
 
     ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
@@ -322,7 +322,7 @@ def anchored_instant(event: dict[str, Any], anchor: float, tz: ZoneInfo | None =
     return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
 
 
-def step_end(event: dict[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float | None:
+def step_end(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float | None:
     """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
 
     ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
@@ -347,7 +347,7 @@ def step_end(event: dict[str, Any], anchor: float, tz: ZoneInfo | None = None) -
 
 
 def event_positions(
-    event: dict[str, Any],
+    event: Mapping[str, Any],
     t_frac: "np.ndarray",
     t_abs: "np.ndarray | None",
     anchor: float,
@@ -479,7 +479,7 @@ def loss_refill_bound(event: Mapping[str, Any], topoff: Mapping[str, Any] | None
 
 def apply_events(
     series: "np.ndarray",
-    events: list[dict[str, Any]],
+    events: Sequence[Mapping[str, Any]],
     n: int,
     t_abs: "np.ndarray | None",
     anchor: float,
