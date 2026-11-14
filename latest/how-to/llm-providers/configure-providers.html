@@ -1118,6 +1118,11 @@ provider’s endpoint without a trailing <code class="docutils literal notransla
 translation proxy (see <em>Protocol Translation</em> above), the local proxy address,
 whose port changes at every launch. A policy can therefore only agree with a
 proxied provider by leaving <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_BASE_URL</span></code> out.</p>
+<p>Whenever the launched endpoint is a gateway rather than Anthropic’s own API,
+OSPREY also starts the agent with <code class="docutils literal notranslate"><span class="pre">ENABLE_TOOL_SEARCH=false</span></code>, so the agent is
+sent its tools directly instead of having to search for them; this replaces a
+value from the shell or <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and a managed policy that sets the variable
+is not checked and wins.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 25.0%" />
