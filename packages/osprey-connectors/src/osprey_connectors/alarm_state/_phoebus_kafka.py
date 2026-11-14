@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from typing_extensions import override
+
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
     AlarmState,
@@ -115,10 +117,12 @@ class PhoebusAlarmState(AlarmState):
         self._last_contact_at: str | None = None
         self._cannot_start: Unavailable | None = None
 
+    @override
     async def start(self) -> None:
         if self._task is None and self._blocked() is None:
             self._task = asyncio.create_task(self._run(), name="phoebus-alarm-state")
 
+    @override
     async def aclose(self) -> None:
         task, self._task = self._task, None
         if task is not None:
@@ -129,6 +133,7 @@ class PhoebusAlarmState(AlarmState):
         self._unreachable = None
         self._settled.clear()
 
+    @override
     async def state_for(
         self, channel: str, deadline: float
     ) -> AlarmStateRecord | Unavailable | None:
@@ -138,6 +143,7 @@ class PhoebusAlarmState(AlarmState):
             return unanswered
         return state_record(self._snapshot, channel, stale=self._stale())
 
+    @override
     async def states(self, deadline: float) -> AlarmStates | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
@@ -147,12 +153,14 @@ class PhoebusAlarmState(AlarmState):
         rows = state_rows(self._snapshot, stale=stale)
         return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
 
+    @override
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
         return unanswered if unanswered is not None else config_record(self._snapshot, channel)
 
-    async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
+    @override
+    async def probe(self, deadline: float) -> str | Unavailable:
         before_catch_up = self._before_catch_up()
         if before_catch_up is not None:
             return before_catch_up

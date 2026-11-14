@@ -12,9 +12,9 @@ readback that cannot be reached, is not a channel, or times out raises
 :class:`SettleReadError`, which names it, as does one that answers no value; a
 lost connector raises its own error.
 
-This module imports only the std-lib and ``osprey_connectors.errors``, and
-takes any connector with an awaitable ``read_channel(address)`` whose result
-carries ``.value``.
+This module imports only the std-lib, ``osprey_connectors.errors`` and the
+package's contract alias, and takes any connector with an awaitable
+``read_channel(address)`` whose result carries ``.value``.
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, SupportsFloat, SupportsIndex
+from typing import SupportsFloat, SupportsIndex
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
 __all__ = [
@@ -150,7 +151,9 @@ class SettleReadError(ChannelReadFailedError):
 
 
 async def settle(
-    connector: Any,
+    # Duck-typed by the module's contract: any object with an awaitable
+    # ``read_channel(address)``, which the package has no public type to name.
+    connector: ContractAny,
     landings: Sequence[Landing],
     *,
     timeout_s: float,

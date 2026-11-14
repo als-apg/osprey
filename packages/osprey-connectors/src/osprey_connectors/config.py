@@ -25,7 +25,7 @@ import re
 from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, overload
 
 import yaml
 
@@ -33,6 +33,7 @@ import yaml
 # ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
 # there is no cycle.
 from osprey_connectors import yaml_loader
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
@@ -76,7 +77,9 @@ __all__ = [
 logger = logging.getLogger("CONFIG")
 
 
-def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None) -> Any:
+# The data comes back in the shape it went in, a YAML parse's untyped tree as a
+# rule, and every caller reads the shape its own config has.
+def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None) -> ContractAny:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
@@ -926,7 +929,11 @@ def mapping_or_empty(value: object, path: str, source: object) -> dict[str, obje
     raise ValueError(f"'{path}' in {source} must be a mapping, got {type(value).__name__}")
 
 
-def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -> dict[str, Any]:
+# The values are the YAML parse's, which every consumer reads by the shape its
+# own config has.
+def load_project_config(
+    config_path: str | Path, *, wrap_errors: bool = False
+) -> dict[str, ContractAny]:
     """Load a built project's ``config.yml`` the way the deploy path loads it.
 
     The single entry point every project-facing command and deployment step
@@ -966,7 +973,7 @@ def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -
 
     try:
         with quiet_logger(["registry", "CONFIG"]):
-            config: dict[str, Any] = ConfigBuilder(str(config_path)).raw_config
+            config: dict[str, ContractAny] = ConfigBuilder(str(config_path)).raw_config
     except Exception as e:
         if not wrap_errors:
             raise

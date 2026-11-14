@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from typing_extensions import override
+
 __all__ = [
     "ConnectionSettings",
     "Credential",
@@ -428,6 +430,7 @@ class _OriginAuthorization(urllib.request.BaseHandler):
         self._origin = _origin(url)
         self._value = value
 
+    @override
     def __repr__(self) -> str:
         scheme, host, port = self._origin
         return f"<_OriginAuthorization {scheme}://{host}:{port}>"

@@ -20,8 +20,8 @@ from collections.abc import Mapping
 LOOPBACK_HOSTNAME = "localhost"
 
 
-def is_loopback(host: str) -> bool:
-    """Whether *host* names this machine's loopback interface."""
+def is_loopback(host: object) -> bool:
+    """Whether *host* names this machine's loopback interface; a non-string names none."""
     candidate = host.strip() if isinstance(host, str) else ""
     if not candidate:
         return False
