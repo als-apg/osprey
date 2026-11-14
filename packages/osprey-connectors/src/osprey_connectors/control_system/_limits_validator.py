@@ -6,11 +6,12 @@ import numbers
 import os
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import TypeGuard
 
+from pydantic import ValidationError
+
+from osprey_connectors._model import FrozenModel, MutableModel
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
@@ -270,15 +271,63 @@ def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
     return lookup
 
 
-@dataclass
-class ChannelLimitsConfig:
-    """Configuration for a single channel's limits."""
+class ChannelLimitsConfig(MutableModel):
+    """Configuration for a single channel's limits.
+
+    A bound is a number, kept as the ``int`` or ``float`` it was given as, so a
+    refusal quotes it as the limits database wrote it. A ``bool`` is a number
+    here too, as Python counts it: the database loader has always taken one.
+    """
 
     channel_address: str
-    min_value: float | None = None
-    max_value: float | None = None
-    max_step: float | None = None  # Optional: requires channel read (I/O overhead)
-    writable: bool = dataclass_field(kw_only=True)
+    min_value: bool | int | float | None = None
+    max_value: bool | int | float | None = None
+    max_step: bool | int | float | None = None  # Optional: requires channel read (I/O overhead)
+    writable: bool
+
+
+#: The numeric fields of a limits database entry, in the order they are checked.
+_NUMERIC_FIELDS = ("min_value", "max_value", "max_step")
+
+#: The boolean fields of a limits database entry, in the order they are checked.
+_BOOLEAN_FIELDS = ("writable", "confirm")
+
+
+class _LimitsEntry(FrozenModel):
+    """One channel's entry in the limits database, as the file writes it.
+
+    ``_``-prefixed documentation keys are dropped before it is built. ``confirm``
+    is checked here and read off the raw database
+    (:meth:`LimitsValidator.resolve_confirm`), which is where it lives.
+    """
+
+    min_value: bool | int | float | None = None
+    max_value: bool | int | float | None = None
+    max_step: bool | int | float | None = None
+    writable: bool
+    confirm: bool = True
+
+
+def _entry_error(channel_name: str, error: ValidationError) -> ValueError:
+    """The loader's words for the first thing wrong with one entry.
+
+    The first in the order the loader has always checked: the numeric fields,
+    then the boolean ones, then a missing ``writable``.
+    """
+    problems = error.errors()
+    numeric = [p for p in problems if p["loc"][0] in _NUMERIC_FIELDS]
+    boolean = [p for p in problems if p["loc"][0] in _BOOLEAN_FIELDS and p["type"] != "missing"]
+    for kind, found, order in (
+        ("numeric", numeric, _NUMERIC_FIELDS),
+        ("boolean", boolean, _BOOLEAN_FIELDS),
+    ):
+        if found:
+            first = min(found, key=lambda problem: order.index(str(problem["loc"][0])))
+            value: object = first["input"]
+            return ValueError(
+                f"Field '{first['loc'][0]}' must be {kind}, got {type(value).__name__} = {value}"
+            )
+    return ValueError(f"Channel '{channel_name}' does not state 'writable'")
 
 
 class LimitsValidator:
@@ -694,38 +743,10 @@ class LimitsValidator:
         return channel_config is not None and channel_config.max_step is not None
 
     @staticmethod
-    def _numeric_field(config_dict: Mapping[str, object], field: str) -> float | None:
-        """One numeric field of a channel entry; ``None`` when absent or null.
-
-        Raises:
-            ValueError: The field holds something that is not a number.
-        """
-        value = config_dict.get(field)
-        if value is not None and not isinstance(value, (int, float)):
-            raise ValueError(
-                f"Field '{field}' must be numeric, got {type(value).__name__} = {value}"
-            )
-        return value
-
-    @staticmethod
-    def _boolean_field(config_dict: Mapping[str, object], field: str) -> bool | None:
-        """One boolean field of a channel entry; ``None`` when absent.
-
-        Raises:
-            ValueError: The field is present and is not a boolean.
-        """
-        if field not in config_dict:
-            return None
-        value = config_dict[field]
-        if not isinstance(value, bool):
-            raise ValueError(
-                f"Field '{field}' must be boolean, got {type(value).__name__} = {value}"
-            )
-        return value
-
-    @staticmethod
-    def _validate_channel_config(channel_name: str, config_dict: Mapping[str, object]) -> None:
-        """Validate a single channel configuration structure.
+    def _channel_limits(
+        channel_name: str, config_dict: Mapping[str, object]
+    ) -> ChannelLimitsConfig:
+        """One channel's entry of the limits database, validated, as its limits.
 
         Args:
             channel_name: Channel address being validated
@@ -734,12 +755,13 @@ class LimitsValidator:
         Raises:
             ValueError: If configuration is invalid with descriptive error message
         """
-        valid_fields = {"min_value", "max_value", "max_step", "writable", "confirm"}
+        valid_fields = set(_LimitsEntry.model_fields)
         # Any '_'-prefixed key is documentation metadata and stays legal, whatever
         # it is called. Every other unrecognised key fails the load: a limits file
         # is a safety artifact, and a key the loader does not understand is a key
         # whose intent was never applied.
-        unknown_fields = {k for k in config_dict if not k.startswith("_")} - valid_fields
+        stated = {k: v for k, v in config_dict.items() if not k.startswith("_")}
+        unknown_fields = set(stated) - valid_fields
 
         if unknown_fields:
             detail = (
@@ -753,13 +775,19 @@ class LimitsValidator:
                 )
             raise ValueError(detail)
 
-        # Validate numeric fields
-        for field in ["min_value", "max_value", "max_step"]:
-            LimitsValidator._numeric_field(config_dict, field)
-
-        # Validate boolean fields
-        for field in ["writable", "confirm"]:
-            LimitsValidator._boolean_field(config_dict, field)
+        # Writability is never assumed: an entry that does not state it fails
+        # the load.
+        try:
+            entry = _LimitsEntry.model_validate(stated)
+        except ValidationError as error:
+            raise _entry_error(channel_name, error) from None
+        return ChannelLimitsConfig(
+            channel_address=channel_name,
+            min_value=entry.min_value,
+            max_value=entry.max_value,
+            max_step=entry.max_step,
+            writable=entry.writable,
+        )
 
     @staticmethod
     def _load_limits_database(
@@ -825,22 +853,7 @@ class LimitsValidator:
                     )
 
                 try:
-                    # Validate configuration structure
-                    LimitsValidator._validate_channel_config(channel_name, config_dict)
-
-                    # Writability is never assumed: an entry that does not
-                    # state it fails the load.
-                    writable = LimitsValidator._boolean_field(config_dict, "writable")
-                    if writable is None:
-                        raise ValueError(f"Channel '{channel_name}' does not state 'writable'")
-
-                    config = ChannelLimitsConfig(
-                        channel_address=channel_name,
-                        min_value=LimitsValidator._numeric_field(config_dict, "min_value"),
-                        max_value=LimitsValidator._numeric_field(config_dict, "max_value"),
-                        max_step=LimitsValidator._numeric_field(config_dict, "max_step"),
-                        writable=writable,
-                    )
+                    config = LimitsValidator._channel_limits(channel_name, config_dict)
 
                     # Log performance warning for max_step
                     if config.max_step is not None:

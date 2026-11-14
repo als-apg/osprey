@@ -189,7 +189,10 @@ def _validator(failsafe_reason: str | None = None) -> LimitsValidator:
     if failsafe_reason is not None:
         return LimitsValidator({}, {}, {}, failsafe_reason=failsafe_reason)
     bands = {ARM: (0, 1), REQUEST: (0, 1000), CONFIRMING: (0, 1), CORRECTOR: (-5, 5)}
-    limits = {a: ChannelLimitsConfig(a, lo, hi, writable=True) for a, (lo, hi) in bands.items()}
+    limits = {
+        a: ChannelLimitsConfig(channel_address=a, min_value=lo, max_value=hi, writable=True)
+        for a, (lo, hi) in bands.items()
+    }
     raw = {a: {"min_value": lo, "max_value": hi} for a, (lo, hi) in bands.items()}
     return LimitsValidator(limits, {"mode": "exclusive", "on_violation": "error"}, raw)
 
@@ -199,7 +202,10 @@ def _mode_validator(mode: str, records: dict[str, dict[str, Any]] | None = None)
     records = records or {}
     limits = {
         address: ChannelLimitsConfig(
-            address, record.get("min_value"), record.get("max_value"), writable=True
+            channel_address=address,
+            min_value=record.get("min_value"),
+            max_value=record.get("max_value"),
+            writable=True,
         )
         for address, record in records.items()
     }

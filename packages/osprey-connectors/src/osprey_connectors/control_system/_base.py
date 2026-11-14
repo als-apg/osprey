@@ -17,17 +17,19 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import Counter
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Protocol, Self, TypeAlias, TypeGuard
 
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._model import MutableModel
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors.posture_env import is_readonly_run
@@ -42,9 +44,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
+#: The limit pairs of :class:`ChannelMetadata`, each ``(low, high)``.
+_LIMIT_PAIRS = (
+    ("display_low", "display_high"),
+    ("control_low", "control_high"),
+    ("warning_low", "warning_high"),
+    ("alarm_low", "alarm_high"),
+)
 
-@dataclass
-class ChannelMetadata:
+
+class ChannelMetadata(MutableModel):
     """Metadata a control system reports about one of its channels.
 
     ``display_low`` / ``display_high`` are the range the control system suggests
@@ -78,11 +87,16 @@ class ChannelMetadata:
     system does not report one.
 
     Every limit pair, the display range included, passes through
-    :func:`normalise_limit_pair` on construction: a missing, non-numeric or
-    non-finite bound becomes ``None``, and a pair whose low is not below its high
-    (EPICS reports an unset range as ``0``/``0``) becomes ``None`` on both sides.
-    The normalisation is idempotent, so a value decoded on the far side of the
-    connector-host IPC seam — which re-runs ``__post_init__`` — is unchanged.
+    :func:`normalise_limit_pair` on construction and on every assignment: a
+    missing, non-numeric or non-finite bound becomes ``None``, and a pair whose
+    low is not below its high (EPICS reports an unset range as ``0``/``0``)
+    becomes ``None`` on both sides. A connector may therefore hand a limit over
+    as whatever its transport reported. The normalisation is idempotent, so a
+    value decoded on the far side of the connector-host IPC seam — which
+    validates it again — is unchanged. ``writable`` takes a ``bool`` or an
+    integer ``0``/``1`` and reads anything else as "not reported"; a
+    ``raw_metadata`` of ``None`` is an empty one. Every other field holds a
+    value of its own type, or the construction raises.
     """
 
     units: str = ""
@@ -101,7 +115,7 @@ class ChannelMetadata:
     enum_labels: list[str] | None = None
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
-    raw_metadata: dict[str, ContractAny] | None = field(default_factory=dict)
+    raw_metadata: dict[str, ContractAny] | None = Field(default_factory=dict)
     #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
     control_low: float | None = None
     control_high: float | None = None
@@ -114,22 +128,33 @@ class ChannelMetadata:
     #: This client's write access to the channel; None when the control system does not say.
     writable: bool | None = None
 
-    def __post_init__(self) -> None:
-        """Ensure raw_metadata is a dict and normalise the limits and ``writable``."""
-        if self.raw_metadata is None:
-            self.raw_metadata = {}
-        # Each limit pair is normalised as one pair.
-        self.display_low, self.display_high = normalise_limit_pair(
-            self.display_low, self.display_high
-        )
-        self.control_low, self.control_high = normalise_limit_pair(
-            self.control_low, self.control_high
-        )
-        self.warning_low, self.warning_high = normalise_limit_pair(
-            self.warning_low, self.warning_high
-        )
-        self.alarm_low, self.alarm_high = normalise_limit_pair(self.alarm_low, self.alarm_high)
-        self.writable = _writable_flag(self.writable)
+    @field_validator("raw_metadata", mode="before")
+    @classmethod
+    def _raw_metadata_dict(cls, value: object) -> object:
+        """``None`` is an empty ``raw_metadata``."""
+        return {} if value is None else value
+
+    @field_validator(*(bound for pair in _LIMIT_PAIRS for bound in pair), mode="before")
+    @classmethod
+    def _limit(cls, value: object) -> float | None:
+        """One bound as a finite ``float``, or ``None`` for anything else."""
+        return _limit_bound(value)
+
+    @field_validator("writable", mode="before")
+    @classmethod
+    def _writable(cls, value: object) -> bool | None:
+        """A reported write-access right as ``bool``, or ``None`` when not reported."""
+        return _writable_flag(value)
+
+    @model_validator(mode="after")
+    def _limit_pairs(self) -> Self:
+        """Each limit pair as one pair: a low not below its high leaves neither."""
+        for low_name, high_name in _LIMIT_PAIRS:
+            low, high = getattr(self, low_name), getattr(self, high_name)
+            if normalise_limit_pair(low, high) != (low, high):
+                setattr(self, low_name, None)
+                setattr(self, high_name, None)
+        return self
 
 
 def _limit_bound(value: object) -> float | None:
@@ -175,13 +200,12 @@ def _writable_flag(value: object) -> bool | None:
     return None
 
 
-@dataclass
-class ChannelValue:
+class ChannelValue(MutableModel):
     """Value of a control system channel with metadata."""
 
     value: ContractAny
     timestamp: datetime
-    metadata: ChannelMetadata = field(default_factory=ChannelMetadata)
+    metadata: ChannelMetadata = Field(default_factory=ChannelMetadata)
 
 
 class WriteOutcome(StrEnum):
@@ -340,8 +364,7 @@ def as_number(value: object) -> float | None:
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
 
 
-@dataclass
-class ChannelWriteResult:
+class ChannelWriteResult(MutableModel):
     """What became of one channel write, and what the channel was seen to hold.
 
     The control-system-agnostic result type returned by every connector.
@@ -352,8 +375,8 @@ class ChannelWriteResult:
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``. Construction enforces it: a result that breaks it
-    raises ``ValueError``.
+    ``observed_value``. Construction, and every assignment to a field, enforce
+    it: a result that breaks it raises ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by
@@ -398,40 +421,60 @@ class ChannelWriteResult:
     # The write verdict's reason, for a WRITES_DISABLED refusal that has one
     verdict_reason: str | None = None
 
-    def __post_init__(self) -> None:
-        """Coerce ``outcome`` and ``refusal_reason`` to members, then check the shape.
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def _outcome_member(cls, value: object) -> WriteOutcome:
+        """``outcome`` as a :class:`WriteOutcome` member, from the member or its word.
 
         A ``StrEnum`` crosses the connector-host IPC as the plain string JSON
-        encodes it to, and the codec rebuilds the dataclass by calling it with
-        the decoded fields — so what arrives here on the parent side is a
+        encodes it to, so what the parent side rebuilds a result from is a
         ``str``. Coercing once, on construction, is what lets every consumer
         compare against the members whichever side of the process boundary it
         runs on.
 
         Raises:
-            ValueError: ``refusal_reason`` is not a known reason, is missing on
-                a ``refused`` result or set on any other, or ``error_message``
-                is missing on a ``refused``, ``failed`` or ``unconfirmed``
-                result or set on any other.
+            ValueError: ``value`` is neither a member nor the word of one.
         """
-        # Read as ``object``: the fields' types say what they hold once coerced.
-        outcome: object = self.outcome
-        if not isinstance(outcome, WriteOutcome):
-            if not isinstance(outcome, str):
-                # The words the enum's own lookup raises for a value it does not hold.
-                raise ValueError(f"{outcome!r} is not a valid {WriteOutcome.__qualname__}")
-            self.outcome = WriteOutcome(outcome)
-        reason: object = self.refusal_reason
-        if reason is not None and not isinstance(reason, RefusalReason):
-            try:
-                if not isinstance(reason, str):
-                    raise ValueError(reason)
-                self.refusal_reason = RefusalReason(reason)
-            except ValueError:
-                raise ValueError(
-                    f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
-                    f"refusal_reason {self.refusal_reason!r} is not a known refusal reason"
-                ) from None
+        if isinstance(value, WriteOutcome):
+            return value
+        if not isinstance(value, str):
+            # The words the enum's own lookup raises for a value it does not hold.
+            raise ValueError(f"{value!r} is not a valid {WriteOutcome.__qualname__}")
+        return WriteOutcome(value)
+
+    @field_validator("refusal_reason", mode="before")
+    @classmethod
+    def _refusal_reason_member(
+        cls, value: object, info: ValidationInfo[None]
+    ) -> RefusalReason | None:
+        """``refusal_reason`` as a :class:`RefusalReason` member, from the member or its word.
+
+        Raises:
+            ValueError: ``value`` is not ``None`` and not a known reason.
+        """
+        if value is None or isinstance(value, RefusalReason):
+            return value
+        try:
+            if not isinstance(value, str):
+                raise ValueError(value)
+            return RefusalReason(value)
+        except ValueError:
+            raise ValueError(
+                f"Write result for '{info.data.get('channel_address')}' "
+                f"(outcome {info.data.get('outcome')}): "
+                f"refusal_reason {value!r} is not a known refusal reason"
+            ) from None
+
+    @model_validator(mode="after")
+    def _shape(self) -> Self:
+        """Check that the reason and the message are set exactly where the outcome says.
+
+        Raises:
+            ValueError: ``refusal_reason`` is missing on a ``refused`` result or
+                set on any other, or ``error_message`` is missing on a
+                ``refused``, ``failed`` or ``unconfirmed`` result or set on any
+                other.
+        """
         refused = self.outcome is WriteOutcome.REFUSED
         if refused != (self.refusal_reason is not None):
             expected = "a known refusal reason" if refused else "None"
@@ -445,6 +488,7 @@ class ChannelWriteResult:
                 f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
             )
+        return self
 
     @property
     def observed_number(self) -> float | None:

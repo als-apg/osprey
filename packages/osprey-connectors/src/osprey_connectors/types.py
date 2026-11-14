@@ -54,8 +54,9 @@ import json
 import logging
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import Final, Literal, TypeGuard
+
+from osprey_connectors._model import FrozenModel
 
 __all__ = [
     "CLI_CONTROL_SYSTEM_TYPES",
@@ -949,8 +950,7 @@ LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
 _LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
 
 
-@dataclass(frozen=True)
-class LimitsPosture:
+class LimitsPosture(FrozenModel):
     """A resolved limits posture, together with the config key that answered it.
 
     The value and its key travel as one because a refusal has to send an
@@ -1123,7 +1123,12 @@ def type_limits_posture(section: object, connector_type: str | None) -> LimitsPo
         if isinstance(block, dict) and LIMITS_CHECKING_LEAF in block:
             limits = block[LIMITS_CHECKING_LEAF]
             if not isinstance(limits, dict):
-                return LimitsPosture(None, None, connector_type, LIMITS_LEAVES)
+                return LimitsPosture(
+                    enabled=None,
+                    mode=None,
+                    connector_type=connector_type,
+                    incomplete=LIMITS_LEAVES,
+                )
             return _block_limits_posture(limits, connector_type, whole=True)
     return _global_limits_posture(section)
 
@@ -1377,8 +1382,10 @@ def incomplete_limits_blocks(section: object) -> list[str]:
     if LIMITS_CHECKING_LEAF in section:
         blocks.append((None, section[LIMITS_CHECKING_LEAF], False))
     if isinstance(connector, dict):
+        # A YAML key need not be a string. One that is not is spelled as text,
+        # as the key names it; an empty one names the deployment-wide block.
         blocks.extend(
-            (connector_type, block[LIMITS_CHECKING_LEAF], True)
+            (str(connector_type) if connector_type else None, block[LIMITS_CHECKING_LEAF], True)
             for connector_type, block in connector.items()
             if isinstance(block, dict) and LIMITS_CHECKING_LEAF in block
         )
@@ -1387,7 +1394,7 @@ def incomplete_limits_blocks(section: object) -> list[str]:
         # The posture this block would answer with, built for its keys alone —
         # so the line naming the block and the lines naming its leaves are
         # spelled by one thing.
-        posture = LimitsPosture(None, None, connector_type)
+        posture = LimitsPosture(enabled=None, mode=None, connector_type=connector_type)
         if not isinstance(block, dict):
             errors.append(
                 f"{posture.block_key} is {block!r}, not a block; a limits "
@@ -1432,7 +1439,7 @@ def _global_limits_posture(section: object) -> LimitsPosture:
         return _block_limits_posture({}, None, whole=False)
     block = section[LIMITS_CHECKING_LEAF]
     if not isinstance(block, dict):
-        return LimitsPosture(None, None, None, LIMITS_LEAVES)
+        return LimitsPosture(enabled=None, mode=None, connector_type=None, incomplete=LIMITS_LEAVES)
     return _block_limits_posture(block, None, whole=False)
 
 
@@ -1496,7 +1503,12 @@ def _block_limits_posture(
     """
     unstated = _unstated_limits_leaves(block, whole=whole)
     if unstated:
-        return LimitsPosture(None, None, connector_type, tuple(leaf for leaf, _ in unstated))
+        return LimitsPosture(
+            enabled=None,
+            mode=None,
+            connector_type=connector_type,
+            incomplete=tuple(leaf for leaf, _ in unstated),
+        )
     enabled_leaf, mode_leaf = LIMITS_LEAVES
     return LimitsPosture(
         enabled=_limits_leaf(block.get(enabled_leaf)),

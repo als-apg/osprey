@@ -24,7 +24,6 @@ from typing import (
     Literal,
     ParamSpec,
     Protocol,
-    Required,
     SupportsFloat,
     SupportsIndex,
     SupportsInt,
@@ -35,9 +34,11 @@ from typing import (
     runtime_checkable,
 )
 
+from pydantic import Field
 from typing_extensions import Buffer, override
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -574,6 +575,18 @@ class _LimitFields(TypedDict):
     writable: bool | None
 
 
+def _ctrl_units(ctrl: object) -> str:
+    """The units of a channel's CTRL-form reading; ``""`` when it reports none as text."""
+    units = getattr(ctrl, "units", "")
+    return units if isinstance(units, str) else ""
+
+
+def _ctrl_precision(ctrl: object) -> int | None:
+    """The display precision of a CTRL-form reading; ``None`` when it reports no integer."""
+    precision = getattr(ctrl, "precision", None)
+    return precision if isinstance(precision, int) and not isinstance(precision, bool) else None
+
+
 def _ca_ctrl_limits(ctrl: object, writable: bool | None) -> _LimitFields:
     """The CTRL limits of a channel and this client's write access, as metadata kwargs.
 
@@ -723,13 +736,13 @@ class _PvaContext(Protocol):
     def close(self) -> None: ...
 
 
-class _PvaPayload(TypedDict, total=False):
+class _PvaPayload(FrozenModel):
     """One normative type's reading: its value, and what it adds to the metadata."""
 
-    value: Required[object]
-    raw_metadata: dict[str, object]
-    enum_labels: list[str] | None
-    enum_label: str | None
+    value: ContractAny
+    raw_metadata: dict[str, ContractAny] = Field(default_factory=dict)
+    enum_labels: list[str] | None = None
+    enum_label: str | None = None
 
 
 class _ChannelSubscription:
@@ -1416,8 +1429,8 @@ class EPICSConnector(ControlSystemConnector):
             else (None, None)
         )
         metadata = ChannelMetadata(
-            units=getattr(ctrl, "units", "") or "",
-            precision=getattr(ctrl, "precision", None),
+            units=_ctrl_units(ctrl),
+            precision=_ctrl_precision(ctrl),
             alarm_status=_alarm_name(alarm_code),
             alarm_severity=_severity_int(severity),
             timestamp=timestamp,
@@ -1437,8 +1450,8 @@ class EPICSConnector(ControlSystemConnector):
     def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
         """Metadata of a subscribed channel that has delivered control data but no value yet."""
         return ChannelMetadata(
-            units=getattr(ctrl, "units", "") or "",
-            precision=getattr(ctrl, "precision", None),
+            units=_ctrl_units(ctrl),
+            precision=_ctrl_precision(ctrl),
             enum_labels=_enum_label_fields(getattr(ctrl, "enums", None), None)[0],
             **_ca_ctrl_limits(ctrl, writable),
         )
@@ -1645,16 +1658,16 @@ class EPICSConnector(ControlSystemConnector):
         else:
             payload = self._pva_scalar_value(value)
 
-        raw_metadata.update(payload.pop("raw_metadata", {}))
+        raw_metadata.update(payload.raw_metadata)
 
         metadata = self._pva_metadata(value, timestamp, raw_metadata)
         # Only the enum branch contributes these; every other payload leaves the
         # fields at their None default, which is what marks a channel as not
         # enum-typed.
-        metadata.enum_labels = payload.get("enum_labels")
-        metadata.enum_label = payload.get("enum_label")
+        metadata.enum_labels = payload.enum_labels
+        metadata.enum_label = payload.enum_label
 
-        return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=payload.value, timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
         self, value: object, timestamp: datetime, raw_metadata: dict[str, object]
@@ -1736,10 +1749,10 @@ class EPICSConnector(ControlSystemConnector):
         """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
         scalar = _pva_field(value, "value")
         dtype: object = getattr(scalar, "dtype", None)
-        return {
-            "value": scalar,
-            "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
-        }
+        return _PvaPayload(
+            value=scalar,
+            raw_metadata={"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
+        )
 
     def _pva_enum_value(self, value: object) -> _PvaPayload:
         """NTEnum: the INDEX is the value; the choices become enum metadata.
@@ -1761,16 +1774,16 @@ class EPICSConnector(ControlSystemConnector):
         choices = list(_pva_items(enum_field, "choices"))
         labels, label = _enum_label_fields(choices, index)
 
-        return {
-            "value": index,
-            "enum_labels": labels,
-            "enum_label": label,
-            "raw_metadata": {
+        return _PvaPayload(
+            value=index,
+            enum_labels=labels,
+            enum_label=label,
+            raw_metadata={
                 "dtype": "enum",
                 "enum_index": index,
                 "enum_choices": choices,
             },
-        }
+        )
 
     def _pva_ndarray_value(self, channel_address: str, value: object) -> _PvaPayload:
         """NTNDArray: the carried array, reshaped per its dimension list.
@@ -1817,7 +1830,7 @@ class EPICSConnector(ControlSystemConnector):
                 ) from None
 
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
-        return {"value": array, "raw_metadata": raw_metadata}
+        return _PvaPayload(value=array, raw_metadata=raw_metadata)
 
     @override
     def current_value_reader(self) -> CurrentValueReader | None:
