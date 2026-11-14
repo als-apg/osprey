@@ -411,6 +411,26 @@ describe('pruning — placeholders of server-closed panels', () => {
     expect(api.getPanel('iframe:lattice')).toBeTruthy();
   });
 
+  test('an artifact tile stays while the Artifacts panel is known, though in no rail', async () => {
+    const { mod, api } = await freshAdapter(row(tile('ta', ['artifact:a1']), TERMINAL));
+
+    mod.setServerVisiblePanels(new Set(['lattice']));
+    mod.setKnownServicePanels(['artifacts', 'lattice']);
+
+    expect(api.getPanel('iframe:artifact:a1')).toBeTruthy();
+  });
+
+  test('an artifact tile goes with the Artifacts panel, and when it is in its own window', async () => {
+    const gone = await freshAdapter(row(tile('ta', ['artifact:a1']), TERMINAL));
+    gone.mod.setKnownServicePanels(['lattice']);
+    expect(gone.api.getPanel('iframe:artifact:a1')).toBeFalsy();
+
+    const away = await freshAdapter(row(tile('ta', ['artifact:a1']), TERMINAL));
+    away.holder.detach('artifact:a1', null);
+    away.mod.setKnownServicePanels(['artifacts']);
+    expect(away.api.getPanel('iframe:artifact:a1')).toBeFalsy();
+  });
+
   test('before the visible set is seeded, known placeholders are left alone', async () => {
     // An early layout restore must not drop every placeholder just because
     // panel-manager has not seeded the server-visible set yet.

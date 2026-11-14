@@ -1,0 +1,6 @@
+# Each parameter's band holds its start value.
+records:
+  - {address: INJ:GUN:CHARGE:SP, min_value: 0, max_value: 10}
+  - {address: INJ:TRANSFER:EFF:SP, min_value: 0, max_value: 1}
+  - {address: INJ:RING:EFF:SP, min_value: 0, max_value: 1}
+  - {address: INJ:RING:CURRENT:SP, min_value: 1, max_value: 500}

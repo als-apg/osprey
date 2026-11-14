@@ -2,10 +2,11 @@
 
 Two claims, and the second is what makes the first worth asserting:
 
-1. **The subagent's vocabulary is exactly its paradigm's.**
+1. **The subagent's vocabulary is exactly its paradigm's, plus the PV directory.**
    ``channel-finder.md.j2`` renders ``CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]``
-   qualified with ``mcp__channel-finder__``, plus ``submit_response``. Nothing
-   else reaches the list — not even on a project that enables other servers.
+   qualified with ``mcp__channel-finder__``, the ``pv-directory`` tools when the
+   project configures a ``pv_directory`` section (demo does), plus
+   ``submit_response``. No other server's tools reach the list.
 
 2. **The standalone ``graph`` server is not on it, in any paradigm.**
    That server belongs to the main agent (``tests/cli/test_graph_agent_surface.py``
@@ -46,6 +47,17 @@ _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
+#: The ``pv-directory`` tools demo's section serves: no alarm log, no put log.
+_DEMO_PV_DIRECTORY_TOOLS = [
+    "mcp__pv-directory__active_alarms",
+    "mcp__pv-directory__alarm_config",
+    "mcp__pv-directory__alarm_state",
+    "mcp__pv-directory__directory_properties",
+    "mcp__pv-directory__directory_search",
+    "mcp__pv-directory__ioc_record",
+    "mcp__pv-directory__pv_record",
+]
+
 #: The one line of the terminology partial that no other paradigm's partial
 #: carries — proof that ``_terminology/graph.md.j2`` was included and not one of
 #: its siblings.
@@ -79,6 +91,7 @@ def _expected_frontmatter_tools(mode: str) -> list[str]:
     """
     return [
         *(f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]),
+        *_DEMO_PV_DIRECTORY_TOOLS,
         _SUBMIT_RESPONSE,
     ]
 
@@ -139,17 +152,18 @@ def _demo(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True)
 
 
 # ---------------------------------------------------------------------------
-# The subagent's list is its paradigm's vocabulary, and nothing else
+# The subagent's list is its paradigm's vocabulary plus the PV directory
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
 def test_frontmatter_is_exactly_the_paradigm_vocabulary(tmp_path, mode):
-    """Every registered paradigm renders its own tools, plus ``submit_response``.
+    """Every registered paradigm renders its own tools, the PV directory's, and
+    ``submit_response``.
 
     Asserted as the whole list rather than as a subset: a tool that arrives from
-    somewhere other than the paradigm's registry entry is the failure this
-    catches, and a subset assertion would let it through.
+    somewhere other than the paradigm's or the PV directory's registry entry is
+    the failure this catches, and a subset assertion would let it through.
     """
     _manager, project_dir = _demo(tmp_path, f"cf-vocab-{mode}", mode)
 
@@ -166,7 +180,7 @@ def test_no_paradigm_puts_the_graph_server_on_the_subagent(tmp_path, mode):
     ``services.graphdb`` block, so the server is enabled and its four
     permissions ARE in ``settings.json``. What must be empty is the subagent's
     frontmatter — the main agent can query the store; the channel-finder
-    subagent is confined to its paradigm's tools.
+    subagent is confined to its paradigm's tools and the PV directory's.
     """
     _manager, project_dir = _demo(tmp_path, f"cf-nograph-{mode}", mode)
 
@@ -200,6 +214,7 @@ def test_graph_paradigm_renders_the_four_channel_finder_tools(tmp_path):
         "mcp__channel-finder__get_schema",
         "mcp__channel-finder__read_cypher",
         "mcp__channel-finder__search_channels",
+        *_DEMO_PV_DIRECTORY_TOOLS,
         _SUBMIT_RESPONSE,
     ]
 
@@ -438,3 +453,76 @@ def test_other_paradigms_carry_no_snapshot_region(tmp_path, mode):
 
     assert prompt_snapshot.SNAPSHOT_BEGIN not in body
     assert "Graph at Hand" not in body
+
+
+# ---------------------------------------------------------------------------
+# how the graph paradigm matches names and walks the place tree
+# ---------------------------------------------------------------------------
+
+_SENTENCE_BREAK = re.compile(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])")
+
+#: A ``:Class`` scope is a node pattern binding the label — ``(c:Class)`` or
+#: ``(:Class)``; ``NOT n:Class`` excludes classes and scopes nothing to them.
+_CLASS_SCOPE = re.compile(r"\(\w*:Class\b")
+
+
+def _unscoped_altlabel_contains(text: str) -> list[str]:
+    """Every sentence giving a ``CONTAINS`` form over ``altLabel`` without a ``:Class`` scope."""
+    return [
+        sentence
+        for sentence in _SENTENCE_BREAK.split(text)
+        if "altLabel" in sentence and "CONTAINS" in sentence and not _CLASS_SCOPE.search(sentence)
+    ]
+
+
+@pytest.fixture(scope="module")
+def graph_channel_finder(tmp_path_factory) -> dict[str, str]:
+    """The graph-paradigm agent as rendered, and with an empty-vocabulary snapshot baked in."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    _manager, project_dir = _demo(tmp_path_factory.mktemp("cf_names"), "cf-graph-names", "graph")
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+    schema = {
+        "labels": ["Class", "Resource"],
+        "relationship_types": ["HASBINDING", "LOCATEDIN", "PARTOF"],
+        "properties_by_label": {"Resource": ["deviceId", "placePath"]},
+        "prefixes": {},
+        "naming": {"note": prompt_snapshot.NAMING_NOTE, "sample_size": None},
+    }
+    block = prompt_snapshot.render_block(
+        schema, [], digest="abcdef0123456789", resource_count=1, vocabulary=()
+    )
+    head, _sep, rest = body.partition(prompt_snapshot.SNAPSHOT_BEGIN)
+    _old, _sep, tail = rest.partition(prompt_snapshot.SNAPSHOT_END)
+    return {"placeholder": body, "empty vocabulary": head + block + tail}
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_graph_agent_states_the_record_name_rule(graph_channel_finder, snapshot):
+    """Record names match whole-entry — the one rule string, verbatim, in the arm itself."""
+    from osprey.services.graph_store import prompt_snapshot
+
+    arm = _graph_paradigm_instructions(graph_channel_finder[snapshot])
+    rule = f"`{prompt_snapshot.RECORD_NAME_MATCH_RULE}`"
+    head, _sep, _terminology = arm.partition(_GRAPH_TERMINOLOGY_MARKER)
+    assert rule in head, "the Matching a Phrase section must state the rule"
+    assert rule in _terminology, "the terminology partial must state the rule"
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_the_graph_agent_names_both_place_relationships_with_direction(
+    graph_channel_finder, snapshot
+):
+    arm = _graph_paradigm_instructions(graph_channel_finder[snapshot])
+    assert "`(d)-[:LOCATEDIN]->(p)`" in arm
+    assert "`(p)-[:PARTOF]->(parent)`" in arm
+
+
+@pytest.mark.parametrize("snapshot", ("placeholder", "empty vocabulary"))
+def test_no_graph_agent_sentence_gives_an_unscoped_altlabel_contains(
+    graph_channel_finder, snapshot
+):
+    body = graph_channel_finder[snapshot]
+    assert _unscoped_altlabel_contains(body) == []
+    assert "never compare with `=`" not in body
+    assert "never with `=`" not in body

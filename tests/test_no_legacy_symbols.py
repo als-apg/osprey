@@ -35,9 +35,9 @@ one answer. Its names are ordinary words (``effective_writes``,
 exemption map (path -> names). A stale exemption — a path that is gone, or a
 name it no longer spells — fails, so the map can only shrink.
 
-Deliberately absent: the ``scan-agentic-e2e`` CI job id. GitHub branch
-protection matches required checks on that exact name, so the job keeps it
-while the test file it runs is renamed.
+Deliberately absent: the ``scan-agentic-e2e`` lane id, a ``dispatch-stack-e2e``
+cell. The release gate and ``full_ci_on_main.py last-green`` name the lane by
+it, so the lane keeps it while the test file it runs is renamed.
 """
 
 from __future__ import annotations

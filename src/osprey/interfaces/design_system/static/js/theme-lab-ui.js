@@ -45,6 +45,7 @@ import {
    so the position is presentational, and the pure half above stays free of
    dependencies. */
 import { THEMES, DEFAULTS, DEFAULT_FAMILY } from './tokens.js';
+import { markPageReady } from './page-ready.js';
 
 /** The two scopes the page renders, in DOM order. */
 const MODES = /** @type {ReadonlyArray<ThemeMode>} */ (['dark', 'light']);
@@ -731,3 +732,6 @@ if (wheelCanvas instanceof HTMLCanvasElement) {
   const wheelContext = wheelCanvas.getContext('2d');
   if (wheelContext !== null) initLab(wheelCanvas, wheelContext);
 }
+// No theme runtime runs here, so the lab marks itself ready once its UI is up
+// (theme-lab.html declares the mark pending until then).
+markPageReady();

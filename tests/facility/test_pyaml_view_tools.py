@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.views.pyaml import CONFIGURATION_FILE, E_DELTA_CAP, E_DELTA_ORBIT
+from osprey.facility.kinds import E_DELTA_CAP, E_DELTA_ORBIT
+from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import (
     LINE_GROUPS,
     SR_GROUPS,
@@ -23,8 +24,6 @@ from tests.facility._pyaml_trees import (
     with_rf,
     write_view,
 )
-
-pytest.importorskip("pyaml")
 
 
 def _configuration(tmp_path: Path, tree: dict[str, Any], model: str) -> dict[str, Any]:
@@ -214,5 +213,5 @@ def test_the_measurement_tools_load_in_pyaml(tmp_path: Path) -> None:
     }
     directory, _ = write_view(tmp_path, tree)
     sr = Accelerator.load(str(directory / "SR" / CONFIGURATION_FILE))
-    assert sr.design.trm is not None
-    assert sr.design.get_chromaticity_monitor("CHROMATICITY_MONITOR") is not None
+    assert sr.design.tool.trm is not None
+    assert sr.design.tool.get("CHROMATICITY_MONITOR") is not None

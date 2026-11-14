@@ -30,8 +30,6 @@ from osprey.mcp_server.python_executor.tools import pyaml_measure as tool
 from osprey.mcp_server.python_executor.tools._pyaml_measure_script import RESULT_TAG
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
-pytest.importorskip("pyaml")
-
 
 def _tree() -> dict[str, Any]:
     tree = with_correctors(with_rf(measured_tree()))

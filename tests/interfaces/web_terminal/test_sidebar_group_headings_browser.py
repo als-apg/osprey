@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -38,10 +39,6 @@ except ImportError:  # pragma: no cover
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 _TOOLS_HEAD = '#panel-rail > [data-group="tools"] > .sidebar-group-head'
-#: Only panel-rail.js makes the System group (index.html serves Workspace and
-#: Tools), in the same pass that orders every group and wires the headings, so
-#: its arrival is the sign the rail has rendered.
-_SYSTEM = '#panel-rail > [data-group="system"]'
 _SESSIONS = '#panel-rail > [data-group="workspace"]'
 _MENU = ".rail-context-menu"
 _GROUPS_KEY = "osprey-sidebar-groups"
@@ -50,7 +47,9 @@ _GROUPS_KEY = "osprey-sidebar-groups"
 @contextmanager
 def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> Iterator[Page]:
     """A real web-terminal hub over an empty project, opened at 1280×800, with
-    ``stored`` seeded as the sidebar groups when given."""
+    ``stored`` seeded as the sidebar groups when given, handed over once the hub
+    is ready: the rail's groups are drawn during the panel manager's start-up,
+    and a heading can show before the last of them is."""
     shared_root = patch(
         "osprey_connectors.workspace.resolve_shared_data_root", return_value=workspace_dir
     )
@@ -64,7 +63,7 @@ def _page(browser: Browser, workspace_dir: Path, stored: dict | None = None) -> 
             )
         try:
             page.goto(base_url, wait_until="domcontentloaded")
-            expect(page.locator(_SYSTEM)).to_be_attached(timeout=10_000)
+            wait_for_page_ready(page)
             yield page
         finally:
             ctx.close()
@@ -188,16 +187,17 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
     """A real mouse drag of the System heading onto the top of Apps moves the
     whole System group, rows and all, above Apps, and a reload draws that order
     again; Sessions stays first throughout."""
+    system = '#panel-rail > [data-group="system"]'
     with _page(chromium_browser, tmp_path) as page:
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "tools",
             "system",
         ]
-        system_rows = page.locator(f"{_SYSTEM} [data-panel-id]")
+        system_rows = page.locator(f"{system} [data-panel-id]")
         rows_before = system_rows.count()
 
-        page.locator(f"{_SYSTEM} > .sidebar-group-head").drag_to(
+        page.locator(f"{system} > .sidebar-group-head").drag_to(
             page.locator(_TOOLS_HEAD), target_position={"x": 20, "y": 2}
         )
 
@@ -212,7 +212,7 @@ def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, 
         expect(page.locator("#panel-rail > .sidebar-group.dragging")).to_have_count(0)
 
         page.reload(wait_until="domcontentloaded")
-        expect(page.locator(_SYSTEM)).to_be_attached(timeout=10_000)
+        wait_for_page_ready(page)
         assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
             "workspace",
             "system",

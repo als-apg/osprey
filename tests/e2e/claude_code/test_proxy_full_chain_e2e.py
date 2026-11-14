@@ -21,19 +21,18 @@ import pytest
 
 from osprey.agent_runner.provider_env import ClaudeCodeModelResolver, inject_provider_env
 from osprey.infrastructure.proxy.lifecycle import start_proxy_for, stop_proxy
+from tests.conftest import ollama_has_model
 
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = "qwen2.5:32b"
 
-
-def _ollama_up() -> bool:
-    try:
-        return httpx.get("http://localhost:11434/api/tags", timeout=5.0).status_code == 200
-    except Exception:
-        return False
-
-
-pytestmark = pytest.mark.skipif(not _ollama_up(), reason="local Ollama not running")
+pytestmark = pytest.mark.skipif(
+    not ollama_has_model(OLLAMA_MODEL),
+    reason=(
+        f"needs a local Ollama on port 11434 serving {OLLAMA_MODEL}: "
+        f"start it and run `ollama pull {OLLAMA_MODEL}`"
+    ),
+)
 
 
 @pytest.fixture

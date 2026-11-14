@@ -19,14 +19,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from packaging.version import Version
 
 from osprey.cli.build_profile_deploy import (
     deploy_aware_config_errors,
     deploy_aware_config_warnings,
     facility_write_warnings,
 )
-from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM
+from osprey.cli.build_profile_load import (
+    RETIRED_WRITE_KEYS_REFUSED_FROM,
+    retired_spellings_window_open,
+)
 from osprey.cli.build_profile_schema import McpServerDef
 from osprey.version import get_release_version
 
@@ -60,7 +62,7 @@ def test_an_asked_tool_missing_from_writes_warns() -> None:
     assert "`ramp`" in warning
     assert "permissions.ask" in warning
     assert "mcp_servers.magnets.writes" in warning
-    assert f"refused from OSPREY {RETIRED_WRITE_KEYS_REFUSED_FROM}" in warning
+    assert f"refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}" in warning
 
 
 @pytest.mark.parametrize("tool", ["delete_entry", "ClearCache", "purge"])
@@ -221,7 +223,7 @@ def test_a_non_empty_write_tools_list_warns() -> None:
     (warning,) = _write_tools_key(deploy_aware_config_warnings(None, config))
 
     assert "use `mcp_servers.<server>.writes`" in warning
-    assert f"refused from OSPREY {RETIRED_WRITE_KEYS_REFUSED_FROM}" in warning
+    assert f"refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}" in warning
     assert "mcp__magnets__ramp" in warning
 
 
@@ -260,4 +262,4 @@ def test_the_facility_write_window_is_still_open() -> None:
     from the deploy-aware warnings to the deploy-aware errors, and removes this
     test.
     """
-    assert Version(get_release_version()) < Version(RETIRED_WRITE_KEYS_REFUSED_FROM)
+    assert retired_spellings_window_open(get_release_version())

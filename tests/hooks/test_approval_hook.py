@@ -1976,6 +1976,8 @@ def _measurement_block(**changes):
             "vcor": _VCOR,
             "quad": _QUADS,
         },
+        "by_kinds": ["crm", "trm"],
+        "corrector_roles": {"orm": ["hcor", "vcor"]},
         "view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
     }
     block.update(changes)
@@ -2341,16 +2343,101 @@ def test_a_view_digest_rides_only_in_a_measurements_input(
     assert set(_approved(stamp)) == {"approved_target"}
 
 
-def test_the_hook_restates_what_the_tool_steps_and_its_defaults(hook_module):
+def test_the_hook_restates_the_tools_defaults(hook_module):
     from osprey.mcp_server.python_executor.tools import _pyaml_measure_args as tool
 
     approval = hook_module("osprey_approval")
-    assert approval._PYAML_BY_KINDS == tool.BY_KINDS
     assert approval._PYAML_DEFAULT_MODULATION == tool.DEFAULT_MODULATION
     assert approval._PYAML_DEFAULT_BY == tool.DEFAULT_BY
     assert approval._PYAML_GROUP == tool.GROUP
     assert approval._PYAML_GROUP_MODULATION == tool.GROUP_MODULATION
-    assert approval._PYAML_CORRECTOR_ROLES == tool._CORRECTOR_ROLES
+
+
+def test_the_hook_holds_no_kind_table(hook_module):
+    """Which kinds take ``by`` and whose setpoints ``correctors`` name come from the block."""
+    approval = hook_module("osprey_approval")
+    assert not hasattr(approval, "_PYAML_BY_KINDS")
+    assert not hasattr(approval, "_PYAML_CORRECTOR_ROLES")
+
+
+def test_by_follows_the_blocks_by_kinds(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    taken = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm", "by": "group"},
+        block=_measurement_block(by_kinds=["orm"]),
+    )
+    ignored = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "trm", "by": "group"},
+        block=_measurement_block(by_kinds=[]),
+    )
+
+    assert 'By: "group"\n' in _reason(taken)
+    assert "By:" not in _reason(ignored)
+
+
+def test_correctors_narrow_only_the_blocks_corrector_roles(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+    named = {"kind": "orm", "correctors": [_VCOR[0]]}
+
+    narrowed = _measure(hook_runner, make_config, tmp_path, named)
+    whole = _measure(
+        hook_runner, make_config, tmp_path, named, block=_measurement_block(corrector_roles={})
+    )
+
+    assert f'Setpoints stepped: 1\n  "{_VCOR[0]}"' in _reason(narrowed)
+    assert f"Setpoints stepped: {len(_HCOR) + len(_VCOR)}\n" in _reason(whole)
+
+
+def _registered_kind_facts():
+    """A render's facts holding one model whose measurement file allows a registered kind."""
+    import hashlib
+
+    return {
+        "measurement_models": {
+            "SR": {
+                "path": "data/pyaml/SR/configuration.yaml",
+                "sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+                "files": {},
+                "names": {"bpm": "SR_BPM", "hcor": "SR_HCM", "vcor": "SR_VCM"},
+                "instruments": {},
+                "rf": [],
+                "kinds": {
+                    "registry_kind": {
+                        "members": {
+                            "bpm": {"requirement": "wired", "addresses": ["SR:BPM:01:X"]},
+                            "hcor": {"requirement": "wired", "addresses": _HCOR[:2]},
+                            "vcor": {"requirement": "wired", "addresses": _VCOR},
+                        },
+                        "stepped_roles": ["hcor", "vcor"],
+                        "corrector_roles": ["hcor", "vcor"],
+                        "takes_by": False,
+                    }
+                },
+            }
+        }
+    }
+
+
+def test_a_registered_kind_is_asked_naming_its_stepped_channels(tmp_path, hook_runner, make_config):
+    """The block the build writes for a registered kind is what the prompt lists."""
+    from osprey.facility.views.facts import hook_measurement
+
+    _plant_view(tmp_path)
+    block = hook_measurement(_registered_kind_facts(), tmp_path)["SR"]
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "registry_kind"}, block=block)
+
+    assert _decision(result) == "ask"
+    stepped = [*_HCOR[:2], *_VCOR]
+    listed = "".join(f'\n  "{address}"' for address in stepped)
+    assert f"Setpoints stepped: {len(stepped)}{listed}" in _reason(result)
 
 
 def test_the_hook_restates_the_view_writers_names(hook_module):

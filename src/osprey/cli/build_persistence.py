@@ -171,10 +171,12 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     Feeds the unknown-root-entry warning's ``extra_known``: the profile's own
     filename plus the first path component of every profile-relative path the
     profile declares — ``data:``, ``machine:`` (the mounted machine root, often
-    a git submodule), ``dispatch.triggers``, and each ``services.*.template``. A path that points above the profile root
-    contributes nothing (its first component is not a root entry), and a
-    bundled ``dispatch.triggers`` name harmlessly exempts a directory that
-    does not exist.
+    a git submodule), ``dispatch.triggers``, each ``services.*.template``, and
+    every local-path ``dependencies`` entry under the profile root (a package
+    the build turns into a wheel, such as ``./kinds/<name>``). A path that
+    points above the profile root contributes nothing (its first component is
+    not a root entry), and a bundled ``dispatch.triggers`` name harmlessly
+    exempts a directory that does not exist.
     """
     known: list[str] = []
     if profile_path is not None:
@@ -191,6 +193,21 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
         parts = PurePosixPath(candidate.strip()).parts
         if parts and parts[0] != ".." and parts[0] not in known:
             known.append(parts[0])
+
+    if profile_path is not None:
+        from osprey.apps.rules import local_path
+
+        root = profile_path.parent.resolve()
+        for dependency in profile.dependencies:
+            directory = local_path(dependency, root)
+            if directory is None:
+                continue
+            try:
+                parts = directory.resolve().relative_to(root).parts
+            except ValueError:
+                continue
+            if parts and parts[0] not in known:
+                known.append(parts[0])
     return known
 
 

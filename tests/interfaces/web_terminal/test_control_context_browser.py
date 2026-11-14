@@ -57,6 +57,7 @@ from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
 from osprey_connectors import control_context
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._control_context import read_record
 
 # The stack, the waits and the vocabulary are test_posture_toggle_browser's,
@@ -630,7 +631,12 @@ def test_a_real_handoff_and_the_chat_view_leave_the_deployment_where_it_is(
                     else None
                 ),
             )
-            back_to_chat(page)
+            # The chip is already painted from the terminal, so the reads below
+            # can pass before the chat has sent its hand-off: wait for the request.
+            with page.expect_request(
+                lambda request: request.method == "POST" and "/handoff" in request.url
+            ):
+                back_to_chat(page)
             page.wait_for_function(
                 "() => document.querySelector('#control-target-chip') !== null",
                 timeout=TIMEOUT,
@@ -794,6 +800,7 @@ def test_a_terminal_with_the_picker_off_mounts_no_chip(tmp_path, monkeypatch, ch
         )
         try:
             page.goto(base_url, wait_until="load")
+            wait_for_page_ready(page)
             expect(page.locator("#command-palette-btn")).to_have_count(1, timeout=TIMEOUT)
             expect(page.locator("html")).to_have_attribute("data-control-target", "off")
             expect(page.locator(CHIP)).to_have_count(0)

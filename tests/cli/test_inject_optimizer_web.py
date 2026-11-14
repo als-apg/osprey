@@ -74,7 +74,7 @@ def test_the_optimizer_panel_is_registered_at_the_sidecar_root(project_path: Pat
     assert panel == {
         "url": f"${{OPTIMIZER_WEB_URL:-http://localhost:{_WEB_PORT}}}",
         "path": "/optimizer/",
-        "label": "OPTIMIZER",
+        "label": "Optimizer",
         "read_timeout_s": OPTIMIZER_PANEL_READ_TIMEOUT_S,
     }
 
@@ -97,7 +97,7 @@ def test_an_explicit_read_timeout_wins(project_path: Path, explicit: int | None)
 
     panel = dict(_read_config(project_path)["web"]["panels"]["optimizer"])
     assert panel["read_timeout_s"] == explicit
-    assert panel["label"] == "OPTIMIZER"
+    assert panel["label"] == "Optimizer"
 
 
 def test_a_partial_override_still_gets_the_read_timeout(project_path: Path) -> None:

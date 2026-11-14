@@ -1,0 +1,2 @@
+[osprey.facility.kinds]
+registry_kind = registry_kind_fixture:REGISTRY_KIND

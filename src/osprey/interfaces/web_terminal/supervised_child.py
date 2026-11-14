@@ -73,6 +73,12 @@ FAILURE_GAVE_UP = "gave_up"
 #: status in (a negative number is the signal that ended it).
 PREVIOUS_EXIT_ENV = "OSPREY_SIDECAR_PREVIOUS_EXIT"
 
+
+def _wait_unless_stopped(stop: threading.Event, seconds: float) -> bool:
+    """Wait *seconds*, or until *stop* is set; whether it was."""
+    return stop.wait(seconds)
+
+
 _LOOPBACK = "127.0.0.1"
 _TAIL_LINES = 20
 
@@ -198,6 +204,9 @@ class SupervisedChild:
         quick_exit_s: A respawn-now exit from a younger child waits the
             backoff.
         clock: The time source for lifetimes and the give-up window.
+        wait: How a backoff is waited out: called with the event :meth:`stop`
+            sets and the seconds, it returns whether the stop came first. The
+            real wait by default; *clock* and *wait* are the supervisor's time.
     """
 
     def __init__(
@@ -216,6 +225,7 @@ class SupervisedChild:
         give_up_window_s: float = GIVE_UP_WINDOW_S,
         quick_exit_s: float = QUICK_EXIT_S,
         clock: Callable[[], float] = time.monotonic,
+        wait: Callable[[threading.Event, float], bool] = _wait_unless_stopped,
     ) -> None:
         if not backoff_s:
             raise ValueError("backoff_s needs at least one entry")
@@ -232,6 +242,7 @@ class SupervisedChild:
         self._give_up_window_s = give_up_window_s
         self._quick_exit_s = quick_exit_s
         self._clock = clock
+        self._wait = wait
 
         # Guards every field below, and makes "has stop() run?" and "spawn"
         # one step: a start that takes the lock after stop() finds the stop
@@ -455,7 +466,7 @@ class SupervisedChild:
                 delay = 0.0
             else:
                 delay = self._backoff_s[min(count, len(self._backoff_s)) - 1]
-            if delay > 0 and stop.wait(delay):
+            if delay > 0 and self._wait(stop, delay):
                 return
             try:
                 self._spawn(stop)

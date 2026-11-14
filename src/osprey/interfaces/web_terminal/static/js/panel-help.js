@@ -5,10 +5,13 @@
  * for the tile bar's Help control and the tile ⋯ menu's Help row.
  *
  * The map is static and lists only panels whose page exists in this repo's
- * docs (`docs/source/how-to/`, checked by panel-help.test.mjs). A panel with
- * no entry has no Help: the control stays hidden rather than pointing at a
- * page that may not exist. Paths are relative to the docs root and name the
- * built `.html` page.
+ * docs (`docs/source/how-to/`, checked by panel-help.test.mjs). An application
+ * panel names its own page in its manifest (`panel.help`), carried on its
+ * catalog entry, and that page wins over the map. A panel with neither has no
+ * Help: the control stays hidden rather than pointing at a page that may not
+ * exist. Paths are relative to the docs root and name the built `.html` page;
+ * an application's page may instead be an absolute https:// URL, which needs
+ * no docs root.
  *
  * The docs root is per deployment. It reaches the page as
  * `<html data-docs-url="…">` and is absent when `web.docs_url` is blank, an
@@ -16,6 +19,8 @@
  * URL, for the same reason the sidebar's Docs row stays hidden
  * (rail-utility.js).
  */
+
+import { panelEntry } from './panel-catalog.js';
 
 /**
  * Builtin and sidecar panel id → docs page, relative to the docs root.
@@ -48,14 +53,18 @@ export function docsRoot() {
  *
  * @param {string} panelId
  * @param {string} [docsUrl] - the docs root; defaults to {@link docsRoot}.
- * @returns {string | null} The root joined to the page with exactly one slash
- *   between them, or null when the root is blank or the panel has no page.
+ * @returns {string | null} An application panel's https:// page as declared;
+ *   otherwise the root joined to the page with exactly one slash between them,
+ *   or null when the root is blank or the panel has no page.
  */
 export function helpUrl(panelId, docsUrl = docsRoot()) {
+  const declared = panelEntry(panelId)?.help;
+  if (declared?.startsWith('https://')) return declared;
   const root = docsUrl.trim();
   if (root === '') return null;
-  if (!Object.hasOwn(HELP_PAGES, panelId)) return null;
-  return `${root.replace(/\/+$/, '')}/${HELP_PAGES[panelId]}`;
+  const page = declared ?? (Object.hasOwn(HELP_PAGES, panelId) ? HELP_PAGES[panelId] : null);
+  if (page == null) return null;
+  return `${root.replace(/\/+$/, '')}/${page}`;
 }
 
 /**

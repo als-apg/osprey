@@ -22,8 +22,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-
-Image = pytest.importorskip("PIL.Image")
+from PIL import Image
 
 _SOF_MARKERS = {0xC0, 0xC1, 0xC2}
 _STANDALONE_MARKERS = {0x01, *range(0xD0, 0xD8)}

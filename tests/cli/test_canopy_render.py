@@ -136,6 +136,7 @@ class TestRenderedConfig:
             "enabled": True,
             "home_screen": "facility/overview",
             "vole_bytes_max": 268435456,
+            "theme_file": "data/canopy/theme/osprey.json",
         }
 
     def test_root_default_panel(self, default_cell: Path) -> None:

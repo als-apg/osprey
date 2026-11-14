@@ -105,6 +105,7 @@ import pytest
 import yaml
 
 from osprey import bluesky_tool_names
+from osprey.cli.build_profile_updates import PRESET_BASE_DIR
 from osprey.deployment.compose_generator import (
     CONTROL_TREE_MARKER_NAME,
     control_target_identity_dir,
@@ -461,8 +462,17 @@ def _repo_triggers_file(repo: Path) -> Path:
     by the next build and never reach the dispatcher. Located by name rather than
     by a spelled path so a move of the source zone moves this with it, and
     asserted to be exactly one file so a second copy cannot be edited silently.
+
+    ``osprey init`` also saves what the presets produced under
+    ``PRESET_BASE_DIR``. That copy is a record for later preset updates, not the
+    deployment's trigger set, and is left out.
     """
-    found = [path for path in repo.rglob("triggers.yml") if "build" not in path.parts]
+    saved_preset_copy = repo / PRESET_BASE_DIR
+    found = [
+        path
+        for path in repo.rglob("triggers.yml")
+        if "build" not in path.parts and not path.is_relative_to(saved_preset_copy)
+    ]
     assert len(found) == 1, f"expected exactly one source triggers.yml under {repo}, found: {found}"
     return found[0]
 

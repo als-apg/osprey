@@ -30,7 +30,7 @@ from osprey_optimizer.api.main import app
 from osprey_optimizer.api.optimization_lifecycle import draft_revision
 from osprey_optimizer.models.api import JobResponse
 from osprey_optimizer.models.config import OptimizationConfig, VariableOverride
-from osprey_optimizer.models.enums import JobStatus, JobType
+from osprey_optimizer.models.enums import AlgorithmType, JobStatus, JobType
 from osprey_optimizer.models.exceptions import MachineSettingsError
 from osprey_optimizer.optimization.state import (
     get_optimization_reader,
@@ -42,6 +42,7 @@ from osprey_optimizer.utils.job_keys import (
     state_prefix,
 )
 from osprey_optimizer.utils.redis_client import get_redis_client
+from osprey_optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
 from osprey_optimizer.utils.serialization import deserialize_obj, serialize_obj
 
 from ._fakes import MockEnvironment
@@ -71,6 +72,7 @@ def make_opt_reader(**overrides: object) -> MagicMock:
         "variable_bounds": None,
         "total_evaluations": 0,
         "write_authorization": None,
+        "start_notice": None,
         "available_snapshots": {
             "initial": {"var1": 0.0, "obj": 0.3},
             "target": {"obj": 1.0},
@@ -138,6 +140,7 @@ def patched_job_state(status: JobStatus, logs: str = "") -> Generator[MagicMock]
     reader.get_logs.return_value = logs
     reader.get_error_message.return_value = None
     reader.get_write_authorization.return_value = None
+    reader.get_start_notice.return_value = None
     with patch(f"{_JS}.get_optimization_reader", return_value=reader):
         yield reader
 
@@ -1231,6 +1234,29 @@ class TestOptimizationSummary:
         assert resp.json()["result_summary"] is None
 
     @pytest.mark.parametrize(
+        ("job_status", "expected"),
+        [
+            pytest.param(JobStatus.CREATED, "notice", id="draft"),
+            pytest.param(JobStatus.RUNNING, None, id="running"),
+            pytest.param(JobStatus.COMPLETED, None, id="completed"),
+        ],
+    )
+    @pytest.mark.parametrize("query", ["", "?detail=summary"], ids=["plain", "summary"])
+    def test_start_notice_is_read_only_for_a_draft(
+        self, client: TestClient, job_status: JobStatus, expected: str | None, query: str
+    ) -> None:
+        """The notice describes a draft; a job polled once it has started or
+        ended never shows it, though its key may outlive the draft."""
+        reader = make_opt_reader(status=job_status, start_notice="notice")
+        with (
+            patch(f"{_OS}.get_optimization_reader", return_value=reader),
+            patch(f"{_JS}.get_optimization_reader", return_value=reader),
+        ):
+            resp = client.get(f"/jobs/test-job-id{query}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["start_notice"] == expected
+
+    @pytest.mark.parametrize(
         ("write_model", "expected_model_file"),
         [
             pytest.param(True, "model.joblib", id="with_model_file"),
@@ -1534,6 +1560,86 @@ def test_create_optimization_returns_created_and_sets_current_job(
     # atomically with creation. Otherwise the web follow-poll can read the stale
     # pointer and revert the selection before Start, starting the wrong job.
     mock_job_tracker.set_current_job.assert_called_once_with("new-id")
+
+
+@pytest.mark.usefixtures("redis_server")
+def test_a_draft_that_may_not_move_says_so_until_an_edit_fixes_it() -> None:
+    """Create returns the start notice and GET /jobs/{id} keeps it, with the
+    draft's lifetime; an edit that can move clears it. It stays out of the
+    config, whose hash is the revision a start names."""
+    tracker = JobTracker()
+    redis = tracker._get_redis()
+    redis.flushdb()
+    registry = MagicMock()
+    registry.list_environments.return_value = [SimpleNamespace(name="als_injector_sim")]
+    registry.load_environment.return_value = MockEnvironment()
+    # var1's setpoint reads 5.0, and Nelder-Mead's first move is 5% of it: under
+    # half of a 1.0 step, but not of a 0.1 step.
+    movable = make_gate_config(algorithm=AlgorithmType.NELDER_MEAD)
+    stuck = movable.model_copy(
+        update={"variable_overrides": {"var1": VariableOverride(min=0.0, max=10.0, step_size=1.0)}}
+    )
+    app.dependency_overrides[get_job_tracker] = lambda: tracker
+    app.dependency_overrides[get_environment_registry] = lambda: registry
+    try:
+        with TestClient(app) as test_client:
+            created = test_client.post("/optimizations", json=stuck.model_dump(mode="json"))
+            assert created.status_code == 200, created.text
+            job_id = created.json()["job_id"]
+            notice = created.json()["start_notice"]
+            assert notice is not None
+            assert notice.startswith("Nelder-Mead may not move from the current setpoints")
+
+            assert test_client.get(f"/jobs/{job_id}").json()["start_notice"] == notice
+            assert redis.ttl(f"job:{job_id}:state:start_notice") > CREATED_STATE_TTL_SECONDS - 10
+            assert "start_notice" not in test_client.get(f"/jobs/{job_id}/config").json()
+
+            put = test_client.put(f"/jobs/{job_id}/config", json=movable.model_dump(mode="json"))
+            assert put.status_code == 200, put.text
+            assert put.json()["start_notice"] is None
+            assert test_client.get(f"/jobs/{job_id}").json()["start_notice"] is None
+            assert redis.exists(f"job:{job_id}:state:start_notice") == 0
+
+            again = test_client.put(f"/jobs/{job_id}/config", json=stuck.model_dump(mode="json"))
+            assert again.json()["start_notice"] == notice
+    finally:
+        app.dependency_overrides.clear()
+        redis.flushdb()
+
+
+@pytest.mark.usefixtures("redis_server")
+def test_a_start_check_that_fails_never_fails_the_draft() -> None:
+    """The notice is advice: when the check itself breaks, create and update
+    still succeed, with no notice."""
+    tracker = JobTracker()
+    redis = tracker._get_redis()
+    redis.flushdb()
+    registry = MagicMock()
+    registry.list_environments.return_value = [SimpleNamespace(name="als_injector_sim")]
+    registry.load_environment.return_value = MockEnvironment()
+    config = make_gate_config(algorithm=AlgorithmType.NELDER_MEAD)
+    app.dependency_overrides[get_job_tracker] = lambda: tracker
+    app.dependency_overrides[get_environment_registry] = lambda: registry
+    try:
+        with (
+            patch(
+                "osprey_optimizer.optimization.xopt_backend._start_cannot_move",
+                side_effect=RuntimeError("boom"),
+            ) as check,
+            TestClient(app) as test_client,
+        ):
+            created = test_client.post("/optimizations", json=config.model_dump(mode="json"))
+            assert created.status_code == 200, created.text
+            assert created.json()["start_notice"] is None
+            job_id = created.json()["job_id"]
+
+            put = test_client.put(f"/jobs/{job_id}/config", json=config.model_dump(mode="json"))
+            assert put.status_code == 200, put.text
+            assert put.json()["start_notice"] is None
+        assert check.call_count == 2
+    finally:
+        app.dependency_overrides.clear()
+        redis.flushdb()
 
 
 def test_create_optimization_rejects_typoed_field(client: TestClient) -> None:

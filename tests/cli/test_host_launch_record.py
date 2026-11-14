@@ -664,6 +664,8 @@ def test_chat_launches_under_the_built_host_identity(runner, lifecycle_repo, mon
         ("chat_cmd", "_overlay_repo_env(repo_root)\n"),
         ("query_cmd", "_overlay_repo_env(repo_root)\n"),
         ("web_cmd", "load_dotenv_from_project(include_sensitive=True)\n"),
+        # Loads no env chain; acts as the operator once it has found the repo.
+        ("write_authorization_cmd", "if root is not None:\n"),
     ],
 )
 def test_every_host_launcher_exports_the_identity_after_the_env_chain(
@@ -678,7 +680,7 @@ def test_every_host_launcher_exports_the_identity_after_the_env_chain(
     import inspect
 
     source = inspect.getsource(importlib.import_module(f"osprey.cli.{module}"))
-    call = "export_built_host_identity(os.environ, repo_root)"
+    call = "export_built_host_identity(os.environ, "
 
     assert source.count(call) == 1
     assert source.rindex(anchor) < source.index(call)

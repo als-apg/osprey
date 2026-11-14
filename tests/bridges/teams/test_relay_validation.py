@@ -7,9 +7,10 @@ dependency, so a missing install has to fail the suite rather than skip it.
 
 Every token here is signed locally with a generated RSA key and every fetch is
 stubbed -- the module's two network seams are its own ``urlopen`` (the OpenID
-metadata document) and ``urllib.request.urlopen`` (the JWKS, fetched by
-PyJWT). The autouse ``network`` fixture makes an unstubbed fetch a test
-failure rather than a real request.
+metadata document) and ``urllib.request.OpenerDirector.open`` (the JWKS,
+fetched by PyJWT, which reaches it through ``urlopen`` before 2.15 and through
+its own no-redirect opener from 2.15 on). The autouse ``network`` fixture makes
+an unstubbed fetch a test failure rather than a real request.
 """
 
 from __future__ import annotations
@@ -135,12 +136,12 @@ def _metadata_source(record, *, payload: bytes | None = None, error: Exception |
 
 
 def _jwks_source(record, *, payload: bytes | None = None, error: Exception | None = None):
-    """A stand-in for ``urllib.request.urlopen``: PyJWT's JWKS GET.
+    """A stand-in for ``urllib.request.OpenerDirector.open``: PyJWT's JWKS GET.
 
     Given neither ``payload`` nor ``error``, reaching it fails the test.
     """
 
-    def _open(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
+    def _open(_opener, request, data=None, timeout=None):  # noqa: ARG001 - the signature OpenerDirector.open has
         record.jwks.append((request.full_url, timeout))
         if error is not None:
             raise error
@@ -156,7 +157,7 @@ def network(monkeypatch):
     """Stub both fetch seams; by default reaching either one fails the test."""
     record = SimpleNamespace(metadata=[], jwks=[])
     monkeypatch.setattr(validation, "urlopen", _metadata_source(record))
-    monkeypatch.setattr(urllib.request, "urlopen", _jwks_source(record))
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", _jwks_source(record))
     return record
 
 
@@ -175,8 +176,8 @@ def served(monkeypatch, network):
         _metadata_source(network, payload=json.dumps({"jwks_uri": JWKS_URI}).encode()),
     )
     monkeypatch.setattr(
-        urllib.request,
-        "urlopen",
+        urllib.request.OpenerDirector,
+        "open",
         _jwks_source(network, payload=json.dumps(_jwks()).encode()),
     )
     return network
@@ -318,7 +319,9 @@ def test_a_jwks_failure_is_reported_as_an_outage(monkeypatch, network, case):
         "urlopen",
         _metadata_source(network, payload=json.dumps({"jwks_uri": JWKS_URI}).encode()),
     )
-    monkeypatch.setattr(urllib.request, "urlopen", _jwks_source(network, **_JWKS_FAILURES[case]))
+    monkeypatch.setattr(
+        urllib.request.OpenerDirector, "open", _jwks_source(network, **_JWKS_FAILURES[case])
+    )
 
     with pytest.raises(validation.KeySourceUnavailable):
         validation.validate_activity(_body(), _token(), cloud="commercial", app_id=APP_ID)
@@ -346,6 +349,7 @@ def test_importing_the_module_fetches_nothing(monkeypatch):
         raise AssertionError("the module fetched something at import time")
 
     monkeypatch.setattr(urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", _refuse)
     name = "teams_relay_validation_import_probe"
     try:
         probe = _load_validation(name)

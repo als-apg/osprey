@@ -4,7 +4,9 @@ Both render from the build's agent facts: the skill lists each model's view at
 its fixed path ``data/pyaml/<model>/configuration.yaml``, sends every
 measurement through ``pyaml_measure``, keeps ``execute`` for reads on
 ``sr.design`` and ``sr.live``, and says a single-pass model has no design
-simulator. A render without a pyAML view renders neither.
+simulator. Its kinds, each kind's step keys and which kinds take
+``correctors`` and ``by`` are the per-model kind blocks of the facts, never a
+list of their own. A render without a pyAML view renders neither.
 """
 
 from __future__ import annotations
@@ -24,10 +26,33 @@ PROMPT = "claude_code/CLAUDE.md.j2"
 PRESETS = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 
+def _kind(description: str, keys: list[str], *, correctors: bool = False, by: bool = False):
+    return {
+        "description": description,
+        "tool_keys": keys,
+        "corrector_roles": ["hcor", "vcor"] if correctors else [],
+        "takes_by": by,
+    }
+
+
+#: The kind blocks each model's facts record carries, as the build writes them.
+KINDS = {
+    "SR": {
+        "orm": _kind("orbit response", ["corrector_delta"], correctors=True),
+        "trm": _kind("tune response", ["quad_delta"], by=True),
+    },
+    "LINE": {"line_scan": _kind("a registered kind", ["corrector_delta"], correctors=True)},
+}
+
+
 def _facts(**models: str | None) -> dict[str, Any]:
     return {
         "measurement_models": {
-            name: {"path": f"data/pyaml/{name}/configuration.yaml", "sha256": "0" * 64}
+            name: {
+                "path": f"data/pyaml/{name}/configuration.yaml",
+                "sha256": "0" * 64,
+                "kinds": KINDS.get(name, {}),
+            }
             for name in models
         },
         "models": [
@@ -98,6 +123,37 @@ def test_the_group_knob_is_one_integrated_strength_per_member(rendered: str):
     assert "`by: group` moves every magnet of the group by the same integrated strength" in text
     assert "The group column is per unit integrated strength: the sum of its members'" in text
     assert "`tune excursion`, `chromaticity excursion`, `magnet step` or `max_step`" in text
+
+
+def test_the_kinds_and_their_arguments_are_the_facts_kind_blocks(rendered: str):
+    text = _flat(rendered)
+    assert "`kind`: one of the kinds below." in text
+    assert "- `line_scan`: a registered kind; `corrector_delta`." in text
+    assert "- `orm`: orbit response; `corrector_delta`." in text
+    assert "- `trm`: tune response; `quad_delta`." in text
+    assert "for `line_scan` and `orm` only; omit for every corrector." in text
+    assert "as one column; `trm` only; omit for magnet." in text
+    for spelled in ("`dispersion`", "`chromaticity_monitor`"):
+        assert spelled not in text
+
+
+def test_a_render_whose_kinds_take_no_correctors_names_no_correctors():
+    only_trm = (
+        TemplateManager()
+        .jinja_env.get_template(SKILL)
+        .render(
+            pyaml_view_present=True,
+            facility_facts={
+                "measurement_models": {
+                    "SR": {"path": "p", "sha256": "0", "kinds": {"trm": KINDS["SR"]["trm"]}}
+                },
+                "models": [],
+            },
+        )
+    )
+
+    assert "`correctors`:" not in only_trm
+    assert "`by`:" in only_trm
 
 
 def test_step_sizes_point_at_the_authored_limits(rendered: str):

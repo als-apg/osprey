@@ -37,6 +37,7 @@ and the leaf utilities can all depend on it without an import cycle.
 
 import logging
 import re
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,12 @@ OWNER_HEADER: str = "X-Osprey-Owner"
 #: calls. The panel token is shared, so it is honest-path: it answers which
 #: session is asking, and is no proof of it.
 SESSION_HEADER: str = "X-Osprey-Session"
+#: Who is calling an application backend, stamped by the terminal proxy on every
+#: request it forwards to a panel: ``agent`` when the terminal's gate admitted the
+#: request on the panel token, ``panel`` otherwise. Like :data:`OWNER_HEADER` it is
+#: stripped inbound and minted at the proxy, so a backend behind the proxy reads
+#: the proxy's answer and never a caller's claim.
+CALLER_HEADER: str = "X-Osprey-Caller"
 
 #: The longest accepted name. Matches the roster username bound: a deployment
 #: names its accounts, and a value longer than this is not one of them.
@@ -125,3 +132,17 @@ def owner_from_header(value: str | None) -> str | None:
         return None
 
     return value
+
+
+def caller_from_header(value: str | None) -> Literal["agent", "panel"] | None:
+    """Return the caller kind *value* names, or ``None`` for anything else.
+
+    *value* is the raw :data:`CALLER_HEADER` as received. Exactly ``agent`` and
+    ``panel`` are accepted; an absent header, another word or another spelling
+    reads as ``None``.
+    """
+    if value == "agent":
+        return "agent"
+    if value == "panel":
+        return "panel"
+    return None

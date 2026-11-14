@@ -19,6 +19,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { shellMarkup, stubActivityFetch } from '../_support/activity-page.mjs';
 import { stubEventSource } from '../_support/event-source.mjs';
 
 const ENTRY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/session.js';
@@ -51,25 +52,12 @@ function frame(target, tool = 'write_channel') {
 let Session;
 
 beforeEach(async () => {
-  // session.js runs its page boot on import: give it the elements it reaches
-  // for (no #activity-strip mount — that boot path is not under test here)
-  // and a fetch stub so the initial refresh never hits the network.
-  document.body.innerHTML = `
-    <div class="refresh-dot" id="refresh-dot"></div>
-    <nav id="nav"><button class="pill active" data-view="agents">Agents</button></nav>
-    <section class="view active" id="view-agents"></section>
-    <div class="toast" id="toast"></div>
-  `;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() =>
-      Promise.resolve({
-        status: 200,
-        ok: true,
-        json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
-      })
-    )
-  );
+  // session.js runs its page boot on import: give it the page it reaches into
+  // (without the #activity-strip mount — that boot path is not under test
+  // here) and a fetch stub so the first reading never hits the network.
+  document.body.innerHTML = shellMarkup();
+  document.getElementById('activity-strip')?.remove();
+  stubActivityFetch();
   vi.resetModules();
   Session = await import(ENTRY_PATH);
 });

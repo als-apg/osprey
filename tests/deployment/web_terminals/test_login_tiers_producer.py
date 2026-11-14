@@ -263,6 +263,15 @@ def test_single_user_maps_the_build_account_at_the_root_tier(
     assert _build(never, tmp_path, tmp_path / "stage") == {"solo": "never"}
 
 
+def test_single_user_maps_the_stamped_host_identity_not_the_build_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tier is looked up under the name ``osprey web`` signs in as."""
+    _set_account(monkeypatch, "builder")
+    config = {"control_system": {"writes": "allowed"}, "deployment": {"host_identity": "operator"}}
+    assert _build(config, tmp_path, tmp_path / "stage") == {"operator": "allowed"}
+
+
 def test_the_producer_writes_nothing(tmp_path: Path, staged: Path) -> None:
     before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
     _build(_config([{"name": "ann", "tier": "readonly"}]), tmp_path, staged)

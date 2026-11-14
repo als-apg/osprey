@@ -53,14 +53,18 @@ from osprey.interfaces.web_terminal.presets import (
     crowded_tile,
 )
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
-from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
+from osprey.interfaces.web_terminal.routes.proxy import (
+    _backend_is_loopback,
+    _resolve_panel_url,
+    caller_opens_panel,
+)
 from osprey.profiles.web_panels import (
-    BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
     in_catalog_order,
     panel_id_refusal,
+    panel_labels,
 )
 from osprey.registry.web import panel_url_state_attr
 
@@ -173,7 +177,9 @@ def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
         "url": proxy_url,
         "available": proxy_url is not None,
         "state": status.state if status is not None else None,
-        "message": status_message(panel_id, status),
+        "message": status_message(
+            panel_id, status, label=getattr(state, "panel_labels", {}).get(panel_id)
+        ),
     }
 
 
@@ -450,11 +456,24 @@ async def get_panels(request: Request):
     """
     enabled = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
-    custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
+    # A panel whose `access` does not admit this caller is left out as if it
+    # were not published; the set itself never reaches the browser.
+    withheld = {cp["id"] for cp in custom_raw if not caller_opens_panel(request, cp)}
+    custom = [
+        {**{k: v for k, v in cp.items() if k != "access"}, "url": _browser_panel_url(cp)}
+        for cp in custom_raw
+        if cp["id"] not in withheld
+    ]
     default = getattr(request.app.state, "default_panel", None)
-    visible = list(getattr(request.app.state, "visible_panels", enabled))
+    visible = [
+        pid for pid in getattr(request.app.state, "visible_panels", enabled) if pid not in withheld
+    ]
     active = getattr(request.app.state, "active_panel", None)
-    labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
+    default = None if default in withheld else default
+    active = None if active in withheld else active
+    state_labels = getattr(request.app.state, "panel_labels", None)
+    builtin_labels = state_labels if state_labels is not None else panel_labels()
+    labels = {pid: builtin_labels[pid] for pid in enabled if pid in builtin_labels}
     # Whether the Config panel's SERVER surface is live (web.config_panel.enabled).
     # `false` means /api/config and /api/claude-setup refuse every verb with 403,
     # so this payload must not advertise the panel in any form: the client reads
@@ -621,6 +640,22 @@ _CONFIG_PANEL_ID = "config"
 #: on it being absent from :func:`_known_panel_ids` — a custom panel squatting
 #: the id must not become a way to move or close the operator's terminal.
 _TERMINAL_PANEL_ID = "terminal"
+
+#: Panel id of the artifact gallery, which every artifact tile frames.
+_ARTIFACTS_PANEL_ID = "artifacts"
+
+#: Layout key of a tile pinned to one artifact (``artifact-tiles.js``):
+#: ``artifact:`` and the artifact's id. It is no panel id; a layout report may
+#: name it while the Artifacts panel is known.
+_ARTIFACT_TILE_KEY = re.compile(r"artifact:[A-Za-z0-9_-]{1,64}")
+
+
+def _is_dock_key(key: str, known: set[str]) -> bool:
+    """Whether a dock layout report may name *key*: the terminal, a known panel id,
+    or an artifact tile while the Artifacts panel is known."""
+    if key == _TERMINAL_PANEL_ID or key in known:
+        return True
+    return _ARTIFACTS_PANEL_ID in known and _ARTIFACT_TILE_KEY.fullmatch(key) is not None
 
 
 def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
@@ -854,8 +889,9 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal`, holds
     one panel per tile (``one_panel_per_tile``,
     :func:`~osprey.interfaces.web_terminal.presets.crowded_tile`) and whose
-    every key other than the terminal is a known panel id; a pop-out is the
-    terminal or a known panel id, and is not in the tree. A dock whose panes are
+    every key other than the terminal is a known panel id or, while the
+    Artifacts panel is known, an artifact tile (``artifact:<id>``); a pop-out is
+    one of those too, and is not in the tree. A dock whose panes are
     all in windows of their own (the Agent pane detached from the default
     layout) reports ``layout: None`` with those pop-outs, and an empty dock with
     none left reports ``layout: None`` alone. The layout is stored
@@ -899,7 +935,7 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 
 
 def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
-    """``layout`` normalised, once it passes the dock layout rules and names only known panels.
+    """``layout`` normalised, once it passes the dock layout rules and names only known keys.
 
     The same check guards a dock's report (``/api/panel-layout``) and an op's
     result (``/api/panel-op-result``). ``None`` is an empty dock, which passes
@@ -908,7 +944,8 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
     Raises:
         HTTPException: 422 when the layout breaks a dock layout rule,
             puts several panels in one tile (``one_panel_per_tile``) or names a
-            key that is neither the terminal nor a known panel id.
+            key that is neither the terminal, a known panel id nor an artifact
+            tile of a known Artifacts panel (:func:`_is_dock_key`).
     """
     if layout is None:
         return None
@@ -923,7 +960,7 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
             detail=f"{crowded}: {ONE_PANEL_PER_TILE}: {ONE_PANEL_PER_TILE_TEXT}",
         )
     known = _known_panel_ids(request)
-    unknown = [key for key in layout_keys(layout) if key != _TERMINAL_PANEL_ID and key not in known]
+    unknown = [key for key in layout_keys(layout) if not _is_dock_key(key, known)]
     if unknown:
         raise HTTPException(
             status_code=422,
@@ -935,15 +972,15 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
 def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) -> list[str]:
     """``popouts`` sorted and deduplicated, once each names a pane outside ``layout``.
 
-    A pop-out is the terminal (the Agent pane) or a known panel id. ``layout``
-    may be ``None``, an empty dock.
+    A pop-out is the terminal (the Agent pane), a known panel id or an artifact
+    tile (:func:`_is_dock_key`). ``layout`` may be ``None``, an empty dock.
 
     Raises:
         HTTPException: 422 when a pop-out is an unknown id, or is also in the tree
             (a pane is in a window or in a tile, never both).
     """
     known = _known_panel_ids(request)
-    bad = [key for key in popouts if key != _TERMINAL_PANEL_ID and key not in known]
+    bad = [key for key in popouts if not _is_dock_key(key, known)]
     if bad:
         raise HTTPException(status_code=422, detail=f"Unknown pop-out panel ids: {bad}")
     docked = set(layout_keys(layout))

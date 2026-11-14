@@ -21,11 +21,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import pytest
+from PIL import Image
 
 from osprey.imaging import render
 from tests._live import async_wait_until, wait_until
-
-Image = pytest.importorskip("PIL.Image")
 
 pytestmark = pytest.mark.timeout(60)
 

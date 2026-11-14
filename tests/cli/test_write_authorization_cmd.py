@@ -377,6 +377,25 @@ class TestDeployment:
         status, grant = wa._find_grant("alice", request.id)
         assert status == "ok" and grant is not None and grant.revoked is not None
 
+    def test_the_approver_and_the_revoker_are_the_recorded_host_identity(self, repo, monkeypatch):
+        """The name the build recorded, not the account's own spelling of it."""
+        as_built = repo / "build" / "config.yml"
+        built = yaml.safe_load(as_built.read_text(encoding="utf-8"))
+        built["deployment"] = {"host_identity": "gmartino"}
+        as_built.write_text(yaml.safe_dump(built), encoding="utf-8")
+        monkeypatch.delenv("OSPREY_AUDIT_IDENTITY")
+        monkeypatch.setattr("getpass.getuser", lambda: "GMartino")
+        assert acting_identity() == "GMartino"
+
+        request = self._put(repo, "gmartino", on_host=True)
+        result = run("approve", request.id, "--yes")
+        assert result.exit_code == 0, result.output
+        (grant,) = wa.list_grants(self._own(repo, "gmartino"))[0]
+        assert (grant.owner, grant.approver.identity) == ("gmartino", "gmartino")
+        assert run("revoke", request.id).exit_code == 0
+        (stored,) = wa.list_grants(self._own(repo, "gmartino"))[0]
+        assert stored.revoked is not None and stored.revoked.by == "gmartino"
+
     def test_a_programs_self_issued_grant_is_listed_and_revoked_in_the_ledger(self, repo):
         record = repo / "var" / "agent_data" / "control_target" / "alice" / "control_context.json"
         with control_context.held_epoch(record, "va") as epoch:

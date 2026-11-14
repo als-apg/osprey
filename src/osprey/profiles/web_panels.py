@@ -15,7 +15,8 @@ never a local table; a sidecar panel id is in neither, so cross with ``.get``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 
@@ -94,7 +95,113 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
 SIDECAR_CONFIG_ENDPOINTS: dict[str, str] = {JUPYTER_PANEL_ID: "/api/jupyter-server"}
 
 
-def sidecar_panel_descriptors() -> list[dict[str, str | None]]:
+def _authored_text(panels_config: object, panel_id: str, key: str) -> str | None:
+    """The non-empty string a ``web.panels.<panel_id>`` block writes under *key*.
+
+    Anything else there (an absent key, an empty string, a value that is not a
+    string, a block that is not a mapping) is ``None``: the build refuses those
+    spellings (:func:`osprey.cli.build_profile_panels.panel_presentation_errors`),
+    and a hand-edited config that still carries one reads as having said nothing.
+    """
+    if not isinstance(panels_config, Mapping):
+        return None
+    spec = panels_config.get(panel_id)
+    if not isinstance(spec, Mapping):
+        return None
+    value = spec.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def panel_labels(panels_config: object = None) -> dict[str, str]:
+    """The built-in panels' display labels as this deployment names them.
+
+    :data:`BUILTIN_PANEL_LABELS` is the framework's wording. A deployment that
+    calls a panel something else says so once, as ``web.panels.<id>.label``,
+    the key a custom panel has always been named by, and every reader of a
+    built-in label (the page's roster stamp, ``/api/panels``, the health rows,
+    the sidecar status sentences) reads it through here.
+
+    Args:
+        panels_config: The config's ``web.panels`` mapping, or ``None`` for the
+            registry's own labels.
+
+    Returns:
+        One label per built-in panel id, registry order.
+    """
+    return {
+        panel_id: _authored_text(panels_config, panel_id, "label") or label
+        for panel_id, label in BUILTIN_PANEL_LABELS.items()
+    }
+
+
+def authored_panel_labels(panels_config: object) -> list[str]:
+    """Every label this deployment wrote on a ``web.panels`` block.
+
+    The sidebar reads an all-capitals label in title case, which is the right
+    reading of a name the framework derives (a built-in's canonical label, an
+    id standing in for a missing one) and the wrong one for a name the
+    deployment wrote: an acronym has no lower-case letter to mark it as the
+    deployment's own spelling. The page stamps these so the sidebar shows each
+    as written.
+
+    Args:
+        panels_config: The config's ``web.panels`` mapping, or ``None``.
+
+    Returns:
+        The distinct labels, sorted; empty when the deployment writes none.
+    """
+    if not isinstance(panels_config, Mapping):
+        return []
+    labels = {_authored_text(panels_config, panel_id, "label") for panel_id in panels_config}
+    return sorted(label for label in labels if label)
+
+
+def panel_label(panel_id: str, panels_config: object = None) -> str:
+    """The display label of one panel, built-in or config-declared.
+
+    Args:
+        panel_id: The panel's id.
+        panels_config: The config's ``web.panels`` mapping, or ``None``.
+
+    Returns:
+        ``web.panels.<panel_id>.label`` when the block writes one, else the
+        registry's label for a built-in, else the id in capitals.
+    """
+    return (
+        _authored_text(panels_config, panel_id, "label")
+        or BUILTIN_PANEL_LABELS.get(panel_id)
+        or panel_id.upper()
+    )
+
+
+def panel_icons(panels_config: object) -> dict[str, str]:
+    """The sidebar glyph each ``web.panels.<id>.icon`` names, by panel id.
+
+    One key for built-in and config-declared panels alike. A panel the mapping
+    does not give an icon keeps the one it has: the catalog's for a companion
+    panel, the registry entry's for a sidecar, the generic glyph for a custom
+    panel. The names are the design system's (``icons.js``); this function does
+    not judge them, because the build does
+    (:func:`osprey.cli.build_profile_panels.panel_presentation_errors`) and the
+    browser draws only a name it knows.
+
+    Args:
+        panels_config: The config's ``web.panels`` mapping.
+
+    Returns:
+        Panel id to icon name, for every block that writes one, config order.
+    """
+    if not isinstance(panels_config, Mapping):
+        return {}
+    icons: dict[str, str] = {}
+    for panel_id in panels_config:
+        icon = _authored_text(panels_config, panel_id, "icon")
+        if icon:
+            icons[str(panel_id)] = icon
+    return icons
+
+
+def sidecar_panel_descriptors(panels_config: object = None) -> list[dict[str, Any]]:
     """The browser's descriptor of every sidecar panel, in registry order.
 
     The page stamps this list on ``<html data-sidecar-panels>`` and
@@ -102,6 +209,11 @@ def sidecar_panel_descriptors() -> list[dict[str, str | None]]:
     sidecar added to :data:`SIDECAR_PANELS` needs no edit in the browser
     bundle. The keys are the catalog's own field names. Read at call time, so
     it answers for the registry as it stands.
+
+    Args:
+        panels_config: The config's ``web.panels`` mapping. A sidecar's block
+            may rename the panel (``label``) and pick its glyph (``icon``);
+            ``None`` answers with the registry's own.
 
     Returns:
         One mapping per sidecar: ``id``, ``label``, ``icon`` (``None`` for the
@@ -112,8 +224,10 @@ def sidecar_panel_descriptors() -> list[dict[str, str | None]]:
     return [
         {
             "id": panel_id,
-            "label": panel.label or panel_id.upper(),
-            "icon": panel.icon or None,
+            "label": (
+                _authored_text(panels_config, panel_id, "label") or panel.label or panel_id.upper()
+            ),
+            "icon": _authored_text(panels_config, panel_id, "icon") or panel.icon or None,
             "description": panel.description or None,
             "configEndpoint": SIDECAR_CONFIG_ENDPOINTS.get(
                 panel_id, f"/api/panels/{panel_id}/server"

@@ -288,7 +288,7 @@
       `<project_name>-auth:local` is referenced instead (provision.py's
       `auth_sidecar_local_tag()` spells the same tag). Its `-auth` suffix keeps
       it clear of the dispatch worker's `<project_name>:local` and of every
-      tier or app render's tag. Producing that image is the runtime build's job;
+      login render's tag. Producing that image is the runtime build's job;
       this template only names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not

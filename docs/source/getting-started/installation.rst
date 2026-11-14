@@ -18,7 +18,7 @@ whole process takes about 10 minutes.
 Step 1: Install Node.js
 ------------------------
 
-Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
+Claude Code requires `Node.js <https://nodejs.org/>`_ 22+.
 
 .. tab-set::
 
@@ -41,10 +41,10 @@ Claude Code requires `Node.js <https://nodejs.org/>`_ 18+.
          # Debian/Ubuntu — npm is a separate package here, and Claude Code needs it
          sudo apt-get install -y nodejs npm
 
-      Your distribution's own packages are the simplest route and the one the
-      OSPREY container images take. Check what yours ships (``node --version``):
-      a few older releases package a Node below the 18 floor, and there the
-      cleanest fix is a current Node from `nvm <https://github.com/nvm-sh/nvm>`_.
+      Your distribution's own packages are the simplest route. Check what yours
+      ships (``node --version``): many current releases package a Node below the
+      22 floor, and there the cleanest fix is a current Node from
+      `nvm <https://github.com/nvm-sh/nvm>`_.
 
    .. tab-item:: Windows (WSL2)
 
@@ -59,7 +59,7 @@ Verify:
 .. code-block:: bash
 
    node --version
-   # You should see v18.x.x or higher
+   # You should see v22.x.x or higher
 
 
 Step 2: Install Claude Code
@@ -67,7 +67,7 @@ Step 2: Install Claude Code
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code@2.1.300
+   npm install -g @anthropic-ai/claude-code@2.1.322
 
 The pinned version is the one OSPREY's generated projects run. Installing it
 exactly — rather than whatever was published most recently — means a brand-new
@@ -92,14 +92,14 @@ in a project, set it under ``config:`` in ``profile.yml`` and run
 .. code-block:: yaml
 
    config:
-     claude_code.cli_version: "2.1.300"   # one exact version
+     claude_code.cli_version: "2.1.322"   # one exact version
 
 Then install that same version, so the ``claude`` on your machine matches the
 project:
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code@2.1.300
+   npm install -g @anthropic-ai/claude-code@2.1.322
 
 ``osprey health`` tells you whether the two agree.
 
@@ -355,7 +355,7 @@ Troubleshooting
    :icon: alert
 
    **"claude: command not found"**
-      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.300``
+      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.322``
 
    **"osprey: command not found"**
       If you installed via ``uv tool install osprey-framework``, make sure uv's

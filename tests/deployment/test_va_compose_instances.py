@@ -116,7 +116,8 @@ def _context(
     production render always carries it, so a context that omits one pins a
     render no deploy can reach.
 
-    ``va_tick_s`` and ``osprey_simulator_log_sources`` are computed the same
+    ``va_tick_s``, ``va_fast_tick_s`` and ``osprey_simulator_log_sources`` are
+    computed the same
     way, the latter taken from the production helper rather than restated.
 
     ``dev_mode`` is omitted unless asked for.
@@ -138,6 +139,7 @@ def _context(
         "osprey_state_mount_source": STATE_MOUNT_SOURCE,
         "osprey_simulator_log_sources": simulator_log_mount_sources(),
         "va_tick_s": 1.0,
+        "va_fast_tick_s": 0.1,
     }
     if dev_mode is not None:
         context["dev_mode"] = dev_mode
@@ -707,6 +709,27 @@ def test_va_compose_tick_ignores_a_host_env_value(tmp_path: Path) -> None:
     services = _injected_render(tmp_path, {})["services"]
     for service in services.values():
         assert service["environment"]["VA_POLL_INTERVAL_S"] == "1.0"
+
+
+@pytest.mark.parametrize(
+    ("config", "rendered"),
+    [({}, "0.1"), ({"simulation": {"fast_tick_s": 0.05}}, "0.05")],
+)
+def test_va_compose_fast_period_is_the_configured_simulation_fast_tick(
+    tmp_path: Path, config: dict[str, Any], rendered: str
+) -> None:
+    """``VA_FAST_INTERVAL_S`` is ``simulation.fast_tick_s``, or the default without one."""
+    services = _injected_render(tmp_path, config)["services"]
+    for service in services.values():
+        assert service["environment"]["VA_FAST_INTERVAL_S"] == rendered
+
+
+def test_va_compose_fast_period_ignores_a_host_env_value(tmp_path: Path) -> None:
+    """A project ``.env`` naming the variable changes nothing the render emits."""
+    (tmp_path / ".env").write_text("VA_FAST_INTERVAL_S=5\n", encoding="utf-8")
+    services = _injected_render(tmp_path, {})["services"]
+    for service in services.values():
+        assert service["environment"]["VA_FAST_INTERVAL_S"] == "0.1"
 
 
 def test_va_compose_instances_differ_only_in_what_names_the_machine() -> None:

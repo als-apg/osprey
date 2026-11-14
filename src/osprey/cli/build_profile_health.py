@@ -46,7 +46,7 @@ def serves_web_terminals(config: Any) -> bool:
     render is the deployment's config with the module switched off, and it is
     only ever a terminal image, so two things in that subtree answer yes: a
     non-empty ``renders`` projection (a config that carries it), and the
-    ``default_tier`` every web-terminal roster names, which a tier or app
+    ``default_tier`` every web-terminal roster names, which a login
     render inherits from its deployment with the rest of the roster.
 
     Args:

@@ -1,10 +1,8 @@
 """Guard: every ARIEL integration test module carries the docker markers.
 
 Each ``integration/test_*.py`` must set ``pytestmark`` with
-``pytest.mark.xdist_group("docker")``: one testcontainers session per run, and
-the shared ``ariel_test`` database serialized so parallel workers do not collide
-on migrations, seed and truncate (``integration/test_migrations.py`` spells the
-rule out). A module with coroutine tests also carries ``pytest.mark.asyncio``;
+``pytest.mark.xdist_group("docker")``: one testcontainers session per run
+(``integration/test_migrations.py`` spells the rule out). A module with coroutine tests also carries ``pytest.mark.asyncio``;
 an all-sync module must not, because the mark on a sync test only warns and
 pyproject's ``asyncio_mode = "auto"`` covers the rest.
 """

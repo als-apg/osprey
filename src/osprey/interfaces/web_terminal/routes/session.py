@@ -805,8 +805,8 @@ def _current_session(request: Request) -> str | None:
     return path.stem if path is not None else None
 
 
-async def _read_session(request: Request, *, agent_id: str | None = None):
-    """The session's timeline read (or its subagent's), or ``None`` when no session is known.
+async def _read_session(request: Request):
+    """The session's timeline read, or ``None`` when no session is known.
 
     An id that is not a record token names no session, so it reads as a
     missing one rather than as a record outage.
@@ -816,12 +816,8 @@ async def _read_session(request: Request, *, agent_id: str | None = None):
     session_id = _current_session(request)
     if not session_id or not is_token(session_id):
         return None
-    if agent_id is not None and not is_token(agent_id):
-        return None
     client = record_client()
-    return await asyncio.to_thread(
-        session_record.read_timeline, session_id, agent_id=agent_id, client=client
-    )
+    return await asyncio.to_thread(session_record.read_timeline, session_id, client=client)
 
 
 async def _read_session_events(request: Request) -> tuple[list[dict], dict[str, str]]:
@@ -833,64 +829,167 @@ async def _read_session_events(request: Request) -> tuple[list[dict], dict[str, 
     return events, session_record.record_fields(read.record, read.reason)
 
 
-@router.get("/api/session-agents")
-async def session_agents(request: Request):
-    """Return agent hierarchy and tool call breakdown for the current session."""
+def _retention_days() -> int | None:
+    """How many days the record keeps an entry, or ``None`` when no config says."""
     try:
-        from osprey.mcp_server.workspace.tools.session_log import _build_agent_summary
+        from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
+        from osprey_connectors.config import get_config_value
 
-        events, record = await _read_session_events(request)
-        agents = _build_agent_summary(events)
-
-        # Group tool_call events by agent_id
-        tool_calls_by_agent: dict[str, list[dict]] = {}
-        for ev in events:
-            if ev.get("type") != "tool_call":
-                continue
-            aid = ev.get("agent_id") or "main"
-            tool_calls_by_agent.setdefault(aid, []).append(ev)
-
-        return {
-            "agents": agents,
-            "tool_calls_by_agent": tool_calls_by_agent,
-            "total_events": len(events),
-            **record,
-        }
-    except Exception as exc:
-        logger.debug("session-agents: read failed", exc_info=True)
-        return {
-            "agents": [],
-            "tool_calls_by_agent": {},
-            "total_events": 0,
-            **_unavailable(str(exc)),
-        }
+        days = get_config_value("agent_record.retention_days", DEFAULT_RETENTION_DAYS)
+    except Exception:
+        logger.debug("session-activity: no retention configured", exc_info=True)
+        return None
+    return days if isinstance(days, int) and not isinstance(days, bool) else None
 
 
-@router.get("/api/session-agent-timeline")
-async def session_agent_timeline(request: Request):
-    """Return the full internal timeline of a subagent."""
-    agent_id = request.query_params.get("agent_id", "")
-    if not agent_id:
-        return {"timeline": [], "error": "agent_id required"}
+def _calls_by_id(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Every call of an activity reading by its id, subagent streams included."""
+    calls: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        if node.get("t") != "tool":
+            continue
+        if node.get("id"):
+            calls[node["id"]] = node
+        calls.update(_calls_by_id((node.get("sub") or {}).get("children") or []))
+    return calls
+
+
+def _activity_artifacts(app, transcript_id: str, nodes: list[dict[str, Any]]) -> list[dict]:
+    """The artifacts *transcript_id* owns, one row per run, each with the call that saved it.
+
+    Ownership is the gallery sidebar's (:func:`~osprey.stores.artifact_scope.owned_by`).
+    ``call`` is the entry's ``metadata.call_id``, else the run it belongs to;
+    ``tool`` and ``agent`` are those of that call in *nodes*, empty when the
+    record holds no such call.
+    """
+    from osprey.stores.artifact_inventory import listed_rows
+    from osprey.stores.artifact_scope import owned_by, read_ledger, scope_for
+    from osprey.stores.artifact_store import ArtifactStore
+
+    ledger, ledger_ok = read_ledger()
+    scope = scope_for(transcript_id, ledger, ledger_ok)
     try:
-        read = await _read_session(request, agent_id=agent_id)
-        if read is None:
-            return {
-                "agent_id": agent_id,
-                "timeline": [],
-                "count": 0,
-                "record": session_record.RECORD_COMPLETE,
+        store = ArtifactStore(app.state.workspace_dir)
+        owned = [e for e in store.list_entries(exclude_examples=True) if owned_by(e, scope)]
+        rows = listed_rows(store, owned)
+    except Exception:
+        logger.debug("session-activity: no artifacts available", exc_info=True)
+        return []
+    calls = _calls_by_id(nodes)
+    artifacts = []
+    for entry, form, label in rows:
+        call_id = entry.metadata.get("call_id") or entry.exec_id or ""
+        call = calls.get(call_id, {})
+        artifacts.append(
+            {
+                "id": entry.id,
+                "title": entry.title,
+                "call": call_id,
+                "tool": call.get("tool", ""),
+                "agent": call.get("agent", ""),
+                "ts": entry.timestamp,
+                "form": form,
+                "form_label": label,
+                "type": entry.artifact_type,
+                "size": entry.size_bytes,
             }
-        timeline = session_record.agent_steps(read.nodes)
+        )
+    return artifacts
+
+
+def _activity(
+    app, identity: str, transcript_id: str, key: str | None, client: Any
+) -> dict[str, Any]:
+    """The body of ``GET /api/session-activity`` for a transcript that names a session.
+
+    *key* is the session key the request named; without one the ledger's key of
+    the transcript is used, and the session is live only while that key still
+    points at it.
+    """
+    from osprey.mcp_server.session_activity import session_activity
+
+    read = session_record.read_timeline(transcript_id, client=client)
+    unavailable = read.record == session_record.RECORD_UNAVAILABLE
+    reading = session_activity([] if unavailable else read.nodes)
+    current = key is not None
+    if key is None:
+        ledger = session_ledger.load(session_meta.ledger_state_dir())
+        key = ledger.key_of(transcript_id)
+        current = key is not None and ledger.current(key) == transcript_id
+    asked = next((n for n in reading["nodes"] if n["t"] == "prompt"), None)
+    prompt = (asked.get("text") or asked.get("command") or "") if asked else ""
+    title, _source = _title_of(session_meta.get(app, transcript_id), prompt)
+    session = {
+        "id": transcript_id,
+        "session_key": key,
+        "title": title,
+        "identity": identity,
+        "start": reading["start"],
+        "end": reading["end"],
+        "state": "live" if current and key in _live_keys(app) else "idle",
+        "entries": reading["entries"],
+        "kinds": reading["kinds"],
+        "target": reading["target"],
+        "posture": reading["posture"],
+        "retention_days": _retention_days(),
+    }
+    artifacts = [] if unavailable else _activity_artifacts(app, transcript_id, reading["nodes"])
+    return {
+        "session": session,
+        "nodes": reading["nodes"],
+        "artifacts": artifacts,
+        **session_record.record_fields(read.record, read.reason),
+    }
+
+
+@router.get("/api/session-activity")
+async def session_activity_reading(request: Request, transcript_id: str | None = None):
+    """One session as the Activity page shows it: ``{session, nodes, artifacts, record}``.
+
+    ``transcript_id`` names the session; without it the ``session_id`` key's
+    current transcript does, else this terminal's current transcript. A key
+    whose transcript the record holds nothing of yet is that session with no
+    entries, never another one. ``session`` is ``None`` when nothing names one.
+    An unavailable record answers 200 with ``record: unavailable`` and no rows.
+    """
+    from osprey.agent_record.contract import is_token
+
+    key = None
+    if transcript_id:
+        tid: str | None = _uuid_id(transcript_id, "transcript_id")
+    else:
+        key = request.query_params.get("session_id") or None
+        tid = _current_session(request)
+    if not tid or not is_token(tid):
         return {
-            "agent_id": agent_id,
-            "timeline": timeline,
-            "count": len(timeline),
-            **session_record.record_fields(read.record, read.reason),
+            "session": None,
+            "nodes": [],
+            "artifacts": [],
+            **session_record.record_fields(session_record.RECORD_COMPLETE, ""),
         }
-    except Exception as exc:
-        logger.debug("session-agent-timeline: failed", exc_info=True)
-        return {"agent_id": agent_id, "timeline": [], "count": 0, **_unavailable(str(exc))}
+    return await asyncio.to_thread(
+        _activity, request.app, _identity(request), tid, key, record_client()
+    )
+
+
+@router.get("/api/session-activity/result")
+async def session_activity_result(key: str):
+    """The whole text of the result entry *key*, where the page shows it cut.
+
+    A key this login sees no entry under is a 404; an unreadable record a 503.
+    """
+    from osprey.mcp_server.session_activity import result_text
+
+    answer = await asyncio.to_thread(record_client().full_entry, key)
+    if not answer.available:
+        logger.info("session-activity result: record unavailable: %s", answer.unavailable)
+        raise HTTPException(status_code=503, detail=TRANSCRIPT_UNAVAILABLE)
+    if not isinstance(answer.data, Mapping):
+        raise HTTPException(status_code=404, detail="No such entry")
+    body = answer.data.get("body")
+    text = result_text(body.get("content") if isinstance(body, Mapping) else body)
+    state = session_record.RECORD_COMPLETE if answer.complete else session_record.RECORD_INCOMPLETE
+    return {"text": text, "size": len(text), **session_record.record_fields(state, answer.reason)}
 
 
 @router.get("/api/session-log")

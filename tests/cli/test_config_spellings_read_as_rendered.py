@@ -29,6 +29,12 @@ _TICK_ZERO_LINE = (
     "number of seconds greater than 0"
 )
 
+_FAST_TICK_ZERO_LINE = (
+    "facility: profile-invalid: path simulation.fast_tick_s — simulation.fast_tick_s must "
+    "be a number of seconds greater than 0 (got 0); fix: set `simulation.fast_tick_s` to "
+    "a number of seconds greater than 0"
+)
+
 
 def _walk(tree: Any, dotted: str) -> Any:
     node = tree
@@ -73,6 +79,18 @@ def test_a_zero_tick_stated_after_a_valid_nested_tick_stops_the_profile() -> Non
 
 def test_a_valid_tick_stated_after_a_zero_one_parses() -> None:
     _parse_profile({"config": {"simulation.tick_s": 0, "simulation": {"tick_s": 0.5}}})
+
+
+def test_a_zero_fast_period_stated_after_a_valid_nested_one_stops_the_profile() -> None:
+    with pytest.raises(FacilityBuildError) as caught:
+        _parse_profile(
+            {"config": {"simulation": {"fast_tick_s": 0.05}, "simulation.fast_tick_s": 0}}
+        )
+    assert str(caught.value) == _FAST_TICK_ZERO_LINE
+
+
+def test_a_valid_fast_period_stated_after_a_zero_one_parses() -> None:
+    _parse_profile({"config": {"simulation.fast_tick_s": 0, "simulation": {"fast_tick_s": 0.05}}})
 
 
 def test_a_start_set_stated_twice_is_checked_as_the_render_keeps_it() -> None:

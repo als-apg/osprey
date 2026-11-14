@@ -360,12 +360,16 @@ def host_state_dir(repo_root: Path | str, config: Mapping[str, Any]) -> Path:
     if host is None:
         raise HostRecordRefused(
             "this deployment records no host sessions: set `deployment.host_identity` "
+            "in profile.yml (lowercase letters and digits, then also '_' and '-') "
             "and run `osprey build`"
         )
     try:
         return Path(state_identity_dir(repo_root, host))
     except ValueError as exc:
-        raise HostRecordRefused(str(exc)) from exc
+        raise HostRecordRefused(
+            f"{exc}. Set `deployment.host_identity` in profile.yml to such a name "
+            "and run `osprey build`"
+        ) from exc
 
 
 @contextlib.contextmanager

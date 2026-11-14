@@ -44,11 +44,21 @@ const mocks = vi.hoisted(() => ({
   openTerminalPanel: vi.fn(),
   showAgentPane: vi.fn(),
   isDetached: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
+  railDragStart: vi.fn(() => true),
+  /** Each tile's params, as the layout holder keeps them. @type {Map<string, any>} */
+  params: new Map(),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
   TERMINAL_KEY: 'terminal',
   isDetached: mocks.isDetached,
+  getLayoutHolder: () => ({
+    panelParams: (/** @type {string} */ key) => mocks.params.get(key),
+    setPanelParams: (/** @type {string} */ key, /** @type {object} */ patch) => {
+      mocks.params.set(key, { ...mocks.params.get(key), ...patch });
+      return true;
+    },
+  }),
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
   isStreaming: () => mocks.streaming,
@@ -94,6 +104,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.j
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
   setServiceMenuExtras: mocks.setServiceMenuExtras,
   showAgentPane: mocks.showAgentPane,
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/rail-drag.js', () => ({
+  railDragStart: mocks.railDragStart,
 }));
 vi.mock('/design-system/js/theme-manager.js', () => ({ getTheme: () => 'dark' }));
 
@@ -377,10 +390,12 @@ beforeEach(async () => {
   localStorage.setItem('osprey-sidebar-artifacts-view', 'kind');
   mocks.streaming = false;
   mocks.terminal = false;
+  mocks.params.clear();
   for (const fn of Object.values(mocks))
     if (typeof fn === 'function' && 'mockClear' in fn) fn.mockClear();
   mocks.hasDockedTile.mockReturnValue(true);
   mocks.isTerminalPanelOpen.mockReturnValue(true);
+  mocks.railDragStart.mockReturnValue(true);
   mocks.resumeSession.mockImplementation(async (key) => pointer.setPointer(key));
   server = defaultServer();
   fetchMock = vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => route(url, init));
@@ -833,6 +848,67 @@ describe('expansion and clicks', () => {
   });
 });
 
+/* ---- dragging an artifact row into the dock ---------------------------- */
+
+describe('an artifact row dragged into the dock', () => {
+  /** @param {Element} el @returns {DragEvent} the dispatched dragstart */
+  function dragStart(el) {
+    const event = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: null });
+    el.dispatchEvent(event);
+    return /** @type {DragEvent} */ (event);
+  }
+
+  async function openPlots() {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+  }
+
+  test('an artifact row is a drag source of its artifact’s tile', async () => {
+    await openPlots();
+    const row = artifactRowEl('a2');
+    expect(row.draggable).toBe(true);
+    const event = dragStart(row);
+    expect(event.defaultPrevented).toBe(false);
+    expect(mocks.railDragStart).toHaveBeenCalledExactlyOnceWith('artifact:a2', null);
+    // Its bar is the tile's own, not the Artifacts tile's.
+    expect(mocks.contributeLocal).toHaveBeenCalledWith(
+      'artifact:a2',
+      expect.arrayContaining([expect.objectContaining({ kind: 'crumb' })]),
+      expect.any(Function)
+    );
+  });
+
+  test('a drag the dock refuses (no dock) is cancelled', async () => {
+    await openPlots();
+    mocks.railDragStart.mockReturnValue(false);
+    expect(dragStart(artifactRowEl('a2')).defaultPrevented).toBe(true);
+  });
+
+  test('while the artifacts panel is not served a row starts no drag', async () => {
+    await openPlots();
+    mod.teardownSidebarArtifacts();
+    mod.initSidebarArtifacts({ served: false });
+    const row = document.createElement('button');
+    row.className = 'osprey-list-row';
+    row.dataset.id = 'a2';
+    tree().append(row);
+    expect(dragStart(row).defaultPrevented).toBe(true);
+    expect(mocks.railDragStart).not.toHaveBeenCalled();
+  });
+
+  test('a plain click on a draggable row still picks it', async () => {
+    await openPlots();
+    mocks.hasDockedTile.mockReturnValue(false);
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(shown()).toBe('a2');
+    expect(mocks.railDragStart).not.toHaveBeenCalled();
+    expect(mocks.activateTab).toHaveBeenCalledWith('artifacts', { userInitiated: true });
+  });
+});
+
 /* ---- the viewer -------------------------------------------------------- */
 
 describe('the viewer', () => {
@@ -896,10 +972,14 @@ describe('the viewer', () => {
     expect(shown()).not.toBe('a2');
   });
 
-  test('the tile bar offers Info and Download, no subtitle and no pager', async () => {
+  test('the tile bar names the artifact and offers Info and Download, no pager', async () => {
     await boot();
     const { items, dispatch } = headerNow();
-    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(['icon:info', 'icon:download']);
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual([
+      'crumb:name',
+      'icon:info',
+      'icon:download',
+    ]);
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     dispatch('download');
     expect(click).toHaveBeenCalledTimes(1);
@@ -914,7 +994,7 @@ describe('the viewer', () => {
     frame({ type: 'focus', id: 'u1', automatic: false, session: T1 });
     await settle();
     expect(shown()).toBe('u1');
-    expect(headerNow().items.map((i) => i.id)).toEqual(['info', 'download']);
+    expect(headerNow().items.map((i) => i.id)).toEqual(['name', 'info', 'download']);
     expect(requests('/session-list').some((r) => !r.body.session && !r.body.key)).toBe(false);
     expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
   });
@@ -1219,12 +1299,10 @@ describe('the session rows: accent, breathing, peek and "+"', () => {
     expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
   });
 
-  test('"+" starts a new session through the session model, opening the Agent pane first', async () => {
+  test('"+" starts a new session through the session model', async () => {
     await boot();
-    mocks.isTerminalPanelOpen.mockReturnValue(false);
     click(/** @type {Element} */ (document.getElementById('sidebar-new-session')));
     await settle();
-    expect(mocks.openTerminalPanel).toHaveBeenCalledOnce();
     expect(mocks.newConversation).toHaveBeenCalledOnce();
   });
 
@@ -1254,6 +1332,42 @@ describe('the session rows: accent, breathing, peek and "+"', () => {
     await settle();
     expect(shown()).toBe('b1');
     expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(peek.hidden).toBe(true);
+  });
+
+  test('an artifact of another session on the Artifacts tile warns until the tile acknowledges it', async () => {
+    await boot();
+    const info = () => headerNow().items.find((item) => item.id === 'info');
+    expect(info()).not.toHaveProperty('tone');
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    click(/** @type {Element} */ (peekEl()?.querySelector('.osprey-list-row[data-id="b1"]')));
+    await settle();
+    expect(shown()).toBe('b1');
+    expect(info()).toMatchObject({ tone: 'warning' });
+
+    const origin = await import(`${JS}/artifact-origin.js`);
+    expect(origin.acknowledgeOrigin('artifacts', 'b1')).toBe(true);
+    expect(mocks.params.get('artifacts')).toEqual({ [origin.ACK_PARAM]: ['b1'] });
+    expect(info()).not.toHaveProperty('tone');
+  });
+
+  test('a row dragged out of the peek keeps it open while the drag runs, and its end closes it', async () => {
+    await boot();
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    const peek = /** @type {HTMLElement} */ (peekEl());
+    const row = /** @type {HTMLElement} */ (peek.querySelector('.osprey-list-row[data-id="b1"]'));
+    row.dispatchEvent(new Event('dragstart', { bubbles: true, cancelable: true }));
+    expect(mocks.railDragStart).toHaveBeenCalledWith('artifact:b1', undefined);
+    // A native drag suspends pointer events; the leave it starts with closes nothing.
+    document.documentElement.dispatchEvent(new Event('pointerleave'));
+    await wait(200);
+    expect(peek.hidden).toBe(false);
+    expect(row.isConnected).toBe(true);
+    row.dispatchEvent(new Event('dragend', { bubbles: true }));
     expect(peek.hidden).toBe(true);
   });
 

@@ -419,6 +419,15 @@ class TestInliner:
         specs = _IMPORT_RE.findall(source)
         assert specs and all(s.startswith("data:text/javascript;base64,") for s in specs)
 
+    @pytest.mark.parametrize(
+        "module",
+        sorted(p.name for p in (inline_assets.DESIGN_SYSTEM_STATIC / "js/components").glob("*.js")),
+    )
+    def test_every_component_module_inlines(self, module):
+        # The inliner reads import specifiers with a regex that does not skip comments, so a
+        # usage comment that spells this module's own import reads as an import cycle.
+        inline_assets.module_data_url(f"/design-system/js/components/{module}")
+
     def test_unknown_first_party_module_is_an_error(self):
         with pytest.raises(FileNotFoundError):
             inline_assets.module_data_url("/design-system/js/no-such.js")

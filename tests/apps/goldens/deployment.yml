@@ -1,0 +1,102 @@
+services:
+  orbit-bump:
+    path: ./services/orbit-bump
+    app: orbit-bump
+    command:
+    - python
+    - -m
+    - orbit_bump.server
+    port: 10900
+    url: http://127.0.0.1:10900
+    health: /health
+    env: []
+    state: var/orbit-bump
+    drives_target: true
+    control_identity: true
+    audit_identity: orbit-bump
+    config_file: ./services/orbit-bump/app-config.yml
+    launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
+    roster_grant:
+      panel_id: orbit-bump
+      single_user_alias: true
+deployed_services:
+- orbit-bump
+compose:
+  orbit-bump:
+    image: ${OSPREY_WORKER_IMAGE:-my-facility:local}
+    container_name: my-facility-orbit-bump
+    command:
+    - python
+    - -m
+    - orbit_bump.server
+    security_opt:
+    - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    environment:
+      OSPREY_APP_NAME: orbit-bump
+      OSPREY_APP_CONFIG: /osprey/app/config.yml
+      OSPREY_APP_PORT: '10900'
+      OSPREY_APP_BIND: 0.0.0.0
+      OSPREY_APP_STATE_DIRS: /app/my-facility/var/orbit-bump
+      OSPREY_AUDIT_IDENTITY: orbit-bump
+      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/orbit-bump
+      ORBIT_BUMP_LAUNCH_TOKEN: ${ORBIT_BUMP_LAUNCH_TOKEN}
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: '1'
+      OSPREY_TERMINAL_SECRET_ALICE: ${OSPREY_TERMINAL_SECRET_ALICE:-}
+      OSPREY_TERMINAL_SECRET_BOB: ${OSPREY_TERMINAL_SECRET_BOB:-}
+      OSPREY_TERMINAL_SECRET_CAROL: ${OSPREY_TERMINAL_SECRET_CAROL:-}
+      OSPREY_TERMINAL_ROSTER_OWNERS: ALICE=alice,BOB=bob,CAROL=carol
+      CONFIG_FILE: /app/my-facility/build/config.yml
+      OSPREY_CONFIG: /app/my-facility/build/config.yml
+      OSPREY_GUARDED_RUN_DIR: /app/my-facility/var/guarded_run
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
+      EPICS_CA_NAME_SERVERS: virtual-accelerator:5064
+      EPICS_CA_AUTO_ADDR_LIST: 'NO'
+      TZ: UTC
+    ports:
+    - 127.0.0.1:10900:10900
+    volumes:
+    - ./build/services/orbit-bump/app-config.yml:/osprey/app/config.yml:ro
+    - ./var/state/orbit-bump/orbit-bump:/app/my-facility/var/orbit-bump
+    - ./var/spool/orbit-bump:/app/my-facility/var/spool/orbit-bump
+    - ./build/services/orbit-bump/config.yml:/app/my-facility/build/config.yml:ro
+    - ./var/guarded_run:/app/my-facility/var/guarded_run
+    - ./var/agent_data/control_target:/osprey/control_tree:ro
+    networks:
+    - osprey-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10900/health').status==200
+        else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+app-config.yml: {}
+roster_grant:
+  service: orbit-bump
+  single_user_alias: true
+reach_contract:
+  service: orbit-bump
+  consumers:
+  - name: The orbit-bump panel
+    switch_key: web.panels.orbit-bump
+    refuse: true
+  credentials:
+  - ORBIT_BUMP_LAUNCH_TOKEN
+  no_client_reach: false
+  derived_by: osprey.apps.projection.project_login
+application_token_renders:
+  ORBIT_BUMP_LAUNCH_TOKEN:
+  - admin
+  - readwrite
+web_terminal_env:
+  web-alice:
+  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
+  web-bob: []
+  web-carol:
+  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
+  web-logbook: []
+  web-knowledge: []
+  web-channel-finder: []

@@ -162,6 +162,21 @@ def test_panel_id_defaults_to_the_name_and_entry_to_root() -> None:
     assert m.panel.launch_token is False
 
 
+def test_a_panel_names_its_icon_from_the_design_system() -> None:
+    base = {
+        "name": "tiny",
+        "containers": {"tiny": {"runtime": "osprey"}},
+        "panel": {"label": "TINY", "container": "tiny"},
+    }
+    unset = parse_manifest(base, app="tiny")
+    assert unset.panel is not None and unset.panel.icon is None
+    named = parse_manifest(_with("panel.icon", "chart-column", base), app="tiny")
+    assert named.panel is not None and named.panel.icon == "chart-column"
+    with pytest.raises(AppManifestError) as refused:
+        parse_manifest(_with("panel.icon", "chart-colum", base), app="tiny")
+    assert "not a design-system icon" in str(refused.value)
+
+
 def test_read_timeout_unset_is_distinguishable_from_explicit_null() -> None:
     base = {
         "name": "tiny",
@@ -224,10 +239,47 @@ def test_name_must_be_a_slug(bad: str) -> None:
     assert err.field == "name"
 
 
-def test_name_and_containers_are_required() -> None:
+def test_name_is_required() -> None:
     assert _refusal(_without("name")).field == "name"
-    assert _refusal(_without("containers")).field == "containers"
-    assert _refusal(_with("containers", {})).field == "containers"
+
+
+# --- the parts of an application -----------------------------------------------
+
+TOOLS_ONLY: dict[str, Any] = {"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}}
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{"name": "empty"}, {"name": "empty", "summary": "Nothing.", "vendor": FULL["vendor"]}],
+)
+def test_an_empty_application_is_refused(data: dict[str, Any]) -> None:
+    err = _refusal(data)
+    assert err.rule == "app_has_part"
+    assert "containers, panel, tools, skills or agents" in err.message
+
+
+def test_an_application_of_one_subagent_is_accepted() -> None:
+    m = parse_manifest({"name": "guide", "agents": ["guide"]}, app="guide")
+    assert m.agents == ["guide"]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        TOOLS_ONLY,
+        {"name": "guide", "skills": ["guide"]},
+        {"name": "knob-demo", "panel": FULL["panel"], "tools": FULL["tools"]},
+    ],
+    ids=["tools-only", "skills-only", "panel-and-tools"],
+)
+def test_containers_may_be_absent(data: dict[str, Any]) -> None:
+    m = parse_manifest(copy.deepcopy(data), app=data["name"])
+    assert m.containers == {}
+
+
+def test_containers_may_be_an_empty_mapping() -> None:
+    m = parse_manifest({**TOOLS_ONLY, "containers": {}}, app="dial")
+    assert m.containers == {}
 
 
 # --- unknown keys are refused at every level ------------------------------------

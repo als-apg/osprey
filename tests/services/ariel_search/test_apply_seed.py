@@ -3,8 +3,9 @@
 Exercises the full apply path end to end against a real database: compose the
 active scenarios, purge the logbook, reseed from the scenarios' relative-timestamp
 entries against a fixed anchor, and assert the DB holds exactly the expected
-entries with timestamps pinned to the documented time-of-day. Uses the shared
-``database_url`` fixture (skips when no Postgres is available).
+entries with timestamps pinned to the documented time-of-day. Uses the
+``database_url`` fixture, a database of the session's own (skips when no Postgres
+is available).
 """
 
 from __future__ import annotations
@@ -21,10 +22,9 @@ from tests._simulator_view import facility_scenarios, write_scenarios_view
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
-# reaper starts race the Docker daemon's port mapper. It also serializes the shared
-# database: the session ``database_url`` fixture prefers a running dev Postgres with
-# ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
-# would otherwise collide on migrations/seed/truncate.
+# reaper starts race the Docker daemon's port mapper. Each test session (each xdist
+# worker) writes to a database it created itself (``database_url`` /
+# ``own_database``), on a server it found or in a container it started.
 pytestmark = [pytest.mark.xdist_group("docker")]
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[3] / "src/osprey/templates/facilities/example"

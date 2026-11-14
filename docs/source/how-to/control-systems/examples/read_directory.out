@@ -1,0 +1,5 @@
+found: 3 of 3
+  SR:BPM1:X  ai  sr-bpm  BPM 1 horizontal position
+  SR:BPM1:Y  ai  sr-bpm  BPM 1 vertical position
+  SR:BPM2:X  ai  sr-bpm  BPM 2 horizontal position
+SR:BPM1:X: Active on sr-bpm.facility.edu

@@ -41,8 +41,8 @@
       "width": 800,
       "height": 600,
       "backgroundColor": {
-        "$role": "Display_Background",
-        "fallback": "#ffffff"
+        "$role": "Transparent",
+        "fallback": "#ffffff00"
       }
     },
     "geometry": {
@@ -72,10 +72,11 @@
               "text": "${TV}",
               "align": "center",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
-              "fontSize": 8
+              "fontSize": 10
             },
             "geometry": {
               "x": 0,
@@ -90,25 +91,31 @@
             "props": {
               "pv": "${loctv}",
               "readbackPV": "${loctv}",
-              "onLabel": "",
-              "offLabel": "",
+              "onLabel": "TV",
+              "offLabel": "TV",
               "buttonType": "toggle",
               "onColor": {
-                "$role": "Background",
-                "fallback": "#ffffff"
+                "$role": "Selected_Tint",
+                "fallback": "#dbe7fb",
+                "fallbackDark": "#22385e"
               },
               "offColor": {
-                "$role": "Background",
-                "fallback": "#ffffff"
+                "$role": "Button_Background",
+                "fallback": "#ecedef",
+                "fallbackDark": "#2c3235"
               },
-              "onImage": "../images/TV on.jpg",
-              "offImage": "../images/TV off.jpg"
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "fontSize": 10
             },
             "geometry": {
-              "x": 0,
-              "y": 20,
-              "width": 30,
-              "height": 30
+              "x": 1,
+              "y": 23,
+              "width": 28,
+              "height": 24
             },
             "meta": {
               "comment": "Phoebus script [EmbeddedPy] pvs=[$(loctv), $(paddle_in), $(light_on)]\nfrom org.csstudio.display.builder.runtime.script import PVUtil, ScriptUtil\n\nvalue = PVUtil.getDouble(pvs[0])\nif value == 1:\n\tpvs[1].write(1)\n\tpvs[2].write(1)\nelif value == 0:\n\tpvs[1].write(0)\n\tpvs[2].write(0)"
@@ -123,25 +130,31 @@
             "props": {
               "pv": "${paddle}",
               "readbackPV": "${paddle_rb}",
-              "onLabel": "",
-              "offLabel": "",
+              "onLabel": "IN",
+              "offLabel": "OUT",
               "buttonType": "toggle",
               "onColor": {
-                "$role": "Background",
-                "fallback": "#ffffff"
+                "$role": "Attention_Tint",
+                "fallback": "#fbe7c6",
+                "fallbackDark": "#4a3a14"
               },
               "offColor": {
-                "$role": "Background",
-                "fallback": "#ffffff"
+                "$role": "Button_Background",
+                "fallback": "#ecedef",
+                "fallbackDark": "#2c3235"
               },
-              "onImage": "../images/Paddle in.jpg",
-              "offImage": "../images/Paddle out.jpg"
+              "foregroundColor": {
+                "$role": "Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "fontSize": 10
             },
             "geometry": {
-              "x": 0,
-              "y": 50,
-              "width": 30,
-              "height": 30
+              "x": 1,
+              "y": 53,
+              "width": 28,
+              "height": 24
             }
           },
           {
@@ -149,17 +162,22 @@
             "type": "pv-led",
             "props": {
               "pv": "${light}",
-              "onColor": "#ffff00",
+              "onColor": {
+                "$role": "Attention",
+                "fallback": "#b5710d",
+                "fallbackDark": "#f5b73d"
+              },
               "offColor": {
-                "$role": "Background",
-                "fallback": "#808080"
+                "$role": "Off",
+                "fallback": "#c6c7cc",
+                "fallbackDark": "#3a3f45"
               }
             },
             "geometry": {
-              "x": 0,
-              "y": 80,
-              "width": 30,
-              "height": 30
+              "x": 8,
+              "y": 86,
+              "width": 14,
+              "height": 14
             }
           }
         ]

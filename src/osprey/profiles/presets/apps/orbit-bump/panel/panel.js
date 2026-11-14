@@ -9,6 +9,7 @@ import {
 } from '/design-system/js/context-menu.js';
 import { closePopover, togglePopover } from '/design-system/js/popover.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 
 const STATE_URL = 'api/state';
 const RECOMPUTE_URL = 'api/recompute';
@@ -3808,6 +3809,8 @@ const root = document.getElementById('orbit-bump');
 if (root) {
   initTooltips(document.body);
   bindControls(root);
-  void refresh(root);
+  // The page is ready to drive once the first refresh has drawn, whatever it drew;
+  // index.html declares the mark pending until then.
+  void refresh(root).finally(() => markPageReady());
   setInterval(() => void refresh(root), REFRESH_MS);
 }

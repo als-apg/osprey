@@ -71,6 +71,7 @@ from tests.interfaces._browser import (
     open_hub_page,
     rail_entry,
     wait_for_dock_settled,
+    wait_for_page_ready,
 )
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
@@ -259,6 +260,7 @@ def _open(browser, hub: Hub, *, terminal: bool = False) -> Page:
         page = browser.new_page(viewport=VIEWPORT)
         arm_terminal_tab(page)
         page.goto(hub.base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
     else:

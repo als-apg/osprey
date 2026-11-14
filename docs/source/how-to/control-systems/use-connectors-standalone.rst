@@ -64,6 +64,26 @@ and ``value`` columns:
 each bin is reduced; the archiver section of
 :doc:`/reference/contracts/connectors` says what each mode returns.
 
+Read the channel directory
+--------------------------
+
+A ChannelFinder directory is built from a ``BackendSpec`` by
+``create_service``, which reads the kind from the spec; ``settings`` is the
+connection block. Building it sends nothing:
+
+.. literalinclude:: examples/read_directory.py
+   :language: python
+   :caption: read_directory.py
+
+Against a directory listing those three BPM channels, it prints:
+
+.. literalinclude:: examples/read_directory.out
+   :language: text
+
+Every answer is a value, never an exception: a search returns a page whose
+``outcome`` says how it ended, and ``describe`` returns the record,
+``Outcome.NOT_LISTED``, or ``Unavailable`` with the reason.
+
 What needs a deployment
 -----------------------
 
@@ -85,6 +105,15 @@ The simulator
    .. literalinclude:: examples/system-timezone.yml
       :language: yaml
       :caption: config.yml
+
+   With ``CONFIG_FILE`` unset, the file is the one ``OSPREY_CONFIG`` names,
+   else ``build/config.yml`` under the working directory, else ``config.yml``
+   in it. A process started in a built project directory therefore reads that
+   project's config with nothing set. The same file answers
+   ``create_control_system_connector()`` and ``create_archiver_connector()``
+   called with no dict, which build the connector its ``control_system:`` or
+   ``archiver:`` section selects. Without a config they raise
+   ``FileNotFoundError``, naming where they looked.
 
 Writes
    Every write passes the verdict in :ref:`write-safety-config`: the write tier,

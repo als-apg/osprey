@@ -11,6 +11,9 @@
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<!-- The shared chrome and panel components (buttons, field rows, chips, step
+     list, ...): DESIGN.md §9, §12 and §13. Link it after base.css. -->
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <!-- Self-hosted brand fonts (Outfit / JetBrains Mono). Root-absolute so it
      resolves against the serving host in every embedding context; without it
      the canonical copy-source panel — and everything copied from it — falls
@@ -44,8 +47,12 @@
     line-height: 1.6;
   }
 
+  /* base.css pins the page to the viewport for app shells; this page is a
+     long specimen sheet, so it grows and scrolls. */
+  html, body { height: auto; overflow: auto; }
+
   .panel {
-    max-width: 720px;
+    max-width: 960px;
     margin: 0 auto;
   }
 
@@ -55,25 +62,28 @@
     margin: 0 0 24px;
   }
 
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: 8px;
-    padding: 16px 18px;
-    margin-bottom: 16px;
-    box-shadow: var(--shadow-panel);
-  }
-  .card h2 {
-    margin: 0 0 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .card p {
+  /* Specimen layout only: the components themselves come from
+     primitives.css. */
+  .panel > .osprey-card,
+  .panel > .stack,
+  .panel > .edge-demo { margin-bottom: 16px; }
+  .osprey-card-body > p {
     margin: 0;
     font-size: 13px;
     color: var(--text-secondary);
   }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .row + .row,
+  .osprey-card-body > p + .row { margin-top: 10px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .master-detail-demo { position: relative; display: flex; height: 560px; }
+  .edge-demo { display: flex; height: 220px; }
+  .edge-demo .osprey-card { flex: 1 1 auto; }
 
   .metric {
     display: flex;
@@ -90,43 +100,6 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-muted);
-  }
-
-  .badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 999px;
-    border: 1px solid transparent;
-  }
-  .badge.ok {
-    color: var(--color-success);
-    background: var(--success-tint-08);
-    border-color: var(--color-success);
-  }
-  .badge.warn {
-    color: var(--color-accent-secondary-light);
-    background: var(--accent-secondary-tint-08);
-    border-color: var(--color-accent-secondary);
-  }
-  .badge.err {
-    color: var(--color-error);
-    background: var(--error-tint-08);
-    border-color: var(--color-error);
-  }
-  .badge.info {
-    color: var(--color-accent-light);
-    background: var(--accent-tint-06);
-    border-color: var(--border-accent);
   }
 
   code {
@@ -163,24 +136,264 @@
     every family in both light and dark.
   </p>
 
-  <section class="card">
-    <h2>Beam status</h2>
-    <p>Representative content on an elevated surface with a tokened border.</p>
-    <div class="metric">
-      <span class="value">1.902</span>
-      <span class="unit">GeV</span>
+  <section class="osprey-card">
+    <header class="osprey-card-head"><span class="osprey-card-title">Beam status</span>
+      <span class="osprey-card-sub">an inset card with a head and a body</span></header>
+    <div class="osprey-card-body">
+      <p>Representative content on the card surface with a hairline border.</p>
+      <div class="metric">
+        <span class="value">1.902</span>
+        <span class="unit">GeV</span>
+      </div>
     </div>
   </section>
 
-  <section class="card">
-    <h2>Signal states</h2>
-    <p>Semantic status colors, each drawn from success / accent-secondary / error / accent tokens.</p>
-    <div class="badges">
-      <span class="badge ok">nominal</span>
-      <span class="badge warn">degraded</span>
-      <span class="badge err">fault</span>
-      <span class="badge info">standby</span>
+  <section class="osprey-card" id="status-chips">
+    <header class="osprey-card-head"><span class="osprey-card-title">Status chips</span></header>
+    <div class="osprey-card-body">
+      <p>Connection states and run states, each a dot and a label in the state colour.</p>
+      <div class="row">
+        <span class="osprey-chip osprey-chip--ok">nominal</span>
+        <span class="osprey-chip osprey-chip--warn">degraded</span>
+        <span class="osprey-chip osprey-chip--err">fault</span>
+        <span class="osprey-chip osprey-chip--info">standby</span>
+        <span class="osprey-chip osprey-chip--connecting">connecting</span>
+      </div>
+      <div class="row">
+        <span class="osprey-chip osprey-chip--done" title="done">done</span>
+        <span class="osprey-chip osprey-chip--running" title="running">running</span>
+        <span class="osprey-chip osprey-chip--pending" title="pending">pending</span>
+        <span class="osprey-chip osprey-chip--stale" title="stale">stale</span>
+        <span class="osprey-chip osprey-chip--failed" title="failed">failed</span>
+        <span class="osprey-chip osprey-chip--skipped" title="skipped">skipped</span>
+        <span class="osprey-chip osprey-chip--plain">neutral</span>
+      </div>
     </div>
+  </section>
+
+  <section class="osprey-card" id="buttons">
+    <header class="osprey-card-head"><span class="osprey-card-title">Buttons</span>
+      <span class="osprey-card-sub">one primary per region</span></header>
+    <div class="osprey-card-body">
+      <div class="row">
+        <button class="osprey-btn primary" type="button">Run selected <span class="osprey-kbd">3 steps</span></button>
+        <button class="osprey-btn" type="button">Revert</button>
+        <button class="osprey-btn ghost" type="button">Select all</button>
+        <button class="osprey-btn danger" type="button">Stop</button>
+        <button class="osprey-btn primary" type="button" disabled>Apply</button>
+      </div>
+      <div class="row">
+        <button class="osprey-btn primary sm" type="button">Apply</button>
+        <button class="osprey-btn sm" type="button">Run</button>
+        <button class="osprey-btn ghost sm" type="button">Flush</button>
+        <button class="osprey-icon-btn" type="button" aria-label="Previous"><span class="osprey-chev left"></span></button>
+        <button class="osprey-icon-btn" type="button" aria-label="Next"><span class="osprey-chev"></span></button>
+      </div>
+      <div class="row"><button class="osprey-btn primary block" type="button">Start continuous</button></div>
+    </div>
+  </section>
+
+  <section class="osprey-card" id="fields">
+    <div class="osprey-section-label">Shot<span class="osprey-aside">field rows</span></div>
+    <div class="osprey-card-body">
+      <div class="osprey-form-grid" style="--cols: 2">
+        <div class="osprey-field">
+          <div class="osprey-field-label"><span class="osprey-field-name">Readout</span></div>
+          <select class="osprey-field-input"><option>Turn by turn</option><option>Single pass</option></select>
+        </div>
+        <div class="osprey-field">
+          <div class="osprey-field-label"><span class="osprey-field-name">Shots</span><span class="osprey-field-unit">n</span><span class="osprey-field-required">*</span></div>
+          <input class="osprey-field-input" type="number" value="1">
+        </div>
+        <div class="osprey-field">
+          <div class="osprey-field-label"><span class="osprey-field-name">Turns</span></div>
+          <input class="osprey-field-input" type="number" value="1" disabled title="Fixed by the readout">
+        </div>
+        <div class="osprey-field">
+          <div class="osprey-field-label"><span class="osprey-field-name">Gain</span><span class="osprey-field-unit">dB</span></div>
+          <input class="osprey-field-input is-pending" type="number" value="12">
+        </div>
+        <div class="osprey-field wide">
+          <label class="osprey-switch-label"><input class="osprey-switch-input" type="checkbox" checked>
+            <span class="osprey-switch"></span>Record each shot</label>
+        </div>
+        <div class="osprey-field wide">
+          <span class="osprey-field-inline"><span class="osprey-field-name">From</span><input class="osprey-field-input sm" type="number" value="0"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="osprey-card" id="segmented-control">
+    <header class="osprey-card-head"><span class="osprey-card-title">Segmented control</span></header>
+    <div class="osprey-card-body">
+      <div class="row">
+        <div class="osprey-seg" role="group" aria-label="Run as" data-demo-seg>
+          <button type="button" data-value="manual" aria-pressed="true">Manual</button>
+          <button type="button" data-value="continuous" aria-pressed="false">Continuous</button>
+          <button type="button" data-value="scheduled" aria-pressed="false" aria-disabled="true" title="No schedule is set">Scheduled</button>
+        </div>
+        <div class="osprey-seg sm" role="group" aria-label="Sum" data-demo-seg>
+          <button type="button" data-value="raw" aria-pressed="true">Raw counts</button>
+          <button type="button" data-value="calibrated" aria-pressed="false">Calibrated</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="osprey-seg block" role="group" aria-label="Family" data-demo-seg>
+          <button type="button" data-value="a" aria-pressed="true">Monitors<span class="osprey-seg-count">7/8</span></button>
+          <button type="button" data-value="b" aria-pressed="false">Correctors<span class="osprey-seg-count">16/16</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stack" id="status-strip">
+    <div class="osprey-status-strip">
+      <span class="osprey-fact"><span class="osprey-kicker">Target</span><span class="osprey-fact-value">simulation</span></span>
+      <span class="osprey-fact"><span class="osprey-kicker">Stream</span><span class="osprey-fact-value"><span class="osprey-dot ok"></span>live</span></span>
+      <span class="osprey-fact accent"><span class="osprey-kicker">Mode</span><span class="osprey-fact-value">Continuous</span></span>
+      <span class="osprey-fact opt"><span class="osprey-kicker">Writes</span><span class="osprey-fact-value">allowed</span></span>
+    </div>
+    <div class="osprey-banner osprey-banner--info" id="banner">
+      <span class="osprey-banner-text"><b>Notice.</b> A dismissible information banner.</span>
+      <button class="osprey-icon-btn" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+    <div class="osprey-banner osprey-banner--ok"><span class="osprey-banner-text">Applied.</span></div>
+    <div class="osprey-banner osprey-banner--warn"><span class="osprey-banner-text">Two settings are pending.</span></div>
+    <div class="osprey-banner osprey-banner--err"><span class="osprey-banner-text">The write was refused.</span></div>
+  </section>
+
+  <section class="osprey-card" id="disclosure">
+    <header class="osprey-card-head"><span class="osprey-card-title">Disclosure</span></header>
+    <div class="osprey-card-body">
+      <details class="osprey-folder" open>
+        <summary>Recent<span class="osprey-aside">3</span></summary>
+        <p>Native details: the marker is hidden and a chevron drawn.</p>
+      </details>
+      <div class="row">
+        <button class="osprey-disclosure" type="button" aria-expanded="false" aria-controls="demo-more">More</button>
+      </div>
+      <p id="demo-more" hidden>Opened by a disclosure button.</p>
+    </div>
+  </section>
+
+  <section class="osprey-card" id="step-list">
+    <div class="osprey-section-label">Steps<span class="osprey-aside">step list</span></div>
+    <div class="osprey-step-list">
+      <div class="osprey-step" id="step-1">
+        <div class="osprey-step-row">
+          <span class="osprey-step-index">1</span>
+          <label class="osprey-switch-label" title="Include in the run"><input class="osprey-switch-input" type="checkbox" checked>
+            <span class="osprey-switch"></span></label>
+          <span class="osprey-step-name"><span class="osprey-step-title">Prepare</span><span class="osprey-step-meta">once per run</span></span>
+          <span class="osprey-chip osprey-chip--done" title="done">done</span>
+          <button class="osprey-btn sm" type="button">Run</button>
+          <button class="osprey-disclosure icon" type="button" aria-expanded="false" aria-controls="step-1-opts" aria-label="Prepare options"></button>
+        </div>
+        <div class="osprey-step-options" id="step-1-opts" hidden>
+          <div class="osprey-form-grid">
+            <div class="osprey-field"><div class="osprey-field-label"><span class="osprey-field-name">Delay</span><span class="osprey-field-unit">ms</span></div><input class="osprey-field-input" type="number" value="0"></div>
+          </div>
+        </div>
+      </div>
+      <div class="osprey-step is-off" id="step-2">
+        <div class="osprey-step-row">
+          <span class="osprey-step-index">2</span>
+          <label class="osprey-switch-label" title="Include in the run"><input class="osprey-switch-input" type="checkbox">
+            <span class="osprey-switch"></span></label>
+          <span class="osprey-step-name"><span class="osprey-step-title">Measure</span><span class="osprey-step-meta">left out</span></span>
+          <span class="osprey-chip osprey-chip--skipped" title="skipped">skipped</span>
+          <button class="osprey-btn sm" type="button">Run</button>
+          <button class="osprey-disclosure icon" type="button" aria-expanded="false" aria-controls="step-2-opts" aria-label="Measure options"></button>
+        </div>
+        <div class="osprey-step-options" id="step-2-opts" hidden>
+          <div class="osprey-form-grid">
+            <div class="osprey-field"><div class="osprey-field-label"><span class="osprey-field-name">Shots</span></div><input class="osprey-field-input" type="number" value="1"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="osprey-section-label">Pipeline<span class="osprey-aside">no switch</span></div>
+    <div class="osprey-step-list no-switch">
+      <div class="osprey-step"><div class="osprey-step-row">
+        <span class="osprey-step-index">1</span>
+        <span class="osprey-step-name"><span class="osprey-step-title">Calculate</span><span class="osprey-step-meta">inputs changed</span></span>
+        <span class="osprey-chip osprey-chip--stale" title="stale">stale</span>
+        <button class="osprey-btn sm" type="button">Calculate</button>
+        <span></span>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="osprey-card" id="master-detail">
+    <header class="osprey-card-head"><span class="osprey-card-title">Master-detail</span>
+      <span class="osprey-card-sub">panel sidebar · splitter · detail, with the machine map and device rows</span></header>
+    <div class="master-detail-demo">
+      <aside class="osprey-panel-sidebar" id="demo-sidebar">
+        <div class="osprey-panel-sidebar-head">
+          <div class="osprey-seg block" role="group" aria-label="Family" data-demo-seg>
+            <button type="button" data-value="a" aria-pressed="true">Monitors<span class="osprey-seg-count">7/8</span></button>
+            <button type="button" data-value="b" aria-pressed="false">Correctors</button>
+          </div>
+          <label class="osprey-search-field" id="demo-search"><input type="search" placeholder="Filter" aria-label="Filter"></label>
+        </div>
+        <osprey-machine-map id="demo-map" style="--osprey-map-row-label-width: 64px"></osprey-machine-map>
+        <div class="osprey-panel-sidebar-foot">
+          <button class="osprey-btn ghost sm" type="button">Select all</button>
+          <button class="osprey-btn ghost sm" type="button">Select none</button>
+          <span class="osprey-count">7 / 8</span>
+        </div>
+      </aside>
+      <div class="osprey-splitter" id="demo-splitter" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+      <section class="osprey-detail">
+        <header class="osprey-detail-head">
+          <span class="osprey-detail-title" id="demo-sector">Sector 1</span>
+          <span class="osprey-detail-desc">devices at their position</span>
+        </header>
+        <div class="osprey-detail-body">
+          <div class="osprey-detail-section" id="device-rows">
+            <span class="osprey-kicker">Devices</span>
+            <div class="osprey-dev-table">
+              <div class="osprey-dev-row head"><span></span><span>Device</span><span>s</span><span>State</span></div>
+              <div class="osprey-dev-row">
+                <label class="osprey-switch-label"><input class="osprey-switch-input" type="checkbox" checked aria-label="Use Monitor 1"><span class="osprey-switch"></span></label>
+                <span class="osprey-dev-name">Monitor 1</span><span class="osprey-dev-pos">3.0</span>
+                <span class="osprey-chip osprey-chip--done" title="in use">in use</span>
+              </div>
+              <div class="osprey-dev-row is-out is-pending">
+                <label class="osprey-switch-label"><input class="osprey-switch-input" type="checkbox" aria-label="Use Monitor 2"><span class="osprey-switch"></span></label>
+                <span class="osprey-dev-name">Monitor 2</span><span class="osprey-dev-pos">11.0</span>
+                <span class="osprey-chip osprey-chip--pending" title="pending">pending</span>
+              </div>
+            </div>
+          </div>
+          <div class="osprey-detail-section">
+            <span class="osprey-kicker">All monitors</span>
+            <div class="osprey-form-grid">
+              <div class="osprey-field"><div class="osprey-field-label"><span class="osprey-field-name">Attenuation</span><span class="osprey-field-unit">dB</span></div><input class="osprey-field-input" type="number" value="10"></div>
+              <div class="osprey-field"><div class="osprey-field-label"><span class="osprey-field-name">Mode</span></div><select class="osprey-field-input"><option>Turn by turn</option></select></div>
+            </div>
+          </div>
+        </div>
+        <footer class="osprey-detail-foot">
+          <span class="osprey-pending-line">1 pending</span>
+          <button class="osprey-btn" type="button">Revert</button>
+          <button class="osprey-btn primary" type="button">Apply</button>
+        </footer>
+      </section>
+    </div>
+  </section>
+
+  <section class="edge-demo" id="edge-tab">
+    <section class="osprey-card">
+      <header class="osprey-card-head"><span class="osprey-card-title">Edge tab</span></header>
+      <div class="osprey-card-body"><p>The collapsed handle that opens an &lt;osprey-drawer&gt; through its data-drawer trigger.</p></div>
+    </section>
+    <button class="osprey-edge-tab" type="button" data-drawer="demo-drawer" aria-expanded="false">
+      <span class="osprey-edge-dot" title="pending"></span>
+      <span class="osprey-chev left"></span>
+      <span class="osprey-edge-label">Device control</span>
+    </button>
   </section>
 
   <p class="footnote">
@@ -188,5 +401,56 @@
     token-only — see the OSPREY design-system panel authoring guide.
   </p>
 </div>
+<script type="module">
+  // Behaviour for the specimens above: the segmented controls, the
+  // disclosures, the master-detail splitter and the machine map.
+  import { icon } from '/design-system/js/icons.js';
+  import { initSplitter } from '/design-system/js/splitter.js';
+  import { wireDisclosures } from '/design-system/js/components/disclosure.js';
+  import { wireSegmented } from '/design-system/js/components/segmented.js';
+  import '/design-system/js/components/osprey-machine-map.js';
+
+  document.querySelectorAll('[data-demo-seg]').forEach((seg) => wireSegmented(seg, () => {}));
+  wireDisclosures(document.body);
+  document.getElementById('demo-search').prepend(icon('search'));
+  initSplitter({
+    handle: document.getElementById('demo-splitter'),
+    pane: document.getElementById('demo-sidebar'),
+    min: 240,
+    max: 420,
+  });
+
+  const regions = [1, 2, 3, 4].map((n) => ({
+    id: n, label: `Sector ${n}`, mapLabel: String(n), start: (n - 1) * 30, end: n * 30,
+  }));
+  const devices = [];
+  for (let n = 1; n <= 8; n++) {
+    devices.push({
+      id: `m${n}`, label: `Monitor ${n}`, position: n * 15 - 12,
+      region: Math.ceil(n / 2), state: n === 2 ? 'out' : 'in', pending: n === 2,
+    });
+  }
+  const map = document.getElementById('demo-map');
+  const render = (focus) => {
+    const used = devices.filter((d) => d.state === 'in').length;
+    map.model = {
+      label: 'Monitors', length: 120, regions, devices, focus,
+      marker: { position: 1, label: 'IN' },
+      center: { value: `${used} / ${devices.length}`, caption: 'in use' },
+      key: true,
+    };
+  };
+  map.addEventListener('machine-map:toggle', (event) => {
+    const device = devices.find((d) => d.id === event.detail.device);
+    if (!device) return;
+    device.state = device.state === 'in' ? 'out' : 'in';
+    device.pending = !device.pending;
+    render(map.model.focus);
+  });
+  map.addEventListener('machine-map:focus', (event) => {
+    document.getElementById('demo-sector').textContent = `Sector ${event.detail.region}`;
+  });
+  render(1);
+</script>
 </body>
 </html>

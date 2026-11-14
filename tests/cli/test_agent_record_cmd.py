@@ -280,6 +280,16 @@ def test_health_prints_every_signal_and_says_no_problems_when_clean(fake) -> Non
     assert "No problems found." in out
 
 
+def test_health_says_when_the_stopped_threshold_is_overridden(fake) -> None:
+    client, root = fake
+    client.sources = ClientAnswer(data=_report(stopped_after_s=30.0), complete=True)
+
+    result = _invoke(root, "health")
+
+    assert result.exit_code == 0, result.output
+    assert "Stopped threshold: overridden to 30 s" in result.output
+
+
 def test_health_names_a_stopped_source_and_an_export_lag(fake) -> None:
     client, root = fake
     body = _report()

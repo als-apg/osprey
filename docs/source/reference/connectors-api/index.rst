@@ -14,10 +14,11 @@ Every public module lists its public names in ``__all__``, and these pages show
 exactly those names. A module whose name starts with an underscore is internal
 and can change in any release; the concrete connectors are among them, and a
 caller builds one through :class:`~osprey_connectors.factory.ConnectorFactory`
-from its registered type name. Three subpackages --
-:mod:`osprey_connectors.control_system`, :mod:`osprey_connectors.archiver` and
-:mod:`osprey_connectors.ipc` -- gather their implementation behind one
-namespace, and their names are imported from the subpackage itself.
+from its registered type name. Seven subpackages --
+:mod:`osprey_connectors.control_system`, :mod:`osprey_connectors.archiver`,
+:mod:`osprey_connectors.ipc` and the four service kinds on :doc:`services` --
+gather their implementation behind one namespace, and their names are imported
+from the subpackage itself.
 
 How the package versions, and what each release promises to keep compatible,
 is in the Stability section of the package's
@@ -38,4 +39,5 @@ says which release added what.
    deployment
    supervision
    simulation
+   services
    utilities

@@ -10,6 +10,7 @@
  * modules.
  */
 
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { poll, rescan } from './actions.js';
 import { makeApi } from './api.js';
 import { must } from './dom.js';
@@ -82,4 +83,5 @@ async function boot() {
   poll();
 }
 
-boot();
+// Ready once boot() has settled (index.html declares the mark pending until then).
+void boot().finally(() => markPageReady());

@@ -22,6 +22,8 @@ from osprey.services.virtual_accelerator.serving import runner_config
 from osprey.services.virtual_accelerator.serving.runner_config import (
     FLOAT_PRECISION,
     apply_safety,
+    event_addresses,
+    fast_addresses,
     pass_readback,
     periodic_addresses,
     setting_records,
@@ -302,6 +304,42 @@ def test_a_view_without_periodic_bindings_names_none(tmp_path: Path) -> None:
     assert periodic_addresses(SimulatorView.open(_write_view(tmp_path, document))) == frozenset()
 
 
+def _restamped(tmp_path: Path, refresh: dict[str, str]) -> SimulatorView:
+    """The test view with the bindings at ``refresh``'s addresses stamped anew."""
+    document = copy.deepcopy(VIEW)
+    for record in document["models"][0]["wiring"]:
+        record["refresh"] = refresh.get(record["address"], record["refresh"])
+    return SimulatorView.open(_write_view(tmp_path, document))
+
+
+def test_a_view_with_neither_class_names_none_and_needs_no_timed_pass(
+    view: SimulatorView,
+) -> None:
+    assert fast_addresses(view) == frozenset()
+    assert event_addresses(view) == frozenset()
+
+
+def test_fast_and_event_addresses_are_the_bindings_refreshing_each(tmp_path: Path) -> None:
+    view = _restamped(tmp_path, {"M:TUNE:X": "fast", "M:BPM:X": "event", "M:SLICED": "event"})
+
+    assert fast_addresses(view) == {"M:TUNE:X"}
+    assert event_addresses(view) == {"M:BPM:X", "M:SLICED"}
+    assert periodic_addresses(view) == {"M:CHROM", "M:CHROM:X", "M:CHROM:Y"}
+
+
+@pytest.mark.parametrize("refresh", ["fast", "event"])
+def test_either_class_alone_needs_timed_passes(tmp_path: Path, refresh: str) -> None:
+    view = _restamped(tmp_path, {"M:TUNE:X": refresh})
+
+    assert fast_addresses(view) | event_addresses(view) == {"M:TUNE:X"}
+
+
+def test_the_refresh_words_are_the_view_vocabulary() -> None:
+    from osprey_connectors.simulation.view import REFRESH
+
+    assert {runner_config._FAST, runner_config._EVENT} == set(REFRESH) - {"pass", "periodic"}
+
+
 def _demo_view(built: BuiltProject) -> tuple[SimulatorView, dict[str, Any], dict[str, Any]]:
     """The built demo's view, and its ``variables.json`` and ``addresses.json`` as written."""
     view = SimulatorView.of_render(built.build_dir)
@@ -329,10 +367,10 @@ def test_apply_safety_modes_unchanged_on_the_built_demo(
     )
 
 
-def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
+def test_periodic_addresses_equal_the_chromaticity_and_moving_health_on_the_demo(
     built_demo: BuiltProject,
 ) -> None:
-    view, variables, _ = _demo_view(built_demo)
+    view, variables, addresses = _demo_view(built_demo)
 
     chromaticity = {
         record["address"]
@@ -342,8 +380,14 @@ def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
         and not record.get("slices")
         and (record.get("engine") or {}).get("attribute") == "chromaticity"
     }
+    moving_health = {
+        address
+        for address in addresses["ioc_health"]
+        if address.endswith((":HEARTBEAT", ":UPTIME"))
+    }
     assert chromaticity
-    assert periodic_addresses(view) == chromaticity
+    assert moving_health
+    assert periodic_addresses(view) == chromaticity | moving_health
 
 
 def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_records_on_the_demo(

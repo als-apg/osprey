@@ -1,11 +1,18 @@
 # Live Channel Access test venue
 
-The gate runs two suites. `tests/va/test_apply_fault.py` boots the virtual
+The gate runs four suites. `tests/va/test_apply_fault.py` boots the virtual
 accelerator's entrypoint over a stub view in a spawned process and asserts its
 scenario faults from the far side of a real Channel Access wire, with a real
 `aioca` client in the pytest process. `tests/va/test_lume_pva_seam.py`
 serves composites through the model runner on Channel Access and PVAccess and
-asserts what an `aioca` and a `p4p` client read. In both, the servers run in
+asserts what an `aioca` and a `p4p` client read. `tests/va/test_timed_passes_live.py`
+serves the injection fixture through the model runner over an evolving
+composite and asserts the fast rate, a frozen fast channel and a view with no
+timed passes on both wires. `tests/va/test_injection_live.py` boots the
+entrypoint over the injection fixture and asserts each shot's events, their
+timing and the values a shot leaves, an ignored second request, the busy cycle,
+a `disconnected` per-shot channel and a scenario activated mid-shot. In each,
+the servers run in
 spawned processes that never load aioca, and the pytest process only looks
 `pcaspy` up, never imports it: pcaspy's extension statically bundles its own
 EPICS base, and in a process where aioca has already loaded epicscorelibs'
@@ -39,11 +46,19 @@ summary elided between the header and its summary line:
     [... test_lume_pva_seam's own pytest output ...]
 14 passed, 3 warnings in 207.69s (0:03:27)
   tests/va/test_lume_pva_seam.py: passed=14 skipped=0 failed=0 errors=0 exit=0
+--- tests/va/test_timed_passes_live.py ---
+    [... test_timed_passes_live's own pytest output ...]
+5 passed, 1 warning in 31.19s
+  tests/va/test_timed_passes_live.py: passed=5 skipped=0 failed=0 errors=0 exit=0
+--- tests/va/test_injection_live.py ---
+    [... test_injection_live's own pytest output ...]
+8 passed in 32.14s
+  tests/va/test_injection_live.py: passed=8 skipped=0 failed=0 errors=0 exit=0
 
 ========================================================================
 live Channel Access gate (--pva)
-  passed=29 skipped=0 failed=0 errors=0 pytest_exit=0
-  VERDICT: PASS -- 29 live Channel Access test(s) ran, none skipped.
+  passed=42 skipped=0 failed=0 errors=0 pytest_exit=0
+  VERDICT: PASS -- 42 live Channel Access test(s) ran, none skipped.
 ========================================================================
 ```
 
@@ -56,7 +71,7 @@ emulated); later runs reuse it, and the suites' own time is most of the run.
 
 That one command covers both transports. `serving/runner.py` imports
 `lume_pva_apg` and `p4p` alongside `pcaspy`, and all three arrive with the
-`virtual-accelerator` extra, so both suites run here with nothing extra to
+`virtual-accelerator` extra, so the PVAccess suites run here with nothing extra to
 install, mount or set. A composite loads its physics engines by entry-point
 name; the image carries the root project's entry points as metadata generated
 from the staged `pyproject.toml`, so the engines resolve without the project
@@ -111,8 +126,8 @@ with `pcaspy` made unimportable. `pcaspy` is the only module
 `tests/va/test_apply_fault.py` guards with a skip, so it is also the
 only one whose absence produces a skip there rather than an error.
 
-**The seam suite is required whole.** `tests/va/test_lume_pva_seam.py`
-skips at module level when `pcaspy`, `p4p` or `lume_pva_apg` is missing, so a
+**The PVAccess suites are required whole.** `tests/va/test_lume_pva_seam.py`,
+`tests/va/test_timed_passes_live.py` and `tests/va/test_injection_live.py` each skip at module level when `pcaspy`, `p4p` or `lume_pva_apg` is missing, so a
 host lacking any of them skips the module whole. The gate runs in `--pva` mode,
 which requires all three to import *before* pytest starts, so an image that
 lacked one exits 1 naming it.
@@ -136,7 +151,7 @@ Keep that property when editing `run_live_ca.sh`.
 
 CI's `ubuntu-latest` unit-test lanes are x86_64 and install the
 `virtual-accelerator` extra, so `pcaspy` is present there. The unit lane's
-sweep ignores both suites by name, and one cell runs `gate.py --pva` in a step
+sweep ignores the four suites by name, and one cell runs `gate.py --pva` in a step
 of its own, one process per module, under the same skip and pass checks. The
 `macos-latest` lanes are arm64; the marker on `lume-pva-apg` excludes them, the same
 way it excludes a developer's Mac. This directory's image is the local venue

@@ -140,7 +140,7 @@ def _patch_service(monkeypatch: pytest.MonkeyPatch, service: Any) -> list[Any]:
 
     configs: list[Any] = []
 
-    async def _fake_create(config):
+    async def _fake_create(config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         configs.append(config)
         return service
 
@@ -154,7 +154,7 @@ def _forbid_service(
     """Make service creation an error, for paths that must not reach it."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(_config):
+    async def _fake_create(_config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         raise AssertionError(reason)
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)

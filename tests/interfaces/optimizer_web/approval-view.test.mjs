@@ -36,7 +36,7 @@ function rowText(root, label) {
 
 /**
  * @param {any} [config]
- * @param {{ enabled: boolean, reason: string|null, warning?: string|null }} [gate]
+ * @param {{ enabled: boolean, reason: string|null, warnings?: string[] }} [gate]
  * @param {any} [approval]
  * @param {any} [env]
  * @param {{ status?: string|null, owner?: string|null }} [extra]
@@ -57,7 +57,7 @@ function render(
       env,
       models: [{ label: 'm', path: 'm.joblib', variables: ['phase_a', 'sol_b', 'kick_c'] }],
       readbacks: { phase_a: 0.5 },
-      gate: { warning: null, ...gate },
+      gate: { warnings: [], ...gate },
       status,
       owner,
     },
@@ -201,9 +201,9 @@ test('the owner: "Starts as" when named, the warning before the click when not',
   const unnamed = render(storedConfig(), {
     enabled: true,
     reason: null,
-    warning: OWNER_UNKNOWN_NOTICE,
+    warnings: [OWNER_UNKNOWN_NOTICE],
   });
-  expect(unnamed.root.querySelector('.start-owner-warn')?.textContent).toBe(OWNER_UNKNOWN_NOTICE);
+  expect(unnamed.root.querySelector('.start-warn')?.textContent).toBe(OWNER_UNKNOWN_NOTICE);
   expect(unnamed.root.textContent).not.toContain('Starts as');
   expect(/** @type {HTMLButtonElement} */ (unnamed.root.querySelector('#start-btn')).disabled).toBe(
     false
@@ -225,13 +225,40 @@ test("the session's late answer changes nothing above Start: the owner line is i
   const unnamed = render(storedConfig(), {
     enabled: true,
     reason: null,
-    warning: OWNER_UNKNOWN_NOTICE,
+    warnings: [OWNER_UNKNOWN_NOTICE],
   });
   expect(layout(named.root)).toEqual(layout(pending.root));
   expect(layout(unnamed.root)).toEqual(layout(pending.root));
   const note = (/** @type {HTMLElement} */ root) => root.querySelector('.foot-row > .start-note');
   expect(note(named.root)?.querySelector('.start-owner')?.textContent).toBe('Starts as op1.');
-  expect(note(unnamed.root)?.querySelector('.start-owner-warn')).not.toBeNull();
+  expect(note(unnamed.root)?.querySelector('.start-warn')).not.toBeNull();
+});
+
+test("a draft that may not move: its notice sits beside Start with the owner's, Start stays live", () => {
+  const notice = 'Nelder-Mead may not move from the current setpoints.';
+  const { root } = render(
+    storedConfig(),
+    { enabled: true, reason: null, warnings: [OWNER_UNKNOWN_NOTICE, notice] },
+    undefined,
+    undefined,
+    { owner: null }
+  );
+  const note = /** @type {HTMLElement} */ (root.querySelector('.foot-row > .start-note'));
+  expect([...note.querySelectorAll('.start-warn')].map((w) => w.textContent)).toEqual([
+    OWNER_UNKNOWN_NOTICE,
+    notice,
+  ]);
+  expect(/** @type {HTMLButtonElement} */ (root.querySelector('#start-btn')).disabled).toBe(false);
+
+  const named = render(
+    storedConfig(),
+    { enabled: true, reason: null, warnings: [notice] },
+    undefined,
+    undefined,
+    { owner: 'op1' }
+  );
+  expect(named.root.querySelector('.start-warn')?.textContent).toBe(notice);
+  expect(named.root.querySelector('.start-owner')?.textContent).toBe('Starts as op1.');
 });
 
 test('no draft: a plain empty state, no Start', () => {
@@ -242,7 +269,7 @@ test('no draft: a plain empty state, no Start', () => {
       approval: approvalInit(),
       env: null,
       models: null,
-      gate: { enabled: false, reason: null, warning: null },
+      gate: { enabled: false, reason: null, warnings: [] },
       status: null,
     },
     { onStart: vi.fn(), onReviewed: vi.fn() }

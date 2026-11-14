@@ -437,7 +437,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         recipes.NO_START_SET,
         *recipes.MIDDLE_LAYER_SETTINGS,
     )
-    recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
+    recipes.invoke(runner, "validate", "--repo", str(repo))
     stopped, remedied, _ = recipes.build_past_the_seed_stops(
         runner, repo, responses=recipes.expected_response_lines(name)
     )

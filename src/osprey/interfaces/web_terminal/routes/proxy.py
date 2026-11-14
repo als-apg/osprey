@@ -82,7 +82,9 @@ from osprey.interfaces.common_middleware import (
     PANEL_ASSET_SUBPATHS,
     PANEL_CAP_SEGMENT,
     STORAGE_SCOPE_ATTRIBUTE,
+    UNSAFE_FORWARDED_VALUE,
     compute_url_prefix,
+    forwarded_identity,
     resolve_storage_scope,
 )
 from osprey.interfaces.common_middleware import (
@@ -98,9 +100,10 @@ from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys, se
 from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS, ApplicationPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
+from osprey.services.auth_sidecar.identity_headers import same_domain, same_value
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
-from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER, owner_from_header
+from osprey.utils.owner_header import CALLER_HEADER, OWNER_HEADER, SESSION_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
@@ -273,6 +276,54 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             return bool(cp.get("configDefined"))
+    return False
+
+
+def caller_opens_panel(scope: Request | WebSocket, panel: dict) -> bool:
+    """Whether the caller of this connection may see and open *panel*.
+
+    A panel without ``access`` is every user of the login. One with it admits
+    the identity the sidecar forwarded (``X-Osprey-Auth-Subject``) when a
+    ``user:`` member names it or a ``domain:`` member holds it. The sidecar
+    forwards and the build spells members in one canonical spelling
+    (:func:`~osprey.services.auth_sidecar.identity_headers.canonical_identity`)
+    and the build already spelled every roster-relative member out, so the
+    values compare byte for byte and nothing here knows a roster, a tier or a
+    claim. The agent, admitted on the panel
+    token, is judged by the login alone. Every member is evaluated, so the time
+    taken does not say which one matched.
+
+    Args:
+        scope: The request or websocket.
+        panel: A custom-panel dict as :func:`_load_panel_config` forwards it.
+    """
+    access = panel.get("access")
+    if access is None:
+        return True
+    if (scope.scope.get("state") or {}).get(PANEL_ADMISSION_STATE_KEY) is True:
+        return True
+    subject = forwarded_identity(scope.headers).subject
+    if not subject or subject == UNSAFE_FORWARDED_VALUE:
+        return False
+    matches = [
+        same_value(subject, member[len("user:") :])
+        if member.startswith("user:")
+        else same_domain(subject, member[len("domain:") :])
+        for member in access
+    ]
+    return any(matches)
+
+
+def _panel_unavailable(panel_id: str) -> Response:
+    """The answer for a panel id this terminal does not serve to the caller."""
+    return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
+
+
+def panel_withheld(scope: Request | WebSocket, panel_id: str) -> bool:
+    """Whether ``panel_id`` is a custom panel this caller may not open."""
+    for cp in getattr(scope.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            return not caller_opens_panel(scope, cp)
     return False
 
 
@@ -523,6 +574,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "authorization",
         "x-osprey-terminal-secret",
         OWNER_HEADER.lower(),
+        CALLER_HEADER.lower(),
         LAUNCH_TOKEN_HEADER.lower(),
     }
 )
@@ -965,6 +1017,34 @@ def _owner_header(scope: Request | WebSocket, panel_id: str, backend_url: str) -
         return {}
     owner = owner_from_header(acting_identity())
     return {OWNER_HEADER: owner} if owner else {}
+
+
+def _caller_header(scope: Request | WebSocket, panel_id: str, path: str) -> dict[str, str]:
+    """Who is calling, as this hop admitted it: ``agent`` or ``panel``.
+
+    ``agent`` when the terminal's gate admitted the request on the panel token
+    (:data:`~osprey.interfaces.common_middleware.PANEL_ADMISSION_STATE_KEY`) —
+    the credential the agent holds, which reaches a panel only at the routes the
+    panel registry opens to it (an application's ``agent_routes``, a sidecar's
+    agent hop, :func:`_is_admitted_agent_hop`). ``panel`` for everything else: a
+    browser session, the operator secret, and every websocket, which the gate
+    never admits on the panel token.
+
+    Like :func:`_owner_header`, half of a boundary whose other half is the strip
+    in :data:`_STRIPPED_REQUEST_HEADERS`: the request leaves this hop carrying
+    the kind this process vouches for, whatever it arrived with. Not gated by
+    :func:`_backend_earns_credentials`: the kind is no secret and every backend
+    is told it.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+    """
+    del panel_id, path  # the admission mark is only ever set on a panel-tier route
+    state = scope.scope.get("state") or {}
+    admitted_on_panel_token = state.get(PANEL_ADMISSION_STATE_KEY) is True
+    return {CALLER_HEADER: "agent" if admitted_on_panel_token else "panel"}
 
 
 async def _request_no_redirect(
@@ -2129,12 +2209,12 @@ async def _forward_to_panel(
             ``<prefix>/panel/<id>`` — a C-CAP path. Redirects, the forwarded
             prefix and the root-path rewrite all target it.
     """
+    # A panel whose `access` does not admit this caller is answered as an
+    # unpublished one, on every method and before any refusal, so the caller
+    # learns neither the application nor that a session is held.
     backend_url = _resolve_panel_url(request, panel_id)
-    if not backend_url:
-        return Response(
-            content=f"Panel '{panel_id}' is not available",
-            status_code=404,
-        )
+    if not backend_url or panel_withheld(request, panel_id):
+        return _panel_unavailable(panel_id)
 
     # An application panel on a login that does not arm it is read-only here:
     # a write method is refused before anything leaves the terminal.
@@ -2274,6 +2354,7 @@ async def _forward_to_panel(
     # work by the driver's own chip. Minted in this same run, after the strip,
     # so an inbound claim can neither survive nor sit beside the minted value.
     fwd_headers.update(_owner_header(request, panel_id, backend_url))
+    fwd_headers.update(_caller_header(request, panel_id, path))
 
     outer_panel_prefix = panel_prefix
 
@@ -2581,7 +2662,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     treats the handshake as failed.
     """
     backend_url = _resolve_panel_url(websocket, panel_id)
-    if not backend_url:
+    if not backend_url or panel_withheld(websocket, panel_id):
         await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
         return
 
@@ -2620,10 +2701,12 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         await websocket.close(code=4500, reason="WebSocket proxy unavailable")
         return
 
-    # No browser header is forwarded; this is the whole outbound header set,
-    # and it is empty unless the backend earns the secret or a credential.
+    # No browser header is forwarded; this is the whole outbound header set:
+    # the secret or a credential when the backend earns one, and the caller kind.
     upstream_headers = _terminal_secret_header(websocket, panel_id, backend_url)
     upstream_headers.update(_panel_auth_header(websocket, panel_id, backend_url))
+    carries_credential = bool(upstream_headers)
+    upstream_headers.update(_caller_header(websocket, panel_id, path))
 
     # The browser's ``Sec-WebSocket-Protocol`` offer, as the ASGI server parsed it.
     offered = list(websocket.scope.get("subprotocols") or [])
@@ -2633,10 +2716,10 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # each target — the ws↔ws analogue of the httpx redirect leak the HTTP path
     # guards against. When the secret is being carried, refuse to follow any
     # redirect so it cannot ride one off the loopback host the gate vouched for.
-    connect_type = _RedirectRefusingConnect if upstream_headers else websockets.connect
+    connect_type = _RedirectRefusingConnect if carries_credential else websockets.connect
     connector = connect_type(
         target,
-        additional_headers=upstream_headers or None,
+        additional_headers=upstream_headers,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
         max_size=PANEL_WS_MAX_SIZE,

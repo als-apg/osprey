@@ -28,6 +28,7 @@ import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
+from osprey.cli import profile_card
 from osprey.cli.build_profile import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
@@ -417,6 +418,20 @@ def test_the_dispatcher_rides_on_the_tier_that_adds_the_events_panel(
 
     admin = mcp_servers_on(format_profile_card(profile, {"admin": deltas["admin"]}))
     assert admin == [*host, "event_dispatcher"]
+
+
+def test_the_panels_row_names_a_builtin_the_way_the_deployment_does() -> None:
+    """``web.panels.<id>.label`` renames a built-in on the card as in the terminal."""
+    profile = BuildProfile(
+        name="renamed",
+        web_panels=["ariel", "okf"],
+        config={"web.panels.ariel.label": "Logbook"},
+    )
+
+    assert profile_card._panel_labels(profile, {}) == ["Logbook", "KNOWLEDGE"]
+    # A layer's own rename counts as well: the card summarizes the deployment.
+    renamed_by_tier = {"ops": {"config": {"web.panels.okf.label": "Wiki"}}}
+    assert profile_card._panel_labels(profile, renamed_by_tier) == ["Logbook", "Wiki"]
 
 
 def _gated_card(config: dict, deltas: dict | None = None) -> list[str]:

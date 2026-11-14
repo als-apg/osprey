@@ -97,6 +97,18 @@ class BaseBatchConnector(ControlSystemConnector):
         return True
 
 
+class StoppedAfterFirstWrite(BaseBatchConnector):
+    """A person stops the run's grants while its first write is on the wire."""
+
+    async def write_channel(self, channel_address, value, timeout=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
+        self.writes.append((channel_address, value))
+        if len(self.writes) == 1:
+            revoke_grants(by="alice", targets=[TARGET])
+        return ChannelWriteResult(
+            channel_address=channel_address, value_written=value, outcome=WriteOutcome.CONFIRMED
+        )
+
+
 class StrayBatchConnector(RecordingConnector):
     """A batch of its own that also writes a channel the caller never asked for."""
 
@@ -205,7 +217,9 @@ class TestUnnamed:
         assert other.writes == []
         assert steps(grant) == 1
 
-    async def test_the_base_batch_is_judged_per_channel_as_before(self, monkeypatch):
+    async def test_the_base_batch_is_judged_per_channel_and_again_before_each_send(
+        self, monkeypatch
+    ):
         turn_switch(TARGET, "asked")
         judged: list[Any] = []
         real = posture_store.write_verdict
@@ -219,7 +233,8 @@ class TestUnnamed:
         results = await conn.write_multiple_channels([("A:SP", 1.0), ("C:SP", 99.0)])
         assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
         assert conn.writes == [("A:SP", 1.0), ("C:SP", 99.0)]
-        assert len(judged) == 2
+        # Each write once before the batch's checks, once right before its send.
+        assert len(judged) == 4
 
     async def test_a_refusal_raised_by_the_checked_write_carries_the_reason(self):
         with pytest.raises(ChannelWriteBlockedError) as caught:
@@ -384,6 +399,22 @@ class TestBatches:
         assert conn.writes == []
         assert steps(grant) == 0
 
+    async def test_a_stop_mid_batch_refuses_every_write_not_yet_sent(self, monkeypatch):
+        grant = approve(monkeypatch)
+        conn = connector(StoppedAfterFirstWrite)
+        results = await conn.write_multiple_channels([("A:SP", 1.0), ("B:SP", 0.5)])
+        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED, WriteOutcome.REFUSED]
+        assert reasons(results) == [None, "auth_revoked"]
+        assert conn.writes == [("A:SP", 1.0)]
+        assert steps(grant) == 1
+
+    async def test_a_batch_that_spends_the_last_step_is_sent_whole(self, monkeypatch):
+        grant = approve(monkeypatch, steps=1)
+        conn = connector()
+        results = await conn.write_multiple_channels([("A:SP", 1.0), ("B:SP", 0.5)])
+        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
+        assert steps(grant) == 1
+
     async def test_an_exhausted_budget_refuses_the_whole_batch(self, monkeypatch):
         grant = approve(monkeypatch, steps=1)
         conn = connector()
@@ -424,8 +455,13 @@ class TestBatches:
             channels={"A:SP": ChannelRange(0.0, 10.0), "LIMITED:SP": ChannelRange(0.0, 10.0)},
         )
         conn = connector()
-        with pytest.raises(ChannelLimitsViolationError):
-            await conn.write_multiple_channels([("A:SP", 1.0), ("LIMITED:SP", 1.0)])
+        # This connector refuses only inside its own write: a batch answers a
+        # limits refusal as a result, it does not raise it.
+        results = await conn.write_multiple_channels([("A:SP", 1.0), ("LIMITED:SP", 1.0)])
+        assert [(r.outcome, r.refusal_reason) for r in results] == [
+            (WriteOutcome.CONFIRMED, None),
+            (WriteOutcome.REFUSED, "LIMITS"),
+        ]
         assert conn.writes == [("A:SP", 1.0)]
         assert steps(grant) == 1
 

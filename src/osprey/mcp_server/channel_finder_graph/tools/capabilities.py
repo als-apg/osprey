@@ -10,8 +10,9 @@ it. That one describes a general-purpose Cypher surface; this one describes a
 can talk to. So it carries the four things an agent cannot guess and would
 otherwise have to discover by running failing queries — how an address is
 spelled and where it comes from, which prose exists to match a phrase against
-and on which node, that synonyms are a list rather than a string, and how many
-rows a query may return before it is cut off.
+and on which node, that synonyms and record names are lists rather than strings
+and are matched differently, which edges join a device to its place and a place
+to its parent, and how many rows a query may return before it is cut off.
 
 Everything here is a fact about the *corpus convention*, never about the data:
 which corpus a deployment seeded is a store fact, so the manifest names the
@@ -23,6 +24,7 @@ is unconfigured or down — the moment an agent most needs to be told what the
 paradigm is.
 """
 
+import functools
 import json
 import logging
 
@@ -35,6 +37,7 @@ from osprey.mcp_server.graph.server_context import (
     QUERY_TIMEOUT_CONFIG_KEY,
     get_server_context,
 )
+from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_graph.tools.capabilities")
 
@@ -150,18 +153,148 @@ _SYNONYMS: dict[str, object] = {
     "property": "altLabel",
     "node_label": "Class",
     "type": "list",
-    "match": "ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))",
+    "match": "ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))",
     "notes": [
         "The store is seeded with handleMultival: ARRAY for skos:altLabel, so "
         "the property is a list on every class even when it holds one entry. A "
-        "scalar comparison or CONTAINS against altLabel matches nothing — that "
-        "is a bug, not a shortcut.",
-        "The comparison is on the whole synonym rather than a substring, which "
-        "is what keeps 'pm' from matching 'pump'. Walk (sub:Class)-[:SUBCLASSOF*0..]->(cls) "
-        "down from the class you matched so a broad word also finds every kind "
-        "beneath it.",
+        "scalar comparison or CONTAINS against altLabel itself matches nothing — "
+        "that is a bug, not a shortcut; CONTAINS goes on each entry.",
+        "A synonym is a phrase, so the comparison is loose: the word is looked "
+        "for inside each entry, case-insensitively, and 'quad' finds "
+        "'quadrupole'. Walk (sub:Class)-[:SUBCLASSOF*0..]->(cls) down from the "
+        "class you matched so a broad word also finds every kind beneath it.",
     ],
 }
+
+#: Places, devices and channels carry their names on the same list property a
+#: class carries its synonyms on, but a name is an identifier rather than a
+#: phrase. The rule string is the one every agent surface quotes, imported so the
+#: manifest cannot drift from it.
+_RECORD_NAMES: dict[str, object] = {
+    "property": "altLabel",
+    "carried_by": ["place", "device", "channel"],
+    "type": "list",
+    "match": RECORD_NAME_MATCH_RULE,
+    "notes": [
+        "A place, device or channel carries its names as a list altLabel; a "
+        "channel's names sit on its ChannelBinding. A record with no names has "
+        "no altLabel at all.",
+        "A name is an identifier, so the comparison is on the whole entry, "
+        "case-insensitively — never CONTAINS, which lets a short name match "
+        "every longer one that starts with it. NOT n:Class keeps class synonyms, "
+        "which share the property, out of a name lookup.",
+    ],
+}
+
+#: Every relationship type the corpus convention writes, as the loader spells
+#: it, with the kind of node at each end. Direction is the part an agent cannot
+#: guess: a pattern written the wrong way round matches nothing.
+_RELATIONSHIPS: tuple[dict[str, str], ...] = (
+    {
+        "type": "HASBINDING",
+        "from": "device or place",
+        "to": "binding",
+        "pattern": "(d)-[:HASBINDING]->(b:ChannelBinding)",
+    },
+    {
+        "type": "READSSIGNAL",
+        "from": "binding",
+        "to": "signal",
+        "pattern": "(b:ChannelBinding)-[:READSSIGNAL]->(s)",
+    },
+    {
+        "type": "WRITESSIGNAL",
+        "from": "binding",
+        "to": "signal",
+        "pattern": "(b:ChannelBinding)-[:WRITESSIGNAL]->(s)",
+    },
+    {
+        "type": "TYPE",
+        "from": "device",
+        "to": "class",
+        "pattern": "(d)-[:TYPE]->(c:Class)",
+    },
+    {
+        "type": "SUBCLASSOF",
+        "from": "class",
+        "to": "parent class",
+        "pattern": "(c:Class)-[:SUBCLASSOF]->(parent:Class)",
+    },
+    {
+        "type": "LOCATEDIN",
+        "from": "device",
+        "to": "place",
+        "pattern": "(d)-[:LOCATEDIN]->(p)",
+    },
+    {
+        "type": "PARTOF",
+        "from": "place",
+        "to": "parent place",
+        "pattern": "(p)-[:PARTOF]->(parent)",
+    },
+    {
+        "type": "HASMEMBER",
+        "from": "group",
+        "to": "device",
+        "pattern": "(g:Group)-[:HASMEMBER]->(d)",
+    },
+    {
+        "type": "CLAIMSUBJECT",
+        "from": "claim",
+        "to": "device, place or group",
+        "pattern": "(c:Claim)-[:CLAIMSUBJECT]->(a)",
+    },
+    {
+        "type": "CLAIMOBJECT",
+        "from": "claim",
+        "to": "device, place or group",
+        "pattern": "(c:Claim)-[:CLAIMOBJECT]->(b)",
+    },
+    {
+        "type": "CONTESTS",
+        "from": "claim",
+        "to": "rival claim",
+        "pattern": "(c:Claim)-[:CONTESTS]->(rival:Claim)",
+    },
+)
+
+
+def _end_kinds(kinds: list[str]) -> str:
+    """``["device", "place"]`` -> ``"device or place"``."""
+    return " or ".join(kinds)
+
+
+@functools.cache
+def _relationships() -> tuple[dict[str, str], ...]:
+    """The fixed rows plus one row per relation type of the vocabulary.
+
+    A relation row is generated from the graph view's own predicate table, so a
+    type the view writes is a type the manifest names. A symmetric type's pattern
+    is undirected: the edge runs whichever way its claim was written. A row that
+    repeats a fixed one (``LOCATEDIN`` device to place) is not listed twice.
+    """
+    from osprey.facility.validate import relation_types
+    from osprey.facility.views.graph import RELATION_PREDICATES
+
+    rows = list(_RELATIONSHIPS)
+    seen = {(row["type"], row["from"], row["to"]) for row in rows}
+    types = relation_types()
+    for name, predicate in RELATION_PREDICATES.items():
+        spec = types[name]
+        reltype = predicate.upper()
+        row = {
+            "type": reltype,
+            "from": _end_kinds(spec["subject"]),
+            "to": _end_kinds(spec["object"]),
+            "pattern": (
+                f"(a)-[:{reltype}]-(b)" if spec.get("symmetric") else f"(a)-[:{reltype}]->(b)"
+            ),
+        }
+        if (row["type"], row["from"], row["to"]) not in seen:
+            seen.add((row["type"], row["from"], row["to"]))
+            rows.append(row)
+    return tuple(rows)
+
 
 _CORPUS: dict[str, object] = {
     "property": "facility",
@@ -193,6 +326,21 @@ _NOTES: tuple[str, ...] = (
     "reachable or seeded. read_cypher and get_schema report that.",
     f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_REBUILD_HINT}` "
     "to load the corpus.",
+    "A symmetric relationship (CABLEDTO, NETWORKEDTO, SAMEAS) is queried "
+    "undirected, (a)-[:CABLEDTO]-(b): its edge runs whichever way the source "
+    "stated it.",
+    "Plain relation edges never cross a disputed fact. A contested claim's edge "
+    "takes the type's CONTESTED twin, the type name with CONTESTED appended "
+    "(LOCATEDINCONTESTED, POWEREDBYCONTESTED); a superseded claim has no edge. "
+    "Ask for both, [:POWEREDBY|POWEREDBYCONTESTED], to see the dispute.",
+    "A device can have two LOCATEDIN edges: its place in the facility file and "
+    "a source's claim that disagrees. The resolved one is the place carrying "
+    "the device's placePath: MATCH (d)-[:LOCATEDIN]->(p) WHERE p.placePath = "
+    "d.placePath.",
+    "A Claim node holds the evidence for a relation: claimId, relationType, "
+    "standing, basis, rule, document, documentVersion, documentState and "
+    "locator. Reach it from an end with (c:Claim)-[:CLAIMSUBJECT|CLAIMOBJECT]->(d); "
+    "CONTESTS joins it to a rival claim.",
 )
 
 
@@ -204,7 +352,9 @@ def capabilities() -> str:
     surfaces a question belongs on, the order to use them in, and
     the corpus conventions a query has to respect: where an address comes from,
     which prose each kind of node carries for a phrase search, that class
-    synonyms are a list, and how a deployment says which corpus it seeded. The
+    synonyms and record names are lists matched in different ways, which
+    relationship joins which kinds of node and in which direction, and how a
+    deployment says which corpus it seeded. The
     row cap and the query deadline are this deployment's, with the config keys
     that set them.
 
@@ -215,7 +365,9 @@ def capabilities() -> str:
     Returns:
         JSON object with ``paradigm``, ``server``, ``description``, ``tools``
         (list of ``{name, purpose}``), ``workflow``, ``addresses``,
-        ``description_predicates``, ``synonyms``, ``corpus``, ``limits`` and
+        ``description_predicates``, ``synonyms``, ``record_names``,
+        ``relationships`` (list of ``{type, from, to, pattern}``), ``corpus``,
+        ``limits`` and
         ``notes``.
     """
     try:
@@ -231,6 +383,8 @@ def capabilities() -> str:
                 "addresses": _ADDRESSES,
                 "description_predicates": _DESCRIPTION_PREDICATES,
                 "synonyms": _SYNONYMS,
+                "record_names": _RECORD_NAMES,
+                "relationships": [dict(rel) for rel in _relationships()],
                 "corpus": _CORPUS,
                 "limits": {
                     "timeout_s": context.query_timeout_s,

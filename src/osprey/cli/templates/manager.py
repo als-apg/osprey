@@ -518,7 +518,6 @@ class TemplateManager:
             "project_description": f"{project_name} - Osprey Agent Application",
             "framework_version": manifest.get_framework_version(),
             "project_root": str(project_dir.absolute()),
-            "venv_path": "${LOCAL_PYTHON_VENV}",
             "current_python_env": current_python,  # Default; overridden by caller context
             # The preset the built profile records, for the templates that print
             # it. Defaulted to None — "this project is hand-written" — because a

@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -73,6 +74,7 @@ def _groups_of(
                 f"try {{ localStorage.setItem({json.dumps(_KEY)}, {value}); }} catch (e) {{}}"
             )
             page.goto(base_url, wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             found: dict[str, str] = {}
             for panel_id in ("events", "bluesky"):
                 row = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')

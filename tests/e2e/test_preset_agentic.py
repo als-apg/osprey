@@ -1,8 +1,8 @@
-"""Tier 3 agentic per-preset smoke tests.
+"""Preset agentic flow: per-preset smoke tests with a real agent.
 
 One canonical workflow per preset. Each test:
   1. Builds a deployment repo from the preset (with --skip-deps for speed;
-     Tier 1 covers the real-build path).
+     the preset build + MCP boot job covers the real-build path).
   2. Asks an agent (via the Claude Agent SDK) to perform the canonical task.
   3. Asserts the right MCP tool appears in the tool trace (the contract that
      would catch a "preset config drift means the agent never reaches for
@@ -11,7 +11,7 @@ One canonical workflow per preset. Each test:
 
 Budget per test: max_turns=4, max_budget_usd=0.25, target wall-clock <5 min.
 Gating in CI (agentic-per-preset blocks the merge like every other e2e lane);
-coverage of the "is the tool wired up at all?" contract comes from Tier 0+1.
+coverage of the "is the tool wired up at all?" contract comes from the preset static checks and build + MCP boot jobs.
 """
 
 from __future__ import annotations

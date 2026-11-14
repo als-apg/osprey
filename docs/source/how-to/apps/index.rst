@@ -239,6 +239,28 @@ the panel or in a tool:
 :ref:`Writes and approvals <how-to-apps-writes>` on the build page says how to
 declare a write tool and what each key does.
 
+Where an app comes from
+=======================
+
+An app is found in one of two places:
+
+- **your deployment** — a directory ``apps/<name>/`` in the repository, as
+  above;
+- **an installed package** — for an app several deployments share: a Python
+  distribution that declares the app as an entry point, its package directory
+  laid out like ``apps/<name>/``:
+
+  .. code-block:: toml
+
+     [project.entry-points."osprey.apps"]
+     corrector-trim = "corrector_trim"
+
+Either way an app runs only when the profile's ``apps:`` block lists it. An
+installed app's package must be one the project image installs, so its
+distribution goes in the profile's ``dependencies``. A directory under
+``apps/`` may not take the name of an installed app, listed or not: the build
+refuses it and names the package that installs the app.
+
 Where to go next
 ================
 

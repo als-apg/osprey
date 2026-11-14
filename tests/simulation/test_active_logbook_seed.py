@@ -51,7 +51,7 @@ def _make_project(tmp_path: Path) -> Path:
 def _activate(project: Path, monkeypatch, names: list[str], *, now: datetime | None = None) -> None:
     """Activate scenarios the way an operator would, without touching a database."""
 
-    async def _no_seed(_ariel_config, _entries, _pictures):
+    async def _no_seed(_ariel_config, _entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         return 0, False
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
@@ -62,11 +62,11 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
     """Stub ARIEL's database calls; return what the seeder was asked to write."""
     seen: dict = {"seeded": None, "pictures": None, "bytes": None, "counted": 0, "mirrored": 0}
 
-    async def _count(_config_dict):
+    async def _count(_config_dict, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         seen["counted"] += 1
         return existing
 
-    async def _seed(_config_dict, entries, _progress=None, *, pictures=None):
+    async def _seed(_config_dict, entries, _progress=None, *, pictures=None, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         seen["seeded"] = entries
         seen["pictures"] = pictures
         # Read while seeding runs: a drawn picture's file lives only that long.
@@ -76,7 +76,14 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
         }
         return len(entries)
 
-    async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync, whose caller names rebuild and progress
+    async def _resync(
+        config_dict,  # noqa: ARG001 - the signature it stands in for
+        rebuild=False,  # noqa: ARG001 - the signature it stands in for
+        page_size=None,  # noqa: ARG001 - the signature it stands in for
+        progress=None,  # noqa: ARG001 - the signature it stands in for
+        *,
+        store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+    ):
         seen["mirrored"] += 1
         return None
 
@@ -173,7 +180,7 @@ def _apply_seeding(project: Path, monkeypatch, names: list[str]) -> list[dict]:
     """``osprey sim apply`` with its logbook seed captured instead of written."""
     seeded: list[dict] = []
 
-    async def _capture(_ariel_config, entries, _pictures):
+    async def _capture(_ariel_config, entries, _pictures, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         seeded.extend(entries)
         return len(entries), True
 
@@ -516,7 +523,14 @@ def _refusing_qmd_mirror(monkeypatch) -> list[str]:
     import osprey.simulation.apply as apply_mod
     from osprey.services.ariel_search.exceptions import ModuleConfigError
 
-    async def _refuse(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync
+    async def _refuse(
+        config_dict,  # noqa: ARG001 - the signature it stands in for
+        rebuild=False,  # noqa: ARG001 - the signature it stands in for
+        page_size=None,  # noqa: ARG001 - the signature it stands in for
+        progress=None,  # noqa: ARG001 - the signature it stands in for
+        *,
+        store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+    ):
         raise ModuleConfigError(
             "vocabulary file not found: /nowhere/vocabulary.yml", key="ariel.vocabulary.path"
         )

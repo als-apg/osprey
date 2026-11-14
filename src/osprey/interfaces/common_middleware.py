@@ -47,10 +47,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
 from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.interfaces.web_auth import (
+    JudgeAdmission,
+    JudgeGrants,
     Tier,
     WebCredentials,
     classify,
     get_web_credentials,
+    judge_admission,
+    judge_grants_of,
     panel_registry_of,
 )
 from osprey.utils.owner_header import OWNER_HEADER
@@ -444,6 +448,7 @@ WEBSOCKET_REFUSAL_CODE = 1008
 _MISSING_DETAIL = "authentication required"
 _INVALID_DETAIL = "invalid credential"
 _TIER_DETAIL = "this route requires operator credentials"
+_JUDGE_ROUTE_DETAIL = "a watchdog read credential reaches only its applications' read routes"
 _ORIGIN_DETAIL = "cross-origin request refused"
 _BODY_TYPE_DETAIL = "this route accepts a JSON body only"
 _UNAVAILABLE_DETAIL = "authentication is not available; see the service log"
@@ -1318,7 +1323,8 @@ def _refusal_page(status: int, detail: str) -> str:
     """
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en"><head><meta charset="utf-8">'
+        # No script runs here, so the page-ready mark is in the markup.
+        '<html lang="en" data-page-ready="true"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>OSPREY — sign in required</title><style>"
         "body{margin:0;min-height:100vh;display:flex;align-items:center;"
@@ -1405,6 +1411,10 @@ OWNER_STATE_KEY = "osprey_owner"
 #: credential: the terminal proxy's hop to an opted-in sidecar's MCP transport,
 #: which forwards a panel-token call and refuses an operator's. The value is
 #: ``True`` and the key is otherwise absent.
+#:
+#: A watchdog judge's read token sets the same mark: it is an agent's
+#: credential, admitted only on routes the panel token is also admitted on, so
+#: the proxy forwards such a call exactly as it forwards the session agent's.
 #:
 #: Written in :meth:`WebAuthMiddleware._authenticate_panel` and nowhere else.
 #: The gate also drops any value already on the scope before it looks at a
@@ -1497,6 +1507,9 @@ class WebAuthMiddleware:
       Full access.
     * ``Authorization: Bearer`` → the panel token. Allowed only where
       :func:`osprey.interfaces.web_auth.classify` returns :data:`Tier.PANEL`.
+      A bearer that is not the panel token may be a live watchdog judge's read
+      token, allowed only where :func:`osprey.interfaces.web_auth.judge_admission`
+      admits it.
 
     Ahead of all three sits the **token exchange**: a ``?token=`` on a **GET**
     to a :data:`TOKEN_EXCHANGE_PATHS` page carries the operator secret,
@@ -1753,7 +1766,13 @@ class WebAuthMiddleware:
         headers: dict[str, str],
         token: str,
     ) -> None:
-        """Admit a panel-token request, but only to a panel-tier HTTP route.
+        """Admit a panel-token or judge-token request, but only to a route its credential opens.
+
+        A bearer that is not the panel token may be a watchdog judge's read
+        token (:class:`~osprey.interfaces.web_auth.JudgeGrants`); it is judged by
+        :func:`~osprey.interfaces.web_auth.judge_admission` alone: admitted on a
+        granted application's safe-method agent route, ``403`` anywhere else
+        while it is live, ``401`` once revoked.
 
         No websocket is ever panel-tier, and that is enforced here rather than
         left to the route table. A websocket carries a live channel — the
@@ -1765,12 +1784,19 @@ class WebAuthMiddleware:
         future ``("GET", "/api/...")`` panel-tier route cannot accidentally
         become reachable over a websocket handshake that synthesises ``GET``.
         """
+        # The grants of the judge run this bearer belongs to; ``None`` for the panel token.
+        judge: JudgeGrants | None = None
         if not credentials.verify_panel(token):
-            await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
-            return
+            judge = judge_grants_of(scope.get("app"))
+            if judge is None or judge.panels_of(token) is None:
+                await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
+                return
 
         if scope["type"] == "websocket":
-            await self._refuse(scope, send, 401, _TIER_DETAIL, headers)
+            if judge is not None:
+                await self._refuse(scope, send, 403, _JUDGE_ROUTE_DETAIL, headers)
+            else:
+                await self._refuse(scope, send, 401, _TIER_DETAIL, headers)
             return
 
         if self._origin_refused(scope, headers, strict=False):
@@ -1786,7 +1812,15 @@ class WebAuthMiddleware:
             body_has_url = _body_has_url(body)
 
         panels = panel_registry_of(scope.get("app"))
-        if classify(method, path, body_has_url, panels=panels) is not Tier.PANEL:
+        if judge is not None:
+            verdict = judge_admission(judge, token, method, path, panels=panels)
+            if verdict is JudgeAdmission.UNKNOWN:
+                await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
+                return
+            if verdict is not JudgeAdmission.ADMITTED:
+                await self._refuse(scope, send, 403, _JUDGE_ROUTE_DETAIL, headers)
+                return
+        elif classify(method, path, body_has_url, panels=panels) is not Tier.PANEL:
             await self._refuse(scope, send, 401, _TIER_DETAIL, headers)
             return
         # The panel token is one shared value held by every in-process

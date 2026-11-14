@@ -777,10 +777,7 @@ export function resolvePendingSwitch(view, pending) {
     return { state: 'failed', pid: nonNegativeInt(row.pid), detail };
   }
 
-  // Only a row that explicitly says `children: []` is exempt from arrival.
-  const holding = rows.filter(
-    (/** @type {any} */ row) => !(Array.isArray(row?.children) && row.children.length === 0)
-  );
+  const holding = rows.filter(holdsConnector);
   if (!holding.length) {
     // No connector to converge. The record accepting this request at or past
     // the generation asked for is the whole of what "landed" can mean here.
@@ -789,11 +786,99 @@ export function resolvePendingSwitch(view, pending) {
       : waiting;
   }
 
-  const arrived = holding.every((/** @type {any} */ row) => {
-    const applied = nonNegativeInt(row?.applied_generation);
-    return applied !== null && applied >= generation;
-  });
+  const arrived = holding.every((/** @type {any} */ row) => arrivedAt(row, generation));
   return arrived ? { state: 'applied', pid: null, detail: null } : waiting;
+}
+
+/**
+ * Whether a server row is owed to the convergence wait. Only a row that
+ * explicitly says `children: []` is exempt from arrival.
+ * @param {any} row
+ * @returns {boolean}
+ */
+function holdsConnector(row) {
+  return !(Array.isArray(row?.children) && row.children.length === 0);
+}
+
+/**
+ * Whether a server row reports *generation*, or a later one.
+ * @param {any} row
+ * @param {number} generation
+ * @returns {boolean}
+ */
+function arrivedAt(row, generation) {
+  const applied = nonNegativeInt(row?.applied_generation);
+  return applied !== null && applied >= generation;
+}
+
+/**
+ * How far a pending switch has got, in steps.
+ * @typedef {object} SwitchProgress
+ * @property {number} done  steps behind the request, never below 1: the
+ *   request itself was sent
+ * @property {number} total  the request, the record's answer, and one step per
+ *   live controls server holding a connector
+ * @property {boolean} accepted  the record has moved to the generation asked for
+ * @property {number} arrived  the holding servers that report that generation
+ * @property {number} holding  the servers the wait is on
+ */
+
+/**
+ * Count the steps of the switch this browser is waiting on.
+ *
+ * The steps are the ones {@link resolvePendingSwitch} waits for, so the count
+ * is exact and the bar it feeds is never a guess: the request was sent, the
+ * record accepted it, and each live controls server holding a connector
+ * reported the new generation. How LONG a step takes is not known to anyone —
+ * a connector rebuild takes what it takes — so this says how many are done and
+ * nothing about time.
+ *
+ * The record counts as having accepted on its terminus for this request or on
+ * its generation reaching the one asked for; either is the record's own word.
+ * A request the POST answered with no generation has no fleet to count, and
+ * reads as one step of two until a verdict ends the wait.
+ * @param {any} view  the payload of `GET /api/terminal/posture`
+ * @param {PendingSwitch|null} pending
+ * @returns {SwitchProgress}
+ */
+export function switchProgress(view, pending) {
+  const generation = nonNegativeInt(pending?.generation);
+  if (!view || generation === null) {
+    return { done: 1, total: 2, accepted: false, arrived: 0, holding: 0 };
+  }
+  const terminus = view.last_switch;
+  const ours =
+    Boolean(terminus) &&
+    terminus.request_id === pending?.requestId &&
+    terminus.status === SWITCH_APPLIED &&
+    nonNegativeInt(terminus.generation) !== null;
+  const record = nonNegativeInt(view.generation);
+  const accepted = ours || (record !== null && record >= generation);
+
+  const rows = Array.isArray(view.servers) ? view.servers : [];
+  const holding = rows.filter(holdsConnector);
+  const arrived = accepted
+    ? holding.filter((/** @type {any} */ row) => arrivedAt(row, generation)).length
+    : 0;
+  return {
+    done: 1 + (accepted ? 1 : 0) + arrived,
+    total: 2 + holding.length,
+    accepted,
+    arrived,
+    holding: holding.length,
+  };
+}
+
+/**
+ * The step a pending switch is on, in words, for the line beside its bar.
+ * @param {SwitchProgress} progress
+ * @returns {string}
+ */
+export function switchProgressLabel(progress) {
+  if (!progress.accepted) return 'request sent';
+  if (!progress.holding) return 'accepted';
+  const noun = progress.holding === 1 ? 'controls server' : 'controls servers';
+  return `${progress.arrived} of ${progress.holding} ${noun}`;
 }
 
 /**

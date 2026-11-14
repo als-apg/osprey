@@ -560,3 +560,55 @@ def test_an_unreadable_config_refuses_the_settings_editor(tmp_path: Path, servic
         assert response.status_code == 403
         assert response.json()["detail"] == unreadable_config_refusal(config_file)
     assert config_file.read_bytes() == before
+
+
+@pytest.mark.wallclock
+def test_a_silent_store_ends_start_up_with_its_name_and_the_deadline(
+    tmp_path: Path, monkeypatch, caplog
+):
+    """A store that takes the connection and never answers is not served
+    around: start-up raises the store's name and the deadline, so the process
+    ends on that line instead of waiting for its health check."""
+    import time
+
+    from osprey.interfaces.ariel import create_app
+    from osprey.services.ariel_search.exceptions import StoreSilentError
+    from tests.services.ariel_search._silent_store import (
+        MARGIN_S,
+        SHORT_DEADLINE_S,
+        silent_store,
+        silent_uri,
+    )
+
+    monkeypatch.setattr("osprey.interfaces.ariel.app._STORE_DEADLINE_S", SHORT_DEADLINE_S)
+    caplog.set_level(logging.INFO, logger="ariel")
+    with silent_store() as port:
+        app = create_app(_write_config(tmp_path, {"database": {"uri": silent_uri(port)}}))
+        started = time.monotonic()
+        with pytest.raises(StoreSilentError) as raised, TestClient(app):
+            pytest.fail("the app served a request against a silent store")
+        elapsed = time.monotonic() - started
+
+    said = f"the ARIEL store at 127.0.0.1:{port}/ariel did not answer within {SHORT_DEADLINE_S:g} s"
+    assert str(raised.value) == said
+    assert SHORT_DEADLINE_S <= elapsed < SHORT_DEADLINE_S + MARGIN_S
+    assert [r.getMessage() for r in caplog.records].count(said) == 1
+    _assert_no_banner(caplog, "DATABASE NOT AVAILABLE")
+
+
+def test_a_refused_store_still_starts_degraded(tmp_path: Path, caplog):
+    """A store that refuses is a known state the panel serves around."""
+    from osprey_connectors_tests._harness._ports import reserved_port
+
+    with reserved_port() as port:
+        uri = f"postgresql://ariel@127.0.0.1:{port}/ariel"
+        config_file = _write_config(tmp_path, {"database": {"uri": uri}})
+        from osprey.interfaces.ariel import create_app
+
+        caplog.set_level(logging.INFO, logger="ariel")
+        app = create_app(config_file)
+        with TestClient(app) as client:
+            assert client.get("/health").status_code == 200
+
+    assert app.state.ariel_service is None
+    assert "DEGRADED MODE" in _banner(caplog, "DATABASE NOT AVAILABLE")

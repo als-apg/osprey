@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -104,6 +105,7 @@ def lab_page(chromium_browser: Browser) -> Iterator[Page]:
         )
         page.on("pageerror", lambda exc: errors.append(str(exc)))
         page.goto(f"{base_url}{LAB_PATH}")
+        wait_for_page_ready(page)
         page.wait_for_selector("#preview-dark .ms-shell")
         # Surfaced before any assertion below, so a boot failure is reported as
         # itself rather than as a confusing downstream selector timeout.

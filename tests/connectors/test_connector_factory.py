@@ -1,7 +1,5 @@
 """Tests for connector factory."""
 
-from unittest.mock import patch
-
 import pytest
 
 from osprey_connectors import types
@@ -360,26 +358,4 @@ class TestArchiverTypeResolution:
 
         assert isinstance(connector, MockArchiverConnector)
         assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_an_unloadable_config_falls_back_to_the_mock_archiver_with_a_warning(
-        self, caplog, tmp_path, monkeypatch
-    ):
-        def unreadable(*args, **kwargs):
-            raise RuntimeError("config.yml is unreadable")
-
-        # The fallback settings name no view, so the mock serves the one beside
-        # the config this process loaded.
-        view = served_tree(tmp_path)
-        monkeypatch.setattr(
-            "osprey_connectors.config.default_config_path",
-            lambda: str(view.parent.parent / "config.yml"),
-        )
-
-        with patch("osprey_connectors.config.get_config_value", unreadable):
-            connector = await ConnectorFactory.create_archiver_connector(None)
-
-        assert isinstance(connector, MockArchiverConnector)
-        assert "Could not load config: config.yml is unreadable, using defaults" in caplog.text
         await connector.disconnect()

@@ -1042,6 +1042,24 @@ describe('detached panes', () => {
     });
   });
 
+  test('a restore with its records gives a detached pane the params stored for it', () => {
+    const holder = detachHolder(THREE_TILES);
+    holder.detach('beta', null);
+    expect(holder.setPanelParams('beta', { seen: 'x' })).toBe(true);
+    expect(holder.panelParams('beta')).toEqual({ seen: 'x' });
+    // A session's layout holds the same pane, with params of its own.
+    holder.restore(THREE_TILES, { beta: { title: 'Beta', params: { seen: 'y' } } });
+    expect(holder.isDetached('beta')).toBe(true);
+    expect(holder.panelParams('beta')).toEqual({ seen: 'y' });
+    // One with none for it leaves it none.
+    holder.restore(THREE_TILES, { beta: { title: 'Beta' } });
+    expect(holder.panelParams('beta')).toBeUndefined();
+    // A merge drops a field set to undefined, as dockview's does.
+    holder.setPanelParams('beta', { seen: 'z', other: 1 });
+    holder.setPanelParams('beta', { other: undefined });
+    expect(holder.panelParams('beta')).toEqual({ seen: 'z' });
+  });
+
   test('forget drops the entry without docking the pane', () => {
     const holder = detachHolder(THREE_TILES);
     holder.detach('beta', null);

@@ -44,12 +44,13 @@ DEMO_DEVICES = 1017
 DEMO_CLASSES = 36
 DEMO_SIGNALS = 62
 
-#: Derived from the view (nineteen distinct ``narad_p:sectionCode`` literals:
-#: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR``, ``BTS``,
-#: ``LINE``, ``GTL``, ``LN`` and ``LTB``),
+#: Derived from the view (twenty-four distinct ``narad_p:sectionCode`` literals:
+#: ``SECT1`` to ``SECT12``, the top-place codes ``SR``, ``BR``, ``BTS``,
+#: ``LINE``, ``GTL``, ``LN``, ``LTB`` and ``HALL``, the hall's ``ROW3``, ``RK07``
+#: and ``RK08``, and the girder ``G2`` in ``SECT3``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
 #: asks the store for its section count.
-DEMO_SECTIONS = 19
+DEMO_SECTIONS = 24
 
 
 def _meta_row(index_path: Path) -> dict:
@@ -115,6 +116,13 @@ class TestDemoCorpus:
 
         assert report.device_count == len({row.device_uri for row in parsed.binding_rows})
 
+    def test_the_class_count_is_the_parsed_class_rows(self, built, demo_path: Path):
+        """The report counts exactly the class rows the parse writes."""
+        report, _ = built
+        parsed = parse_corpus(demo_path.read_text(encoding="utf-8"))
+
+        assert report.class_count == len(parsed.class_rows)
+
     def test_the_class_count_is_the_pruned_taxonomy(self, built, demo_path: Path):
         """The classes written are the ones the explorer draws, not every ``:Class``."""
         report, _ = built
@@ -130,7 +138,6 @@ class TestDemoCorpus:
             for row in parsed.class_rows
         ]
 
-        assert report.class_count == len(parsed.class_rows)
         assert report.class_count == len(prune_device_taxonomy(raw))
 
     def test_the_build_logs_one_line_naming_its_counts(

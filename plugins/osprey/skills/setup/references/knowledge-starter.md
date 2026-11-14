@@ -205,7 +205,10 @@ types none of them.
    models and decks under `data/facility/imported/mml/`, which every import rewrites,
    and — only where the file does not exist yet — `data/facility/limits.yaml` (the
    export's write bands), `seeds.yaml`, `identity.yaml`, `classes.yaml`,
-   `measurement/<model>.yaml` and `scenarios/readout.yaml`. Afterwards it lists, as
+   `measurement/<model>.yaml` and `scenarios/readout.yaml`. The kinds a
+   `measurement/<model>.yaml` lists come from a registry, and a deployment adds its own
+   ([Register a measurement kind](https://als-apg.github.io/osprey/how-to/register-a-measurement-kind.html)).
+   Afterwards it lists, as
    `rm` lines, each scenario file that names a channel the facility no longer has;
    `osprey build` stops while one is left.
 9. **Validate.** `osprey facility validate` runs every check the build makes. For each

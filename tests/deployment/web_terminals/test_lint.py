@@ -6337,6 +6337,14 @@ def test_the_same_account_an_unasked_command_and_an_unstamped_config_draw_none()
     assert lint.host_identity_advisories({}, "operator") == []
 
 
+def test_the_account_whose_login_the_build_derived_the_identity_from_draws_none() -> None:
+    config = {"deployment": {"host_identity": "gmartino"}}
+    assert lint.host_identity_advisories(config, "GMartino") == []
+    assert lint.host_identity_advisories(config, "gmartino") == []
+    (said,) = lint.host_identity_advisories(config, "GMartini")
+    assert "'gmartino'" in said and "'GMartini'" in said
+
+
 def test_a_start_says_so_and_goes_on(tmp_path, monkeypatch) -> None:
     from osprey.deployment import container_lifecycle
 

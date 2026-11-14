@@ -261,6 +261,38 @@ def test_the_applications_directory_is_named_explicitly() -> None:
     assert APPS_DIRNAME in PROFILE_SOURCE_ENTRIES
 
 
+@pytest.mark.parametrize("mode", ["readonly", "readwrite"])
+def test_saved_preset_copy_writes_are_refused(project: _Project, mode: str):
+    """``.osprey/preset-base/`` decides what ``osprey init --revalidate`` rewrites.
+
+    A tier file that still holds its saved value is replaced with the preset's
+    new one, so a run that set the saved ``tiers/admin.yml`` to the operator's
+    hardened value would have the next revalidation undo the hardening.
+    """
+    from osprey.utils.workspace import PRESET_TRACKING_DIRNAME
+
+    saved = project.root / PRESET_TRACKING_DIRNAME / "preset-base" / TIERS_DIRNAME / "admin.yml"
+    saved.parent.mkdir(parents=True)
+    original = "web:\n  config_panel:\n    enabled: true\n"
+    saved.write_text(original, encoding="utf-8")
+
+    out = project.probe(
+        f"Path({str(saved)!r}).write_text('web:\\n  config_panel:\\n    enabled: false\\n')",
+        execution_mode=mode,
+    )
+    assert out.startswith("REFUSED:"), out
+    assert saved.read_text(encoding="utf-8") == original
+
+    # Relative to the repo root, the way agent code would spell it; and a
+    # repo with no saved copy yet is one where planting it is the write to refuse.
+    out = project.probe("os.remove('.osprey/preset-base/tiers/admin.yml')", execution_mode=mode)
+    assert out.startswith("REFUSED:"), out
+    assert saved.read_text(encoding="utf-8") == original
+    out = project.probe("os.makedirs('.osprey/other')", execution_mode=mode)
+    assert out.startswith("REFUSED:"), out
+    assert not (project.root / PRESET_TRACKING_DIRNAME / "other").exists()
+
+
 @pytest.mark.parametrize("form", _WRITE_FORMS, ids=lambda f: f.name)
 def test_pre_upgrade_audit_tree_writes_are_refused(project: _Project, form: _WriteForm):
     """The audit files a deployment kept before the agent record stay on disk

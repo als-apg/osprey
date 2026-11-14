@@ -1,0 +1,11 @@
+name: fixture-installed
+summary: A trivial application an installed distribution ships.
+containers:
+  fixture-installed:
+    runtime: osprey
+    command: ["python", "-m", "fixture_installed_app.tools"]
+    health: /health
+tools:
+  module: fixture_installed_app.tools
+  read: [read_fixture]
+skills: [fixture-installed]

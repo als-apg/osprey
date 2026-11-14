@@ -104,8 +104,8 @@ def derived_key_errors(config: Any, source: str = "profile.yml") -> list[str]:
         config: The profile's ``config:`` block, whatever shape it parsed as —
             dotted keys, nested mappings, or a mix. A non-mapping is somebody
             else's refusal and yields nothing here.
-        source: The file the block was read from, named in the fix — a tier or
-            app file is judged on its own block, before the merge.
+        source: The file the block was read from, named in the fix — a login
+            file is judged on its own block, before the merge.
 
     Returns:
         One error per offending spelling, naming the key, what supplies it, and

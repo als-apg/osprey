@@ -414,6 +414,29 @@ describe('a reload restores tiles, the panel each shows and sizes', () => {
     expect(JSON.parse(raw ?? '').layout).toEqual(page.holder.layout);
   });
 
+  test('a stored artifact tile is restored while the Artifacts panel is listed', async () => {
+    localStorage.setItem(
+      KEY,
+      v2({
+        split: 'row',
+        items: [
+          { tile: 't1', tabs: ['artifact:a1'], showing: 'artifact:a1', size: 0.6 },
+          { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+        ],
+      })
+    );
+
+    const { holder } = await boot(null);
+
+    expect(rounded(holder.layout)).toEqual({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['artifact:a1'], showing: 'artifact:a1', size: 0.6 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    });
+  });
+
   test('a key the dock can no longer build is closed; the rest is kept', async () => {
     localStorage.setItem(
       KEY,
@@ -605,6 +628,89 @@ describe('what dockview does on its own is read back into the holder (sizes only
     const items = holder.layout && 'items' in holder.layout ? holder.layout.items : [];
     expect(items.map((/** @type {any} */ i) => i.tile)).toEqual(['t1', 't2']);
     expect(items[0].size).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe("a tile's params are its own record in the stored dock", () => {
+  // The apply's own layout change arms the debounced write: let it land here,
+  // or this page would write over the next test's stored value.
+  afterEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
+
+  test('a docked tile’s params are stored, and a reload builds it with them', async () => {
+    const page = await boot(null);
+    await openService(page, 'artifacts');
+    expect(page.holder.setPanelParams('artifacts', { originAck: ['a1'] })).toBe(true);
+    expect(page.api.getPanel('iframe:artifacts').params).toEqual({ originAck: ['a1'] });
+    await vi.waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(KEY) ?? '{}').panels?.artifacts?.params).toEqual({
+        originAck: ['a1'],
+      })
+    );
+
+    const reloaded = await boot(null);
+    expect(reloaded.holder.panelParams('artifacts')).toEqual({ originAck: ['a1'] });
+  });
+
+  test("a session's layout brings its own params over the same tile's on screen, and back", async () => {
+    const page = await boot('carol');
+    await openService(page, 'artifact:a1');
+    page.holder.setPanelParams('artifact:a1', { originAck: 'a1' });
+    const sessionA = page.workspace.currentDock();
+    expect(sessionA?.panels['artifact:a1']?.params).toEqual({ originAck: 'a1' });
+    // Another session has the same tile, not acknowledged.
+    const sessionB = structuredClone(sessionA);
+    delete sessionB?.panels['artifact:a1'].params;
+
+    expect(page.workspace.applyDock(sessionB)).toBe(true);
+    await settle();
+    expect(page.holder.panelParams('artifact:a1')).toBeUndefined();
+    expect(page.workspace.currentDock()?.panels['artifact:a1']).not.toHaveProperty('params');
+
+    expect(page.workspace.applyDock(sessionA)).toBe(true);
+    await settle();
+    expect(page.holder.panelParams('artifact:a1')).toEqual({ originAck: 'a1' });
+  });
+
+  test('a closed tile forgets them: opened again, it has none', async () => {
+    const page = await boot(null);
+    await openService(page, 'artifacts');
+    page.holder.setPanelParams('artifacts', { originAck: ['a1'] });
+    page.workspace.closeDockPanel('artifacts');
+    await settle();
+    expect(page.holder.panelParams('artifacts')).toBeUndefined();
+    await openService(page, 'artifacts');
+    expect(page.holder.panelParams('artifacts')).toBeUndefined();
+    expect(page.workspace.currentDock()?.panels.artifacts).not.toHaveProperty('params');
+  });
+
+  test('a tile in its own window keeps them, takes new ones, and comes back with them', async () => {
+    const page = await boot(null);
+    await openService(page, 'artifacts');
+    page.holder.setPanelParams('artifacts', { originAck: ['a1'] });
+    expect(page.holder.detach('artifacts', null)).toBe(true);
+    await settle();
+    expect(page.holder.panelParams('artifacts')).toEqual({ originAck: ['a1'] });
+
+    localStorage.removeItem(KEY);
+    const heard = vi.fn();
+    page.holder.onDetachedChange(heard);
+    expect(page.holder.setPanelParams('artifacts', { originAck: ['a1', 'a2'] })).toBe(true);
+    expect(heard).toHaveBeenCalledTimes(1);
+    // Written at once, as every change of the detached panes is.
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    expect(stored.panels.artifacts.params).toEqual({ originAck: ['a1', 'a2'] });
+
+    expect(page.holder.reattach('artifacts')).toBe(true);
+    await settle();
+    expect(page.api.getPanel('iframe:artifacts').params).toEqual({ originAck: ['a1', 'a2'] });
+
+    // They came back with the tile only: closed and opened again, it has none.
+    page.workspace.closeDockPanel('artifacts');
+    await settle();
+    await openService(page, 'artifacts');
+    expect(page.holder.panelParams('artifacts')).toBeUndefined();
   });
 });
 

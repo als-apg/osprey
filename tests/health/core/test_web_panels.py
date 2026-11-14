@@ -219,6 +219,24 @@ class TestStatusMapping:
         assert rows["web_panels.plan"].status is Status.OK
 
 
+class TestDeploymentLabels:
+    """A row names a panel the way the deployment does (``web.panels.<id>.label``)."""
+
+    async def test_a_renamed_builtin_panel_is_reported_under_its_own_name(self):
+        rows = await _run(
+            _cfg({"ariel": {"enabled": True, "label": "Logbook"}, "okf": True}),
+            handler=lambda _request: httpx.Response(503),
+        )
+
+        assert rows["web_panels.ariel"].message.startswith("Logbook")
+        assert rows["web_panels.okf"].message.startswith("KNOWLEDGE")
+
+    async def test_a_renamed_sidecar_panel_is_reported_under_its_own_name(self, tmp_path):
+        rows = await _run(_cfg({"jupyter": {"label": "Notes"}}), shared_root=tmp_path)
+
+        assert rows["web_panels.jupyter"].message.startswith("Notes: not probed")
+
+
 class TestBuiltinAddressResolution:
     """The probe must resolve addresses through the one canonical resolver.
 

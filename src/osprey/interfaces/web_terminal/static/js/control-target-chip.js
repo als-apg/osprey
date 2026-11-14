@@ -71,6 +71,7 @@ import {
   resolvePendingSwitch,
   statePhrase,
   switchFailureNote,
+  switchProgress,
 } from './control-target-facts.js';
 import { withPrefix, createEventSource, pageEventsUrl } from './api.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
@@ -250,9 +251,16 @@ let stateEl = null;
 /** @type {PostureView|null} */
 let view = null;
 
-/** The request this browser is waiting on, if any. */
+/** @type {HTMLElement|null} */
+let progressEl = null;
+
+/**
+ * The request this browser is waiting on, if any. `ratio` is the furthest its
+ * progress bar has reached, so a server that starts mid-switch (one more step)
+ * cannot walk the bar backwards.
+ */
 /** @type {{requestId: string, target: string|null, generation: number|null,
- *          startedAt: number}|null} */
+ *          startedAt: number, ratio: number}|null} */
 let pending = null;
 
 /**
@@ -360,6 +368,7 @@ export function teardownControlTargetChip() {
   chip = null;
   shortEl = null;
   stateEl = null;
+  progressEl = null;
   view = null;
   pending = null;
   synthesized = null;
@@ -383,9 +392,15 @@ function buildChip() {
   stateEl = span('ctc-state');
   const caret = span('ctc-caret');
   caret.textContent = '▾';
-  for (const decoration of [dot, sep, caret]) decoration.setAttribute('aria-hidden', 'true');
+  // The pending switch's bar along the chip's bottom edge. Decoration here:
+  // the popover's row carries the same count as a `progressbar` with words.
+  progressEl = span('ctc-progress');
+  progressEl.hidden = true;
+  for (const decoration of [dot, sep, caret, progressEl]) {
+    decoration.setAttribute('aria-hidden', 'true');
+  }
 
-  el.append(dot, shortEl, sep, stateEl, caret);
+  el.append(dot, shortEl, sep, stateEl, caret, progressEl);
   el.addEventListener('click', onChipClick);
   return el;
 }
@@ -672,7 +687,7 @@ function reconcilePending() {
  * **A terminus alone is not enough to retire one**, and that is the whole
  * point. Under the fleet rule the record's `applied` terminus is normally
  * ALREADY in view when a deadline passes — the wait was on the servers, not on
- * the record — so retiring on it would flip the chip to `✓ switched` while a
+ * the record — so retiring on it would show the switch as landed while a
  * server is still on the old generation. That is the exact misreport this task
  * exists to prevent, and a connector rebuild outlasting `REQUEST_TTL_S` is an
  * ordinary way to reach it.
@@ -871,7 +886,7 @@ export function isWatchdogFrame(frame) {
  * The overlay is unconditional because {@link dropOvertakenSynthesis} has
  * already removed any synthesis the route has overtaken — including the case
  * that matters most: a terminus saying `applied` for the very request a
- * controls server then failed to apply, which would read as `✓ switched` on a
+ * controls server then failed to apply, which would read as landed on a
  * switch that did not land.
  * @returns {PostureView|null}
  */
@@ -913,7 +928,7 @@ export function subscribe(fn) {
  */
 export function markPending(requestId, target = null, generation = null) {
   if (!requestId) return;
-  pending = { requestId, target, generation, startedAt: Date.now() };
+  pending = { requestId, target, generation, startedAt: Date.now(), ratio: 0 };
   synthesized = null;
   stopIdlePolling();
   startFastPolling();
@@ -923,6 +938,29 @@ export function markPending(requestId, target = null, generation = null) {
 /** Whether a switch request is outstanding right now. */
 export function isPending() {
   return pending !== null;
+}
+
+/**
+ * How far the outstanding switch has got ({@link switchProgress}), with the
+ * `ratio` its bar is drawn at — or null when nothing is outstanding. The one
+ * count the chip's bar and the popover's row both draw, so they cannot differ.
+ * @returns {(import('./control-target-facts.js').SwitchProgress & {ratio: number})|null}
+ */
+export function pendingProgress() {
+  if (!pending) return null;
+  const progress = switchProgress(view, pending);
+  pending.ratio = Math.max(pending.ratio, progress.done / progress.total);
+  return { ...progress, ratio: pending.ratio };
+}
+
+/**
+ * Draw *ratio* on a `.ctc-progress` bar. The stylesheet owns the look; this
+ * hands it the one number.
+ * @param {HTMLElement} bar
+ * @param {number} ratio  0 to 1
+ */
+export function paintProgress(bar, ratio) {
+  bar.style.setProperty('--ctc-progress', String(Math.round(ratio * 1000) / 1000));
 }
 
 /** The chip element, for the popover to hang its listeners on. */
@@ -1080,6 +1118,11 @@ function render() {
       chip.dataset.enforceable = String(contextWritable(state));
       if (pending) chip.dataset.pending = 'true';
       else chip.removeAttribute('data-pending');
+      const progress = pendingProgress();
+      if (progressEl) {
+        progressEl.hidden = !progress;
+        if (progress) paintProgress(progressEl, progress.ratio);
+      }
       shortEl.textContent = reading.name;
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the

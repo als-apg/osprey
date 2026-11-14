@@ -4,17 +4,22 @@ The tree the loader reads::
 
     identity.yaml             {code, name?, description?}
     classes.yaml              [{class, parent, aliases?, description?}]
+    signals.yaml              [{name, aliases?, description?}]
     models.yaml               [{name, engine, deck?, settings?, wiring: [...]}]
     limits.yaml               {records}
     seeds.yaml                {<address>: {nominal?, noise?, drift?, clamp?, linear?}}
     fixes.yaml                {schema: osprey.facility.fixes/1, fixes: [...]}
-    records/<kind>s.yaml      [{id, ...}] for places, devices, channels, groups
+    documents.yaml            [{id, title?, kind?, system?}]
+    policy.yaml               {relations?: {precedence?, stated_over_inferred?}}
+    records/<kind>s.yaml      [{id, ...}] for places, devices, channels, groups,
+                              relations
     scenarios/<name>.yaml     {description?, overrides?, faults?, archiver?, logbook?,
                                drivers?, couple?, noise?, start?}
     measurement/<model>.yaml  {kinds, groups?, instruments?, <step/settle keys>}
-    imported/<layer>/         places, devices, channels, groups and models files
-                              written by one importer, beside the layer's own
-                              files (mapping.yaml), which the build never reads
+    imported/<layer>/         places, devices, channels, groups, relations and
+                              models files written by one importer, beside the
+                              layer's own files (mapping.yaml), which the build
+                              never reads; a relations.csv marks a relations layer
 
 ``records/`` and ``models.yaml`` merge as the layer ``authored``; each directory
 under ``imported/`` is the layer of that name. A layer writes only the fields
@@ -26,6 +31,8 @@ can print all of them; the result lists them in file order.
 
 from __future__ import annotations
 
+import datetime
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -42,14 +49,20 @@ from osprey_connectors import yaml_loader
 __all__ = [
     "AUTHORED",
     "COMPUTED_SLOTS",
+    "KEYED_SETS",
     "KIND_CLASS",
     "LAYER_OWN_FILES",
     "RECORD_FILES",
+    "RELATIONS_MARK",
     "SET_VALUED_SLOTS",
     "LoadResult",
     "SourceRecord",
     "Sources",
+    "citation_dates",
+    "facility_signals",
     "group_families",
+    "keyed_clashes",
+    "keyed_order",
     "load_sources",
     "slot_names",
 ]
@@ -63,18 +76,24 @@ RECORD_FILES: dict[str, str] = {
     "devices.yaml": "device",
     "channels.yaml": "channel",
     "groups.yaml": "group",
+    "relations.yaml": "relation",
 }
 
 #: The files a layer keeps for itself under its directory: a layer's own
 #: decisions file is read by that layer's importer, never by the build.
 LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 
+#: The table the relations importer always copies into its layer; a layer
+#: directory holding it is a relations layer.
+RELATIONS_MARK = "relations.csv"
+
 #: The slots the build alone writes, per record kind.
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "place": frozenset({"provenance"}),
     "device": frozenset({"ordinalInPlace", "ordinalInModel", "groups", "provenance"}),
-    "channel": frozenset({"provenance"}),
+    "channel": frozenset({"command", "provenance"}),
     "group": frozenset({"provenance"}),
+    "relation": frozenset({"standing", "contests", "provenance"}),
     "model": frozenset({"provenance"}),
     "wiring": frozenset(
         {
@@ -91,7 +110,8 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     ),
 }
 
-#: The multivalued slots that are sets: compared and written sorted by string form.
+#: The multivalued slots that are sets: compared and written sorted by string form,
+#: except the keyed sets of ``KEYED_SETS``.
 SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("Place", "names"),
@@ -105,13 +125,132 @@ SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
         ("Device", "groups"),
         ("Wiring", "marks"),
         ("Measurement", "kinds"),
-        ("MeasurementGroups", "bpm"),
-        ("MeasurementGroups", "hcor"),
-        ("MeasurementGroups", "vcor"),
-        ("MeasurementGroups", "quad"),
-        ("MeasurementGroups", "sext"),
+        ("Place", "scheme_names"),
+        ("Place", "citations"),
+        ("Device", "scheme_names"),
+        ("Device", "citations"),
+        ("Relation", "contests"),
     }
 )
+
+#: The set slots whose entries are maps, and the fields that key an entry. An
+#: absent (or null) key field is its own value. Identical entries are one entry,
+#: the set is ordered by key, and one key with two contents is refused.
+KEYED_SETS: dict[str, tuple[str, ...]] = {
+    "scheme_names": ("name", "scheme"),
+    "citations": ("document", "version", "locator"),
+}
+
+
+def _plain(value: Any) -> Any:
+    """A value json can write with sorted keys: a map with a non-string key becomes
+    a tagged list of its entries, each key spelled canonically."""
+    if isinstance(value, dict):
+        if all(isinstance(k, str) for k in value):
+            return {k: _plain(v) for k, v in value.items()}
+        return {"\u0000map": sorted([_canonical(k), _plain(v)] for k, v in value.items())}
+    if isinstance(value, list | tuple):
+        return [_plain(v) for v in value]
+    return value
+
+
+def _canonical(value: Any) -> str:
+    """A value's text independent of map key order; ``1``, ``"1"`` and ``True`` differ.
+
+    Total: a map with non-string keys, at any depth, has a text too.
+    """
+    return json.dumps(_plain(value), sort_keys=True, default=str)
+
+
+def _is_entry(entry: Any) -> bool:
+    """A keyed-set entry the set compares: a map with string keys only. Any other
+    entry is left for the schema stage, which reports it."""
+    return isinstance(entry, dict) and all(isinstance(k, str) for k in entry)
+
+
+def _content(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """An entry without its null fields: a null field and an absent one are one content."""
+    return {k: v for k, v in entry.items() if v is not None}
+
+
+def _entry_key(slot: str, entry: Mapping[str, Any]) -> tuple[tuple[int, str], ...]:
+    """An entry's key, sortable: an absent field orders before any present value."""
+    return tuple(
+        (0, "") if entry.get(name) is None else (1, _canonical(entry[name]))
+        for name in KEYED_SETS[slot]
+    )
+
+
+def keyed_order(slot: str, entries: list[Any]) -> list[Any]:
+    """A keyed set in its compared and written form.
+
+    Identical map entries collapse (a null field counting as absent, and
+    written so), and the maps are ordered by key, then by content; an entry
+    that is not a map with string keys is left for the schema stage and
+    written after them, ordered by string form.
+    """
+    maps: dict[str, Any] = {}
+    rest = []
+    for entry in entries:
+        if _is_entry(entry):
+            content = _content(entry)
+            maps.setdefault(_canonical(content), content)
+        else:
+            rest.append(entry)
+    ordered = sorted(maps.items(), key=lambda item: (_entry_key(slot, item[1]), item[0]))
+    return [entry for _, entry in ordered] + sorted(rest, key=str)
+
+
+def keyed_clashes(slot: str, entries: Any) -> list[str]:
+    """Each key of a keyed set that has two contents, spelled for an error line."""
+    if slot not in KEYED_SETS or not isinstance(entries, list):
+        return []
+    contents: dict[tuple[tuple[int, str], ...], set[str]] = {}
+    spelled: dict[tuple[tuple[int, str], ...], str] = {}
+    for entry in entries:
+        if not _is_entry(entry):
+            continue
+        key = _entry_key(slot, entry)
+        contents.setdefault(key, set()).add(_canonical(_content(entry)))
+        spelled[key] = ", ".join(
+            f"no {name}" if entry.get(name) is None else f"{name} {entry[name]}"
+            for name in KEYED_SETS[slot]
+        )
+    return [spelled[key] for key in sorted(contents) if len(contents[key]) > 1]
+
+
+def _citation_text(citation: Any) -> Any:
+    """A citation with its ``imported`` date as ISO text."""
+    if isinstance(citation, dict) and isinstance(citation.get("imported"), datetime.date):
+        return {**citation, "imported": citation["imported"].isoformat()}
+    return citation
+
+
+def citation_dates(kind: str, fields: Mapping[str, Any]) -> dict[str, Any]:
+    """A record's fields with every ``Citation.imported`` date as its ISO text.
+
+    YAML reads an unquoted date as a date; written as text, it is one content
+    with the equal quoted string, and ``facility.json`` can hold it. Covers a
+    place's or device's ``citations`` and ``scheme_names[].source``, and a
+    relation's ``source``; any other shape is left as found.
+    """
+    out = dict(fields)
+    if kind in ("place", "device"):
+        citations = out.get("citations")
+        if isinstance(citations, list):
+            out["citations"] = [_citation_text(c) for c in citations]
+        aliases = out.get("scheme_names")
+        if isinstance(aliases, list):
+            out["scheme_names"] = [
+                {**a, "source": _citation_text(a["source"])}
+                if isinstance(a, dict) and "source" in a
+                else a
+                for a in aliases
+            ]
+    elif kind == "relation" and "source" in out:
+        out["source"] = _citation_text(out["source"])
+    return out
+
 
 #: The schema class each record kind is shaped by.
 KIND_CLASS: dict[str, str] = {
@@ -121,16 +260,20 @@ KIND_CLASS: dict[str, str] = {
     "group": "Group",
     "model": "Model",
     "wiring": "Wiring",
+    "relation": "Relation",
 }
 
 _TOP_FILES = frozenset(
     {
         "identity.yaml",
         "classes.yaml",
+        "signals.yaml",
         "models.yaml",
         "limits.yaml",
         "seeds.yaml",
         "fixes.yaml",
+        "documents.yaml",
+        "policy.yaml",
     }
 )
 
@@ -223,7 +366,8 @@ class SourceRecord:
     """One record as one layer states it.
 
     Attributes:
-        kind: ``place``, ``device``, ``channel``, ``group``, ``model`` or ``wiring``.
+        kind: ``place``, ``device``, ``channel``, ``group``, ``relation``, ``model``
+            or ``wiring``.
         id: The record's id; a model's name; a wiring record's ``<model>/<address>``.
         layer: The layer that wrote it.
         file: The file it came from, relative to ``data/facility/``.
@@ -245,6 +389,7 @@ class Sources:
     Attributes:
         identity: ``identity.yaml`` without its header, or ``None`` when absent.
         classes: ``classes.yaml``'s records, in file order.
+        signals: ``signals.yaml``'s records, in file order.
         records: Every layer's records, ordered by layer, file and position.
         seeds: ``seeds.yaml``, address to seed record.
         limits: ``limits.yaml`` without its header, or ``None`` when absent or
@@ -253,16 +398,26 @@ class Sources:
             sorted by name.
         measurement: ``measurement/<model>.yaml``, model name to its record.
         fixes: ``fixes.yaml``'s document as parsed, or ``None`` when absent.
+        documents: ``documents.yaml``'s records, in file order.
+        policy: ``policy.yaml`` without its header, or ``None`` when absent or
+            holding nothing but a header or comments. Key- and value-checked
+            against the declared document kinds; never written into the facility file.
+        relations_layers: The imported layers whose directory holds
+            ``relations.csv``, the relations importer's mark.
     """
 
     identity: dict[str, Any] | None = None
     classes: list[dict[str, Any]] = field(default_factory=list)
+    signals: list[dict[str, Any]] = field(default_factory=list)
     records: list[SourceRecord] = field(default_factory=list)
     seeds: dict[str, dict[str, Any]] = field(default_factory=dict)
     limits: dict[str, Any] | None = None
     scenarios: list[dict[str, Any]] = field(default_factory=list)
     measurement: dict[str, dict[str, Any]] = field(default_factory=dict)
     fixes: Any = None
+    documents: list[dict[str, Any]] = field(default_factory=list)
+    policy: dict[str, Any] | None = None
+    relations_layers: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -295,6 +450,25 @@ def load_sources(facility_dir: Path) -> LoadResult:
     return _Reader(facility_dir).read()
 
 
+def facility_signals(facility_dir: Path) -> list[dict[str, Any]]:
+    """The signal roles a facility directory's ``signals.yaml`` adds.
+
+    For a reader that runs before any combined document exists (the MML
+    import). A row the build refuses is left out; ``osprey build`` reports it.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+
+    Returns:
+        The accepted ``signals.yaml`` rows, in file order; none when the file or
+        the directory is absent.
+    """
+    reader = _Reader(facility_dir)
+    if facility_dir.is_dir():
+        reader._read_signals()
+    return reader.sources.signals
+
+
 class _Reader:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -310,6 +484,7 @@ class _Reader:
                 self._path_error(path.name, "is not a facility source file", "remove or rename it")
         self._read_identity()
         self._read_classes()
+        self._read_signals()
         self._read_layer(AUTHORED, root / "records", root / "models.yaml")
         imported = root / "imported"
         if imported.is_dir():
@@ -322,6 +497,8 @@ class _Reader:
         fixes = self._parse(root / "fixes.yaml")
         if fixes is not _ABSENT:
             self.sources.fixes = fixes
+        self._read_documents()
+        self._read_policy()
         self._check_duplicates()
         self._check_model_names()
         return LoadResult(self.sources, self.errors)
@@ -399,6 +576,36 @@ class _Reader:
             self._check_keys(row, "FacilityClass", (), "path", f"{rel}.{index}", rel)
             self.sources.classes.append(row)
 
+    def _read_signals(self) -> None:
+        from osprey.facility.validate import signal_roles
+
+        rel = "signals.yaml"
+        built_in = signal_roles()
+        declared: dict[str, str] = {}
+        for index, row in enumerate(self._list(self.root / rel) or []):
+            where = f"{rel}.{index}"
+            if not isinstance(row, dict):
+                self._path_error(where, "is not a mapping", "write it as a mapping")
+                continue
+            self._check_keys(row, "FacilitySignal", (), "path", where, rel)
+            name = str(row.get("name"))
+            if name in built_in:
+                self._path_error(
+                    where,
+                    f"{rel} role {name} shadows the vocabulary signal role {name}",
+                    f"remove {name} from {rel} and use the vocabulary role",
+                )
+                continue
+            if name in declared:
+                self._path_error(
+                    where,
+                    f"{where} role {name} shadows {declared[name]} role {name}",
+                    f"declare {name} once in {rel}",
+                )
+                continue
+            declared[name] = where
+            self.sources.signals.append(row)
+
     def _read_imported(self, layer_dir: Path) -> None:
         layer = layer_dir.name
         if layer == AUTHORED:
@@ -413,6 +620,8 @@ class _Reader:
                 continue
             if path.name not in RECORD_FILES and path.name != "models.yaml":
                 self._path_error(self._rel(path), "is not a layer file", "remove or rename it")
+        if (layer_dir / RELATIONS_MARK).is_file():
+            self.sources.relations_layers |= {layer}
         self._read_layer(layer, layer_dir, layer_dir / "models.yaml")
 
     def _read_layer(self, layer: str, records_dir: Path, models_file: Path) -> None:
@@ -447,6 +656,7 @@ class _Reader:
         rid = self._record_id(row, "id", rel, index)
         if rid is None:
             return
+        row = citation_dates(kind, row)
         self._check_keys(row, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
         if kind == "channel":
             on = row.get("on")
@@ -458,6 +668,18 @@ class _Reader:
                     rel,
                     "`on` names both a device and a place",
                     f"keep one of `device` and `place` in {rel}",
+                )
+        for slot in sorted(KEYED_SETS):
+            if (KIND_CLASS[kind], slot) not in SET_VALUED_SLOTS:
+                continue
+            for key in keyed_clashes(slot, row.get(slot)):
+                self._error(
+                    "source-invalid",
+                    kind,
+                    rid,
+                    rel,
+                    f"`{slot}` states two contents for key {key}",
+                    f"keep one entry per key in `{slot}` in {rel}",
                 )
         fields = {k: v for k, v in row.items() if k != "id"}
         self.sources.records.append(SourceRecord(kind, rid, layer, rel, fields))
@@ -525,6 +747,113 @@ class _Reader:
             if isinstance(row, dict):
                 self._check_keys(row, "LimitRecord", (), "path", f"{rel}.records.{index}", rel)
         self.sources.limits = data
+
+    def _read_documents(self) -> None:
+        rel = "documents.yaml"
+        rows = self._list(self.root / rel)
+        first: dict[str, int] = {}
+        for index, row in enumerate(rows or []):
+            rid = self._record_id(row, "id", rel, index)
+            if rid is None:
+                continue
+            self._check_keys(row, "Document", (), "document", rid, rel)
+            if rid in first:
+                self._error(
+                    "source-invalid",
+                    "document",
+                    rid,
+                    rel,
+                    f"{rel} states the id twice (entries {first[rid]} and {index})",
+                    f"keep one document per id in {rel}",
+                )
+                continue
+            first[rid] = index
+            self.sources.documents.append(row)
+
+    def _read_policy(self) -> None:
+        from osprey.facility.validate import relation_types
+
+        rel = "policy.yaml"
+        data = self._mapping(self.root / rel)
+        if not data:
+            return
+        self._check_policy_keys(data, slot_names("Policy"), rel)
+        relations = data.get("relations")
+        if relations is not None:
+            where = f"{rel}.relations"
+            if self._policy_mapping(relations, where):
+                self._check_policy_keys(relations, slot_names("RelationPolicy"), where)
+                precedence = relations.get("precedence")
+                where = f"{where}.precedence"
+                if precedence is not None and self._policy_mapping(precedence, where):
+                    allowed = frozenset({"default", *relation_types()})
+                    self._check_policy_keys(precedence, allowed, where)
+                    for key, kinds in precedence.items():
+                        if key in allowed:
+                            self._check_precedence(key, kinds, f"{where}.{key}")
+                ranked = relations.get("stated_over_inferred")
+                if "stated_over_inferred" in relations and not isinstance(ranked, bool):
+                    self._path_error(
+                        f"{rel}.relations.stated_over_inferred",
+                        f"is {ranked!r}, not true or false",
+                        "write true or false",
+                    )
+        self.sources.policy = data
+
+    def _check_precedence(self, key: str, kinds: Any, where: str) -> None:
+        """Check one precedence list: distinct non-empty strings, each a declared document kind.
+
+        ``default`` may instead be the string ``undecided`` (no ranking). Runs after
+        ``documents.yaml`` is read, so the declared kinds are known.
+        """
+        if key == "default" and kinds == "undecided":
+            return
+        if not isinstance(kinds, list):
+            accepted = "a list of document kinds"
+            if key == "default":
+                accepted += " or `undecided`"
+            self._path_error(where, f"is not {accepted}", f"write {accepted}")
+            return
+        declared = {
+            row["kind"] for row in self.sources.documents if isinstance(row.get("kind"), str)
+        }
+        seen: set[str] = set()
+        for index, kind in enumerate(kinds):
+            if not isinstance(kind, str) or not kind.strip():
+                self._path_error(
+                    where,
+                    f"entry {index} is {kind!r}, not a document kind",
+                    "list document kinds as non-empty strings",
+                )
+            elif kind in seen:
+                self._path_error(where, f"lists `{kind}` twice", f"keep one `{kind}` in {where}")
+            elif not self.sources.documents:
+                self._path_error(
+                    where,
+                    f"lists `{kind}`, but no documents.yaml declares documents",
+                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                )
+            elif kind not in declared:
+                self._path_error(
+                    where,
+                    f"lists `{kind}`, which no document in documents.yaml has as its kind",
+                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                )
+            if isinstance(kind, str):
+                seen.add(kind)
+
+    def _policy_mapping(self, value: Any, where: str) -> bool:
+        if isinstance(value, dict):
+            return True
+        self._path_error(where, "is not a mapping", "write it as a mapping")
+        return False
+
+    def _check_policy_keys(
+        self, data: Mapping[str, Any], allowed: frozenset[str], where: str
+    ) -> None:
+        for key in data:
+            if key not in allowed:
+                self._path_error(where, f"unknown key `{key}`", f"remove `{key}` from {where}")
 
     def _read_scenarios(self) -> None:
         folder = self.root / "scenarios"

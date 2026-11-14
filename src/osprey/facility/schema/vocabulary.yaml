@@ -403,6 +403,92 @@ enums:
           unit: m
         aliases: [length, element length, physical element length, device length, active length]
 
+  relation_type_enum:
+    description: >-
+      The closed set of relation types a relation claim names. Each value
+      carries its ends as annotations: `subject` and `object` list the end kinds
+      (device, place, group) the type accepts, `symmetric` is true when the two
+      ends are interchangeable, and `single_per` lists the key fields under which
+      a subject has at most one object (absent: no limit).
+    permissible_values:
+      part_of:
+        description: The subject device is a component of the object device (a module in a chassis).
+        annotations:
+          subject: device
+          object: device
+          single_per: subject
+      located_in:
+        description: The subject device sits in the object place, as a source states it.
+        annotations:
+          subject: device
+          object: place
+          single_per: subject
+      powered_by:
+        description: The subject draws its electrical power from the object.
+        annotations:
+          subject: device place
+          object: device place
+          single_per: subject port
+      cabled_to:
+        description: One cable joins the two ends.
+        annotations:
+          subject: device place
+          object: device place
+          symmetric: true
+          single_per: attributes.cable
+      read_out_by:
+        description: The subject sensor is read by the object electronics.
+        annotations:
+          subject: device
+          object: device place
+          single_per: subject port
+      controlled_by:
+        description: The subject device is commanded by the object application or controller.
+        annotations:
+          subject: device
+          object: device place
+      triggered_by:
+        description: The subject takes its trigger from the object, typically a timing channel.
+        annotations:
+          subject: device place
+          object: device place
+          single_per: subject port
+      interlocked_by:
+        description: The subject device is inhibited by the object interlock.
+        annotations:
+          subject: device
+          object: device place
+      bounded_by:
+        description: The subject group or place is bounded by the object device.
+        annotations:
+          subject: group place
+          object: device
+      networked_to:
+        description: The two ends share a network link.
+        annotations:
+          subject: device place
+          object: device place
+          symmetric: true
+          single_per: subject port
+      supplied_by:
+        description: The subject device draws a non-electrical service (cooling water, compressed air, gas) from the object.
+        annotations:
+          subject: device
+          object: device
+          single_per: subject attributes.medium
+      same_as:
+        description: The two device records may be one device; their identity is unresolved.
+        annotations:
+          subject: device
+          object: device
+          symmetric: true
+      runs_on:
+        description: The subject application runs on the object host.
+        annotations:
+          subject: device
+          object: device
+          single_per: subject
+
 classes:
   AcceleratorDevice:
     description: Abstract root for all accelerator devices.
@@ -616,3 +702,41 @@ classes:
   TimingReference:
     is_a: Instrumentation
     description: Master phase / timing reference distributed to downstream timing channels.
+
+  Infrastructure:
+    is_a: AcceleratorDevice
+    description: Abstract root for the supplies, electronics, hosts, networks, applications and services the beam devices depend on.
+    abstract: true
+    aliases: [infrastructure]
+
+  PowerSupply:
+    is_a: Infrastructure
+    description: A supply that delivers electrical power to a device.
+
+  ElectronicsChassis:
+    is_a: Infrastructure
+    description: A chassis or crate holding electronics modules.
+
+  Host:
+    is_a: Infrastructure
+    description: A computer that runs control applications.
+
+  NetworkSwitch:
+    is_a: Infrastructure
+    description: A switch joining network links.
+
+  ControlApplication:
+    is_a: Infrastructure
+    description: A control application or controller that commands devices.
+
+  Circuit:
+    is_a: Infrastructure
+    description: An electrical circuit, breaker or panel in a power distribution chain.
+
+  UtilityLoop:
+    is_a: Infrastructure
+    description: A loop supplying a non-electrical service such as cooling water, compressed air or gas.
+
+  Unidentified:
+    is_a: AcceleratorDevice
+    description: Named by a source as a relation end; nothing else is known.

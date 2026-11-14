@@ -71,6 +71,7 @@
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { markPageReadyOnceParsed } from './page-ready.js';
 
 import {
   DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
@@ -612,6 +613,10 @@ function _attachMediaQueryListener() {
  * Terminal or a Plotly chart) -- theme-boot.js has already set
  * data-theme pre-paint, but subscribers only exist after this runs.
  *
+ * It is also the shared page start-up: it arranges the page-ready mark for
+ * once the document's DOMContentLoaded handlers have run, unless the page's
+ * markup says `data-page-ready="pending"` (page-ready.js).
+ *
  * @param {{role?: 'hub'|'follower'}} [options]
  */
 export function initTheme({ role = 'follower' } = {}) {
@@ -657,6 +662,9 @@ export function initTheme({ role = 'follower' } = {}) {
     _applyTheme(initial);
     _attachMessageListener();
   }
+  // Every page that runs the theme runtime gets the page-ready mark from here,
+  // unless its markup declared late dressing (page-ready.js).
+  markPageReadyOnceParsed();
 }
 
 /**

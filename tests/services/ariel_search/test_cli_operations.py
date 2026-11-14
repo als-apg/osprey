@@ -138,7 +138,7 @@ def _patch_service(monkeypatch, service):
     """Route ``create_ariel_service`` to return *service*."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(_config):
+    async def _fake_create(_config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         return service
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
@@ -148,7 +148,7 @@ def _patch_service_raises(monkeypatch, exc):
     """Route ``create_ariel_service`` to raise *exc*."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(_config):
+    async def _fake_create(_config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
         raise exc
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
@@ -828,7 +828,7 @@ class TestGetStatusEntryExpansion:
 
         calls = []
 
-        async def _fake_create(config):
+        async def _fake_create(config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             calls.append(config)
             raise AssertionError("the database must not be reached")
 
@@ -849,7 +849,7 @@ class TestGetStatusEntryExpansion:
         seen = []
         service = _StubService(repository=_status_repo())
 
-        async def _fake_create(config):
+        async def _fake_create(config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             seen.append(config)
             return service
 

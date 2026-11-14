@@ -72,6 +72,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.agent_record.identities import host_identity
 from osprey.deployment.web_terminals.roster import authored_people
 from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import session_hold_dir
@@ -334,8 +335,22 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _roster_enabled(cfg: Mapping[str, Any]) -> bool:
+    return bool(_as_dict(_as_dict(cfg.get("modules")).get("web_terminals")).get("enabled"))
+
+
+def _single_user_login(cfg: Mapping[str, Any]) -> str:
+    """The one login of a deployment without the stack.
+
+    The host identity the build recorded, which is the name host launches act
+    under whichever account runs them; the acting identity for a config no
+    build stamped.
+    """
+    return host_identity(cfg) or acting_identity()
+
+
 def _logins(cfg: Mapping[str, Any]) -> list[tuple[str, str | None]]:
-    """``(login, tier)`` per login; the acting identity alone without the stack."""
+    """``(login, tier)`` per login; the single-user login alone without the stack."""
     wt = _as_dict(_as_dict(cfg.get("modules")).get("web_terminals"))
     if wt.get("enabled"):
         default = wt.get("default_tier")
@@ -346,7 +361,7 @@ def _logins(cfg: Mapping[str, Any]) -> list[tuple[str, str | None]]:
                 tier = user.get("tier") or default
                 out.append((user["name"], tier if isinstance(tier, str) else None))
         return out
-    return [(acting_identity(), None)]
+    return [(_single_user_login(cfg), None)]
 
 
 def _agent_data_root(cfg: Mapping[str, Any], repo: Path) -> Path:
@@ -362,7 +377,8 @@ def _login_dir(cfg: Mapping[str, Any], repo: Path, login: str) -> Path | None:
         return Path(tree) / login
     bound = posture_store.bound_state_dir()
     if bound is not None:
-        return bound if login == acting_identity() else None
+        own = acting_identity() if _roster_enabled(cfg) else _single_user_login(cfg)
+        return bound if login == own else None
     return _agent_data_root(cfg, repo) / posture_store.STATE_DIR_NAME / login
 
 

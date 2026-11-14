@@ -379,3 +379,84 @@ async def test_a_transcript_root_is_live_while_written_and_idle_after(
 
         row = await _eventually(modified_again)
         assert row["stopped"], "written within 5 minutes, nothing committed for longer"
+
+
+# --- the stopped threshold override ----------------------------------------------------
+
+
+async def test_the_stopped_threshold_is_five_minutes_unless_overridden(
+    config, env, tmp_path, monkeypatch
+):
+    assert c.STOPPED_AFTER == timedelta(minutes=5)
+    _Jobs(monkeypatch)
+    spool = tmp_path / "spool"
+    _sealed(spool / "alice", _line())
+    app = service.create_app(config=config, backend=_Down(), env=env)
+    async with _serving(app) as client:
+
+        async def backlog():
+            source = (await _sources(client))["spool"]["sources"].get(str(spool / "alice"))
+            return source if source and source["backlog_lines"] else None
+
+        await _eventually(backlog)
+        _Clock(monkeypatch, timedelta(minutes=4))
+        body = await _sources(client)
+    assert body["stopped_after_s"] is None
+    assert not body["spool"]["sources"][str(spool / "alice")]["stopped"]
+
+
+async def test_a_stopped_threshold_override_replaces_the_five_minutes_and_is_warned_about(
+    config, env, tmp_path, monkeypatch, caplog
+):
+    env[service.STOPPED_AFTER_ENV] = "30"
+    _Jobs(monkeypatch)
+    spool = tmp_path / "spool"
+    _sealed(spool / "alice", _line())
+    app = service.create_app(config=config, backend=_Down(), env=env)
+    with caplog.at_level("WARNING", logger=service.__name__):
+        async with _serving(app) as client:
+
+            async def backlog():
+                source = (await _sources(client))["spool"]["sources"].get(str(spool / "alice"))
+                return source if source and source["backlog_lines"] else None
+
+            source = await _eventually(backlog)
+            assert not source["stopped"], "measured from the service start"
+            _Clock(monkeypatch, timedelta(seconds=20))
+            body = await _sources(client)
+            assert body["stopped_after_s"] == 30.0
+            assert not body["spool"]["sources"][str(spool / "alice")]["stopped"]
+            _Clock(monkeypatch, timedelta(seconds=40))
+            source = (await _sources(client))["spool"]["sources"][str(spool / "alice")]
+            assert source["stopped"] and not source["idle"]
+    assert any(service.STOPPED_AFTER_ENV in record.getMessage() for record in caplog.records)
+
+
+async def test_a_stopped_threshold_override_is_a_transcript_roots_live_window_too(
+    config, env, backend, tmp_path, monkeypatch
+):
+    env[service.STOPPED_AFTER_ENV] = "30"
+    _Jobs(monkeypatch)
+    root = "alice-claude-projects"
+    transcript = tmp_path / "transcripts" / root / "-data-workspace" / "sess-1.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_bytes(b'{"partial": ')  # never a complete line, so never committed
+    app = service.create_app(config=config, backend=backend, env=env)
+    async with _serving(app) as client:
+
+        async def seen():
+            row = (await _sources(client))["transcripts"][root]
+            return row if row["last_modified"] else None
+
+        row = await _eventually(seen)
+        assert (row["live"], row["stopped"], row["idle"]) == (True, False, False)
+        _Clock(monkeypatch, timedelta(seconds=40))
+        row = (await _sources(client))["transcripts"][root]
+        assert (row["live"], row["stopped"], row["idle"]) == (False, False, True)
+
+
+@pytest.mark.parametrize("raw", ["soon", "0", "-5", "nan", "inf", "30s"])
+def test_a_stopped_threshold_that_is_not_seconds_above_zero_is_refused(config, env, raw):
+    env[service.STOPPED_AFTER_ENV] = raw
+    with pytest.raises(ValueError, match=service.STOPPED_AFTER_ENV):
+        service.create_app(config=config, env=env)

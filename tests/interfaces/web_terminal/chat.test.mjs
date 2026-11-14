@@ -162,6 +162,16 @@ const one = (selector) => container.querySelector(selector);
 /** @param {string} selector */
 const textOf = (selector) => one(selector)?.textContent ?? '';
 
+/**
+ * Click the console's `+`: the session model's guarded switch (the real one)
+ * calls back into the console, which moves the pointer to a minted key.
+ */
+async function clickNew() {
+  const before = localStorage.getItem(STORAGE_KEY);
+  /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+  await vi.waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).not.toBe(before));
+}
+
 /** Every rendered log entry's text, in order. */
 const logEntries = () =>
   [...container.querySelectorAll('.op-bubble, .op-entry-body')].map((el) => el.textContent?.trim());
@@ -296,8 +306,7 @@ describe('initChat binding', () => {
     expect(logEntries()).toEqual(['old talk']);
 
     transport.fetchHistory.mockClear();
-    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
-    await Promise.resolve();
+    await clickNew();
 
     const minted = localStorage.getItem(STORAGE_KEY);
     expect(minted).toMatch(/^[0-9a-f-]{36}$/);
@@ -306,6 +315,18 @@ describe('initChat binding', () => {
     expect(notifySessionChange).toHaveBeenLastCalledWith(minted);
     // A key minted this instant has no transcript worth asking for.
     expect(transport.fetchHistory).not.toHaveBeenCalled();
+  });
+
+  test('"New conversation" starts the session through the session model, as every way does', async () => {
+    await mountChat({ pointer: 'K1' });
+    const model =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-model.js');
+    const seen = vi.fn();
+    model.subscribe(seen);
+
+    await clickNew();
+
+    expect(seen).toHaveBeenCalledWith({ reason: 'new' });
   });
 });
 
@@ -1178,7 +1199,7 @@ describe('following a turn on the live feed', () => {
     attachFile('shot.png');
     await settle();
 
-    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+    await clickNew();
     await settle();
 
     expect(trayNames()).toEqual([]);
@@ -1489,7 +1510,7 @@ describe('minting a session key without crypto.randomUUID', () => {
     await mountChat();
     const first = localStorage.getItem(STORAGE_KEY);
 
-    /** @type {HTMLButtonElement} */ (one('.op-session-new')).click();
+    await clickNew();
 
     const second = localStorage.getItem(STORAGE_KEY);
     expect(second).not.toBe(first);

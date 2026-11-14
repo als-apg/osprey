@@ -28,6 +28,7 @@ import httpx
 import pytest
 
 from osprey.interfaces.bluesky_web.app import app
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.bluesky_web.conftest import STUB_BRIDGE_URL, _stub_bridge
 
 try:
@@ -110,6 +111,7 @@ def test_single_lane_deployment_shows_no_picker(
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/", wait_until="load")
+            wait_for_page_ready(page)
             expect(page.locator("#queue-state-chip")).to_be_visible(timeout=_PANEL_SETTLE_MS)
             expect(page.locator("#lane-select")).to_be_hidden()
             expect(page.locator("#lane-banner")).to_be_hidden()
@@ -132,6 +134,7 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
+            wait_for_page_ready(page)
 
             picker = page.locator("#lane-select")
             expect(picker).to_be_visible(timeout=_PANEL_SETTLE_MS)
@@ -162,6 +165,7 @@ def test_picker_switches_back_to_lane_one_by_navigation(
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
+            wait_for_page_ready(page)
             picker = page.locator("#lane-select")
             expect(picker).to_be_visible(timeout=_PANEL_SETTLE_MS)
 

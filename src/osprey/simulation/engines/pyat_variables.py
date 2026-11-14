@@ -20,8 +20,18 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   ``axis``, in the hardware units the facility publishes it in.
 * :class:`EnergyVariable` -- the deck energy (``attribute: energy``, no
   element), driven by the bend's own hardware setpoint through its curve.
+* :class:`RFSwitchVariable` -- the ring's RF switch (``signal: rf_switch``,
+  no element): zero sets every cavity's voltage to zero, anything else puts
+  back the voltages the deck holds. :func:`rf_on` reads it as a boolean.
+* :class:`TurnSetpointVariable` -- a turn-by-turn setting (``signal: arm``,
+  ``pilot_tone`` or ``stored``) that holds what is written and touches no
+  element. :func:`pilot_tone_on` reads the tone as a boolean.
+* :class:`TurnStateVariable` and :class:`TurnArrayVariable` -- a turn-by-turn
+  ring's model state (``armed``, ``turns_tracked``; ``turn_x``, ``turn_y``,
+  ``turn_sum``), read-only, each reading the turn state its model binds it to.
 
-:func:`variable_from_wiring` picks the class from the engine block.
+:func:`variable_from_wiring` picks the class from the engine block; the
+engine's build constructs the RF switch itself, from the model's lattice.
 
 Each slice share is one reading of the same arithmetic: a write puts the
 physics value times the slice's weight on the element, and a read divides the
@@ -67,10 +77,10 @@ built on one is refused at construction.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lume.actions import ReadOnlyActionMixin, WritableActionMixin
-from lume.variables import EnumVariable, NDVariable
+from lume.variables import EnumVariable, NDVariable, ScalarVariable
 from lume_pyat.actions import (
     ElementBinding,
     PyATLatticeScalarVariable,
@@ -90,13 +100,16 @@ from osprey.simulation.engines.calibration import (
     to_physics,
 )
 from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
+from osprey.simulation.engines.pyat_turn_settings import ARRAY_SIGNALS, SETTING_SIGNALS, SIGNALS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
 
     import at
-    from lume.variables import ScalarVariable
     from lume_pyat.actions import SnapshotTarget
+    from lume_pyat.model import LUMEPyATModel
+
+    from osprey.simulation.engines.pyat_turn_state import TurnState
 
 #: pyAT holds the deck energy in electron-volts; the rigidity expression is in
 #: GeV.
@@ -110,6 +123,12 @@ ENERGY_ATTRIBUTE = "energy"
 #: strength's polynomial coefficient.
 KICK_ATTRIBUTE = "KickAngle"
 FREQUENCY_ATTRIBUTE = "Frequency"
+
+#: The engine-block signal of the ring's RF switch.
+RF_SWITCH_SIGNAL = "rf_switch"
+
+#: The engine-block signal of the ring's pilot tone.
+PILOT_TONE_SIGNAL = "pilot_tone"
 
 EnergyScaling = Literal["brho", "none"]
 
@@ -731,6 +750,107 @@ class EnergyVariable(PyATLatticeScalarVariable):
         return self.deck_energy_gev * to_physics(self.calibration, value) / reference
 
 
+class RFSwitchVariable(PyATLatticeScalarVariable):
+    """The ring's RF switch: zero turns every cavity off, anything else on.
+
+    Off writes a voltage of zero on every ``at.RFCavity``; on writes back the
+    voltage each cavity held in the deck, captured once at construction from
+    the model's own lattice, so off then on restores them exactly however
+    often it is repeated. The deck voltages are a construction constant, not
+    a retained setpoint: the lattice still carries the switch's state.
+
+    It touches nothing but the cavity voltages -- not the ring energy the
+    lattice-level base writes -- and declares exactly those as its snapshot
+    targets, so a batch the model rolls back puts the voltages back too.
+
+    Attributes:
+        deck_voltages: Each cavity's deck voltage, in volts, keyed by its
+            index in the lattice.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    deck_voltages: dict[int, float]
+
+    @model_validator(mode="after")
+    def _check_the_cavities(self) -> RFSwitchVariable:
+        """Refuse a switch with no cavity to switch."""
+        if not self.deck_voltages:
+            raise ValueError(f"RF switch {self.name!r}: the deck holds no RF cavities to switch")
+        return self
+
+    @classmethod
+    def from_wiring(
+        cls, record: Any, *, lattice: at.Lattice, **scalar_fields: Any
+    ) -> RFSwitchVariable:
+        """Build the RF switch one wiring record describes, over a model's lattice.
+
+        Args:
+            record: The wiring record: ``address``, the engine block's
+                ``signal: rf_switch`` and no element, and the computed
+                ``default`` -- on (``1``) when it states none.
+            lattice: The model's own lattice, still at the deck's voltages.
+            **scalar_fields: ``ScalarVariable`` fields, each winning over the
+                one the record states.
+
+        Returns:
+            The variable.
+
+        Raises:
+            ValueError: the lattice holds no RF cavity.
+        """
+        import at as pyat
+
+        fields = _scalar_fields(record, scalar_fields, writable=True)
+        fields.setdefault("default_value", SIGNALS[RF_SWITCH_SIGNAL])
+        voltages = {
+            index: float(element.Voltage)
+            for index, element in enumerate(lattice)
+            if isinstance(element, pyat.RFCavity)
+        }
+        if not voltages:
+            raise ValueError(
+                f"wiring {_record_id(record)}: the RF switch needs RF cavities; the deck holds none"
+            )
+        return cls(deck_voltages=voltages, **fields)
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
+        """Every cavity's ``Voltage``, in ring order: all a write touches."""
+        return [(index, "Voltage") for index in self.deck_voltages]
+
+    def _set(self, simulator: PyATSimulator, value: float) -> None:
+        """Zero every cavity's voltage for ``0``; else restore the deck's."""
+        ring = simulator.lattice
+        on = value != 0.0
+        for index, voltage in self.deck_voltages.items():
+            ring[index].Voltage = voltage if on else 0.0
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """``1.0`` when any cavity holds a voltage, else ``0.0``."""
+        ring = simulator.lattice
+        return (
+            1.0 if any(float(ring[index].Voltage) != 0.0 for index in self.deck_voltages) else 0.0
+        )
+
+
+def rf_on(model: LUMEPyATModel) -> bool:
+    """Whether a model's RF is on: its switch's value, or on when it has none.
+
+    The value is the one the model serves for the switch -- the last written,
+    the active scenario's or its default -- so it is the state a client sees.
+
+    Args:
+        model: A built pyat model.
+
+    Returns:
+        ``False`` only when the model has an RF switch that reads zero.
+    """
+    for name, variable in model.supported_variables.items():
+        if isinstance(variable, RFSwitchVariable):
+            return float(model.get([name])[name]) != 0.0
+    return True
+
+
 def variable_from_wiring(
     record: Any, *, deck_energy_gev: float, **scalar_fields: Any
 ) -> ScalarVariable | None:
@@ -916,6 +1036,216 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
         )
 
 
+class TurnSetpointVariable(PyATLatticeScalarVariable):
+    """A turn-by-turn setting that holds what is written: ``arm``, ``pilot_tone``, ``stored``.
+
+    It touches no element and no ring quantity -- no snapshot targets, a write
+    that does nothing to the lattice -- so the model serves it from the value
+    it retains, like any writable: the last written, the active scenario's or
+    its default. It is a plain setting: restore and replay reach it through
+    ``set``, and a ``set`` of an ``arm`` record never arms its monitor (only a
+    client write does, through the shot handling).
+
+    Attributes:
+        signal: The engine block's signal.
+        monitor: The monitor element the record names, or ``None`` for a
+            record of the whole ring.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    signal: str
+    monitor: str | None = None
+
+    @model_validator(mode="after")
+    def _check_the_signal(self) -> TurnSetpointVariable:
+        """Refuse a signal that is not a held turn-by-turn setting."""
+        if self.signal not in SETTING_SIGNALS - {RF_SWITCH_SIGNAL}:
+            raise ValueError(f"{self.name!r}: signal {self.signal!r} is not a held setting")
+        return self
+
+    @classmethod
+    def from_wiring(cls, record: Any, **scalar_fields: Any) -> TurnSetpointVariable:
+        """Build the setting one wiring record describes.
+
+        Args:
+            record: The wiring record: ``address``, the engine block's
+                ``signal``, the monitor ``element`` when it names one, and the
+                computed ``default`` -- the signal's start value when it
+                states none.
+            **scalar_fields: ``ScalarVariable`` fields, each winning over the
+                one the record states.
+
+        Returns:
+            The variable.
+        """
+        fields = _scalar_fields(record, scalar_fields, writable=True)
+        signal = str(field(field(record, "engine"), "signal"))
+        fields.setdefault("default_value", SIGNALS.get(signal, 0.0))
+        element = field(record, "element")
+        return cls(signal=signal, monitor=None if element is None else str(element), **fields)
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
+        """Nothing: a write touches no lattice quantity."""
+        return []
+
+    def _set(self, simulator: PyATSimulator, value: float) -> None:
+        """Do nothing to the lattice; the model retains the value."""
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Refuse. The model serves the value it retains.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(f"{self.name!r} holds what is written; read it from the model")
+
+
+class TurnStateVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
+    """A scalar of a turn-by-turn ring's turn state: ``armed`` or ``turns_tracked``.
+
+    Model state, not a setting: it is read-only, so a write is refused and
+    neither ``reset`` nor a restore touches it. It reads the turn state the
+    model binds it to (:meth:`bind`) on every read, never a solve: ``armed``
+    is ``1.0`` while its monitor is armed, ``turns_tracked`` the turns of the
+    last tracked shot.
+
+    Attributes:
+        signal: The engine block's signal.
+        monitor: The monitor element, for ``armed``; ``None`` for
+            ``turns_tracked``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    signal: Literal["armed", "turns_tracked"]
+    monitor: str | None = None
+    read_only: bool = True
+
+    _state: TurnState | None = PrivateAttr(default=None)
+
+    def bind(self, state: TurnState) -> None:
+        """Read ``state`` from now on."""
+        self._state = state
+
+    def _get(self, simulator: PyATSimulator) -> float:  # noqa: ARG002
+        """The bound turn state's value.
+
+        Raises:
+            RuntimeError: no turn state is bound.
+        """
+        state = _bound(self.name, self._state)
+        if self.signal == "turns_tracked":
+            return float(state.turns_tracked)
+        return 1.0 if state.monitors[str(self.monitor)].armed else 0.0
+
+
+class TurnArrayVariable(PyATReadOnlyNDVariable):
+    """One monitor's turn array: ``turn_x``, ``turn_y`` or ``turn_sum``.
+
+    ``trigger_sample + turns`` samples of ``float64``, read-only like
+    :class:`TurnStateVariable`; a read returns a copy of the bound turn
+    state's array, so a caller that edits it cannot alter the state.
+
+    Attributes:
+        signal: The engine block's signal.
+        monitor: The monitor element.
+    """
+
+    signal: str
+    monitor: str
+
+    _state: TurnState | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _check_the_signal(self) -> TurnArrayVariable:
+        """Refuse a signal that is not a turn array."""
+        if self.signal not in ARRAY_SIGNALS:
+            raise ValueError(f"{self.name!r}: signal {self.signal!r} is not a turn array")
+        return self
+
+    def bind(self, state: TurnState) -> None:
+        """Read ``state`` from now on."""
+        self._state = state
+
+    def _get(self, simulator: PyATSimulator) -> Any:  # noqa: ARG002
+        """A copy of the bound turn state's array.
+
+        Raises:
+            RuntimeError: no turn state is bound.
+        """
+        state = _bound(self.name, self._state)
+        return state.monitors[self.monitor].array(self.signal).copy()
+
+
+def _bound(name: str, state: TurnState | None) -> TurnState:
+    """The turn state a variable reads, refusing an unbound one."""
+    if state is None:
+        raise RuntimeError(f"{name!r} is turn state; no turn-by-turn model has bound it")
+    return state
+
+
+def turn_variable_from_wiring(record: Any, *, samples: int, **scalar_fields: Any) -> Any:
+    """Build the variable of one turn-by-turn record other than the RF switch.
+
+    Args:
+        record: The wiring record, its engine block naming a ``signal``.
+        samples: The samples of one turn array: ``trigger_sample + turns``.
+        **scalar_fields: ``ScalarVariable`` fields of a setting, each winning
+            over the one the record states.
+
+    Returns:
+        A :class:`TurnSetpointVariable`, :class:`TurnStateVariable` or
+        :class:`TurnArrayVariable`.
+
+    Raises:
+        ValueError: the signal is not a turn-by-turn signal, or a monitor
+            signal names no element.
+    """
+    signal = str(field(field(record, "engine"), "signal"))
+    address = str(field(record, "address"))
+    element = field(record, "element")
+    monitor = None if element is None else str(element)
+    if signal in SETTING_SIGNALS and signal != RF_SWITCH_SIGNAL:
+        return TurnSetpointVariable.from_wiring(record, **scalar_fields)
+    if signal in ARRAY_SIGNALS:
+        if monitor is None:
+            raise ValueError(f"wiring {_record_id(record)}: signal {signal} names no monitor")
+        return TurnArrayVariable(
+            name=address,
+            signal=signal,
+            monitor=monitor,
+            shape=(samples,),
+            unit=field(record, "unit"),
+        )
+    if signal in ("armed", "turns_tracked"):
+        if signal == "armed" and monitor is None:
+            raise ValueError(f"wiring {_record_id(record)}: signal armed names no monitor")
+        return TurnStateVariable(
+            name=address,
+            signal=cast("Literal['armed', 'turns_tracked']", signal),
+            monitor=monitor,
+            unit=field(record, "unit"),
+        )
+    raise ValueError(f"wiring {_record_id(record)}: {signal!r} is not a turn-by-turn signal")
+
+
+def pilot_tone_on(model: LUMEPyATModel) -> bool:
+    """Whether a model's pilot tone is on: its record's value, or off when it has none.
+
+    Args:
+        model: A built pyat model.
+
+    Returns:
+        ``True`` only when the model has a pilot-tone record that reads
+        non-zero.
+    """
+    for name, variable in model.supported_variables.items():
+        if isinstance(variable, TurnSetpointVariable) and variable.signal == PILOT_TONE_SIGNAL:
+            return float(model.get([name])[name]) != 0.0
+    return False
+
+
 __all__ = [
     "ENERGY_ATTRIBUTE",
     "EV_PER_GEV",
@@ -923,9 +1253,18 @@ __all__ = [
     "EnergyVariable",
     "KickVariable",
     "MonitorVariable",
+    "PILOT_TONE_SIGNAL",
     "PyATReadOnlyNDVariable",
     "PyATWritableEnumVariable",
+    "RFSwitchVariable",
     "RFVariable",
+    "RF_SWITCH_SIGNAL",
     "StrengthVariable",
+    "TurnArrayVariable",
+    "TurnSetpointVariable",
+    "TurnStateVariable",
+    "pilot_tone_on",
+    "rf_on",
+    "turn_variable_from_wiring",
     "variable_from_wiring",
 ]

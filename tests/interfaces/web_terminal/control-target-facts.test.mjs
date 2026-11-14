@@ -31,6 +31,8 @@ import {
   lockReason,
   machineKind,
   resolvePendingSwitch,
+  switchProgress,
+  switchProgressLabel,
   PROGRAM_HOLD_SENTENCE,
   PROGRAMS_SELF_ISSUE_SENTENCE,
   programHolders,
@@ -450,6 +452,60 @@ const serverOf = (o = {}) => ({
 
 /** The request this browser is waiting on. @param {object} [o] */
 const pendingOf = (o = {}) => ({ requestId: 'r-mine', generation: 7, ...o });
+
+describe('switchProgress', () => {
+  const behind = () => serverOf({ applied_generation: 6 });
+
+  test('a request the record has not answered is one step in', () => {
+    const view = viewOf({ generation: 6, servers: [behind(), behind()] });
+    const progress = switchProgress(view, pendingOf());
+    expect(progress).toEqual({ done: 1, total: 4, accepted: false, arrived: 0, holding: 2 });
+    expect(switchProgressLabel(progress)).toBe('request sent');
+  });
+
+  test('the record accepting it is the second step, and each server one more', () => {
+    const terminus = { request_id: 'r-mine', status: 'applied', generation: 7 };
+    const view = viewOf({ last_switch: terminus, servers: [behind(), behind()] });
+    expect(switchProgress(view, pendingOf())).toMatchObject({ done: 2, total: 4, arrived: 0 });
+
+    const later = viewOf({ last_switch: terminus, servers: [serverOf(), behind()] });
+    const progress = switchProgress(later, pendingOf());
+    expect(progress).toMatchObject({ done: 3, total: 4, arrived: 1, holding: 2 });
+    expect(switchProgressLabel(progress)).toBe('1 of 2 controls servers');
+  });
+
+  test('the record at the generation asked for counts without the terminus', () => {
+    // Another request's terminus has since overwritten ours; the generation
+    // is still the record's own word that ours was accepted.
+    const view = viewOf({
+      last_switch: { request_id: 'r-other', status: 'refused', generation: null },
+      servers: [behind()],
+    });
+    const progress = switchProgress(view, pendingOf());
+    expect(progress).toMatchObject({ done: 2, total: 3, accepted: true });
+    expect(switchProgressLabel(progress)).toBe('0 of 1 controls server');
+  });
+
+  test('a server holding no connector is not a step', () => {
+    const view = viewOf({ servers: [behind(), serverOf({ pid: 99, children: [] })] });
+    expect(switchProgress(view, pendingOf())).toMatchObject({ total: 3, holding: 1 });
+  });
+
+  test('a refusal moves nothing along', () => {
+    const view = viewOf({
+      generation: 6,
+      last_switch: { request_id: 'r-mine', status: 'refused', generation: null },
+    });
+    expect(switchProgress(view, pendingOf())).toMatchObject({ done: 1, accepted: false });
+  });
+
+  test('a request answered with no generation has no fleet to count', () => {
+    const view = viewOf({ servers: [serverOf()] });
+    const progress = switchProgress(view, pendingOf({ generation: null }));
+    expect(progress).toEqual({ done: 1, total: 2, accepted: false, arrived: 0, holding: 0 });
+    expect(switchProgress(null, pendingOf())).toEqual(progress);
+  });
+});
 
 describe('resolvePendingSwitch', () => {
   test('waits while a live server is still on the old generation', () => {

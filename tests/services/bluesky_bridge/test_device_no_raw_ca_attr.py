@@ -46,12 +46,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-bluesky = pytest.importorskip("bluesky")
-ophyd_async = pytest.importorskip("ophyd_async")
-
-from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
+from osprey.services.bluesky_bridge.devices.connector import (
     ConnectorReadable,
     ConnectorSettable,
 )

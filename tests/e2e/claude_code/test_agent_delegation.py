@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e.ariel_picture import absent_qmd_sidecar
 from tests.e2e.sdk_helpers import (
     ariel_db_skip_reason,
     e2e_budget_scale,
@@ -98,13 +99,18 @@ def sub_agent_traces(result):
     return [t for t in result.tool_traces if t.parent_tool_use_id is not None]
 
 
-def assert_no_tool_errors(result, exclude_patterns=None):
-    """Assert no tool traces have is_error=True, optionally excluding patterns."""
+def assert_no_tool_errors(result, exclude_patterns=None, exempt=None):
+    """Assert no tool traces have is_error=True, optionally excluding patterns.
+
+    ``exempt`` is a predicate over one trace; a trace it accepts is not counted.
+    """
     exclude_patterns = exclude_patterns or []
     errors = [
         t
         for t in result.tool_traces
-        if t.is_error and not any(pat in t.name for pat in exclude_patterns)
+        if t.is_error
+        and not any(pat in t.name for pat in exclude_patterns)
+        and not (exempt is not None and exempt(t))
     ]
     assert len(errors) == 0, f"{len(errors)} tool error(s): " + "; ".join(
         f"{t.name}: {t.result[:200] if t.result else 'N/A'}" for t in errors
@@ -205,7 +211,10 @@ class TestAgentDelegation:
             assert len(submit_calls) > 0, (
                 f"submit_response not called — agent didn't complete. Tools: {result.tool_names}"
             )
-            assert_no_tool_errors(result)
+            # Projects built here run without their services, so the demo
+            # preset's hybrid search has no qmd sidecar to answer through.
+            # Only that report is exempt; every other tool error still fails.
+            assert_no_tool_errors(result, exempt=absent_qmd_sidecar)
 
         # Cost under budget (always asserted).
         if result.cost_usd is not None:

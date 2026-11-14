@@ -191,15 +191,19 @@ def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_12
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
+    # The command takes SIGINT with sigwait on a blocked mask, not as a
+    # KeyboardInterrupt out of time.sleep: a SIGINT landing after the
+    # interpreter's last signal check and before the sleep's syscall is
+    # handled only when the sleep ends, past the bound. A blocked SIGINT stays
+    # pending until sigwait takes it, so none can fall in a gap.
     child = textwrap.dedent(
         """
-        import sys, time
-        try:
-            print("ready", flush=True)
-            time.sleep(60)
-        except KeyboardInterrupt:
-            print("child-interrupted", flush=True)
-            sys.exit(2)
+        import signal, sys
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+        print("ready", flush=True)
+        signal.sigwait({signal.SIGINT})
+        print("child-interrupted", flush=True)
+        sys.exit(2)
         """
     )
     wrapper = subprocess.Popen(
@@ -212,8 +216,8 @@ def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
         assert wrapper.stdout is not None
         assert wrapper.stdout.readline().strip() == "ready"
         wrapper.send_signal(signal.SIGINT)
-        out, _ = wrapper.communicate(timeout=_ceiling(30))
-        assert "child-interrupted" in out
+        out, err = wrapper.communicate(timeout=_ceiling(30))
+        assert "child-interrupted" in out, err
         assert wrapper.returncode == -signal.SIGINT
     finally:
         if wrapper.poll() is None:

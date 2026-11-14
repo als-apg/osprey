@@ -40,14 +40,16 @@ def _projected(panel_id: str = "knob-demo", single_user_alias: object = False) -
 def test_the_bluesky_and_optimizer_rows_are_built_in() -> None:
     assert panel_roster_grant_table({}) == {
         BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-        OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
+        OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
     }
 
 
 def test_a_projected_row_is_read_off_the_rendered_service_block() -> None:
     config = {"services": {"knob-demo": _projected(single_user_alias=True), "plain": {}}}
     table = panel_roster_grant_table(config)
-    assert table["knob-demo"] == PanelRosterGrant(service="knob-demo", single_user_alias=True)
+    assert table["knob-demo"] == PanelRosterGrant(
+        service="knob-demo", single_user_alias=True, loopback_only=True
+    )
     assert set(table) == {BLUESKY_PANEL_ID, OPTIMIZER_PANEL_ID, "knob-demo"}
 
 
@@ -279,3 +281,72 @@ def test_the_build_account_is_asked_only_for_an_alias_panel_with_no_roster(
     config["services"]["knob-demo"] = _projected(single_user_alias=True)
     service_panel_grant(config, tmp_path, "knob-demo", build_account=refuse)
     service_panel_grant({"services": {}}, tmp_path, "plain", build_account=refuse)
+
+
+# ---------------------------------------------------------------------------
+# (4) the optimizer panel's alias, and the loopback precondition
+# ---------------------------------------------------------------------------
+
+
+def _alias_credential(account: str) -> dict:
+    return {
+        "var": terminal_secret_var(account),
+        "source": "OSPREY_TERMINAL_SECRET",
+        "owner": account,
+        "required": True,
+    }
+
+
+@pytest.mark.parametrize("bind", [None, "127.0.0.1", "::1", "localhost"])
+def test_the_optimizer_sidecar_names_the_single_user_operator_on_loopback(
+    tmp_path: Path, bind: str | None
+) -> None:
+    """A Start from the OPTIMIZER tab on a roster-less deployment carries an owner."""
+    config: dict = {"services": {}}
+    if bind is not None:
+        config["deployment"] = {"bind_address": bind}
+    grant = service_panel_grant(config, tmp_path, "optimizer_web", build_account=lambda: "ops")
+    assert grant == {"credentials": [_alias_credential("ops")]}
+
+
+@pytest.mark.parametrize("bind", ["0.0.0.0", "::", "192.0.2.7", "ops.example.org"])
+def test_the_optimizer_sidecar_names_nobody_off_loopback(tmp_path: Path, bind: str) -> None:
+    """A sidecar a network peer can reach must not hand that peer the operator's name.
+
+    ``osprey web`` listens on loopback, so the equivalence the alias rests on — the
+    deployment secret is already the console's credential at the terminal — does
+    not reach a holder on another machine. The build account is not even asked.
+    """
+
+    def refuse() -> str:
+        raise AssertionError("build account asked for")
+
+    config = {"services": {}, "deployment": {"bind_address": bind}}
+    assert service_panel_grant(config, tmp_path, "optimizer_web", build_account=refuse) == _EMPTY
+
+
+def test_an_application_alias_holds_whatever_the_bind_address(tmp_path: Path) -> None:
+    """An application container publishes on loopback alone, so a network bind changes nothing."""
+    config = {
+        "services": {"knob-demo": _projected(single_user_alias=True)},
+        "deployment": {"bind_address": "0.0.0.0"},
+    }
+    grant = service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops")
+    assert grant == {"credentials": [_alias_credential("ops")]}
+
+
+def test_the_optimizer_sidecar_on_a_roster_gets_only_the_roster_grant(tmp_path: Path) -> None:
+    config = _deployment(tmp_path, {"operator": (OPTIMIZER_PANEL_ID,)})
+    grant = service_panel_grant(config, tmp_path, "optimizer_web", build_account=lambda: "ops")
+    alice = terminal_secret_var("alice")
+    assert grant["credentials"] == [
+        {"var": alice, "source": alice, "owner": "alice", "required": False}
+    ]
+
+
+def test_the_bluesky_sidecar_still_names_nobody_with_no_roster(tmp_path: Path) -> None:
+    """Bluesky keeps its documented owner-less single-user shape; only the optimizer changed."""
+    assert (
+        service_panel_grant({"services": {}}, tmp_path, "bluesky_web", build_account=lambda: "ops")
+        == _EMPTY
+    )

@@ -14,7 +14,15 @@ the run :func:`lock`; :func:`refusal_phrase` words a refusal.
 """
 
 from osprey import port_layout
-from osprey.apps.sdk._approval import ApprovalRefused, BoundState, check_approved_call
+from osprey.apps.sdk._approval import (
+    ApprovalRefused,
+    BoundState,
+    audit_surface,
+    canonical_json,
+    check_approved_call,
+    input_digest,
+)
+from osprey.apps.sdk._bridges import bridges_for_target
 from osprey.apps.sdk._facts import facility_file, read_facts, tool_keys
 from osprey.apps.sdk._limits import WriteVerdictView, prewrite_verdict
 from osprey.apps.sdk._model import (
@@ -27,7 +35,12 @@ from osprey.apps.sdk._model import (
 )
 from osprey.apps.sdk._serve import serve_tools
 from osprey.apps.sdk._target import owner_target
-from osprey.apps.sdk._wrappers import agent_panel_headers, queue_is_active
+from osprey.apps.sdk._wrappers import (
+    agent_panel_headers,
+    caller_kind,
+    launch_token_env,
+    queue_is_active,
+)
 from osprey.audit.call import current_tool_use_id
 from osprey.audit.dedup import record_and_mark
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
@@ -50,12 +63,13 @@ from osprey.runtime.guarded_run import (
 from osprey.services.python_executor.execution.wrapper import armed_contract
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER, verify_launch_token
 from osprey.utils.module_loading import load_by_path
-from osprey.utils.owner_header import owner_from_header
+from osprey.utils.owner_header import CALLER_HEADER, caller_from_header, owner_from_header
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.posture_store import WriteVerdict, bind_owner, write_verdict
 from osprey_connectors.refusals import refusal_phrase
 
 __all__ = [
+    "CALLER_HEADER",
     "DECISION_ALLOWED",
     "DECISION_REFUSED",
     "ENV_CONTROL_IDENTITY",
@@ -75,7 +89,12 @@ __all__ = [
     "WriteVerdictView",
     "agent_panel_headers",
     "armed_contract",
+    "audit_surface",
     "bind_owner",
+    "bridges_for_target",
+    "canonical_json",
+    "caller_from_header",
+    "caller_kind",
     "check_approved_call",
     "closed_orbit_models",
     "command_write",
@@ -83,6 +102,8 @@ __all__ = [
     "current_tool_use_id",
     "facility_file",
     "guarded_run_dir",
+    "input_digest",
+    "launch_token_env",
     "load_by_path",
     "lock",
     "make_error",

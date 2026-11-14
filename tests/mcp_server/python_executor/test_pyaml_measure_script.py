@@ -26,10 +26,14 @@ from typing import Any
 import numpy as np
 import pytest
 from pyaml.common.constants import Action
+from pyaml.common.holders.diagnostic_holder import DiagnosticHolder
+from pyaml.common.holders.element_holder import ElementHolder
+from pyaml.common.holders.tool_holder import ToolHolder
 
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
+from osprey.facility.kinds import registered
 from osprey.facility.views.facts import measurement_records
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
@@ -185,46 +189,51 @@ class FakeHolder:
             masterclock=f"{RF_ADDRESS}[MHz]", frequency=SimpleNamespace(get=lambda: 500.0e6)
         )
         self.monitor = FakeMonitor(self.rf_plant)
-        self.orm = FakeTool(
+        orm = FakeTool(
             bpm_array_name="SR_BPM",
             corrector_delta=CORRECTOR_DELTA,
             hcorrectors=self.arrays["SR_HCM"],
             vcorrectors=self.arrays["SR_VCM"],
         )
-        self.orm.latest_measurement = {
+        orm.latest_measurement = {
             "matrix": [[1.0] * 3, [2.0] * 3],
             "observable_names": ["SR_BPM01", "SR_BPM01"],
             "observable_planes": ["H", "V"],
             "variable_names": list(H_NAMES + V_NAMES),
         }
-        self.dispersion = FakeTool(
+        dispersion = FakeTool(
             bpm_array_name="SR_BPM",
             rf_plant_name="DEFAULT_RF_PLANT",
             frequency_delta=FREQUENCY_DELTA,
         )
-        self.dispersion.latest_measurement = {
+        dispersion.latest_measurement = {
             "frequency_response_x": [1.0],
             "frequency_response_y": [0.5],
         }
-        self.trm = FakeTool(
+        trm = FakeTool(
             quad_array_name="SR_QF", betatron_tune_name="BETATRON_TUNE", quad_delta=QUAD_DELTA
         )
-        self.crm = FakeTool(
+        crm = FakeTool(
             sextu_array_name="SR_SF",
             chromaticity_name="CHROMATICITY_MONITOR",
             sextu_delta=SEXTU_DELTA,
             chromaticity_monitor=self.monitor,
         )
-        self.crm.latest_measurement = {
+        crm.latest_measurement = {
             "matrix": [[1.0], [2.0]],
             "observable_names": ["CHROMATICITY_MONITOR.x", "CHROMATICITY_MONITOR.y"],
             "variable_names": list(SEXTS),
         }
+        self.tool = SimpleNamespace(
+            orm=orm, dispersion=dispersion, trm=trm, crm=crm, get=self._get_tool
+        )
         self.magnets = SimpleNamespace(get=self.arrays.__getitem__)
         self.rf = SimpleNamespace(get=lambda name: self.rf_plant)
-        self.bpms = SimpleNamespace(get=lambda name: FakeArray([FakeMagnet("SR_BPM01")]))
+        self.diagnostic = SimpleNamespace(
+            bpms=SimpleNamespace(get=lambda name: FakeArray([FakeMagnet("SR_BPM01")]))
+        )
 
-    def get_chromaticity_monitor(self, name: str) -> FakeMonitor:
+    def _get_tool(self, name: str) -> FakeMonitor:
         assert name == "CHROMATICITY_MONITOR"
         return self.monitor
 
@@ -320,6 +329,16 @@ def limits(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
     return steps
 
 
+def _plan(kind: str) -> dict[str, Any]:
+    """The kind's measure plan as the build renders it into the facts: JSON."""
+    plan: dict[str, Any] = json.loads(json.dumps(dict(registered()[kind].measure_plan)))
+    return plan
+
+
+def _matrix(kind: str) -> bool:
+    return registered()[kind].matrix
+
+
 def _execute(
     render: Path,
     execution: Path,
@@ -330,8 +349,12 @@ def _execute(
     by: str | None = None,
     correctors: list[str] | None = None,
     approved: str | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> pytest.CaptureResult[str]:
-    """Execute the rendered script; what it printed to stdout and stderr."""
+    """Execute the rendered script; what it printed to stdout and stderr.
+
+    ``plan`` replaces the kind's measure plan as the build renders it.
+    """
     source = build_measure_script(
         MeasureScript(
             kind=kind,
@@ -345,6 +368,7 @@ def _execute(
             settle=0.25,
             n_avg_meas=2,
             sleep_between_meas=0.5,
+            plan=_plan(kind) if plan is None else plan,
         )
     )
     exec(compile(source, "pyaml_measure", "exec"), {"_execution_dir": str(execution)})
@@ -384,10 +408,27 @@ def _round_trip(
     captured = _execute(render, execution, capsys, **request)
     if stdout is not None:
         stdout.append(captured.out)
-    return parse_measure_result(captured.out, request["kind"])
+    kind = request["kind"]
+    return parse_measure_result(
+        captured.out,
+        kind,
+        matrix=_matrix(kind),
+        scalar=registered()[kind].measure_plan.get("scalar"),
+    )
 
 
 pytestmark = pytest.mark.usefixtures("holder", "limits", "runs")
+
+
+# --- the fake holder -------------------------------------------------------------
+
+
+def test_the_fake_holder_is_laid_out_as_pyamls(holder):
+    """An accessor pyAML renames fails here, where the fake would otherwise hide it."""
+    own = {"arrays", "rf_plant", "monitor", "loaded"}
+    assert set(vars(holder)) - own <= set(dir(ElementHolder))
+    assert set(vars(holder.tool)) <= set(dir(ToolHolder))
+    assert set(vars(holder.diagnostic)) <= set(dir(DiagnosticHolder))
 
 
 # --- the view digest -------------------------------------------------------------
@@ -452,6 +493,57 @@ def test_a_view_other_than_the_approved_one_is_refused(render, execution, capsys
     assert runs == []
 
 
+def _bipolar_token(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["bipolar"]["kwargs"]["corrector_names"] = "@__class__"
+    return plan
+
+
+def _private_delta(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["delta"] = "_private"
+    return plan
+
+
+def _unknown_factory(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["unipolar"]["factory"] = "nonexistent"
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("edit", "modulation", "refusal"),
+    [
+        pytest.param(
+            _bipolar_token,
+            "bipolar",
+            "the measure plan of orm names attribute __class__, which is not a public name",
+            id="dunder-token",
+        ),
+        pytest.param(
+            _private_delta,
+            "bipolar",
+            "the measure plan of orm names attribute _private, which is not a public name",
+            id="private-delta",
+        ),
+        pytest.param(
+            _unknown_factory,
+            "unipolar",
+            "the measure plan of orm names StepMeasurement.nonexistent, which "
+            "pyaml_cs_osprey does not offer",
+            id="unknown-factory",
+        ),
+    ],
+)
+def test_a_plan_resolving_a_name_it_may_not_is_refused_before_any_tool_is_touched(
+    render, execution, capsys, holder, runs, edit, modulation, refusal
+):
+    plan = edit(_plan("orm"))
+
+    result = _run(render, execution, capsys, kind="orm", modulation=modulation, plan=plan)
+
+    assert result == {"kind": "orm", "refused": refusal}
+    assert runs == []
+    assert holder.loaded == []
+
+
 def test_run_tool_is_called_once_at_the_top_level_and_never_inside_a_lock_the_script_takes_itself():
     source = Path(script_module.__file__).read_text(encoding="utf-8")
 
@@ -466,7 +558,7 @@ def test_a_bipolar_orm_runs_pyamls_tool_with_one_step(render, execution, capsys,
     result = _run(render, execution, capsys, kind="orm", correctors=[H_NAMES[0], V_NAMES[0]])
 
     (call,) = runs
-    assert call["method"] == holder.orm.measure
+    assert call["method"] == holder.tool.orm.measure
     assert call["kwargs"] == {
         "corrector_names": [H_NAMES[0], V_NAMES[0]],
         "sleep_between_step": 0.25,
@@ -508,7 +600,7 @@ def test_a_magnet_trm_runs_pyamls_tool_with_the_span_its_modulation_takes(
     result = _run(render, execution, capsys, kind="trm", modulation=modulation, by="magnet")
 
     (call,) = runs
-    assert call["method"] == holder.trm.measure
+    assert call["method"] == holder.tool.trm.measure
     assert {key: call["kwargs"][key] for key in arguments} == arguments
     assert result["deltas"] == dict.fromkeys(QUADS, QUAD_DELTA)
     assert (result["modulation"], result["by"]) == (modulation, "magnet")
@@ -520,7 +612,7 @@ def test_a_magnet_crm_runs_pyamls_tool_and_sizes_the_rf_sweep(
     result = _run(render, execution, capsys, kind="crm", by="magnet")
 
     (call,) = runs
-    assert call["method"] == holder.crm.measure
+    assert call["method"] == holder.tool.crm.measure
     assert (call["kwargs"]["sextu_delta"], call["kwargs"]["n_step"]) == (0.5 * SEXTU_DELTA, 2)
     assert result["e_delta_used"] == pytest.approx(1.0e-3)
     assert result["rf_span_hz"] == pytest.approx(1000.0)
@@ -534,7 +626,7 @@ def test_dispersion_runs_pyamls_tool_bipolar_and_a_step_measurement_unipolar(
 
     (call,) = runs
     if modulation == "bipolar":
-        assert call["method"] == holder.dispersion.measure
+        assert call["method"] == holder.tool.dispersion.measure
         assert call["kwargs"] == {"set_waiting_time": 0.25}
         assert result["shape"] == [2, 1]
     else:
@@ -632,8 +724,8 @@ def _stop_after_the_first_magnet(holder: FakeHolder, monkeypatch: pytest.MonkeyP
         callback(Action.RESTORE, {"idx": 0, "magnet": QUADS[0], "dtune": [0.1, 0.2]})
         machine.set(QUADS[1], 0.5)
 
-    holder.trm.on_measure = stop_after_the_first_magnet
-    holder.trm.outcome = False
+    holder.tool.trm.on_measure = stop_after_the_first_magnet
+    holder.tool.trm.outcome = False
     return machine
 
 
@@ -676,7 +768,7 @@ def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
         callback(Action.RESTORE, {"idx": 0, "magnet": QUADS[0], "dtune": [0.1, 0.2]})
         raise RuntimeError("the tune readback went away\nsecond line")
 
-    holder.trm.on_measure = fail_after_the_first_magnet
+    holder.tool.trm.on_measure = fail_after_the_first_magnet
 
     with pytest.raises(RuntimeError, match="the tune readback went away"):
         _execute(render, execution, capsys, kind="trm", by="magnet")
@@ -687,7 +779,9 @@ def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
     assert result["completed"] is False
     assert result["moved"] == [[QUADS[0], 0.0]]
     assert result["missing"] == {QUADS[1]: "the tune readback went away"}
-    assert parse_measure_result(out, "trm")["missing"] == {QUADS[1]: "the tune readback went away"}
+    assert parse_measure_result(out, "trm", matrix=True)["missing"] == {
+        QUADS[1]: "the tune readback went away"
+    }
     assert machine.values[QUADS[0]] == 0.5
 
 
@@ -710,7 +804,7 @@ def test_a_tool_that_raises_after_its_last_column_names_the_kind_missing(
             callback(Action.RESTORE, {"idx": idx, "magnet": magnet, "dtune": [0.1, 0.2]})
         raise RuntimeError("the measurement could not be stored")
 
-    holder.trm.on_measure = fail_after_every_magnet
+    holder.tool.trm.on_measure = fail_after_every_magnet
 
     with pytest.raises(RuntimeError, match="the measurement could not be stored"):
         _execute(render, execution, capsys, kind="trm", by="magnet")
@@ -787,7 +881,7 @@ def test_a_nan_rf_write_is_refused_and_never_stepped(
     render, execution, capsys, holder, limits, runs, kind
 ):
     limits[RF_ADDRESS] = 1.0e-4
-    holder.dispersion.frequency_delta = math.nan
+    holder.tool.dispersion.frequency_delta = math.nan
     holder.rf_plant.frequency = SimpleNamespace(get=lambda: math.nan)
 
     result = _run(render, execution, capsys, kind=kind)
@@ -932,7 +1026,7 @@ def test_the_chromaticity_monitors_printed_result_is_one_the_parser_accepts(
 def test_every_plane_spelling_pyaml_uses_reads_back_as_x_and_y(
     render, execution, capsys, holder, planes
 ):
-    holder.orm.latest_measurement["observable_planes"] = planes
+    holder.tool.orm.latest_measurement["observable_planes"] = planes
 
     result = _round_trip(render, execution, capsys, kind="orm")
 
@@ -942,8 +1036,8 @@ def test_every_plane_spelling_pyaml_uses_reads_back_as_x_and_y(
 def test_a_plane_less_observable_name_is_refused_by_the_parser_by_name(
     render, execution, capsys, holder
 ):
-    holder.orm.latest_measurement["observable_names"] = ["SR_BPM01", "SR_BPM01"]
-    holder.orm.latest_measurement.pop("observable_planes")
+    holder.tool.orm.latest_measurement["observable_names"] = ["SR_BPM01", "SR_BPM01"]
+    holder.tool.orm.latest_measurement.pop("observable_planes")
     printed: list[str] = []
 
     with pytest.raises(MeasureResultError, match=r"'SR_BPM01' has no plane"):
@@ -956,7 +1050,7 @@ def test_a_plane_less_observable_name_is_refused_by_the_parser_by_name(
 
 
 def test_an_unknown_plane_is_refused_by_the_parser_by_name(render, execution, capsys, holder):
-    holder.orm.latest_measurement["observable_planes"] = ["H", "S"]
+    holder.tool.orm.latest_measurement["observable_planes"] = ["H", "S"]
 
     with pytest.raises(MeasureResultError, match=r"'SR_BPM01' has plane 'S'"):
         _round_trip(render, execution, capsys, kind="orm")

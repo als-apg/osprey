@@ -35,6 +35,7 @@ from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAU
 from osprey.cli.build_profile_emit import emit_standalone_profile_yaml, materialized_profile
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.build_profile_presets import PRESET_DATA_BUNDLE_KEY
+from osprey.cli.build_profile_updates import PRESET_BASE_DIR, read_saved_copy
 from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
@@ -183,10 +184,30 @@ def _to_old_shape(
 
     if not keep_provenance:
         text = _without_top_level_block(text, "provenance")
+    else:
+        # An old profile's preset has moved on since it was written.
+        text = text.replace("  preset_hash: sha256:", "  preset_hash: sha256:01d", 1)
+    # And it predates the saved copy of what its preset produced.
+    shutil.rmtree(profile.parent / ".osprey", ignore_errors=True)
     if template is not None:
         text = text.replace("\nconfig:\n", f"\n{PRESET_DATA_BUNDLE_KEY}: {template}\nconfig:\n", 1)
     profile.write_text(text, encoding="utf-8")
     return removed
+
+
+def _as_older_repo(repo: Path) -> None:
+    """Make *repo* one an earlier OSPREY wrote: no saved copy, and presets moved on since.
+
+    Such a repo has no record of what its preset said, so ``--revalidate``
+    fills it the old way, once: every ``config:`` key the preset has and it
+    lacks. Whatever else differs from the preset is listed, not written.
+    """
+    shutil.rmtree(repo / ".osprey", ignore_errors=True)
+    profile = repo / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    for key in ("preset_hash", "providers_hash"):
+        text = text.replace(f"  {key}: sha256:", f"  {key}: sha256:01d", 1)
+    profile.write_text(text, encoding="utf-8")
 
 
 def _without_top_level_block(text: str, key: str) -> str:
@@ -367,7 +388,7 @@ def test_a_whole_missing_branch_comes_back_as_its_leaves(runner: CliRunner, tmp_
         for key in removed
         if _comment_block_above(text, key) != _comment_block_above(reference, key)
     ] == []
-    assert f"Filled {len(removed)} key(s) from preset 'hello-world'" in result.output
+    assert f"Applied {len(removed)} change(s) the presets made" in result.output
     assert invoke_build(repo).exit_code == 0
 
 
@@ -508,6 +529,7 @@ def test_a_nested_preset_branch_fills_its_leaves(runner: CliRunner, tmp_path: Pa
         encoding="utf-8",
     )
     dropped = _drop_nested_leaf(profile)
+    _as_older_repo(repo)
 
     assert _revalidate(runner, repo).exit_code == 0
 
@@ -693,48 +715,59 @@ def test_nothing_lacking_leaves_the_repo_untouched(runner: CliRunner, tmp_path: 
 
 
 # ---------------------------------------------------------------------------
-# providers.yml — refreshed on every run
+# providers.yml — completed from the saved copy, never rewritten
 # ---------------------------------------------------------------------------
 
 
-def test_providers_refreshes_packaged_entries_and_keeps_yours_on_every_run(
+def test_providers_from_before_the_saved_copy_keeps_yours_and_lists_what_it_lacks(
     runner: CliRunner, tmp_path: Path
 ) -> None:
+    """No saved copy says a missing entry is new rather than deleted: it is listed, not added."""
     repo = tmp_path / "facility"
     _init(runner, repo, "hello-world")
     catalog = repo / PROVIDERS_FILENAME
     catalog.write_text("providers:\n" + SITE_GATEWAY, encoding="utf-8")
+    _as_older_repo(repo)
+    packaged = yaml.safe_load(packaged_catalog_path().read_text(encoding="utf-8"))["providers"]
 
-    for _ in range(2):
+    for first in (True, False):
         result = _revalidate(runner, repo)
         assert result.exit_code == 0, result.output
 
-        text = catalog.read_text(encoding="utf-8")
-        assert "site-gateway" in text
-        assert "# Our own gateway." in text
-        packaged = yaml.safe_load(packaged_catalog_path().read_text(encoding="utf-8"))
-        entries = yaml.safe_load(text)["providers"]
-        assert set(packaged["providers"]) <= set(entries)
+        assert catalog.read_text(encoding="utf-8") == "providers:\n" + SITE_GATEWAY
         assert "Kept your own provider entries: site-gateway" in result.output
+        listed = [
+            name for name in packaged if f"{PROVIDERS_FILENAME}: providers.{name}:" in result.output
+        ]
+        assert listed == (list(packaged) if first else [])
 
 
 def test_providers_refresh_is_in_the_diff_and_restamps_the_hash(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The stamp describes the file the repo ends up holding, and the diff shows it."""
-    from osprey.profiles.providers import compute_providers_hash
+    """The stamp records the packaged catalog the file was brought up to, and the diff shows it."""
+    from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 
     repo = tmp_path / "facility"
     _init(runner, repo, "hello-world")
     profile = repo / "profile.yml"
     catalog = repo / PROVIDERS_FILENAME
-    catalog.write_text("providers:\n" + SITE_GATEWAY, encoding="utf-8")
+    # A key the catalog gained since the repo last took it.
+    _replace_once(catalog, "    health_model: claude-haiku-4-5\n", "")
+    saved = repo / PRESET_BASE_DIR / PROVIDERS_FILENAME
+    document = yaml.safe_load(saved.read_text(encoding="utf-8"))
+    del document["providers"]["cborg"]["health_model"]
+    saved.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    stale = compute_providers_hash(catalog)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
 
     assert f"+++ b/{PROVIDERS_FILENAME}" in result.output
-    assert _profile_data(profile)["provenance"]["providers_hash"] == compute_providers_hash(catalog)
+    assert compute_providers_hash(catalog) != stale
+    assert _profile_data(profile)["provenance"]["providers_hash"] == compute_providers_hash(
+        packaged_catalog_path()
+    )
 
 
 def test_an_unparsable_catalog_refuses_with_the_repo_untouched(
@@ -814,6 +847,7 @@ def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
     text += "deploy:\n  ci: gitlab\n  image_source: local\n  host:\n    name: demo-deploy\n"
     text += "    user: osprey\n    project_path: /opt/demo\n"
     profile.write_text(text, encoding="utf-8")
+    _as_older_repo(repo)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
@@ -821,7 +855,7 @@ def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
     config = _profile_data(profile)["config"]
     assert config_image_source_spelling(config) is None
     assert IMAGE_SOURCE_CONFIG_KEY in result.output  # the skip is reported
-    validated = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
+    validated = runner.invoke(validate, ["--repo", str(repo)])
     assert validated.exit_code == 0, validated.output
 
 
@@ -883,7 +917,7 @@ def test_the_exemplar_validates_after_revalidate(runner: CliRunner, tmp_path: Pa
 
     assert _revalidate(runner, repo, "--preset", "demo").exit_code == 0
 
-    validated = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
+    validated = runner.invoke(validate, ["--repo", str(repo)])
     assert validated.exit_code == 0, validated.output
 
 
@@ -900,25 +934,17 @@ def test_revalidating_the_exemplar_twice_changes_nothing(runner: CliRunner, tmp_
     assert "nothing to rewrite" in again.output
 
 
-def test_a_re_pointed_profile_warns_about_the_drift_it_turns_on(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """Stamping provenance turns the preset-drift lint on, so the verb says so."""
+def test_a_re_pointed_profile_still_validates(runner: CliRunner, tmp_path: Path) -> None:
+    """Stamping provenance makes no difference from the preset a refusal, and no marker hint."""
     repo = _exemplar(tmp_path)
 
     result = _revalidate(runner, repo, "--preset", "demo")
     assert result.exit_code == 0, result.output
 
-    assert "DEVIATION" in result.output
-    assert "--drift=warn" in result.output
-    if "Left for you to do by hand" in result.output:
-        assert result.output.index("--drift=warn") < result.output.index(
-            "Left for you to do by hand"
-        )
-    refused = runner.invoke(validate, ["--repo", str(repo)])
-    assert refused.exit_code != 0
-    warned = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
-    assert warned.exit_code == 0, warned.output
+    assert "DEVIATION" not in result.output
+    assert "--drift" not in result.output
+    validated = runner.invoke(validate, ["--repo", str(repo)])
+    assert validated.exit_code == 0, validated.output
 
 
 def test_an_old_demo_profile_without_shared_does_not_gain_it(
@@ -929,6 +955,7 @@ def test_an_old_demo_profile_without_shared_does_not_gain_it(
     profile = repo / "profile.yml"
     _edit_round_trip(profile, lambda doc: doc["config"]["modules.web_terminals"].pop("shared"))
     assert "shared" not in _profile_data(profile)["config"]["modules.web_terminals"]
+    _as_older_repo(repo)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
@@ -976,23 +1003,19 @@ def test_authorization_roles_are_never_filled(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A preset that spelled role tiers would still not hand them to a profile."""
-    from osprey.cli import build_profile_drift, init_revalidate
+    from osprey.cli import build_profile_emit
 
     roles = "modules.web_terminals.authorization.roles"
-    lacking = [roles, f"{roles}.operator"]
-    monkeypatch.setattr(build_profile_drift, "lacking_config_keys", lambda _doc, _preset: lacking)
-    real_reference = init_revalidate._reference_document
+    real = build_profile_emit.materialized_profile
 
-    def reference_with_roles(preset: str, **kwargs):
-        from ruamel.yaml.comments import CommentedMap
-
-        document = real_reference(preset, **kwargs)
-        document["config"][roles] = CommentedMap(operator="readwrite")
+    def with_roles(preset: str, **kwargs):
+        document = real(preset, **kwargs)
+        document["config"][f"{roles}.operator"] = "readwrite"
         return document
 
-    monkeypatch.setattr(init_revalidate, "_reference_document", reference_with_roles)
     repo = tmp_path / "facility"
     _init(runner, repo, "demo")
+    monkeypatch.setattr(build_profile_emit, "materialized_profile", with_roles)
     profile = repo / "profile.yml"
 
     result = _revalidate(runner, repo)
@@ -1000,9 +1023,8 @@ def test_authorization_roles_are_never_filled(
 
     flattened = dict(_flatten(_profile_data(profile)["config"]))
     assert [key for key in flattened if "authorization.roles" in key] == []
-    for key in lacking:
-        assert f"Left for you: {key}:" in result.output
-    assert "Filled" not in result.output
+    assert f"Left for you: {roles}.operator:" in result.output
+    assert "Applied" not in result.output
 
 
 def test_the_header_prose_names_the_preset_provenance_now_names(
@@ -1058,6 +1080,185 @@ def test_an_empty_config_block_is_filled_at_the_blocks_own_indent(
     assert _config_keys(text)
     assert [line for line in _config_lines(text) if line.startswith("#")] == []
     assert invoke_build(repo).exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# What the presets changed: the saved copy, the one-time fill, a preset switch
+# ---------------------------------------------------------------------------
+
+
+def _replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert text.count(old) == 1, f"{old!r} must occur exactly once in {path}"
+    path.write_text(text.replace(old, new), encoding="utf-8")
+
+
+def _saved_config(repo: Path, key: str, leaves: dict[str, object]) -> None:
+    """Add *leaves* to the saved copy at *key*: ``config:`` keys an older preset had."""
+    path = repo / PRESET_BASE_DIR / key
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document.setdefault("config", {}).update(leaves)
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def test_the_one_time_fill_leaves_a_list_the_profile_holds_alone(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A member missing from a list the profile holds is the operator's removal, not a gap."""
+    repo = tmp_path / "demo"
+    _init(runner, repo, "demo")
+    _as_older_repo(repo)
+    profile = repo / "profile.yml"
+    _replace_once(profile, "    - graphdb\n", "")
+    _replace_once(
+        profile,
+        "  claude_code.permissions.deny:\n    - mcp__osprey_workspace__setup_patch\n",
+        "  claude_code.permissions.deny: []\n",
+    )
+    _replace_once(profile, "      max_input_tokens: 2048\n", "")
+    _to_old_shape(profile, drop=("hooks.debug",), template=None)
+
+    result = _revalidate(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    config = _profile_data(profile)["config"]
+    assert config["deployed_services"] == ["postgresql", "qmd"]
+    assert config["claude_code.permissions.deny"] == []
+    assert config["ariel.enhancement_modules.text_embedding.models"] == [
+        {"name": "nomic-embed-text", "dimension": 768}
+    ]
+    # A key the profile lacks entirely is still filled.
+    assert "hooks.debug" in config
+    assert "added config.hooks.debug" in result.output
+    applied, left = result.output.split("Applied", 1)[1].split("Preset changes left for you", 1)
+    assert "graphdb" not in applied
+    # Not dropped either: each is said once, for the operator to take by hand.
+    assert "profile.yml: config.deployed_services: graphdb:" in left
+    assert (
+        "profile.yml: config.claude_code.permissions.deny: mcp__osprey_workspace__setup_patch:"
+        in left
+    )
+
+
+@pytest.mark.parametrize(
+    ("block", "removed", "left"),
+    [
+        pytest.param(
+            "  facility:\n    extra:\n      flag: 1\n    other: 2\n",
+            {"facility.extra.flag": 1, "facility.other": 2},
+            None,
+            id="two-siblings",
+        ),
+        pytest.param(
+            "  facility:\n    theme:\n      dark: 1\n",
+            {"facility.theme.dark": 1},
+            None,
+            id="one-nested-leaf",
+        ),
+        pytest.param(
+            "  facility:\n    extra:\n      flag: 1\n    mine: {}\n",
+            {"facility.extra.flag": 1},
+            {"mine": {}},
+            id="the-operators-own-empty-mapping-stays",
+        ),
+    ],
+)
+def test_a_removed_nested_key_takes_the_mappings_it_emptied(
+    runner: CliRunner,
+    tmp_path: Path,
+    block: str,
+    removed: dict[str, object],
+    left: dict[str, object] | None,
+) -> None:
+    """A nested ``config:`` leaf the preset removed leaves no empty parent, and valid YAML."""
+    repo = tmp_path / "demo"
+    _init(runner, repo, "demo")
+    tier = repo / "tiers" / "admin.yml"
+    _replace_once(tier, "\nconfig:\n", "\nconfig:\n" + block)
+    _saved_config(repo, "tiers/admin.yml", removed)
+
+    result = _revalidate(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    for key in removed:
+        assert f"tiers/admin.yml: removed config.{key}" in result.output
+    config = yaml.safe_load(tier.read_text(encoding="utf-8"))["config"]
+    assert config.get("facility") == left
+    assert config["control_system.writes"] == "allowed"
+    validated = runner.invoke(validate, ["--repo", str(repo)])
+    assert validated.exit_code == 0, validated.output
+
+
+def test_a_list_the_removal_empties_is_written_as_an_empty_list(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A list's last member and the key after it both go, and the file is still YAML."""
+    repo = tmp_path / "demo"
+    _init(runner, repo, "demo")
+    tier = repo / "tiers" / "admin.yml"
+    tool = "mcp__osprey_workspace__setup_patch"
+    _replace_once(
+        tier,
+        f"  claude_code.permissions.remove_deny:\n    - {tool}\n",
+        "  claude_code.permissions.remove_deny:\n    - retired_tool\n  facility.other: 2\n",
+    )
+    _saved_config(
+        repo,
+        "tiers/admin.yml",
+        {"claude_code.permissions.remove_deny": [tool, "retired_tool"], "facility.other": 2},
+    )
+
+    result = _revalidate(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load(tier.read_text(encoding="utf-8"))["config"]
+    assert config["claude_code.permissions.remove_deny"] == []
+    assert "facility.other" not in config
+    assert config["web.config_panel.enabled"] is True
+
+
+def test_a_tier_renamed_in_the_same_run_keeps_its_saved_copy(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A retired catalog entry renames ``tiers/readwrite.yml``; the tier is still covered."""
+    repo = tmp_path / "demo"
+    _init(runner, repo, "demo")
+    profile = repo / "profile.yml"
+    _replace_once(
+        profile,
+        "    image_source: local\n",
+        "    image_source: local\n"
+        f"    {RETIRED_CATALOG_KEY}:\n      ops:\n        build_profile: tiers/readwrite.yml\n",
+    )
+    _replace_once(profile, "        tier: readwrite\n", "        tier: ops\n")
+    _saved_config(repo, "tiers/readwrite.yml", {"facility.retired": 1})
+    _replace_once(
+        repo / "tiers" / "readwrite.yml", "\nconfig:\n", "\nconfig:\n  facility.retired: 1\n"
+    )
+
+    result = _revalidate(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    renamed = repo / "tiers" / "ops.yml"
+    assert renamed.is_file() and not (repo / "tiers" / "readwrite.yml").exists()
+    # Keyed by the bundled login it was made from, whatever the file is called.
+    assert "tiers/readwrite.yml" in read_saved_copy(repo)
+    # And what that login changed is applied to it in the same run.
+    assert "tiers/ops.yml: removed config.facility.retired" in result.output
+    assert "facility.retired" not in yaml.safe_load(renamed.read_text(encoding="utf-8"))["config"]
+
+
+def test_a_preset_switch_says_it_is_one(runner: CliRunner, tmp_path: Path) -> None:
+    """``--preset`` on a repo with a full saved copy is not a repo from before the saved copy."""
+    repo = tmp_path / "demo"
+    _init(runner, repo, "demo")
+
+    result = _revalidate(runner, repo, "--preset", "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert "predates preset tracking" not in result.output
+    assert "profile.yml was made from the demo preset and now follows hello-world" in result.output
+    assert _profile_data(repo / "profile.yml")["provenance"]["preset"] == "hello-world"
 
 
 # ---------------------------------------------------------------------------

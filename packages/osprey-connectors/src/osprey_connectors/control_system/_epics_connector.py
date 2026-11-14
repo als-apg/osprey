@@ -27,6 +27,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
+    _batch_send_verdict,
     _verdict_refusal,
     values_match,
 )
@@ -1622,6 +1623,45 @@ class EPICSConnector(ControlSystemConnector):
         )
         return _verdict_refusal(channel_address, value, verdict)
 
+    def _write_precheck(
+        self, channel_address: str, value: Any
+    ) -> tuple[str, ChannelWriteResult | None]:
+        """The record a write names, and the refusal that needs no I/O to make."""
+        # One name for the whole write, decided before any check runs. ``X``,
+        # ``ca://X`` and a spelling with surrounding whitespace are one record,
+        # and every refusal, the limits lookup, the current-value read, the put
+        # and the result judge and name that one record; a check on the raw
+        # spelling would judge a different entry than the one the put targets.
+        given = channel_address.strip()
+        channel_address = normalise_address(given)
+
+        # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
+        # of limits validation: validating max_step reads the channel's current
+        # value with a blocking `caget`, so a refusal placed after it would put
+        # the CA client on an address routed over PVAccess — the very thing this
+        # refusal exists to prevent — and would do it for the arrays PVA channels
+        # carry, which have no scalar limit to be compared against. The globs
+        # are matched on the spelling as given (the reads' contract) and on the
+        # one name the put would use, so neither padding nor a scheme slips a
+        # PVA-routed record past the refusal.
+        if self._is_pva_channel(given) or self._is_pva_channel(channel_address):
+            return channel_address, ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
+                error_message=(
+                    f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
+                    "This address matches a configured 'pva_channels' pattern, so it is routed "
+                    "over PVAccess and is read-only in this deployment. No write was attempted."
+                ),
+            )
+
+        # Step 0b: the verdict allowed this write (the guard asked it first), but
+        # the gateway this connector selected at connect() may predate the
+        # switch. Refused before limits validation reads anything.
+        return channel_address, self._role_refusal(channel_address, value)
+
     async def write_channel(
         self,
         channel_address: str,
@@ -1655,42 +1695,9 @@ class EPICSConnector(ControlSystemConnector):
                 outcome unknown
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
-        # One name for the whole write, decided before any check runs. ``X``,
-        # ``ca://X`` and a spelling with surrounding whitespace are one record,
-        # and every refusal, the limits lookup, the current-value read, the put
-        # and the result judge and name that one record; a check on the raw
-        # spelling would judge a different entry than the one the put targets.
-        given = channel_address.strip()
-        channel_address = normalise_address(given)
-
-        # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
-        # of limits validation: validating max_step reads the channel's current
-        # value with a blocking `caget`, so a refusal placed after it would put
-        # the CA client on an address routed over PVAccess — the very thing this
-        # refusal exists to prevent — and would do it for the arrays PVA channels
-        # carry, which have no scalar limit to be compared against. The globs
-        # are matched on the spelling as given (the reads' contract) and on the
-        # one name the put would use, so neither padding nor a scheme slips a
-        # PVA-routed record past the refusal.
-        if self._is_pva_channel(given) or self._is_pva_channel(channel_address):
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.VALIDATION_ERROR,
-                error_message=(
-                    f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
-                    "This address matches a configured 'pva_channels' pattern, so it is routed "
-                    "over PVAccess and is read-only in this deployment. No write was attempted."
-                ),
-            )
-
-        # Step 0b: the verdict allowed this write (the guard asked it first), but
-        # the gateway this connector selected at connect() may predate the
-        # switch. Refused before limits validation reads anything.
-        role_refusal = self._role_refusal(channel_address, value)
-        if role_refusal is not None:
-            return role_refusal
+        channel_address, refusal = self._write_precheck(channel_address, value)
+        if refusal is not None:
+            return refusal
 
         timeout = timeout or self._timeout
 
@@ -1727,6 +1734,15 @@ class EPICSConnector(ControlSystemConnector):
         if validation_error is not None:
             return self._validation_refusal(channel_address, value, validation_error)
 
+        return await self._put_and_verify(channel_address, value, timeout, confirm)
+
+    async def _put_and_verify(
+        self, channel_address: str, value: Any, timeout: float, confirm: bool
+    ) -> ChannelWriteResult:
+        """Put one value that passed every check, and confirm it when asked.
+
+        Steps 3 and 4 of :meth:`write_channel`, shared with a batch.
+        """
         # Step 3: The put. The put-callback is Channel Access's acknowledgement
         # that the IOC processed the put, so a confirming write waits for it:
         # the read that follows would otherwise race the record's own
@@ -1864,6 +1880,76 @@ class EPICSConnector(ControlSystemConnector):
             alarm_severity=alarm_severity,
             notes=f"Channel holds {observed.value}, sent {value}",
         )
+
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+        """What the named records hold, read together on the CA loop.
+
+        One ``caget`` per record, all in flight at once under the one budget
+        ``step_read_timeout`` that a single write's step read has; no thread
+        is started. A record that did not answer maps to ``None``, which fails
+        its step check closed.
+        """
+        aioca = self._aioca
+        budget = self._step_read_timeout
+
+        async def read_all() -> list[Any]:
+            return await asyncio.gather(
+                *(aioca.caget(name, timeout=budget, throw=False) for name in channel_addresses),
+                return_exceptions=True,
+            )
+
+        try:
+            # The extra second only backs up a CA loop that does not answer at all.
+            readings = await asyncio.wait_for(self._ca.run(read_all()), budget + 1.0)
+        except Exception as exc:
+            logger.debug(f"max_step read of {len(channel_addresses)} channels failed: {exc}")
+            return dict.fromkeys(channel_addresses)
+        held: dict[str, Any] = {}
+        for name, reading in zip(channel_addresses, readings, strict=True):
+            if isinstance(reading, BaseException):
+                if not isinstance(reading, Exception | aioca.CANothing):
+                    raise reading
+                held[name] = None
+            else:
+                held[name] = _ca_plain(reading)
+        return held
+
+    async def _send_batch(
+        self,
+        batch: list[tuple[str, Any]],
+        timeout: float | None,
+        confirm: bool | None,
+    ) -> list[ChannelWriteResult]:
+        """Put every write of a checked batch at once, and confirm each on its own.
+
+        Channel Access takes the puts concurrently, so a batch costs about one
+        put and one confirming read however many records it names. The write
+        verdict is asked once more immediately before the puts start; a put in
+        flight cannot be recalled. A subclass's own refusal must live in
+        :meth:`_write_precheck`: an overridden :meth:`write_channel` is not
+        consulted by a batch.
+        """
+        refused = self._send_refusal(batch)
+        if refused is not None:
+            return [_verdict_refusal(name, value, refused) for name, value in batch]
+        timeout = timeout or self._timeout
+
+        async def send(name: str, value: Any) -> ChannelWriteResult:
+            confirmed = self._resolve_confirm(name) if confirm is None else confirm
+            try:
+                return await self._put_and_verify(name, value, timeout, confirmed)
+            except Exception as exc:
+                return _batch_send_verdict(name, value, exc)
+
+        # Every put runs to its end before an error of the connector itself is
+        # raised.
+        ended = await asyncio.gather(
+            *(send(name, value) for name, value in batch), return_exceptions=True
+        )
+        for end in ended:
+            if isinstance(end, BaseException):
+                raise end
+        return [end for end in ended if not isinstance(end, BaseException)]
 
     async def _confirming_read(self, channel_address: str, timeout: float) -> ChannelValue:
         """Read the channel a write just touched, straight off the wire.

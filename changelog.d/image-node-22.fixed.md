@@ -1,0 +1,1 @@
+The project and dispatch-worker images now carry Node 22, copied from the official `node:22-bookworm-slim` image through `OSPREY_BASE_REGISTRY`; the pinned Claude Code CLI requires Node 22 or newer and the Debian packages supplied Node 20.

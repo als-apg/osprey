@@ -6,14 +6,13 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 import yaml
 
-at = pytest.importorskip("at")
-
-from osprey.facility import wiring as wiring_module  # noqa: E402
-from osprey.facility.validate import StageReport, run_stages  # noqa: E402
-from osprey.facility.wiring import fill_wiring_slots  # noqa: E402
+from osprey.facility import wiring as wiring_module
+from osprey.facility.validate import StageReport, run_stages
+from osprey.facility.wiring import fill_wiring_slots
 
 GAIN = 0.37
 OFFSET = -0.012

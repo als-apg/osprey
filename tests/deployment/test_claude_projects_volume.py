@@ -425,7 +425,7 @@ def test_the_copy_runs_the_pinned_image_as_root_without_a_network():
 
 
 def test_the_image_has_its_own_override_and_ignores_the_osprey_registry():
-    mirror = "mirror.example.org/hub/library/alpine:3.20"
+    mirror = "mirror.example.org/hub/library/alpine:3.23"
 
     assert transcripts_copy_image({"OSPREY_TRANSCRIPTS_COPY_IMAGE": mirror}) == mirror
     assert (
@@ -441,7 +441,7 @@ def test_the_image_has_its_own_override_and_ignores_the_osprey_registry():
 
 
 def test_the_override_reaches_the_pull_and_the_copy():
-    mirror = "mirror.example.org/hub/library/alpine:3.20"
+    mirror = "mirror.example.org/hub/library/alpine:3.23"
     fake = FakeRuntime("docker")
     fake.volumes["proj_alice-claude-config"] = {}
 
@@ -459,8 +459,8 @@ def test_the_override_reaches_the_pull_and_the_copy():
 def test_the_copy_image_comes_from_the_base_registry(monkeypatch):
     """A deployment that mirrors Docker Hub pulls the copy image from the mirror."""
     monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
-    mirrored = "mirror.example.org/dockerhub/library/alpine:3.20"
-    assert UPSTREAM_IMAGES["transcripts_copy"] == "docker.io/library/alpine:3.20"
+    mirrored = "mirror.example.org/dockerhub/library/alpine:3.23"
+    assert UPSTREAM_IMAGES["transcripts_copy"] == "docker.io/library/alpine:3.23"
     fake = FakeRuntime("docker")
     fake.volumes["proj_alice-claude-config"] = {}
 
@@ -477,7 +477,7 @@ def test_the_copy_image_comes_from_the_base_registry(monkeypatch):
 
 def test_the_copy_image_override_wins_over_the_base_registry(monkeypatch):
     monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
-    pinned = "pinned.example.org/alpine:3.20"
+    pinned = "pinned.example.org/alpine:3.23"
     fake = FakeRuntime("docker")
     fake.volumes["proj_alice-claude-config"] = {}
 

@@ -31,10 +31,8 @@ from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-SHIPPED_COLLECTION = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/demo/data/canopy/collections/demo.json"
-)
+DEMO_TEMPLATE = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/demo"
+SHIPPED_COLLECTION = DEMO_TEMPLATE / "data/canopy/collections/demo.json"
 
 #: Tools run without a prompt: the reads, then the workspace tools.
 ALLOW = [
@@ -139,6 +137,7 @@ class TestRootPreset:
         assert stated == {
             "web.panels.canopy.home_screen": "facility/overview",
             "web.panels.canopy.vole_bytes_max": 268435456,
+            "web.panels.canopy.theme_file": "data/canopy/theme/osprey.json",
         }
 
     @pytest.mark.parametrize("page", ["trace", "correlation", "waveform"])
@@ -161,15 +160,17 @@ class TestRootPreset:
             assert len(member["query"].encode()) <= 4096
 
     @pytest.mark.parametrize(
-        "leaf", ["url", "label", "health_endpoint", "path", "rewrite_prefixes", "theme_file"]
+        "leaf", ["url", "label", "health_endpoint", "path", "rewrite_prefixes"]
     )
     def test_panel_states_nothing_a_builtin_ignores(self, root: BuildProfile, leaf: str) -> None:
-        """A builtin's url, label and health endpoint come from the registry.
-
-        ``theme_file`` is a path inside the container and has no default the
-        preset could know, so it ships commented.
-        """
+        """A builtin's url, label and health endpoint come from the registry."""
         assert f"web.panels.canopy.{leaf}" not in root.config
+
+    def test_theme_file_names_the_shipped_theme(self, root: BuildProfile) -> None:
+        """The theme is a project-relative path, so it must be a file the template ships."""
+        theme_file = root.config["web.panels.canopy.theme_file"]
+        theme = json.loads((DEMO_TEMPLATE / theme_file).read_text(encoding="utf-8"))
+        assert theme["id"] == "osprey"
 
     def test_payload_is_staged_before_a_build(self, root: BuildProfile) -> None:
         steps = {step.name: step for step in root.lifecycle.pre_build}

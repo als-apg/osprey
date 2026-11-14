@@ -63,6 +63,7 @@ import pytest
 import yaml
 
 from osprey.facility.records import FacilityRecords
+from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 from tests._facility_file import demo_facility_document
@@ -922,6 +923,18 @@ def ca_served(port: int, *, timeout: float = 15.0) -> bool:
     return probe.stdout.strip() == "SERVED"
 
 
+def first_pass_published(name: str) -> bool:
+    """Whether container *name* has printed its ready line.
+
+    The Channel Access server answers from the moment the runner is built,
+    with every channel at its type's default; the entrypoint prints the ready
+    line only once the first publishing pass has posted the values the
+    composite computed. A read that follows only an answered probe can
+    therefore land before that pass and see a default the pass then replaces.
+    """
+    return READY_MARKER in docker("logs", name, timeout=60).stdout
+
+
 @contextmanager
 def serving_container(
     name: str,
@@ -930,8 +943,10 @@ def serving_container(
     boot_timeout: float,
     served: Callable[[int], bool] = ca_served,
 ) -> Iterator[None]:
-    """Run the image as *name* on *port* and wait until *served* says it answers.
+    """Run the image as *name* on *port*; wait until it is ready and *served* says it answers.
 
+    Ready is :func:`first_pass_published`: no caller reads a channel before the
+    first publishing pass has posted it.
     The published port and the server's own port are the same number, since a
     Channel Access search reply carries the server's own port and a remap would
     hand every client an address nothing answers on. *run_args* are the
@@ -956,13 +971,14 @@ def serving_container(
     try:
         deadline = time.monotonic() + boot_timeout
         while time.monotonic() < deadline:
-            if served(port):
+            if first_pass_published(name) and served(port):
                 break
             time.sleep(1.0)
         else:
             logs = docker("logs", "--tail", "40", name, timeout=60)
             raise RuntimeError(
-                f"{name} never served {READINESS_ADDRESS} within {boot_timeout}s.\n"
+                f"{name} never printed its ready line and served {READINESS_ADDRESS} "
+                f"within {boot_timeout}s.\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
         yield
@@ -1025,7 +1041,7 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
         deadline = time.monotonic() + CONTAINER_BOOT_TIMEOUT_S
         served = False
         while time.monotonic() < deadline:
-            if _readiness_pv_served():
+            if first_pass_published(CONTAINER_NAME) and _readiness_pv_served():
                 served = True
                 break
             time.sleep(0.5)
@@ -1036,7 +1052,7 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
             )
             _docker_rm(CONTAINER_NAME)
             raise RuntimeError(
-                f"VA container never came up (no value for {READINESS_ADDRESS} after "
+                f"VA container never came up (no ready line and value for {READINESS_ADDRESS} after "
                 f"{CONTAINER_BOOT_TIMEOUT_S}s). Container logs:\n{logs.stdout}\n{logs.stderr}"
             )
 

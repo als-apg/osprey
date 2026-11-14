@@ -2,8 +2,8 @@
 
 ``render_facility_outputs`` writes ``served_models.json`` (the models the
 render's ``simulation.models`` serves, texture last), ``addresses.json`` (every
-channel address of the facility file and one status address per served physics
-model), ``decks/<model><suffix>`` (a byte copy of each deck-bearing model's
+channel address of the facility file, one status address per served physics
+model and the IOC health addresses of every served model, texture included), ``decks/<model><suffix>`` (a byte copy of each deck-bearing model's
 deck under its own suffix, served or not), ``variables.json`` (every model with its wiring and every
 channel with its write facts), ``seeds.json`` (each channel's seed record) and
 ``scenarios.json`` (every scenario's writes, with a byte copy of each file
@@ -17,6 +17,7 @@ import copy
 import hashlib
 import json
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,8 +30,14 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
+from osprey.facility.views import view_bytes
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
+from osprey_connectors.simulation.view import (
+    IOC_HEALTH_SIGNALS,
+    SCENARIOS_SCHEMA,
+    SEEDS_SCHEMA,
+    SimulatorView,
+)
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
@@ -105,7 +112,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
         )
     # The deployment's render runs a Bluesky lane; a render without one has no view.
     assert BLUESKY in built_demo.outputs[0].files
-    # Only the channel-finder app's render selects the hierarchical pipeline,
+    # Only the channel-finder login's render selects the hierarchical pipeline,
     # once in its own render and once in its image.
     assert [
         outputs.render_dir.name for outputs in built_demo.outputs if CHANNEL_INDEX in outputs.files
@@ -121,6 +128,42 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
     assert addresses["schema"] == "osprey.facility.addresses/1"
     assert addresses["channels"] == sorted(channel["id"] for channel in facility["channels"])
     assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")]
+
+
+def test_every_served_model_lists_its_ioc_health_addresses_texture_last(
+    built_demo: BuiltProject,
+) -> None:
+    addresses = json.loads((built_demo.build_dir / ADDRESSES).read_bytes())
+
+    assert addresses["ioc_health"] == [
+        f"ca:SIM:{name}:{signal}"
+        for name in ("BTS", "LINE", "LTB", "SR", TEXTURE)
+        for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
+    ]
+
+
+def test_a_render_with_a_pv_directory_section_lists_the_same_ioc_health_addresses(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    plain = _render(tmp_path, built_demo, {}, "plain")
+    with_directory = _render(
+        tmp_path, built_demo, {"pv_directory": {"type": "channelfinder"}}, "with-directory"
+    )
+
+    assert (with_directory / ADDRESSES).read_bytes() == (plain / ADDRESSES).read_bytes()
+
+
+def test_the_reader_groups_the_written_ioc_health_addresses_by_model(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    render_dir = _render(tmp_path, built_demo, {"simulation": {"models": ["SR"]}})
+
+    view = SimulatorView.open(render_dir / "data" / "simulator")
+
+    assert view.ioc_health_by_model() == {
+        name: {signal: f"ca:SIM:{name}:{signal}" for signal in IOC_HEALTH_SIGNALS}
+        for name in ("SR", TEXTURE)
+    }
 
 
 def test_the_demo_serves_its_deck_models_then_texture(
@@ -155,6 +198,9 @@ def test_no_physics_serves_texture_alone_and_keeps_the_deck(
     addresses = json.loads((render_dir / ADDRESSES).read_bytes())
     assert served["models"] == [TEXTURE]
     assert addresses["status"] == []
+    assert addresses["ioc_health"] == [
+        f"ca:SIM:{TEXTURE}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
+    ]
     assert (render_dir / DECK).read_bytes() == (built_demo.build_dir / DECK).read_bytes()
 
 
@@ -247,8 +293,9 @@ def test_validate_names_an_unknown_served_model(tmp_path: Path, built_demo: Buil
 
     assert result.exit_code == 1, result.output
     assert result.stdout == ""
-    assert result.stderr.startswith("facility: profile-invalid: path simulation.models — ")
-    assert "`NOPE`" in result.stderr
+    stop = result.stderr.splitlines()[-1]
+    assert stop.startswith("facility: profile-invalid: path simulation.models — ")
+    assert "`NOPE`" in stop
 
 
 MODEL_KEYS = {"name", "engine", "served", "settings", "deck", "wiring"}
@@ -300,7 +347,7 @@ def test_variables_carries_its_schema_and_key_sets(built_demo: BuiltProject) -> 
     facility = built_demo.facility
 
     assert set(variables) == {"schema", "code", "models", "channels"}
-    assert variables["schema"] == "osprey.facility.simulator/3"
+    assert variables["schema"] == "osprey.facility.simulator/4"
     assert variables["code"] == facility["identity"]["code"]
     assert [model["name"] for model in variables["models"]] == sorted(
         model["name"] for model in facility["models"]
@@ -853,8 +900,14 @@ def test_a_still_selection_of_a_place_takes_the_places_below_it(
 ) -> None:
     facility = built_demo.facility
     place_ids = [str(place["id"]) for place in facility["places"]]
-    parent = next(p for p in place_ids if any(q.startswith(f"{p}/") for q in place_ids))
     device_place = {str(device["id"]): device.get("place") for device in facility["devices"]}
+    held = {
+        str(device_place.get(str(on.get("device"))) or on.get("place"))
+        for channel in facility["channels"]
+        if (on := channel.get("on") or {})
+    }
+    # A parent some channel sits below: a place of racks alone holds no channel.
+    parent = next(p for p in place_ids if any(q.startswith(f"{p}/") for q in held))
 
     def sits_on_parent(channel: dict[str, Any]) -> bool:
         on = channel.get("on") or {}
@@ -1016,3 +1069,81 @@ def test_a_configured_recorder_serves_any_address(
     render_facility_outputs(tmp_path, facility, config, built_demo.facility_dir)
 
     assert address in _view(tmp_path, ADDRESSES)["channels"]
+
+
+def _with_inputs(built: BuiltProject, inputs: dict[str, Any]) -> dict[str, Any]:
+    """The demo facility with ``inputs`` (model name -> its ``inputs`` key) set."""
+    facility = copy.deepcopy(built.facility)
+    for model in facility["models"]:
+        if str(model["name"]) in inputs:
+            model["inputs"] = copy.deepcopy(inputs[str(model["name"])])
+    return facility
+
+
+def _wired_by(built: BuiltProject, name: str, count: int) -> list[str]:
+    (model,) = [model for model in built.facility["models"] if model["name"] == name]
+    return [str(record["address"]) for record in model["wiring"][:count]]
+
+
+def _thawed(value: Any) -> Any:
+    """A value the connectors reader froze, as plain dicts and lists again."""
+    if isinstance(value, Mapping):
+        return {key: _thawed(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thawed(item) for item in value]
+    return value
+
+
+def _render_facility(
+    tmp_path: Path, built: BuiltProject, facility: dict[str, Any], name: str = "render"
+) -> Path:
+    render_dir = tmp_path / name
+    render_dir.mkdir()
+    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    return render_dir
+
+
+def test_a_model_declaring_inputs_carries_them_in_declared_order(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    second, first = _wired_by(built_demo, "LINE", 2)
+    declared = [
+        {"address": first, "engine": {"take": "x", "scale": [1.0, 2.0]}},
+        {"address": second},
+    ]
+    root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": declared}))
+
+    models = {model["name"]: model for model in _view(root, VARIABLES)["models"]}
+    assert models["SR"]["inputs"] == declared
+    assert set(models["SR"]) == MODEL_KEYS | {"inputs"}
+    for name, model in models.items():
+        if name != "SR":
+            assert set(model) == MODEL_KEYS, name
+
+    view = SimulatorView.open(root / "data" / "simulator")
+    assert [_thawed(item) for item in view.model("SR").inputs] == declared
+    assert view.model("LINE").inputs == ()
+
+
+def test_inputs_are_the_only_difference_a_declaration_makes(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    (address,) = _wired_by(built_demo, "LINE", 1)
+    plain = _render_facility(tmp_path, built_demo, built_demo.facility, "plain")
+    root = _render_facility(
+        tmp_path, built_demo, _with_inputs(built_demo, {"SR": [{"address": address}]})
+    )
+
+    document = _view(root, VARIABLES)
+    for model in document["models"]:
+        model.pop("inputs", None)
+    assert view_bytes(document) == (plain / VARIABLES).read_bytes()
+
+
+def test_an_empty_inputs_list_is_written_as_no_inputs(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    plain = _render_facility(tmp_path, built_demo, built_demo.facility, "plain")
+    root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": []}))
+
+    assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()

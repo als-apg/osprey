@@ -22,7 +22,7 @@ The facility file
 
 ``build/facility.json`` is every record of the facility in one document,
 under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
-``channels``, ``groups``, ``models`` with their wiring, ``limits`` and
+``channels``, ``groups``, ``models`` with their wiring and inputs, ``limits`` and
 ``scenarios``. A model's *deck* is the lattice file its simulation engine
 loads, and its *wiring* is the set of records that tie channel addresses to
 elements of that deck.
@@ -48,7 +48,8 @@ from a preset is *bundled*: every copied text file opens with the
 bundled-origin line. The exception is the knowledge indexes, which
 ``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
 The import, in every format, replaces the bundled files and refuses only
-hand-written records of the kinds that format writes. A bundled facility
+hand-written records of the kinds that format writes, and those only while the
+facility holds no imported layer. A bundled facility
 carries data only: records, decks, models, limits, seeds, scenarios, knowledge
 pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
 agent or rule.
@@ -125,6 +126,14 @@ filters the file's own channel records and names a model or a place.
      - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
      - ``resolve`` order.
      - Empty when dangling.
+   * - ``resolve_link(target)``
+     - The records a knowledge-page link names: ``resolve(target)``, else the place a ``place/<id>`` target names.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``lookup(text)``
+     - A ``(match, record)`` pair per place or device named by id, then by name, then by a place's last id segment.
+     - ``RECORD_KINDS``, then id; each record once.
+     - Empty.
    * - ``select_channels(selection)``
      - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``engine_role`` and ``plane`` facets AND; a place takes every place under it; ``engine_role`` and ``plane`` match the wiring record naming the address.
      - Document order.
@@ -169,7 +178,7 @@ stages and a stage runs only when every earlier one is clean:
      - The pair, value, limits and seed rules.
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
-       value from its model's engine.
+       value from its model's engine, and marks each command channel.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
@@ -181,7 +190,7 @@ stages and a stage runs only when every earlier one is clean:
        Warns and never stops.
 
 The second half writes. A build renders more than one tree (the deployment's
-own, one per tier and app, one per container image) and each render receives the
+own, one per login, one per container image) and each render receives the
 same facility file and the views its configuration and served models call
 for. A view a render does not carry is named once on stderr, with the
 configuration key or the model fact that left it out; a channel-finder index
@@ -189,7 +198,7 @@ the profile did not select is neither written nor named.
 
 ``osprey facility validate`` runs the first half and the main profile's render
 into a temporary directory, adds the response check of a Middle Layer import,
-and writes nothing into the repo. Tier, app and image renders are checked by
+and writes nothing into the repo. Login and image renders are checked by
 ``osprey build`` alone.
 
 .. _architecture-facility-settings:
@@ -334,7 +343,11 @@ build indexes from the Turtle that ``services.graphdb.ttl_path`` names: the
 graph view, unless the profile names another.
 
 **Graph.** The facility file as Turtle: one node per place, device and
-channel and per signal named, with the device classes as a class tree.
+channel and per signal named, with the device classes as a class tree; one
+edge per accepted or contested relation claim, one claim node per claim the
+``facility_graph`` settings keep, and one group node per group a claim names.
+Why relations are claims, and how a claim becomes an edge or a place:
+:doc:`facility-relations`.
 
 .. _architecture-facility-schema:
 
@@ -349,16 +362,20 @@ carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so ``loosenings.yaml`` records, per slot NARAD requires, what became
 of it (``dropped``, ``optional``, ``renamed:<slot>`` or ``header``) and why.
-The graph view writes the facility file back in NARAD's terms.
+The graph view writes the facility file back in NARAD's terms. NARAD's
+optional relation slots are not carried; relations are claims
+(:doc:`facility-relations`).
 
 .. raw:: html
    :file: ../_diagrams/facility-vocabulary.html
 
 A facility adds device classes in ``classes.yaml``, each under a vocabulary
-class or one it added earlier; they reach the facts view and the graph with their aliases. Signal
-roles are closed: a channel's ``signal`` is one the vocabulary lists. The
-build pairs setpoints with readbacks by the quantity their signals name, so a
-quantity the vocabulary lacks pairs only through an explicit ``pair``.
+class or one it added earlier; they reach the facts view and the graph with their aliases. A
+channel's ``signal`` is a role the vocabulary lists or one the facility adds in
+``signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
+quantity the vocabulary lacks pairs only through an explicit ``pair``. The
+roles a measurement kind and an engine use are in
+:doc:`/reference/contracts/facility-kinds`.
 
 .. _architecture-simulation-models:
 
@@ -368,11 +385,11 @@ Simulation models
 A facility file's ``models`` are what stands behind the channels when the
 deployment runs against a simulator. Each model record names an ``engine``, a
 ``deck`` and the ``wiring`` that ties channel addresses to elements of the
-deck.
+deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
 ``osprey.simulation.engines`` entry-point group under the name a model's
-``engine`` gives. OSPREY ships ``pyat``. The build reaches the engine to read
+``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
 ``engine-missing`` when no installed package registers the name. The contract
@@ -407,6 +424,52 @@ category, since the container itself keeps serving and stays healthy.
 A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
+
+Every served model, ``texture`` included, also has read-only IOC health
+channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
+the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
+
+**A model may read another model's records.** A model record's ``inputs``
+lists records other models of the facility wire, each an ``address`` and an
+``engine`` block in the consuming engine's own words:
+
+.. code-block:: yaml
+
+   - name: down
+     engine: <an engine that takes inputs>
+     inputs:
+     - address: UP:CHARGE
+       engine: <the consuming engine's words for this input>
+
+An input is never wiring: the producer alone wires the address, and the
+consumer reads its value. The view carries each model's ``inputs`` only when
+it declares some. The build stops on the consuming model, naming the input,
+when:
+
+- the address is wired by no model (``reference-missing``);
+- the address is one the model wires itself (``value-invalid``);
+- the model lists the address twice (``value-invalid``);
+- the inputs form a cycle, a model reading, through other models, a record of
+  its own; the stop names every step of it (``value-invalid``);
+- the engine has no ``take_inputs`` (``engine-invalid``);
+- the engine's ``describe_input`` refuses the ``engine`` block
+  (``engine-invalid``, with the engine's text).
+
+A model without ``inputs`` builds and serves as before.
+
+**A pyat ring may serve turn-by-turn data.** Its ``pyat`` settings state a
+``turn_by_turn`` block naming at least the ``injection_element``; its inputs
+are an injection chain's records with ``engine: {signal: shot}``,
+``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
+records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
+``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
+``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
+``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
+stops ``engine-invalid`` on a malformed block, a turn record on a ring
+without one, a record of the wrong value type or shape, and a monitor record
+whose element is not a monitor. The settings, their defaults and what a shot
+does are in :ref:`va-turn-by-turn`.
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.

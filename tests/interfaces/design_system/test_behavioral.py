@@ -35,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 
 import osprey.interfaces.design_system as design_system_pkg
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import hub_server
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
@@ -163,6 +164,7 @@ def _open_hub(page: Page, base_url: str, first_tab_id: str = "terminal") -> None
     goes through it too — so a change to how the hub is reached lands once.
     """
     page.goto(base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f'button[data-panel-id="{first_tab_id}"]')).to_be_attached(timeout=10_000)
 
 
@@ -178,6 +180,7 @@ def _goto_with_seeded_theme(
     _open_hub(page, base_url, first_tab_id)
     page.evaluate("(t) => localStorage.setItem('osprey-theme', t)", theme)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f'button[data-panel-id="{first_tab_id}"]')).to_be_attached(timeout=10_000)
 
 
@@ -256,6 +259,7 @@ def test_theme_boot_applies_stored_preference_pre_paint(tmp_path, chromium_brows
         _open_hub(page, base_url)
         page.evaluate("localStorage.setItem('osprey-theme', 'light')")
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
 
         history = page.evaluate("window.__themeHistory")
@@ -291,6 +295,7 @@ def test_toggle_flips_theme_and_persists_across_reload(tmp_path, chromium_browse
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
         page.reload(wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
         assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "light", (
             "toggled theme did not persist across reload"

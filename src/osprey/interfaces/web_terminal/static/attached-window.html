@@ -3,8 +3,9 @@
      opens it, waits for the marker below, then replaces its head and body with
      its own stylesheets, a header bar and the moved pane. It is a real page
      under the hub so the window shows the hub's address and takes the hub's
-     zoom; on its own it shows only the line below. -->
-<html lang="en" data-osprey-attached-shell>
+     zoom; on its own it shows only the line below. Its page-ready mark is
+     pending until the hub has dressed it (attached-window.js dressWindow). -->
+<html lang="en" data-osprey-attached-shell data-page-ready="pending">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -93,6 +93,13 @@ put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
 
+The same start refuses an open deployment whose render shows the notebook
+panel (``web_terminals.open_mode_code_panel`` in the lint). A kernel runs what
+is typed into a cell, in the terminal's container and with no guard in front of
+it, so it is a shell by another name, and the agent can write the cell a person
+then runs. No deny entry clears this one: either stop selecting ``jupyter`` in
+the renders the message names and rebuild, or choose one of the postures below.
+
 **Passwords**, managed by OSPREY:
 
 .. code-block:: yaml
@@ -106,6 +113,28 @@ not a boundary: ``none`` is for rooms where the agents are trusted too.
          key: /etc/osprey/tls/facility.key
        auth:
          method: password
+
+A card then opens the sign-in page for its user:
+
+.. figure:: /_static/screenshots/sign_in_light.png
+   :class: only-light
+   :figclass: only-light
+   :alt: The sign-in page for alice — a password field and an Unlock terminal button
+         under the facility name
+   :width: 100%
+
+   The password sign-in page a card opens, here for ``alice`` on the ``demo``
+   preset. Captured with OSPREY |captured_sign_in|.
+
+.. figure:: /_static/screenshots/sign_in_dark.png
+   :class: only-dark
+   :figclass: only-dark
+   :alt: The sign-in page for alice — a password field and an Unlock terminal button
+         under the facility name
+   :width: 100%
+
+   The password sign-in page a card opens, here for ``alice`` on the ``demo``
+   preset. Captured with OSPREY |captured_sign_in|.
 
 **OIDC**, against your facility's single sign-on. Each roster entry names the
 identity that maps to it, so a valid login as somebody else cannot open this
@@ -484,7 +513,7 @@ with a whole single sign-on domain, one with two named people:
            tier: readwrite
            access: [user:ada@example.org, user:bo@example.org]
 
-The apps are shared cards by construction. The ``demo`` preset
+Shared logins are shared cards by construction. The ``demo`` preset
 lists three under ``shared:`` — ``logbook``, ``knowledge`` and
 ``channel-finder`` — and any roster login opens them with its own password;
 they carry no credential of their own.

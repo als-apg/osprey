@@ -84,3 +84,34 @@ describe('the scaffold panel', () => {
     expect(field(root, 'error').textContent).toBe('no route');
   });
 });
+
+describe('the panel page', () => {
+  it('marks itself ready once its first refresh has drawn, whatever it drew', async () => {
+    document.documentElement.setAttribute('data-page-ready', 'pending');
+    document.body.innerHTML = `<main id="scaffold-state">${FIELDS}</main>`;
+    /** @type {(response: Response) => void} */
+    let answer = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((resolve) => (answer = resolve)))
+    );
+    vi.useFakeTimers();
+    try {
+      vi.resetModules();
+      await import('../panel/panel.js');
+      expect(document.documentElement.getAttribute('data-page-ready')).toBe('pending');
+
+      answer(new Response('', { status: 503 }));
+      await vi.waitFor(() =>
+        expect(document.documentElement.getAttribute('data-page-ready')).toBe('true')
+      );
+      expect(document.querySelector('[data-field="error"]')?.textContent).toContain('503');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      document.body.innerHTML = '';
+      document.documentElement.removeAttribute('data-page-ready');
+    }
+  });
+});

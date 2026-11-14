@@ -248,7 +248,7 @@ def expand_grid(
 #: Each lies inside the test harness's booked ranges
 #: (``osprey_connectors_tests._harness._ports.BOOKED_BLOCKS``), so a port reservation
 #: in one cell (the machine-switch tests' IOCs) never lands in another cell's
-#: block, and none is a block a board test pins (21800, 22800).
+#: block, and none is a block a board test pins (20300, 21800, 22800).
 CELL_PORT_BLOCKS = (24000, 25000, 29000, 30000, 31000)
 MAX_PARALLEL = len(CELL_PORT_BLOCKS)
 

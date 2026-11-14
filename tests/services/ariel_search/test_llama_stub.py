@@ -169,7 +169,7 @@ class TestNoServerListening:
         url = _nobody_listening(reserve_port())
         service = _StatusService(_status_repository())
 
-        async def _create(_config: Any) -> _StatusService:
+        async def _create(_config: Any, *, store_deadline_s=None) -> _StatusService:  # noqa: ARG001 - the signature it stands in for
             return service
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", _create)

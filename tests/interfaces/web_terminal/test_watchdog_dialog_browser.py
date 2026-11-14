@@ -25,6 +25,7 @@ from fastapi import Request
 from fastapi.routing import APIRoute
 
 from osprey_connectors import session_hold
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._posture_chip import (
     CHIP_STATE,
     TIMEOUT,
@@ -146,6 +147,7 @@ def test_two_watchdogs_share_one_dialog_naming_watchdog_prompt_and_reason(
         _open_flag(root, key, "alpha", reason="alpha reason")
         _open_flag(root, key, "beta", reason="beta reason")
         page.reload()
+        wait_for_page_ready(page)
         expect(page.locator(FLAG)).to_have_count(2, timeout=TIMEOUT)
         expect(page.locator(DIALOG)).to_have_count(1)
         for name in ("alpha", "beta"):
@@ -275,6 +277,7 @@ def test_disabled_watchdog_does_not_poll(
             ),
         )
         page.goto(base_url)
+        wait_for_page_ready(page)
         page.wait_for_function(
             "async () => (await import('/static/js/terminal.js')).getCurrentSessionId() !== null",
             timeout=TIMEOUT,

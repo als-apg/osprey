@@ -141,8 +141,8 @@ class TestRenderedDataTheme:
         """The hub's appearance controls are radios in the sidebar's ☰ More menu.
 
         The always-visible ``<osprey-theme-switcher>`` and the old binary
-        ``#theme-toggle`` button are gone from the hub page (session.html keeps
-        the shared switcher component). The More menu renders one
+        ``#theme-toggle`` button are gone from the hub page (and the Activity
+        page, session.html, carries no theme control). The More menu renders one
         ``menuitemradio`` row per appearance and the Settings row beside them.
         """
         with started_client(workspace_dir) as client:

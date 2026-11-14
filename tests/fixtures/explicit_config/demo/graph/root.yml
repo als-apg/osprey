@@ -269,6 +269,9 @@ modules:
       name: carol
       tier: admin
 project_name: osprey-freeze
+pv_directory:
+  alarm_state:
+    replay_file: demo:example-alarms
 scaffold:
   user_owned:
   - rules/facility
@@ -366,7 +369,7 @@ web:
       enabled: true
     bluesky:
       enabled: false
-      label: BLUESKY
+      label: Bluesky
       path: /bluesky/
       url: ${BLUESKY_WEB_URL:-http://localhost:10071}
     canopy:
@@ -378,7 +381,7 @@ web:
     events:
       enabled: false
       health_endpoint: /health
-      label: EVENTS
+      label: Events
       path: /dashboard
       url: http://localhost:10010
     jupyter:

@@ -39,6 +39,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.design_system._dispatch_dashboard import mount_design_system
 
 if TYPE_CHECKING:
@@ -108,6 +109,7 @@ def _open_and_settle(page: Page, url: str) -> str:
     timeout.
     """
     page.goto(url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     try:
         page.wait_for_function(
             "sel => { const s = document.querySelector(sel + ' .osprey-state');"

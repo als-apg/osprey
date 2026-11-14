@@ -9,6 +9,7 @@ from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
+from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
 
 
@@ -130,6 +131,18 @@ class TestControlSystemContextValidation:
         assert "Unknown archiver.type: custom_archiver" in caplog.text
 
 
+class KeywordRecorder(MockDynamicConnector):
+    """The custom connector, keeping the keywords each of its writes was called with."""
+
+    seen_kwargs: list[dict] = []
+
+    async def write_channel(self, channel_address, value, **kwargs):
+        self.seen_kwargs.append(kwargs)
+        return await MockDynamicConnector._unguarded_write_channel(
+            self, channel_address, value, **kwargs
+        )
+
+
 class TestCustomConnectorConfirmDefault:
     """A custom connector keeps its own ``confirm`` default.
 
@@ -144,9 +157,9 @@ class TestCustomConnectorConfirmDefault:
         # target- and type-blind, so the deployment's allowed tier arms it.
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
-    async def _connector(self):
+    async def _connector(self, connector_type=MockDynamicConnector):
         config = {
-            "type": "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector",
+            "type": f"{connector_type.__module__}.{connector_type.__qualname__}",
             "connector": {},
         }
         # Built for the simulator target, whose switch the module's fixture
@@ -167,18 +180,11 @@ class TestCustomConnectorConfirmDefault:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")
-    async def test_batch_omits_keyword_for_custom_connector(self):
+    async def test_batch_omits_keyword_for_custom_connector(self, monkeypatch):
         """Batch write with ``confirm`` omitted: no ``None`` reaches write_channel."""
-        connector = await self._connector()
-
-        seen_kwargs = []
-        original = connector.write_channel
-
-        async def spy(channel_address, value, **kwargs):
-            seen_kwargs.append(kwargs)
-            return await original(channel_address, value, **kwargs)
-
-        connector.write_channel = spy
+        seen_kwargs: list[dict] = []
+        monkeypatch.setattr(KeywordRecorder, "seen_kwargs", seen_kwargs)
+        connector = await self._connector(KeywordRecorder)
 
         results = await connector.write_multiple_channels([("TEST:CH1", 1.0), ("TEST:CH2", 2.0)])
 

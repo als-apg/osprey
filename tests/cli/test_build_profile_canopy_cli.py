@@ -39,7 +39,7 @@ def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_validate_refuses_a_home_screen_the_library_lacks(materialized: Path):
-    result = CliRunner().invoke(validate, ["--repo", str(materialized), "--drift", "warn"])
+    result = CliRunner().invoke(validate, ["--repo", str(materialized)])
     assert result.exit_code == 2, result.output
     assert "web.panels.canopy.home_screen" in result.output
     assert "'facility/nope'" in result.output

@@ -100,6 +100,11 @@ refusal never share one.
      - Each CANOPY panel write and each panel write refused, under the person
        who clicked --- see :ref:`architecture-safety-chain-panel-write`. Its
        ``detail`` holds the value sent: see :ref:`audit-trail-payloads`
+   * - ``channels``
+     - Each batch of live values the channel finder's value reader fetched,
+       one allowed entry per batch: ``subject`` ``channel_values_read``,
+       ``reason`` ``batch_read``, ``detail`` ``target=<target> pv_count=<n>``,
+       ``session`` ``channels:<pid>``
    * - ``preflight`` (written as ``queueserver`` and as each lane's
        ``<lane>-queueserver``)
      - Whether a queued plan's declared channels answered before it moved, per
@@ -515,6 +520,10 @@ specific first:
        path cannot diverge.
    * - The local account
      - The single-user laptop case, where the process account *is* the person.
+       ``osprey web``, ``chat`` and ``query`` file under the name the build
+       recorded for it, ``deployment.host_identity``: the login in lowercase,
+       so ``GMartino`` files as ``gmartino``. State a name in ``profile.yml``
+       to choose another.
    * - ``unknown``
      - An honest floor. A slim image often has no account entry for its uid;
        that is routine, and an unresolvable identity must never cost the
@@ -553,7 +562,7 @@ another identity's.
 **The deployment-wide view is a reader's.** A reader is a person the profile
 names under ``agent_record.readers``. A question spanning several people
 is answered by a reader, on the history page or with a reader key
-(:doc:`/how-to/health-and-monitoring/read-the-record`). Past the retention
+(:ref:`agent-record-readers`). Past the retention
 window, it is answered from the archive on the deploy host, where whoever owns
 ``var/archive/`` reads every day's export.
 

@@ -252,8 +252,6 @@ def test_the_small_import_states_no_id_twice_within_the_layer(small: Path) -> No
 
 # -- the fixture exports: decks, slices and planes -------------------------------
 
-at = pytest.importorskip("at")
-
 
 def _import(root: Path, tree: str) -> Path:
     facility = root / "data" / "facility"

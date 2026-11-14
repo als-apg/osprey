@@ -119,6 +119,22 @@
       "parent": "RadioFrequency"
     },
     {
+      "abstract": false,
+      "aliases": [],
+      "description": "An electrical circuit, breaker or panel in a power distribution chain.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Circuit",
+      "name": "Circuit",
+      "parent": "Infrastructure"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "A control application or controller that commands devices.",
+      "iri": "https://narad.example.org/schema/shared_semantics/ControlApplication",
+      "name": "ControlApplication",
+      "parent": "Infrastructure"
+    },
+    {
       "abstract": true,
       "aliases": [
         "corrector",
@@ -166,6 +182,14 @@
     },
     {
       "abstract": false,
+      "aliases": [],
+      "description": "A chassis or crate holding electronics modules.",
+      "iri": "https://narad.example.org/schema/shared_semantics/ElectronicsChassis",
+      "name": "ElectronicsChassis",
+      "parent": "Infrastructure"
+    },
+    {
+      "abstract": false,
       "aliases": [
         "faraday cup",
         "cup",
@@ -201,6 +225,24 @@
       "iri": "https://narad.example.org/schema/shared_semantics/HCorrector",
       "name": "HCorrector",
       "parent": "Corrector"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "A computer that runs control applications.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Host",
+      "name": "Host",
+      "parent": "Infrastructure"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "infrastructure"
+      ],
+      "description": "Abstract root for the supplies, electronics, hosts, networks, applications and services the beam devices depend on.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Infrastructure",
+      "name": "Infrastructure",
+      "parent": "AcceleratorDevice"
     },
     {
       "abstract": true,
@@ -248,6 +290,14 @@
     },
     {
       "abstract": false,
+      "aliases": [],
+      "description": "A switch joining network links.",
+      "iri": "https://narad.example.org/schema/shared_semantics/NetworkSwitch",
+      "name": "NetworkSwitch",
+      "parent": "Infrastructure"
+    },
+    {
+      "abstract": false,
       "aliases": [
         "normal conducting",
         "warm RF",
@@ -267,6 +317,14 @@
       "iri": "https://narad.example.org/schema/shared_semantics/Octupole",
       "name": "Octupole",
       "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "A supply that delivers electrical power to a device.",
+      "iri": "https://narad.example.org/schema/shared_semantics/PowerSupply",
+      "name": "PowerSupply",
+      "parent": "Infrastructure"
     },
     {
       "abstract": false,
@@ -408,6 +466,22 @@
       "iri": "https://narad.example.org/schema/shared_semantics/TravellingWaveCavity",
       "name": "TravellingWaveCavity",
       "parent": "AcceleratingCavity"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Named by a source as a relation end; nothing else is known.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Unidentified",
+      "name": "Unidentified",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "A loop supplying a non-electrical service such as cooling water, compressed air or gas.",
+      "iri": "https://narad.example.org/schema/shared_semantics/UtilityLoop",
+      "name": "UtilityLoop",
+      "parent": "Infrastructure"
     },
     {
       "abstract": false,
@@ -643,6 +717,199 @@
       "description": "Vertical beam-envelope RMS size from the optics model.",
       "name": "sigmay",
       "unit": "m"
+    }
+  ],
+  "relations": [
+    {
+      "description": "The subject group or place is bounded by the object device.",
+      "name": "bounded_by",
+      "object": [
+        "device"
+      ],
+      "single_per": [],
+      "subject": [
+        "group",
+        "place"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "One cable joins the two ends.",
+      "name": "cabled_to",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "attributes.cable"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device is commanded by the object application or controller.",
+      "name": "controlled_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject device is inhibited by the object interlock.",
+      "name": "interlocked_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject device sits in the object place, as a source states it.",
+      "name": "located_in",
+      "object": [
+        "place"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The two ends share a network link.",
+      "name": "networked_to",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device is a component of the object device (a module in a chassis).",
+      "name": "part_of",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject draws its electrical power from the object.",
+      "name": "powered_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject sensor is read by the object electronics.",
+      "name": "read_out_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject application runs on the object host.",
+      "name": "runs_on",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The two device records may be one device; their identity is unresolved.",
+      "name": "same_as",
+      "object": [
+        "device"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device draws a non-electrical service (cooling water, compressed air, gas) from the object.",
+      "name": "supplied_by",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject",
+        "attributes.medium"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject takes its trigger from the object, typically a timing channel.",
+      "name": "triggered_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": false
     }
   ],
   "schema": "osprey.facility.vocabulary",

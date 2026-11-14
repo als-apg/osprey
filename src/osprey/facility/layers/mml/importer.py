@@ -118,6 +118,7 @@ from osprey.facility.layers.mml.mapping import (
 from osprey.facility.layers.mml.places import Placed, Slot, place_devices
 from osprey.facility.layers.mml.response_check import RESPONSE_SUFFIX
 from osprey.facility.layers.mml.rows import write_rows
+from osprey.facility.sources import facility_signals
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.facility.layers.mml.family import FamilyView, FieldView
@@ -414,7 +415,7 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     for line in check_decks(exports):
         click.echo(line)
     mapping = load_or_draft(facility_dir, exports.ao, exports.ad or None, exports.va or None)
-    problems = check_mapping(mapping, exports.ao)
+    problems = check_mapping(mapping, exports.ao, signals=facility_signals(facility_dir))
     if problems:
         raise MappingProblems(facility_dir / MAPPING_FILE, problems)
     judged, views = _carried(exports, mapping)

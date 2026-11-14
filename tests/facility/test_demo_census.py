@@ -135,7 +135,16 @@ def test_the_census_agrees_with_itself() -> None:
     assert by_pin[(facade, "assign:DEMO_CHANNELS")] == facility["channels"]
     assert by_pin[(facade, "assign:DEMO_WRITES")] == facility["setpoints"]
     assert by_pin[(facade, "assign:DEMO_READS")] == facility["readables"]
-    assert by_pin[(graph_mcp, "assign:EXPECTED_DEVICES")] == facility["devices"]
+    # The graph view types every device; the store and the index count the
+    # devices a channel binds, which the facility's unbound devices are not.
+    demo_ttl = "tests/templates/test_demo_ttl.py"
+    parse_corpus = "tests/services/channel_finder/graph_index/test_parse_corpus.py"
+    assert by_pin[(demo_ttl, "assign:EXPECTED_DEVICES")] == facility["devices"]
+    assert (
+        by_pin[(graph_mcp, "assign:EXPECTED_DEVICES")]
+        == by_pin[(parse_corpus, "assign:DEMO_TYPED_DEVICES")]
+        < facility["devices"]
+    )
     fingerprint = "tests/facility/golden/demo_fingerprint.json"
     additions = "tests/facility/golden/demo_fingerprint_additions.json"
     assert (

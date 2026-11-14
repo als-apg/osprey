@@ -1,0 +1,69 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 380" role="img" aria-labelledby="va-tbt-title va-tbt-desc">
+  <title id="va-tbt-title">Turn-by-turn data from an injection chain</title>
+  <desc id="va-tbt-desc">The injection chain is the only source of shots. The ring reads three of the chain's records as model inputs: the shot counter, the shot's charge and the stored current. When the counter rises, the ring tracks one bunch through its deck for the monitors a client armed. The client arms monitors, requests a shot from the chain, waits for armed to read zero and then reads each monitor's arrays, which are served before armed drops.</desc>
+  <defs>
+    <marker id="va-tbt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- the two models -->
+  <rect class="zone" x="20" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="36" y="44">INJECTION CHAIN · ENGINE: INJECTION</text>
+  <rect class="zone" x="610" y="24" width="330" height="186" rx="4"/>
+  <text class="te" x="626" y="44">RING · ENGINE: PYAT + TURN_BY_TURN</text>
+
+  <!-- model inputs -->
+  <line class="e" x1="330" y1="78" x2="630" y2="78" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="126" x2="630" y2="126" marker-end="url(#va-tbt-arr)"/>
+  <line class="e" x1="330" y1="174" x2="630" y2="174" marker-end="url(#va-tbt-arr)"/>
+  <text class="te" x="480" y="44" text-anchor="middle">MODEL INPUTS</text>
+  <text class="ta" x="480" y="70" text-anchor="middle">signal: shot</text>
+  <text class="ta" x="480" y="118" text-anchor="middle">signal: charge</text>
+  <text class="ta" x="480" y="166" text-anchor="middle">signal: stored_current</text>
+
+  <!-- the chain's records -->
+  <rect class="nb" x="40" y="58" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="75" text-anchor="middle">shot counter</text>
+  <text class="ts" x="185" y="90" text-anchor="middle">steps after the charge, once per shot</text>
+
+  <rect class="nb" x="40" y="106" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="123" text-anchor="middle">charge</text>
+  <text class="ts" x="185" y="138" text-anchor="middle">what this shot delivers</text>
+
+  <rect class="nb" x="40" y="154" width="290" height="40" rx="6"/>
+  <text class="tn" x="185" y="171" text-anchor="middle">stored current</text>
+  <text class="ts" x="185" y="186" text-anchor="middle">the beam already in the ring</text>
+
+  <!-- the ring -->
+  <rect class="nb-st" x="630" y="58" width="290" height="136" rx="6"/>
+  <text class="tn" x="775" y="100" text-anchor="middle">the counter rose: one shot</text>
+  <text class="ts" x="775" y="122" text-anchor="middle">tracks one bunch through the deck</text>
+  <text class="ts" x="775" y="138" text-anchor="middle">from the injection element,</text>
+  <text class="ts" x="775" y="154" text-anchor="middle">for the armed monitors only</text>
+
+  <!-- client edges -->
+  <line class="e" x1="185" y1="280" x2="185" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="132" y="238" width="106" height="15"/>
+  <text class="ta" x="185" y="249" text-anchor="middle">requests a shot</text>
+
+  <line class="e" x1="700" y1="280" x2="700" y2="212" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="662" y="238" width="76" height="15"/>
+  <text class="ta" x="700" y="249" text-anchor="middle">writes arm</text>
+
+  <line class="e" x1="850" y1="210" x2="850" y2="278" marker-end="url(#va-tbt-arr)"/>
+  <rect class="mask" x="788" y="238" width="124" height="15"/>
+  <text class="ta" x="850" y="249" text-anchor="middle">arrays, then armed 0</text>
+
+  <!-- the client -->
+  <rect class="nb-in" x="20" y="280" width="920" height="56" rx="6"/>
+  <text class="te" x="36" y="300">CLIENT</text>
+  <text class="tn" x="135" y="314" text-anchor="middle">1 · arm the monitors</text>
+  <text class="tn" x="365" y="314" text-anchor="middle">2 · request a shot</text>
+  <text class="tn" x="595" y="314" text-anchor="middle">3 · wait for armed 0</text>
+  <text class="tn" x="825" y="314" text-anchor="middle">4 · read x, y and sum</text>
+
+  <text class="ta" x="480" y="362" text-anchor="middle">the chain stays the only source of shots — armed reads 0 only after the shot's arrays are served</text>
+</svg>
+</div>

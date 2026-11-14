@@ -41,7 +41,7 @@ UPSTREAM_IMAGES = {
     # Fully qualified: the transcripts copy runs as a bare ``docker|podman
     # run``, and podman resolves an unqualified name through short-name
     # aliases or a prompt.
-    "transcripts_copy": "docker.io/library/alpine:3.20",
+    "transcripts_copy": "docker.io/library/alpine:3.23",
     # The pipeline's render job runs `osprey build` on the images' own Python,
     # which builds the deployment wheels the fit check judges against it.
     "ci_python": f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim",

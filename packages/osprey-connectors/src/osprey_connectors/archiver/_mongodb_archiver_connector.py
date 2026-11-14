@@ -17,8 +17,8 @@ from typing import Any
 
 import pandas as pd
 
-from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archiver._base import ArchiveExtent, ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver._field_names import _RESERVED_FIELDS, _address_of, field_name
 from osprey_connectors.archiver._mongo_client import (
     CA_FILE_ERRORS,
     address_overrides,
@@ -602,9 +602,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         Returns:
             ArchiverMetadata; ``is_archived`` is False and both bounds are None
-            when the channel has no stored samples or the store cannot be queried.
-            The bounds span the snapshot collection and its waveform sibling, so
-            a waveform-only channel is found.
+            when the channel has no stored samples, and ``None`` with the reason
+            in ``description`` when the store cannot be queried. The bounds span
+            the snapshot collection and its waveform sibling, so a waveform-only
+            channel is found.
 
         Raises:
             RuntimeError: If archiver not connected
@@ -633,7 +634,11 @@ class MongoDBArchiverConnector(ArchiverConnector):
             first, last = await asyncio.to_thread(stored_extent)
         except Exception as e:
             logger.warning(f"Error checking channel metadata: {e}")
-            first = last = None
+            return ArchiverMetadata(
+                channel=channel,
+                is_archived=None,
+                description=f"the MongoDB archive could not be read: {type(e).__name__}",
+            )
 
         return ArchiverMetadata(
             channel=channel,
@@ -643,14 +648,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             description=f"MongoDB archived channel: {channel}",
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived in the MongoDB collection or its
         waveform sibling.
 
-        A read that fails part-way reports every channel as not archived rather
-        than raising: availability is a question the store could not answer, not
-        a fault to surface to the caller.
+        A read that fails part-way reports every channel as unknown (``None``)
+        rather than raising: availability is a question the store could not
+        answer, not a fault to surface to the caller.
 
         Args:
             channels: Channel addresses to check
@@ -674,10 +679,55 @@ class MongoDBArchiverConnector(ArchiverConnector):
             return availability
 
         try:
-            availability = await asyncio.to_thread(check_channels)
+            return dict(await asyncio.to_thread(check_channels))
         except Exception as e:
             logger.warning(f"Error checking channel availability: {e}")
-            # Return all False on error
-            availability = dict.fromkeys(channels, False)
+            return dict.fromkeys(channels, None)
 
-        return availability
+    async def store_extent(self) -> ArchiveExtent:
+        """The channels the store records now, and its oldest and newest sample.
+
+        ``channels`` is every channel field of the newest documents of the
+        snapshot collection and of its waveform sibling (a waveform document
+        holds one channel, so every document at the sibling's newest instant is
+        read). ``oldest`` and ``newest`` span both collections. Four or more
+        index-ordered reads on ``date``; never a collection scan.
+
+        Returns:
+            The extent; every part ``None`` and a ``reason`` when the store
+            cannot be read.
+
+        Raises:
+            RuntimeError: If archiver not connected
+        """
+        self._require_connected()
+
+        def read_extent() -> ArchiveExtent:
+            channels: set[str] = set()
+            oldest: list[datetime] = []
+            newest: list[datetime] = []
+            for store in self._stores():
+                first = store.find_one({}, {"date": 1}, sort=[("date", 1)])
+                last = store.find_one({}, {"date": 1}, sort=[("date", -1)])
+                if first is None or last is None or last.get("date") is None:
+                    continue
+                if first.get("date") is not None:
+                    oldest.append(first["date"])
+                newest.append(last["date"])
+                for document in store.find({"date": last["date"]}):
+                    channels.update(
+                        _address_of(field) for field in document if field not in _RESERVED_FIELDS
+                    )
+            return ArchiveExtent(
+                channels=frozenset(channels),
+                oldest=min(oldest, default=None),
+                newest=max(newest, default=None),
+            )
+
+        try:
+            return await asyncio.to_thread(read_extent)
+        except Exception as e:
+            logger.warning(f"Error reading the archive's extent: {e}")
+            return ArchiveExtent(
+                reason=f"the MongoDB archive could not be read: {type(e).__name__}"
+            )

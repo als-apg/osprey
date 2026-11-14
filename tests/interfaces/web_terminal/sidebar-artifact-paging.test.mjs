@@ -45,6 +45,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('the bottom fade', () => {
+  test('marks a box that scrolls, and only while it does', async () => {
+    const tall = box('t1', { scrollHeight: 400, scrollTop: 0, clientHeight: 145 });
+    const fits = box('t2', { scrollHeight: 130, scrollTop: 0, clientHeight: 130 });
+    const { p } = pager({ boxes: [tall, fits] });
+    p.fill();
+    await vi.runAllTimersAsync();
+    expect(tall.hasAttribute('data-overflows')).toBe(true);
+    expect(fits.hasAttribute('data-overflows')).toBe(false);
+
+    Object.defineProperty(tall, 'clientHeight', { value: 400, configurable: true });
+    p.fill();
+    await vi.runAllTimersAsync();
+    expect(tall.hasAttribute('data-overflows')).toBe(false);
+  });
+});
+
 describe('onScroll', () => {
   test('loads the next page when the box end is within 52 px', () => {
     const b = box('t1', { scrollHeight: 1000, scrollTop: 450, clientHeight: 500 });

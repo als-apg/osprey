@@ -48,6 +48,14 @@ Build & deploy
       A panel for the operator and tools for the agent over one backend:
       what an app is and how to make one.
 
+   .. grid-item-card:: Register a Measurement Kind
+      :link: register-a-measurement-kind
+      :link-type: doc
+
+      Add a measurement of your own from an installable package: its
+      declaration, its block in the measurement file, and what the build
+      refuses.
+
 Operate
 -------
 
@@ -117,7 +125,8 @@ Facility services
       :link-type: doc
 
       Search, filter, and explore control system channels using the Channel Finder
-      service and its web interface.
+      service and its web interface, including every PV the control system
+      announces.
 
    .. grid-item-card:: Facility Knowledge
       :link: facility-knowledge/index
@@ -150,6 +159,7 @@ Facility services
    deploy-project/index
    llm-providers/index
    apps/index
+   register-a-measurement-kind
    web-terminal/index
    agent-interfaces/index
    health-and-monitoring/index
@@ -159,7 +169,6 @@ Facility services
    measure-with-pyaml
    use-channel-finder
    import-mml-export
-   run-scenarios
    facility-knowledge/index
    ariel/index
    bluesky/index

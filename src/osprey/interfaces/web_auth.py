@@ -81,14 +81,17 @@ What the serving process still keeps in ``os.environ`` is the
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import secrets
+import stat
 import threading
 import time
 import urllib.parse
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -114,6 +117,7 @@ __all__ = [
     "PANEL_REGISTER_ROUTE",
     "PANEL_TIER_ROUTES",
     "PANEL_TOKEN_ENV",
+    "PROJECT_PANEL_TOKEN_FILE",
     "SESSION_LIFETIME_ENV",
     "SESSION_STORE_DIR_ENV",
     "UNNAMED_OPERATOR",
@@ -131,7 +135,9 @@ __all__ = [
     "panel_tier_routes",
     "peek_supplied_panel_token",
     "peek_web_credentials",
+    "read_project_panel_token",
     "reset_web_credentials",
+    "share_panel_token_with_project",
 ]
 
 #: The operator secret's environment carrier. In the container shape the deploy
@@ -181,7 +187,7 @@ ROSTER_OWNERS_ENV = "OSPREY_TERMINAL_ROSTER_OWNERS"
 # What an account rendered into ROSTER_OWNERS_ENV may not contain or be. The
 # value becomes a directory component under the control-target tree and a
 # header value on its way to the queue, so it has to be one word that means the
-# same thing to both — see _roster_owners_from_env.
+# same thing to both — see roster_owners.
 _ACCOUNT_SEPARATORS: tuple[str, ...] = ("/", "\\", " ")
 _RESERVED_ACCOUNTS: tuple[str, ...] = (".", "..")
 
@@ -896,6 +902,123 @@ _CREDENTIALS: WebCredentials | None = None
 #: child this process spawns still inherits nothing. ``None`` means no non-blank
 #: token was ever supplied — not "not populated yet", and never a reason to mint.
 _SUPPLIED_PANEL_TOKEN: str | None = None
+#: The data root :func:`share_panel_token_with_project` named before this
+#: process populated, or ``None``. Read once, by :func:`_populate`.
+_PROJECT_TOKEN_ROOT: Path | None = None
+
+#: The file a project's launcher-less processes share one panel token through,
+#: directly under the project's shared data root. See
+#: :func:`share_panel_token_with_project`.
+PROJECT_PANEL_TOKEN_FILE = ".panel-token"  # noqa: S105 -- names a file, holds no secret
+#: Owner-only, like every other secret file this tree writes.
+_PROJECT_TOKEN_FILE_MODE = 0o600
+_PROJECT_TOKEN_READ_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+#: Far more than a minted token; bounds what a file that is not ours can make us read.
+_PROJECT_TOKEN_MAX_BYTES = 512
+
+
+def read_project_panel_token(root: Path) -> str | None:
+    """Return the panel token the project under *root* shares, or ``None``.
+
+    Read-only: it never creates the file and never mints. The file is trusted
+    only as this module writes it — a regular file, not reached through a
+    link, owned by this user and closed to everyone else. Anything else is
+    read as no token, so a file somebody planted or loosened is never sent as
+    a bearer and never verified against.
+
+    Args:
+        root: The project's shared data root.
+    """
+    try:
+        descriptor = os.open(Path(root) / PROJECT_PANEL_TOKEN_FILE, _PROJECT_TOKEN_READ_FLAGS)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) & ~_PROJECT_TOKEN_FILE_MODE
+        ):
+            return None
+        raw = os.read(descriptor, _PROJECT_TOKEN_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+    if len(raw) > _PROJECT_TOKEN_MAX_BYTES:
+        return None
+    return raw.decode("ascii", errors="ignore").strip() or None
+
+
+def _ensure_project_panel_token(root: Path) -> str | None:
+    """Return the project's shared panel token, creating the file when absent.
+
+    Created once and never rewritten, the way the agent-record credential files
+    are: the token is written to a new owner-only file beside the destination
+    and linked into place, so two processes starting together agree on
+    whichever link landed first and no reader sees a partial token.
+
+    Returns ``None`` — and the caller mints a private token, as it always did —
+    when the file cannot be created or the one already there is not safe to
+    trust.
+    """
+    path = Path(root) / PROJECT_PANEL_TOKEN_FILE
+    if (existing := read_project_panel_token(root)) is not None:
+        return existing
+    try:
+        if not os.path.lexists(path):
+            temporary = path.with_name(f"{path.name}.{secrets.token_hex(6)}.tmp")
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _PROJECT_TOKEN_FILE_MODE
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                    handle.write(mint_secret())
+                with contextlib.suppress(FileExistsError):
+                    os.link(temporary, path)
+            finally:
+                with contextlib.suppress(OSError):
+                    os.unlink(temporary)
+    except OSError as exc:
+        logger.warning("Could not create the shared panel token file %s: %s", path, exc)
+        return None
+    token = read_project_panel_token(root)
+    if token is None:
+        logger.warning(
+            "Not using the shared panel token file %s: it must be a regular file owned by "
+            "this user with mode 0600. Panel calls from this project's other processes to a "
+            "server this process hosts will be refused until it is removed.",
+            path,
+        )
+    return token
+
+
+def share_panel_token_with_project(root: Path) -> None:
+    """Have this process, if it has no launcher, serve with the project's shared panel token.
+
+    A process started by ``osprey web`` or ``osprey chat`` is handed its panel
+    token, and so is every other process of that session. The MCP servers of a
+    session nothing of OSPREY launched (``osprey query``, an SDK run, ``claude
+    -p``) are handed nothing: each would mint a token only it knows, and the
+    one that comes to host the artifact gallery would refuse the others. Called
+    before such a process builds the app it hosts, this makes
+    :func:`_populate` take the token from :data:`PROJECT_PANEL_TOKEN_FILE`
+    under *root* instead, where the project's other processes read it
+    (:func:`read_project_panel_token`).
+
+    It changes nothing for a process that was handed an operator secret or a
+    panel token, or one whose credentials are already settled: what a launcher
+    supplied, and what this process may already have passed on, stands. The
+    operator secret is never shared — only the panel tier is.
+
+    Args:
+        root: The project's shared data root.
+    """
+    global _PROJECT_TOKEN_ROOT
+    with _POPULATION_LOCK:
+        if _CREDENTIALS is None:
+            _PROJECT_TOKEN_ROOT = Path(root)
 
 
 def _populate() -> WebCredentials:
@@ -911,6 +1034,7 @@ def _populate() -> WebCredentials:
             :func:`_session_ttl_from_env`.
     """
     global _SUPPLIED_PANEL_TOKEN
+    project_panel_token: str | None = None
     # Every carrier is popped BEFORE anything below that can raise — the guard
     # and the operator-secret check — because the process that catches the
     # error goes on serving and spawning children. A credential left in
@@ -951,6 +1075,10 @@ def _populate() -> WebCredentials:
                 "value and a locally minted secret would refuse every request."
             )
         operator_secret = mint_secret()
+        # A process nothing handed an identity is the only one that shares its
+        # panel token through the project; see share_panel_token_with_project.
+        if not supplied_panel_token and _PROJECT_TOKEN_ROOT is not None:
+            project_panel_token = _ensure_project_panel_token(_PROJECT_TOKEN_ROOT)
 
     # Read after the pops above, deliberately: this call can raise too, and the
     # carriers must already be out of the environment when it does.
@@ -959,7 +1087,7 @@ def _populate() -> WebCredentials:
 
     return WebCredentials(
         operator_secret=operator_secret,
-        panel_token=supplied_panel_token or mint_secret(),
+        panel_token=supplied_panel_token or project_panel_token or mint_secret(),
         roster_secrets=roster_secrets,
         roster_owners=roster_owners,
         dispatcher_token=dispatcher_token,
@@ -1111,7 +1239,12 @@ def _pop_roster_secrets() -> tuple[tuple[str, str], ...]:
 
 
 def _roster_owners_from_env() -> dict[str, str]:
-    """Parse :data:`ROSTER_OWNERS_ENV` into ``{roster variable suffix: account}``.
+    """:func:`roster_owners` of this process's own environment."""
+    return roster_owners(os.environ)
+
+
+def roster_owners(environ: Mapping[str, str]) -> dict[str, str]:
+    """Parse :data:`ROSTER_OWNERS_ENV` in *environ* into ``{roster variable suffix: account}``.
 
     Malformed input costs names, never an operator's access: the secrets a name
     is missing for are simply unnamed. The one outcome that is never acceptable
@@ -1131,7 +1264,7 @@ def _roster_owners_from_env() -> dict[str, str]:
     HTTP header value.
     """
     owners: dict[str, str] = {}
-    for entry in os.environ.get(ROSTER_OWNERS_ENV, "").split(","):
+    for entry in environ.get(ROSTER_OWNERS_ENV, "").split(","):
         if not entry.strip():
             continue
         suffix, separator, account = entry.partition("=")
@@ -1158,7 +1291,7 @@ def _usable_suffix(suffix: str) -> bool:
     Every key the map can legitimately carry was produced by
     :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`, whose
     output is ASCII letters, digits and ``_`` and nothing else. Holding keys to
-    that is how :func:`_roster_owners_from_env` recognises an entry it cannot
+    that is how :func:`roster_owners` recognises an entry it cannot
     read — a key it could never have been handed is a value that was mangled
     somewhere, and the names in it are not trustworthy.
     """
@@ -1168,7 +1301,7 @@ def _usable_suffix(suffix: str) -> bool:
 
 
 def _usable_account(account: str) -> bool:
-    """Whether *account* can serve as an owner name; see :func:`_roster_owners_from_env`."""
+    """Whether *account* can serve as an owner name; see :func:`roster_owners`."""
     if not account or account in _RESERVED_ACCOUNTS:
         return False
     if not account.isascii() or not account.isprintable():
@@ -1308,10 +1441,11 @@ def reset_web_credentials() -> None:
     remembered token surviving a test would hand a bearer to the next test
     asserting that a process holding nothing sends none.
     """
-    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN
+    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN, _PROJECT_TOKEN_ROOT
     with _POPULATION_LOCK:
         _CREDENTIALS = None
         _SUPPLIED_PANEL_TOKEN = None
+        _PROJECT_TOKEN_ROOT = None
 
 
 def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
@@ -1438,6 +1572,13 @@ class Tier(Enum):
     new member as sufficient. :data:`Tier.OPERATOR` is the default answer for
     anything :func:`classify` does not recognise, so adding a route to the tree
     without touching this module leaves it protected rather than exposed.
+
+    A third credential exists and is not a member: a watchdog judge's read
+    token (:class:`JudgeGrants`). It is not ordered with these two because it is
+    narrower than the panel tier in a different direction, not a step below it:
+    it reaches only the safe-method agent routes of the application panels it
+    was minted for, and none of the arrangement routes the panel tier holds. It
+    is judged per request by :func:`judge_admission`, never by :func:`classify`.
     """
 
     #: The narrow, low-privilege tier: panel arrangement and activity
@@ -1627,3 +1768,119 @@ def classify(
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL
     return Tier.OPERATOR
+
+
+#: The methods a judge's read token may use: the safe ones, whatever an
+#: application's manifest calls a read. A ``POST`` read route can still change
+#: application state (a computation it caches), and a judge changes nothing.
+JUDGE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
+
+
+class JudgeAdmission(Enum):
+    """What the gate does with a request bearing a judge's read token."""
+
+    #: A safe-method agent route of a panel the token was minted for.
+    ADMITTED = "admitted"
+    #: A live token on any other route: answered ``403``.
+    REFUSED = "refused"
+    #: Not a live judge token (never minted, or revoked): answered ``401``.
+    UNKNOWN = "unknown"
+
+
+class JudgeGrants:
+    """The read tokens of the watchdog judge runs in flight, each scoped to panel ids.
+
+    One token per run, minted when the run starts and revoked when it ends, so
+    a token outlives nothing that granted it. Tokens are random, held only in
+    this process's memory under their digest, and never written to disk or
+    config. A run reaches an application's backend through the terminal's
+    panel door like the session agent does; this is the credential it carries
+    there instead of the panel token, which a judge is never given.
+
+    Args:
+        registry: Returns the terminal's panel registry when called. Read on
+            each :meth:`panels_serving`, never at construction: the terminal
+            builds its grants before its registry exists.
+    """
+
+    def __init__(self, registry: Callable[[], PanelRegistry] = lambda: SIDECAR_REGISTRY) -> None:
+        self._registry = registry
+        self._lock = threading.Lock()
+        self._tokens: dict[str, frozenset[str]] = {}
+
+    def mint(self, panel_ids: Iterable[str]) -> str:
+        """A fresh token admitted on the read routes of *panel_ids*.
+
+        Raises:
+            ValueError: *panel_ids* is empty; a run with no application panel
+                gets no token.
+        """
+        panels = frozenset(panel_ids)
+        if not panels:
+            raise ValueError("a judge token grants at least one panel")
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._tokens[_digest(token)] = panels
+        return token
+
+    def revoke(self, token: str) -> None:
+        """End *token*; a token already revoked or never minted is ignored."""
+        with self._lock:
+            self._tokens.pop(_digest(token), None)
+
+    def panels_of(self, token: str | None) -> frozenset[str] | None:
+        """The panel ids *token* was minted for, ``None`` when it is not live."""
+        if not token:
+            return None
+        with self._lock:
+            return self._tokens.get(_digest(token))
+
+    def panels_serving(self, apps: Iterable[str]) -> frozenset[str]:
+        """The ids of the application panels *apps* serve, in the current registry."""
+        wanted = set(apps)
+        applications = self._registry().applications
+        return frozenset(pid for pid, panel in applications.items() if panel.app in wanted)
+
+
+def judge_grants_of(app: Any) -> JudgeGrants | None:
+    """The judge grants *app* serves (``app.state.judge_grants``), ``None`` when it has none."""
+    grants = getattr(getattr(app, "state", None), "judge_grants", None)
+    return grants if isinstance(grants, JudgeGrants) else None
+
+
+def judge_admission(
+    grants: JudgeGrants,
+    token: str | None,
+    method: str | None,
+    path: str | None,
+    *,
+    panels: PanelRegistry = SIDECAR_REGISTRY,
+) -> JudgeAdmission:
+    """Whether a request bearing a judge's read token reaches its route.
+
+    Admitted only when all three hold: the method is in :data:`JUDGE_METHODS`;
+    the exact ``(method, path)`` pair is one :func:`panel_tier_routes` opens for
+    *panels*; and the path lies under ``/panel/<id>/`` for an id the token was
+    minted for. The pair match is exact for the reason :func:`classify` gives;
+    the prefix condition is what keeps the static panel-tier routes (panel
+    arrangement, activity, the dispatcher hop) and every other panel's routes
+    out of reach.
+
+    Args:
+        grants: The terminal's grants (:func:`judge_grants_of`).
+        token: The bearer the request carried.
+        method: The request's HTTP method.
+        path: The bare request path, as :func:`classify` takes it.
+        panels: The terminal's panel registry (:func:`panel_registry_of`).
+    """
+    granted = grants.panels_of(token)
+    if granted is None:
+        return JudgeAdmission.UNKNOWN
+    if not method or not path:
+        return JudgeAdmission.REFUSED
+    route = (method.upper(), path)
+    if route[0] not in JUDGE_METHODS or route not in panel_tier_routes(panels):
+        return JudgeAdmission.REFUSED
+    if not any(path.startswith(f"/panel/{panel_id}/") for panel_id in granted):
+        return JudgeAdmission.REFUSED
+    return JudgeAdmission.ADMITTED

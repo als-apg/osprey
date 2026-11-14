@@ -207,7 +207,7 @@ derives the whole panel entry from ``dispatch.dispatcher_port``:
 
    web.panels.events.url: http://localhost:<dispatcher_port>   # bare host
    web.panels.events.path: /dashboard                          # route
-   web.panels.events.label: EVENTS                             # tab title
+   web.panels.events.label: Events                             # tab title
    web.panels.events.health_endpoint: /health                  # what the tab health-gates on
 
 The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``

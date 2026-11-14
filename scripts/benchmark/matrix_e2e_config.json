@@ -28,6 +28,10 @@
       "reason": "Pure `docker build` smoke, no LLM."
     },
     {
+      "path": "tests/e2e/test_dockerfile_agent_e2e.py",
+      "reason": "One fixed-prompt agent turn through the generated image: proves the shipped CMD serves, nothing about the model-under-test. Runs in its own CI job (dockerfile-agent-e2e)."
+    },
+    {
       "path": "tests/e2e/test_privilege_split.py",
       "reason": "Builds two real container images and asserts stat-level file ownership inside them (the render-zone privilege split). Pure docker-infrastructure proof: no LLM round-trip, nothing about the model-under-test. Runs in its own CI job (privilege-split-e2e)."
     },

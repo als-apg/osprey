@@ -416,7 +416,8 @@ async def semantic_search(
             if not embedding_tables or all_empty:
                 logger.warning(
                     "Semantic search found 0 results: no embeddings exist. "
-                    "Run 'osprey ariel ingest' to generate embeddings."
+                    "Run 'osprey ariel enhance --module text_embedding' to embed "
+                    "the stored entries."
                 )
         except Exception:
             pass  # Don't let diagnostic check break the search path

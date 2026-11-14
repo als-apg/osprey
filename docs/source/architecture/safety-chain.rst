@@ -494,7 +494,12 @@ The panel's own address is neither of those doors: a login there mints no name a
 :ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the person
 using it. In the single-user containerised shape, where one sidecar is reached with the
 deployment-wide secret, requests name nobody by design --- that secret says a request is
-allowed, not who sent it.
+allowed, not who sent it. The exceptions are the OPTIMIZER panel and an application panel that
+sets ``panel.roster_grant.single_user_alias``, whose writes would otherwise name nobody and could
+be refused ``owner_unknown``. While such a sidecar publishes on loopback, the secret the
+terminal's proxy sends names the one operator, ``deployment.host_identity``, and the chip
+governs those writes. That opens no new door: on a single-user host the same secret already
+signs in to ``osprey web`` as that operator. A login at the sidecar's own address names nobody.
 
 A job the OSPREY agent fires goes out through the terminal's own panel proxy. The agent never
 holds the dispatcher's key; the proxy holds it, adds it on the way out and stamps the same name
@@ -557,6 +562,20 @@ not a sandbox. See :ref:`python-executor-armed-block`, :ref:`connector-write-doo
 only connector-host children should reach a gateway. The web tier runs ``network_mode: host``
 today, so a kernel, and anything a cell starts, can reach any gateway a connector-host child
 can.
+
+A kernel's **environment** is the execution allowlist (:ref:`python-executor-secrets-zone`),
+so the terminal's provider key, database passwords and telemetry login are not in a cell's
+``os.environ``. That removes the copy a kernel was handed, not the reach of its user: a
+kernel has no file guard, so a cell can open what the container's user can open, which
+includes the environment of that user's other processes that are not closed to it (the
+agent's own process holds the provider key) and the files in that user's home. Closing that
+takes a kernel that runs as another user or in another container, which OSPREY does not do
+today.
+
+Under the ``none`` auth posture the proxy in front of the terminals adds each user's operator
+secret itself, so a cell on the host network could call it as any user. ``osprey up`` therefore
+refuses an open deployment whose render shows the notebook panel, on the same terms as one whose
+render lifts a shell (:ref:`open posture <multi-user-open-mode>`).
 
 **The approval prompt attributes a write to a person; it does not contain code already running
 in the container.** The prompt is answered at the terminal, and the terminal's server runs in

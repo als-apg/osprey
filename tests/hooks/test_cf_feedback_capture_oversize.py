@@ -30,14 +30,11 @@ def _build_channels_answer():
         for field in ("POSITION", "GOLDEN", "OFFSET", "STATUS")
         for suffix in ("X", "Y", "VALID", "CONNECTED")
     ]
-    half = len(channels) // 2
     return {
         "channels": channels,
         "total": len(channels),
-        "valid": channels[:half],
-        "invalid": channels[half:],
-        "valid_count": half,
-        "invalid_count": len(channels) - half,
+        "invalid_count": 0,
+        "invalid_examples": [],
     }
 
 

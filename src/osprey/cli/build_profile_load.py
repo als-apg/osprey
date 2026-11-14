@@ -40,7 +40,12 @@ from osprey.port_layout import (
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
+from osprey_connectors.simulation import (
+    FAST_TICK_KEY,
+    TICK_KEY,
+    resolve_fast_tick_s,
+    resolve_tick_s,
+)
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -66,7 +71,6 @@ from .build_profile_presets import (
     bundled_service_names,
 )
 from .build_profile_schema import (
-    DEFAULT_DEVIATION_MARKER,
     DEFAULT_LISTS_MODE,
     LISTS_MODES,
     LOGIN_APP_ENTRY_KEYS,
@@ -117,7 +121,7 @@ class LoadedProfile:
 
 
 def layer_file_label(path: Path) -> str:
-    """How a refusal names a tier or app file: ``<layer dir>/<file name>``."""
+    """How a refusal names a login file: ``<layer dir>/<file name>``."""
     return f"{path.parent.name}/{path.name}"
 
 
@@ -188,8 +192,8 @@ def load_profile_document(path: Path) -> LoadedProfile:
 
 # Minimum OSPREY release that understands the current profile schema — the one
 # whose ``config:`` block is the deployment's whole declarative statement, whose
-# ``data:`` tree is required, and whose roster speaks tiers and apps
-# (``tiers/``, ``apps/``, ``users[].tier``, ``default_tier``, ``shared:``). A
+# ``data:`` tree is required, and whose roster speaks the login vocabulary
+# (``tiers/``, ``users[].tier``, ``default_tier``, ``shared:``). A
 # release older than this reads a repo spelled that way only in part, so it
 # must refuse it with the version message instead. Emitted profiles stamp
 # ``requires_osprey_version`` from this constant (as ``>=<value>``) rather than
@@ -199,35 +203,59 @@ def load_profile_document(path: Path) -> LoadedProfile:
 # only when a release adds profile keys older releases cannot honor.
 _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 
-#: The release from which the retired roster spellings (the ``RETIRED_*``
-#: constants of :mod:`osprey.cli.build_profile_document`: the tier pin, the
-#: default tier, the role target and the render catalog) are refused rather than rewritten to their ``tier``
-#: successors at parse time. The rewrite is a two-release migration window
-#: (owner ruling 2026-11-02, moved from 2026.11.0 so the first stable release
-#: after the tiers/apps vocabulary still reads the old spellings): the release
-#: that carries the vocabulary (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) and the
-#: minor release after it read them, and the second minor release after it
-#: does not. A test asserts the running release sits below this value, so the
-#: release that reaches it fails until the rewrite is removed.
-RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.12.0"
+#: The last stable release line, ``(year, month)``, that still reads the retired
+#: spellings: the retired roster keys (the ``RETIRED_*`` constants of
+#: :mod:`osprey.cli.build_profile_document`: the tier pin, the default tier, the
+#: role target and the render catalog), the retired write-posture keys and a
+#: governed tool's ``approval.tools.<tool>`` policy. The next stable release
+#: after this line refuses them, whatever its number (owner ruling 2026-11-13,
+#: replacing the fixed cutoff of the 2026-11-02 ruling: this line is the first
+#: stable one to carry the warnings, and stable users get a whole stable
+#: release to migrate in). Read only by :func:`retired_spellings_window_open`.
+RETIRED_SPELLINGS_LAST_RELEASE_LINE = (2026, 11)
+
+#: How a warning names the release that refuses the retired roster spellings
+#: rather than rewriting them to their ``tier`` successors at parse time. It
+#: names no version and no date; every warning interpolates it as
+#: ``refused in <phrase>``.
+RETIRED_ROSTER_KEYS_REFUSED_FROM = "the next stable OSPREY release"
 
 #: The one sunset of the write-posture migration windows: the retired write
 #: keys, undeclared write-looking facility tools, ``control_system.write_tools``
-#: and unknown per-server keys are read with a warning until this release, and
-#: refused from it. It is the roster sunset itself, not a second literal, so the
-#: two windows close on the same release. Like the roster sunset it is a test
-#: tripwire, not a runtime version compare: the release that reaches it fails
-#: the window test until every such warning becomes its refusal.
+#: and unknown per-server keys are read with a warning until that release, and
+#: refused in it. It is the roster sunset itself, not a second literal, so the
+#: two windows close on the same release.
 RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
 
-#: The release from which ``approval.tools.<tool>`` for a tool the write switch
+#: The release in which ``approval.tools.<tool>`` for a tool the write switch
 #: governs is refused rather than dropped with a warning
 #: (:func:`~osprey.cli.build_profile_document.normalize_retired_approval_policies`).
-#: Its own constant, but since the write-posture sunset moved to 2026.12.0
-#: (owner ruling 2026-11-02) it closes on that same release, the date already
-#: promised for it, so the policies retire with the write keys. A test
-#: tripwire like the others, not a runtime version compare.
-RETIRED_APPROVAL_POLICY_REFUSED_FROM = "2026.12.0"
+#: The roster sunset again, so the policies retire with the write keys.
+RETIRED_APPROVAL_POLICY_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
+
+
+def retired_spellings_window_open(release: str) -> bool:
+    """Report whether *release* still reads the retired spellings.
+
+    A test tripwire, not a runtime version compare: the window tests call it
+    with the running release, so the first stable release after
+    :data:`RETIRED_SPELLINGS_LAST_RELEASE_LINE` fails them until every rewrite
+    and warning of the window becomes its refusal.
+
+    Args:
+        release: A PEP 440 release version, as
+            :func:`osprey.version.get_release_version` returns it.
+
+    Returns:
+        True for a release of the last reading line or an earlier one, and for
+        any pre-release: the betas of the refusing release still read the
+        retired spellings, and a checkout between releases reports the last
+        tag. False for a stable release of a later line.
+    """
+    from packaging.version import Version
+
+    parsed = Version(release)
+    return parsed.is_prerelease or parsed.release[:2] <= RETIRED_SPELLINGS_LAST_RELEASE_LINE
 
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
@@ -399,10 +427,17 @@ def known_profile_keys(kind: ProfileKind) -> frozenset[str]:
     return _KIND_KEYS[kind]
 
 
-# Keys recognized inside the ``provenance:`` block. Closed like the others: a
-# misspelled `deviation_marker:` would silently leave the default tag in force
-# and every `# SITE-DEVIATION:` comment unread.
-_KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
+#: The ``provenance:`` key earlier releases read as the tag of the
+#: ``# <TAG>: <why>`` comments that excused a difference from the preset. Nothing
+#: reads it now: a profile that still carries it loads, and ``osprey init
+#: --revalidate`` drops it.
+RETIRED_PROVENANCE_KEY = "deviation_marker"
+
+# Keys recognized inside the ``provenance:`` block. Closed like the others, so a
+# misspelled key is refused rather than silently ignored.
+_KNOWN_PROVENANCE_KEYS = frozenset(
+    {"preset", "preset_hash", "providers_hash", RETIRED_PROVENANCE_KEY}
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -451,7 +486,8 @@ def _app_entry_key_problem(name: str, key: str, *, login: bool) -> str | None:
     if key in _APP_ENTRY_KEYS:
         return (
             f"{spelled} is legal only in the deployment's {PROFILE_FILENAME}: a login "
-            f"selects an application and sets only apps.{name}.shown."
+            f"selects an application and sets only apps.{name}.shown, apps.{name}.access "
+            f"and apps.{name}.panel_hidden."
         )
     if key in _KNOWN_MCP_SERVER_KEYS:
         return (
@@ -500,6 +536,11 @@ def _app_block_problems(raw: Mapping[Any, Any], *, login: bool) -> list[str]:
         shown = entry.get("shown")
         if shown is not None and not isinstance(shown, bool):
             problems.append(f"apps.{name}.shown must be true or false (got {shown!r}).")
+        panel_hidden = entry.get("panel_hidden")
+        if panel_hidden is not None and not isinstance(panel_hidden, bool):
+            problems.append(
+                f"apps.{name}.panel_hidden must be true or false (got {panel_hidden!r})."
+            )
         if login:
             continue
         config = entry.get("config")
@@ -553,6 +594,8 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
                 for key, axes in (entry.get("services") or {}).items()
             },
             shown=entry.get("shown"),
+            access=entry.get("access"),
+            panel_hidden=entry.get("panel_hidden"),
         )
     return parsed
 
@@ -1060,27 +1103,30 @@ def _retired_tier_refusal() -> FacilityBuildError:
     )
 
 
-def _check_tick_s(raw: dict[str, Any]) -> None:
-    """Stop a profile whose simulation tick period is not a positive number.
+def _check_simulation_periods(raw: dict[str, Any]) -> None:
+    """Stop a profile whose simulation tick period or fast period is not a positive number.
 
     Args:
         raw: The resolved raw profile dict.
 
     Raises:
         FacilityBuildError: ``profile-invalid`` naming ``simulation.tick_s``
-            if the value is not a number of seconds greater than zero.
+            or ``simulation.fast_tick_s`` if the value is not a number of
+            seconds greater than zero.
     """
-    try:
-        resolve_tick_s(_expand_dotted(raw.get("config")))
-    except ValueError as error:
-        raise FacilityBuildError(
-            "profile-invalid",
-            TICK_KEY,
-            ["profile.yml"],
-            f"set `{TICK_KEY}` to a number of seconds greater than 0",
-            record_kind="path",
-            detail=str(error),
-        ) from error
+    config = _expand_dotted(raw.get("config"))
+    for key, resolve in ((TICK_KEY, resolve_tick_s), (FAST_TICK_KEY, resolve_fast_tick_s)):
+        try:
+            resolve(config)
+        except ValueError as error:
+            raise FacilityBuildError(
+                "profile-invalid",
+                key,
+                ["profile.yml"],
+                f"set `{key}` to a number of seconds greater than 0",
+                record_kind="path",
+                detail=str(error),
+            ) from error
 
 
 def _check_default_scenarios(raw: dict[str, Any]) -> None:
@@ -1726,8 +1772,8 @@ def _warn_unknown_server_keys(name: str, sdef: dict[str, Any]) -> None:
         close = difflib.get_close_matches(str(key), sorted(_KNOWN_MCP_SERVER_KEYS), n=1)
         hint = f" (did you mean '{close[0]}'?)" if close else ""
         _LOGGER.warning(
-            "MCP server '%s' has unknown key '%s'%s; it is ignored, and refused from "
-            "OSPREY %s. Known keys: %s",
+            "MCP server '%s' has unknown key '%s'%s; it is ignored, and refused in %s. "
+            "Known keys: %s",
             name,
             key,
             hint,
@@ -1824,13 +1870,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     Raises:
         BuildProfileError: If the profile is malformed.
         FacilityBuildError: ``profile-invalid`` for a retired tier key, an
-            unusable simulation tick or start set, or a limits database path
+            unusable simulation tick, fast period or start set, or a limits database path
             the profile states.
     """
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _raise_app_block_problems(raw, "the profile", login=False)
-    _check_tick_s(raw)
+    _check_simulation_periods(raw)
     _check_default_scenarios(raw)
     _check_limits_database_path(raw)
     _apply_connector_shorthand(raw)
@@ -2170,13 +2216,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"drop the block rather than half-filling it."
             )
         _reject_unknown_block_keys(provenance_raw, _KNOWN_PROVENANCE_KEYS, "provenance")
-        marker = provenance_raw.get("deviation_marker", DEFAULT_DEVIATION_MARKER)
-        if not isinstance(marker, str) or not marker.strip():
-            raise BuildProfileError(
-                f"Profile 'provenance.deviation_marker' must be a non-empty string — the "
-                f"tag of the `# <TAG>:` comment that marks a deliberate difference from "
-                f"the preset (got {marker!r})."
-            )
         provenance = ProfileProvenance(
             preset=str(provenance_raw["preset"]),
             preset_hash=str(provenance_raw["preset_hash"]),
@@ -2184,7 +2223,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             # provider catalog became a sibling file has no stamp for it, and
             # the reader of an absent stamp simply draws no catalog note.
             providers_hash=str(provenance_raw.get("providers_hash") or ""),
-            deviation_marker=marker.strip(),
         )
 
     # A `config:` key present but empty — every entry commented out, say —

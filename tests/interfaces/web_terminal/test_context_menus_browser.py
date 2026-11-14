@@ -5,7 +5,7 @@ Shift+F10 with focus on it, the menu taking focus on its first row and Escape
 handing it back. Pins:
 
 - A tile bar's ⋯ and a right-click on the bar offer the same rows.
-- A pop-out's bar carries the window rows (Reattach, Reload, Close window) and
+- A pop-out's bar carries the window rows (Reattach, Zoom, Reload, Close window) and
   none of the dock's; Close window closes the window and the panel keeps its
   sidebar row, with no tile coming back.
 - A right-click on the terminal body opens the Terminal menu.
@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 import pytest
 from docs.screenshots.contact_sheet import SEEDED_SESSIONS, hermetic_hub
 
-from tests.interfaces._browser import rail_entry
+from tests.interfaces._browser import rail_entry, wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import live_chat_server
 from tests.interfaces.web_terminal._surface import open_terminal
 from tests.interfaces.web_terminal.test_artifact_sessions_browser import (
@@ -124,8 +124,9 @@ def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[s
     expect(menu).to_have_count(1, timeout=5_000)
     if aria is not None:
         expect(menu).to_have_attribute("aria-label", aria)
-    assert page.evaluate("(sel) => document.activeElement?.closest(sel) != null", _MENU), (
-        "focus is not on the menu"
+    # The menu takes the focus once it is drawn: waited on, not read at once.
+    page.wait_for_function(
+        "(sel) => document.activeElement?.closest(sel) != null", arg=_MENU, timeout=5_000
     )
     labels = _labels(menu)
     page.keyboard.press("Escape")
@@ -181,6 +182,7 @@ def _send(box: Locator, prompt: str) -> None:
 
 def _boot_hermetic(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_AGENT_TILE} .tile-tab-more")).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -189,6 +191,7 @@ def _detach_agent(page: Page) -> Page:
     with page.expect_popup() as info:
         page.locator(f"{_AGENT_TILE} .tile-tab-window").click()
     popup = info.value
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     return popup
 
@@ -242,7 +245,9 @@ def test_a_tile_bars_more_button_and_a_right_click_on_the_bar_offer_the_same_row
         assert from_bar == [
             "Open panel",
             "Maximize",
+            "Zoom",
             "Open in new window",
+            "Open in new session",
             "Reload",
             "Reveal in sidebar",
             "Close tile",
@@ -279,12 +284,13 @@ def test_a_pop_out_bar_has_the_window_rows_and_close_window_keeps_the_sidebar_ro
         # The window rows, Close window last; nothing that acts on a dock or
         # on the rail membership of a panel already on it.
         assert labels[labels.index("Reattach") :] in (
-            ["Reattach", "Reload", "Close window"],
-            ["Reattach", "Reload", "Help", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Help", "Close window"],
         ), labels
         for verb in (
             "Open panel",
             "Maximize",
+            "Open in new session",
             "Reveal in sidebar",
             "Close tile",
             "Remove from rail",
@@ -316,6 +322,7 @@ def test_a_right_click_on_the_terminal_body_opens_the_terminal_menu(tmp_path, ch
     with live_chat_server(tmp_path) as (base_url, _app):
         page = chromium_browser.new_page(viewport={"width": 1400, "height": 900})
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
         expect(page.locator(".op-session-bar")).to_be_visible(timeout=_TIMEOUT_MS)
         open_terminal(page)
         screen = page.locator("#terminal-container .xterm-screen")
@@ -365,6 +372,7 @@ def test_a_pop_out_reload_keeps_the_chat_menus(hub, page):
     _boot_hermetic(page, hub)
     popup = _detach_agent(page)
     popup.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(popup)
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(popup.locator(f"{_POP_BAR} button.tile-tab-reattach")).to_be_visible(timeout=_TIMEOUT_MS)
     _converse(popup, "after the reload")
@@ -435,7 +443,9 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         page = _open_dock_hub(chromium_browser, dock)
         expect(rail_entry(page, "svc-a", enabled_only=True)).to_have_count(1, timeout=10_000)
 
-        assert _menu_key(page, rail_entry(page, "svc-a"))[0] == "Open"
+        labels = _menu_key(page, rail_entry(page, "svc-a"))
+        assert labels[0] == "Open", labels
+        assert labels[labels.index("Open in new window") + 1] == "Open in new session", labels
 
         page.evaluate(
             """async () => {
@@ -457,14 +467,12 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         labels = _menu_key(page, page.locator(f"{_AGENT_TILE} .agent-bar-new"))
         assert "Close Agent pane" in labels, labels
 
-        # Close every tile: the dock is one empty slot.
+        # Close every tile, one at a time, each close seen before the next: the
+        # dock is one empty slot.
         tiles = page.locator("#dock-root .tile-tab")
-        for _ in range(10):
-            if tiles.count() == 0:
-                break
+        for left in range(tiles.count() - 1, -1, -1):
             tiles.first.locator('.tile-tab-actions button[aria-label^="Close"]').click()
-            page.wait_for_timeout(300)
-        expect(tiles).to_have_count(0, timeout=5_000)
+            expect(tiles).to_have_count(left, timeout=5_000)
         labels = _menu_key(page, page.locator("#dock-root"), aria="Dock")
         assert labels == ["Open panel", "Reset layout"], labels
         assert dock.errors == []
@@ -508,11 +516,13 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
 
     labels = _menu_key(page, page.locator("#sidebar-agent-row"), aria="Sessions actions")
     assert labels[0] == "New session", labels
+    assert "Open in new session" not in labels, labels
 
     labels = _menu_key(page, page.locator("#sidebar-toggle"), aria="Sidebar")
     assert "Collapse sidebar" in labels and "Reset layout" in labels, labels
 
     labels = _menu_key(page, tree_session)
+    assert "Open in new session" not in labels, labels
     assert "Rename…" in labels, labels
 
     # An artifact row: the seeded session holding the beam profile, opened.
@@ -528,7 +538,8 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
     # Pinned by its id: `.first` is re-run on every use, and a redraw can put
     # another row first.
     artifact = page.locator(f'{_TREE} .osprey-list-row[data-id="{first.get_attribute("data-id")}"]')
-    assert _menu_key(page, artifact), "the artifact row's menu has rows"
+    labels = _menu_key(page, artifact)
+    assert labels[:2] == ["Open", "Open in new session"], labels
 
     # A pinned session draws the Pinned group, whose heading has a menu.
     page.evaluate(

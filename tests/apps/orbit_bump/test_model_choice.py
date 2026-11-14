@@ -15,23 +15,22 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import at
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from orbit_bump import APP_NAME, ring
+from orbit_bump import server as backend
+from orbit_bump.plans import READY
+from orbit_bump.server import COMPUTE_ROUTE, STATE_ROUTE, create_app
+from starlette.middleware import Middleware
 
-at = pytest.importorskip("at")
-
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from orbit_bump import ring  # noqa: E402
-from orbit_bump import server as backend  # noqa: E402
-from orbit_bump.plans import READY  # noqa: E402
-from orbit_bump.server import COMPUTE_ROUTE, LAUNCH_TOKEN_ENV, STATE_ROUTE, create_app  # noqa: E402
-from starlette.middleware import Middleware  # noqa: E402
-
-from osprey.apps import sdk as real_sdk  # noqa: E402
-from osprey.apps.sdk import OWNER_STATE_KEY, ResponseMatrix, WriteVerdictView  # noqa: E402
-from osprey.facility.views.facts import FACTS_FILE, zero_source_facts  # noqa: E402
-from osprey.interfaces.common_middleware import WebAuthMiddleware  # noqa: E402
-from tests._simulator_view import view_channel  # noqa: E402
+from osprey.apps import sdk as real_sdk
+from osprey.apps.manifest import launch_token_env
+from osprey.apps.sdk import OWNER_STATE_KEY, ResponseMatrix, WriteVerdictView
+from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from osprey.interfaces.common_middleware import WebAuthMiddleware
+from tests._simulator_view import view_channel
 
 #: The two periodic rings of the synthetic facility, in facility order.
 FIRST, SECOND = "RING_A", "RING_B"
@@ -257,7 +256,8 @@ def _inside_limits(address, value, *, target, current):  # noqa: ARG001
 
 
 def _app(render_root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, _PinnedSdk]:
-    monkeypatch.setenv(LAUNCH_TOKEN_ENV, "token")
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    monkeypatch.setenv(launch_token_env(APP_NAME), "token")
     monkeypatch.setattr(backend, "_section", lambda: {"type": "virtual_accelerator"}, raising=True)
     monkeypatch.setattr(backend, "write_verdict", _allowed, raising=True)
     monkeypatch.setattr(backend, "prewrite_verdict", _inside_limits, raising=True)

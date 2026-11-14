@@ -1,0 +1,1 @@
+ARIEL no longer gives its database five seconds to accept the first connection: a store slow to accept on a loaded host is waited for under the caller's own deadline, and a refused connection now fails at once with its connection error instead of a pool timeout five seconds later.

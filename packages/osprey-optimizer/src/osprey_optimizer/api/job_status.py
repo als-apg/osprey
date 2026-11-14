@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from osprey_optimizer.api.job_tracker import JobMeta, JobTracker
 from osprey_optimizer.models.api import JobResponse
+from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.optimization.state import get_optimization_reader
 
 logger = logging.getLogger(__name__)
@@ -55,13 +56,16 @@ def read_job_status(tracker: JobTracker, job_id: str) -> JobResponse:
     meta = load_job_meta(tracker, job_id)
     reader = get_optimization_reader(job_id)
     created_at_iso = datetime.fromtimestamp(meta.created_at, tz=UTC).isoformat()
+    current_status = reader.get_status()
     # Whether a run is waiting on an approval is part of its status, so the
-    # plain read carries it too, not only the ``detail=`` builders.
+    # plain read carries it too, not only the ``detail=`` builders. The start
+    # notice describes a draft, so only a draft carries it.
     return JobResponse(
         job_id=job_id,
-        status=reader.get_status(),
+        status=current_status,
         logs=reader.get_logs(),
         error_message=reader.get_error_message(),
         created_at=created_at_iso,
         write_authorization=reader.get_write_authorization(),
+        start_notice=reader.get_start_notice() if current_status == JobStatus.CREATED else None,
     )

@@ -575,7 +575,11 @@ plus any names listed in ``python_executor.child_env_passthrough`` (see
 interpreter, TLS trust, proxies, plotting caches, the control-system client
 settings and the osprey names the run reads. A credential osprey holds cannot
 be listed in ``child_env_passthrough``. The child does not load the project's
-env chain (``.env.shared``, ``.env``) itself.
+env chain (``.env.shared``, ``.env``) itself. A notebook kernel is started with
+the same set, so a cell's ``os.environ`` holds no provider key, database
+password or telemetry login either. The executor's file and ``/proc`` refusals
+are its own and do not bind a kernel
+(:ref:`architecture-safety-chain-residual`).
 
 Opening one of the project's ``.env`` files, or any ``/proc/*/environ`` or
 ``/proc/*/cmdline``, is refused in both modes, for reads and writes. The

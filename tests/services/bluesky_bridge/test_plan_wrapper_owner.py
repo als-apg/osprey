@@ -50,10 +50,16 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from bluesky import RunEngine
+from bluesky import plan_stubs as bps
+from bluesky.utils import FailedStatus
+from ophyd.status import StatusBase
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from osprey.audit.posture import POSTURE_ENV_VAR
 from osprey.services.bluesky_bridge import qserver_startup, session_upload
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
@@ -64,17 +70,6 @@ from osprey_connectors.posture_store import (
     current_owner,
 )
 from osprey_connectors.refusals import refusal_phrase
-
-pytest.importorskip("bluesky")
-pytest.importorskip("ophyd_async")
-
-from bluesky import RunEngine
-from bluesky import plan_stubs as bps
-from bluesky.utils import FailedStatus
-from ophyd.status import StatusBase
-
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
-from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 _OWNER = "alice"

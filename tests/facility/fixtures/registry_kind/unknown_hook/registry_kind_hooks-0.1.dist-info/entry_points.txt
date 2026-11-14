@@ -1,0 +1,2 @@
+[osprey.facility.kinds]
+hooked_kind = registry_kind_hooks:HOOKED_KIND

@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
@@ -46,6 +47,7 @@ __all__ = [
     "NOT_OFFERED",
     "ApprovalRefused",
     "BoundState",
+    "audit_surface",
     "canonical_json",
     "check_approved_call",
     "input_digest",
@@ -58,6 +60,29 @@ APP_NAME_ENV_VAR = "OSPREY_APP_NAME"
 NOT_OFFERED = "not_offered"
 
 _EMPTY: Mapping[str, str] = MappingProxyType({})
+
+
+def audit_surface() -> str:
+    """The word every audit record of this application files under: its name.
+
+    Stable: part of the application SDK's public surface. It is the
+    application ``OSPREY_APP_NAME`` names, the word its tool server's records
+    already carry, so a backend's records and its tool calls read under one
+    word.
+
+    Raises:
+        AppManifestError: ``OSPREY_APP_NAME`` is unset (rule ``unnamed_app``).
+    """
+    app = (os.environ.get(APP_NAME_ENV_VAR) or "").strip()
+    if not app:
+        raise AppManifestError(
+            "",
+            APP_NAME_ENV_VAR,
+            "unnamed_app",
+            f"the process is started without {APP_NAME_ENV_VAR}, so it serves no "
+            "application; start it as the application's projected server or container",
+        )
+    return app
 
 
 class ApprovalRefused(Exception):

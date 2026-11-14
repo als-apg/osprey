@@ -53,6 +53,14 @@ def _document(doc: dict[str, Any]) -> tuple[dict[str, Any], int, int]:
     return middle_layer_document(FacilityRecords(doc))
 
 
+def _channelled(doc: dict[str, Any]) -> dict[str, Any]:
+    """*doc* with one channel on every device, so each is a member of its Families."""
+    channels = [
+        {"id": f"{device['id']}:X", "on": {"device": device["id"]}} for device in doc["devices"]
+    ]
+    return {**doc, "channels": [*doc["channels"], *channels]}
+
+
 def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {key: value for key, value in family.items() if not key.startswith("_")}
 
@@ -178,7 +186,7 @@ def test_a_common_name_is_the_label_else_the_id() -> None:
         "channels": [],
     }
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     assert document["M"]["F"]["_setup"]["CommonNames"] == ["b", "M/C"]
 
@@ -209,7 +217,7 @@ def _places(*places_: tuple[str, list[tuple[str, float | None]]]) -> dict[str, A
 def test_sibling_places_are_ordered_by_their_devices_s_not_by_id() -> None:
     doc = _places(("S2", [("M/B", 20.0)]), ("S10", [("M/A", 5.0)]))
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     assert document["M"]["Q"]["_setup"] == {
         "CommonNames": ["M/A", "M/B"],
@@ -222,7 +230,7 @@ def test_sibling_places_are_ordered_by_their_devices_s_not_by_id() -> None:
 def test_sibling_places_with_no_positioned_device_follow_in_natural_id_order() -> None:
     doc = _places(("S10", [("M/C", None)]), ("S2", [("M/B", None)]), ("S3", [("M/A", 1.0)]))
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     setup = document["M"]["Q"]["_setup"]
     assert setup["CommonNames"] == ["M/A", "M/B", "M/C"]
@@ -234,7 +242,7 @@ def test_a_member_placed_at_its_system_gets_place_index_zero() -> None:
     doc["devices"].append({"id": "M/C", "class": "Quadrupole", "place": "M", "s": 2.0})
     doc["groups"][0]["members"].append("M/C")
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     setup = document["M"]["Q"]["_setup"]
     assert setup["CommonNames"] == ["M/A", "M/C", "M/B"]
@@ -252,7 +260,7 @@ def test_index_zero_members_are_numbered_together_across_their_places() -> None:
     ]
     doc["groups"][0]["members"] += ["M/C", "M/D", "M/E"]
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     setup = document["M"]["Q"]["_setup"]
     assert setup["CommonNames"] == ["M/A", "M/C", "M/D", "M/B", "M/E"]
@@ -265,7 +273,7 @@ def test_index_zero_members_are_numbered_together_across_their_places() -> None:
 def test_an_unpositioned_member_takes_its_place_index_and_orders_after_positioned_ones() -> None:
     doc = _places(("S1", [("M/A", 1.0), ("M/Z", None)]), ("S2", [("M/B", 3.0)]))
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     setup = document["M"]["Q"]["_setup"]
     assert setup["CommonNames"] == ["M/A", "M/B", "M/Z"]
@@ -276,7 +284,7 @@ def test_a_mixed_class_family_gets_distinct_place_ordinals() -> None:
     doc = _places(("S1", [("M/A", 1.0), ("M/B", 2.0)]), ("S2", [("M/C", 3.0)]))
     doc["devices"][1]["class"] = "Sextupole"
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     setup = document["M"]["Q"]["_setup"]
     assert setup["DeviceList"] == [[1, 1], [1, 2], [2, 1]]
@@ -291,7 +299,7 @@ def test_a_system_and_a_family_are_described_only_by_description_or_label() -> N
         {"id": "M/D", "label": "the labelled", "description": "the described", "members": ["M/A"]},
     ]
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     assert "_description" not in document["M"]
     assert "_description" not in document["M"]["Q"]
@@ -408,7 +416,7 @@ def test_a_derived_family_name_colliding_with_a_group_keeps_the_group_s_id() -> 
         "channels": [],
     }
 
-    document, _left_out, _by_address = _document(doc)
+    document, _left_out, _by_address = _document(_channelled(doc))
 
     assert sorted(key for key in document["M"] if not key.startswith("_")) == [
         "Gauge",
@@ -550,6 +558,68 @@ def test_a_member_with_no_place_sits_under_system_none() -> None:
     assert document["-"]["F"]["_setup"]["DeviceList"] == [[0, 1]]
     assert document["-"]["F"]["_setup"]["PlaceList"] == [None]
     assert _fields(document["-"]["F"])["current_setpoint"]["ChannelNames"] == ["A:X"]
+
+
+#: A ring with one magnet that has a channel, beside a supply, a rack and a
+#: host that have none.
+WITH_CHANNEL_LESS: dict[str, Any] = {
+    "places": [{"id": "M"}, {"id": "HALL"}],
+    "devices": [
+        {"id": "Q1", "class": "Quadrupole", "place": "M"},
+        {"id": "Q2", "class": "Quadrupole", "place": "M"},
+        {"id": "PS1", "class": "PowerSupply", "place": "M"},
+        {"id": "RACK1", "class": "Rack", "place": "HALL"},
+        {"id": "HOST1", "class": "Host"},
+    ],
+    "groups": [
+        {"id": "M/MAGNETS", "members": ["Q1", "Q2", "PS1"]},
+        {"id": "HALL/RACKS", "members": ["RACK1"]},
+        {"id": "HOSTS", "members": ["HOST1"]},
+    ],
+    "channels": [{"id": "Q1:SP", "on": {"device": "Q1"}, "signal": "current_setpoint"}],
+}
+
+
+def test_a_device_without_a_channel_is_in_no_family() -> None:
+    document, left_out, _by_address = _document(WITH_CHANNEL_LESS)
+
+    assert document["M"]["MAGNETS"]["_setup"]["CommonNames"] == ["Q1"]
+    assert _fields(document["M"]["MAGNETS"])["current_setpoint"]["ChannelNames"] == ["Q1:SP"]
+    assert sorted(key for key in document["M"] if not key.startswith("_")) == ["MAGNETS"]
+    assert left_out == 0
+
+
+def test_a_system_with_no_channel_holding_device_is_absent() -> None:
+    document, _left_out, _by_address = _document(WITH_CHANNEL_LESS)
+
+    assert sorted(key for key in document if key not in ("schema", "count")) == ["M"]
+
+
+def test_classed_devices_without_channels_derive_no_family() -> None:
+    document, _left_out, _by_address = _document({**WITH_CHANNEL_LESS, "groups": []})
+
+    assert sorted(key for key in document if key not in ("schema", "count")) == ["M"]
+    assert sorted(key for key in document["M"] if not key.startswith("_")) == ["Quadrupole"]
+    assert document["M"]["Quadrupole"]["_setup"]["CommonNames"] == ["Q1"]
+
+
+def test_an_endpoint_channel_counts_as_the_devices_channel() -> None:
+    doc = {
+        **WITH_CHANNEL_LESS,
+        "channels": [{"id": "BUS:SP", "endpoint_of": ["Q1", "PS1"], "signal": "current_setpoint"}],
+    }
+
+    document, _left_out, _by_address = _document(doc)
+
+    assert document["M"]["MAGNETS"]["_setup"]["CommonNames"] == ["PS1", "Q1"]
+
+
+def test_class_families_list_only_channel_holding_members() -> None:
+    from osprey.facility.views.channel_finder import middle_layer_families
+
+    families = middle_layer_families(FacilityRecords(WITH_CHANNEL_LESS))
+
+    assert families == {"Quadrupole": [("M", "MAGNETS")]}
 
 
 def _one_family(place: str, group: str) -> dict[str, Any]:
@@ -857,7 +927,7 @@ def test_no_group_and_no_classed_device_stops_with_view_unsupported(tmp_path: Pa
 
     assert caught.value.format_message() == (
         "facility: view-unsupported: path channel_finder.pipeline_mode — selects middle_layer "
-        "and no device of the facility is in a group or has a class; fix: add a group or give "
+        "and no device with a channel is in a group or has a class; fix: add a group or give "
         "the devices a class, or select another channel_finder_mode"
     )
     assert not (tmp_path / "channel_finder").exists()
@@ -967,7 +1037,9 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
-#: The demo's groups by System, each a Family named by its short id.
+#: The demo's groups by System, each a Family named by its short id. The racks,
+#: supplies and hosts of the example hold no channel, so ``-`` and ``HALL`` are no
+#: System.
 DEMO_GROUPS = {
     "BR": [
         *("BPM", "DIAG", "DIPOLE", "DIPOLE-RAMP", "KICKER", "MAG"),
@@ -1067,7 +1139,9 @@ def test_every_demo_row_names_its_place_index(built_demo: BuiltProject, tmp_path
             assert zeros == [(0, k) for k in range(1, len(zeros) + 1)], (system, family.name)
     assert indexed > 800
     assert unindexed > 0
-    assert not [device["id"] for device in facility["devices"] if "attributes" in device]
+    assert [device["id"] for device in facility["devices"] if "attributes" in device] == [
+        "CTRL/sr-mag-03"
+    ]
 
     index = tmp_path / "middle_layer.json"
     index.write_text(json.dumps(document), encoding="utf-8")

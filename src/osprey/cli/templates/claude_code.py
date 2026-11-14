@@ -369,6 +369,33 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def _pv_directory_context(config: Mapping[str, Any]) -> dict[str, bool]:
+    """The five ``pv_directory`` context keys, from :mod:`~osprey.services.pv_directory.resolve`.
+
+    A malformed section is warned about and read as absent, as
+    :func:`_graphdb_configured` reads a malformed graph store: the build's
+    validator refuses it, and a render does not abort over it.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Every predicate key, all false with no section or a malformed one.
+    """
+    from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
+
+    try:
+        resolved = resolve_section(config)
+    except SectionError as exc:
+        logger.warning(
+            "pv_directory is malformed (%s) — rendering as if no PV directory were "
+            "configured. Fix the key named above in config.yml and re-render.",
+            exc,
+        )
+        resolved = None
+    return predicates(resolved)
+
+
 def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, bool]:
     """The ctx keys the panel-derived MCP servers are conditioned on.
 
@@ -432,6 +459,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
     ariel_sql_tool = _ariel_sql_tool(config)
+    pv_directory = _pv_directory_context(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -484,6 +512,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
+        # The pv_directory server's gate and its optional tools' gates, the five
+        # predicates resolve.py computes for every layer (merged before
+        # resolve_servers runs, as the two above are).
+        **pv_directory,
         # Gate for the `event_dispatcher` MCP server, read the same way
         # `graphdb_configured` is (a plain truthiness test, merged before
         # resolve_servers runs). The predicate is deliberately the one that
@@ -535,6 +567,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "ariel_read_tools": _ariel_read_tools(
             {"ariel_attachment_view": ariel_attachment_view, "ariel_sql_tool": ariel_sql_tool}
         ),
+        # The pv-directory tools the prompts name, the ones its server offers
+        # under the predicates above. The templates read only this list and
+        # whether the server renders, never a predicate.
+        "pv_directory_tools": _pv_directory_tools(pv_directory),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -614,6 +650,18 @@ def _app_blocks(config: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]
     if not isinstance(apps, Mapping):
         return []
     return [(str(name), block) for name, block in apps.items() if isinstance(block, Mapping)]
+
+
+def _app_agents(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Every ``apps.<name>.agents`` block of the render, by application name."""
+    found: dict[str, Mapping[str, Any]] = {}
+    for name, block in _app_blocks(config):
+        agents = block.get("agents")
+        if isinstance(agents, Mapping) and agents:
+            found[name] = {
+                agent: entry for agent, entry in agents.items() if isinstance(entry, Mapping)
+            }
+    return found
 
 
 def _app_approvals(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -852,6 +900,19 @@ def _ariel_read_tools(ctx: Mapping) -> list[str]:
     ariel = FRAMEWORK_SERVERS["ariel"]
     excluded = _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL | ariel.withheld_optional_tools(ctx)
     return [t for t in ariel.permissions_allow if t not in excluded]
+
+
+def _pv_directory_tools(ctx: Mapping) -> list[str]:
+    """The ``pv-directory`` tools the server offers under *ctx*, in registry order.
+
+    Every ``permissions_allow`` tool of the registry entry except the optional
+    tools ``ctx`` withholds.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    directory = FRAMEWORK_SERVERS["pv-directory"]
+    withheld = directory.withheld_optional_tools(ctx)
+    return [t for t in directory.permissions_allow if t not in withheld]
 
 
 _CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
@@ -1160,7 +1221,9 @@ def build_claude_code_context(
     )
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
-    ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
+    ctx["agents"] = resolve_agents(
+        claude_code_config, ctx, project_dir, ctx["servers"], app_agents=_app_agents(config)
+    )
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
@@ -2706,6 +2769,46 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         )
 
 
+def _app_agent_files(ctx: Mapping[str, Any]) -> set[str]:
+    """The render-relative files of the application agents in *ctx*."""
+    return {f".claude/agents/{a['name']}.md" for a in ctx.get("agents") or () if a.get("app")}
+
+
+_MODEL_LINE = re.compile(r"^model:.*\n", re.MULTILINE)
+_NAME_LINE = re.compile(r"^name:.*\n", re.MULTILINE)
+
+
+def stamp_app_agent_models(project_dir: Path, ctx: Mapping[str, Any]) -> None:
+    """Write the ``model:`` line of each application agent file the render carries.
+
+    The model is the deployment's choice (``claude_code.agent_models``, else the
+    main model), never the application's, which may not spell one. The line goes
+    after ``name:`` and replaces one an earlier regeneration wrote; a render
+    with no resolved model gets none.
+    """
+    from osprey.cli.validate_claude_artifacts import _frontmatter_head_length, _normalised_text
+
+    spec = ctx.get("claude_code_model_spec")
+    for rel in sorted(_app_agent_files(ctx)):
+        path = project_dir / rel
+        if not path.is_file():
+            continue
+        text = _normalised_text(path)
+        # The frontmatter the loader checked: split where it was read.
+        end = _frontmatter_head_length(text)
+        if end is None:
+            continue
+        head, rest = text[:end], text[end:]
+        head = _MODEL_LINE.sub("", head)
+        if spec:
+            name = Path(rel).stem
+            line = f"model: {spec.agent_model(name)}\n"
+            match = _NAME_LINE.search(head)
+            at = match.end() if match else len("---\n")
+            head = head[:at] + line + head[at:]
+        path.write_text(head + rest, encoding="utf-8")
+
+
 def create_claude_code_integration(
     template_root: Path,
     jinja_env,
@@ -3061,10 +3164,13 @@ def regenerate_claude_code(
         manifest_mod.resolve_manifest_outputs(regen_manifest) if regen_manifest else None
     )
 
-    # Filter agents to allowed outputs
+    # Filter agents to allowed outputs. An application's agent is no template
+    # output: the build copied its file, so it stays wherever the render carries it.
     if allowed_outputs is not None:
         ctx["agents"] = [
-            a for a in ctx["agents"] if f".claude/agents/{a['name']}.md" in allowed_outputs
+            a
+            for a in ctx["agents"]
+            if f".claude/agents/{a['name']}.md" in allowed_outputs or a.get("app")
         ]
 
     # Collect checksums of existing Claude Code files before regeneration.
@@ -3105,11 +3211,16 @@ def regenerate_claude_code(
                 src = project_dir / rel_path
                 if not src.exists():
                     continue
-                if rel_path == ".claude/rules/facility.md" or is_user_owned(rel_path, ctx):
+                if (
+                    rel_path == ".claude/rules/facility.md"
+                    or is_user_owned(rel_path, ctx)
+                    or rel_path in _app_agent_files(ctx)
+                ):
                     dst = tmp_dir / rel_path
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
             create_claude_code_integration(template_root, jinja_env, tmp_dir, ctx, allowed_outputs)
+            stamp_app_agent_models(tmp_dir, ctx)
 
             changed = []
             unchanged = []
@@ -3147,6 +3258,7 @@ def regenerate_claude_code(
 
     # Regenerate
     create_claude_code_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
+    stamp_app_agent_models(project_dir, ctx)
 
     # Compare checksums
     changed = []

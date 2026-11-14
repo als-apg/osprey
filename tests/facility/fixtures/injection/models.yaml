@@ -1,0 +1,41 @@
+# One deckless injection chain: a request, four parameters, and the readings a
+# shot steps. Every offset falls inside the first fifth of the busy window, so
+# a shot's last step lands long before the next request a live test makes.
+- name: CHAIN
+  engine: injection
+  settings:
+    injection:
+      cycle:
+        period_s: 1.0
+        width_s: 0.5
+      stages: [transfer, ring]
+      current_per_charge: 2.0
+  wiring:
+    - address: INJ:SHOT:REQ
+      engine: {signal: request}
+    - address: INJ:GUN:CHARGE:SP
+      engine: {signal: parameter, quantity: charge, start: 1.5}
+    - address: INJ:TRANSFER:EFF:SP
+      engine: {signal: parameter, quantity: efficiency, stage: 0, start: 0.8}
+    - address: INJ:RING:EFF:SP
+      engine: {signal: parameter, quantity: efficiency, stage: 1, start: 0.6}
+    - address: INJ:RING:CURRENT:SP
+      engine: {signal: parameter, quantity: current, start: 20.0}
+    - address: INJ:SHOT:COUNT
+      engine: {signal: counter, offset_s: 0.01}
+    - address: INJ:TRANSFER:COUNT
+      engine: {signal: counter, offset_s: 0.02}
+    - address: INJ:TRANSFER:CHARGE
+      engine: {signal: charge, offset_s: 0.03, stage: 0}
+    - address: INJ:TRANSFER:EFF
+      engine: {signal: efficiency, offset_s: 0.04, stage: 0}
+    - address: INJ:RING:CHARGE
+      engine: {signal: charge, offset_s: 0.05, stage: 1}
+    - address: INJ:RING:EFF
+      engine: {signal: efficiency, offset_s: 0.06, stage: 1}
+    - address: INJ:RING:CURRENT
+      engine: {signal: current, offset_s: 0.08}
+    - address: INJ:RING:CURRENT:FAST
+      engine: {signal: current_fast}
+    - address: INJ:SHOT:BUSY
+      engine: {signal: busy}

@@ -15,6 +15,7 @@ beside the project image (:func:`osprey.deployment.container_lifecycle._build_re
 registry-mode deploys build nothing here.
 """
 
+import functools
 import os
 import posixpath
 from collections.abc import Iterator, Mapping
@@ -26,6 +27,7 @@ from typing import Any, cast
 from osprey.agent_runner.provider_env import load_provider_spec
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
@@ -198,6 +200,8 @@ def _render_image_build_cmd(
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, context))
+    # Built from the project Dockerfile, so it shares the project image's cache.
+    cmd.extend(build_cache_args(runtime, PROJECT_KEY))
     with_plain_build_progress(cmd)
     cmd.append(context)
     return cmd
@@ -744,7 +748,7 @@ def verify_renders(
     *,
     serves_roster: bool = True,
 ) -> None:
-    """Check every referenced tier and app has a usable rendered project, or refuse.
+    """Check every referenced login has a usable rendered project, or refuse.
 
     Every render :func:`build_render_images` is about to build needs a
     rendered project on disk: its ``Dockerfile`` and ``config.yml`` are the
@@ -758,7 +762,7 @@ def verify_renders(
     render appearing at start time makes that account false exactly when it
     matters: the operator whose tier file changed would get a fresh tier standing
     beside a deployment rendered from the earlier profile. The drift gate
-    already refuses that start (the tier and app files are folded into the build
+    already refuses that start (the login files are folded into the build
     fingerprint), so the honest reading of a missing render is "this build is
     stale or partial", and the honest remedy is the one that replaces ``build/``
     whole.
@@ -979,12 +983,15 @@ def build_render_images(
             # idempotent, so the per-render loop declares it each pass.
             _report_group("renders")
             with (report := single_image_build_reporter(image_tag)):
-                run_captured(
+                run_image_build(
                     cmd,
-                    env=env,
-                    spool_name=f"build-render-{image_tag.split(':', 1)[0]}",
-                    repo_root=repo_root,
-                    on_line=report,
+                    functools.partial(
+                        run_captured,
+                        env=env,
+                        spool_name=f"build-render-{image_tag.split(':', 1)[0]}",
+                        repo_root=repo_root,
+                        on_line=report,
+                    ),
                 )
             # One line per image, after its own build: the slowest step of a
             # local-mode deploy, and the only progress an operator gets while

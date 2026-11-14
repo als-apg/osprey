@@ -10,7 +10,7 @@ lives in ``tests/facility/_mml_built.py``.
 from __future__ import annotations
 
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +19,25 @@ import yaml
 from click.testing import Result
 
 from tests._builds import BuiltProject, init_project, run_build
+from tests.facility._fixture_kind import read_entry_points_afresh
 from tests.facility._mml_built import mml_built  # noqa: F401 - the session MML builds
 from tests.facility._synthetic_trees import write_tree
 
 __all__ = ["BuiltProject"]
+
+
+@pytest.fixture
+def entry_points_read_afresh() -> Iterator[None]:
+    """The test reads the entry points of its own path, and leaves none read behind.
+
+    For a module that installs a fixture distribution: the session's one reading
+    of the entry points is dropped before the test and again after it, so a
+    reading made while the package was on the path (by the code, or by a module
+    first imported then, which keeps the name it bound) does not outlive it.
+    """
+    read_entry_points_afresh()
+    yield
+    read_entry_points_afresh()
 
 
 @pytest.fixture

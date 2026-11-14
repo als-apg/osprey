@@ -22,6 +22,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from PIL import Image
 
 from osprey.imaging import render_worker
 from osprey.imaging.formats import ACCEPTED, CONTENT_SKIP_REASONS, sniff
@@ -37,8 +38,6 @@ from osprey.imaging.render_worker import (
 )
 
 from .conftest import encode, flat_jpeg, patch_jpeg_size, patch_png_size, tiny_jpeg
-
-Image = pytest.importorskip("PIL.Image")
 
 LINUX = sys.platform.startswith("linux")
 WORKER_ARGS = [sys.executable, "-I", "-m", "osprey.imaging.render_worker"]

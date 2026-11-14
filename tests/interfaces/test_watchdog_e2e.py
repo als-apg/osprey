@@ -70,6 +70,7 @@ from tests.e2e.test_watchdog_hold_scripted import (
     _point_jev_at,
     read,
 )
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
@@ -102,8 +103,10 @@ TERMINAL = "#terminal-container .xterm"
 TIMEOUT_MS = 15_000
 #: A first prompt launches the agent and its MCP servers, then the watchdogs judge it.
 TURN_TIMEOUT_MS = 120_000
-FLAG_TIMEOUT_S = 90.0
 HTTP_TIMEOUT_S = 180.0
+#: The SDK's initialize wait, in ms: longer than any per-test timeout, so it never
+#: decides on its own (the SDK takes an integer here, not "no limit").
+_NO_BUDGET_MS = str(24 * 3600 * 1000)
 
 EXECUTE = "mcp__python__execute"
 #: What the process table calls a script the executor runs.
@@ -191,15 +194,37 @@ class Served:
         return open_flags(key, root=self.root)
 
     def until_both_flagged(self, key: str) -> Callable[[], None]:
-        """What holds a scripted turn back until each watchdog's flag is on the record."""
+        """What holds a scripted turn back until each watchdog's flag has been on the record.
+
+        A flag counts while it is open, and once it has been judged or answered:
+        the model may ask for the turn after the operator has already answered
+        the dialog, and an answered flag is closed. No wall-clock budget: the two
+        judgements end on their own however slowly a loaded host runs them. A
+        verdict that is not a flag, filed after this prompt was set up, ends the
+        wait at once; the per-test timeout is the hang breaker.
+        """
+        since = len(self.audit)
 
         def wait() -> None:
-            deadline = time.monotonic() + FLAG_TIMEOUT_S
-            while time.monotonic() < deadline:
-                if {flag.source for flag in self.flags(key)} == WATCHDOGS:
+            while True:
+                entries = [
+                    entry
+                    for entry in self.audit[since:]
+                    if entry["surface"] == SURFACE_SAFETY_WATCHDOG and entry.get("session") == key
+                ]
+                unflagged = [
+                    (entry["subject"], entry["decision"])
+                    for entry in entries
+                    if entry["decision"] in {"clear", "unavailable"}
+                ]
+                if unflagged:
+                    raise AssertionError(f"a watchdog judged without a flag: {unflagged}")
+                seen = {flag.source for flag in self.flags(key)} | {
+                    entry["subject"] for entry in entries
+                }
+                if seen >= WATCHDOGS:
                     return
                 time.sleep(0.05)
-            raise AssertionError(f"both flags did not open within {FLAG_TIMEOUT_S} s")
 
         return wait
 
@@ -279,6 +304,11 @@ def served(
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "0")
     for name, value in cli_mcp_ready_env().items():
         monkeypatch.setenv(name, value)
+    # With the barrier on, the CLI answers the SDK's initialize only once every
+    # server is connected or failed. The SDK's own wait for that answer (60 s
+    # unless this says otherwise) takes no budget of its own: the chat's start
+    # waits as long as the hold takes, and the per-test timeout breaks a hang.
+    monkeypatch.setenv("CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", _NO_BUDGET_MS)
 
     def chat_child_env(*args: Any, **kwargs: Any) -> dict[str, str]:
         # The chat's own environment, hold stamps included, on the scripted credential.
@@ -338,6 +368,7 @@ def _open_page(context: BrowserContext, served: Served) -> tuple[Page, str]:
     """Open a tab on the app; the tab and the session key it settled on."""
     page = context.new_page()
     page.goto(served.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT_MS)
     key = _session_key(page)
     served.keys.add(key)
@@ -369,13 +400,19 @@ def _flag_in_composer(
     *,
     before_turn: dict[int, Callable[[], None]] | None = None,
 ) -> str:
-    """Type a prompt both watchdogs flag; returns once its dialog shows both flags."""
+    """Type a prompt both watchdogs flag; returns once its dialog shows both flags.
+
+    The judgements are waited on where they are recorded, with no budget of
+    their own; the dialog then has only its own drawing to do.
+    """
+    both_flagged = served.until_both_flagged(key)
     prompt = served.next_prompt(
         script if script is not None else [[read()]],
         flagging=True,
-        before_turn=before_turn or {0: served.until_both_flagged(key)},
+        before_turn=before_turn or {0: both_flagged},
     )
     _type_prompt(page, prompt)
+    both_flagged()
     _assert_dialog_names_both_watchdogs(page, prompt)
     return prompt
 
@@ -458,6 +495,10 @@ def test_a_flagged_prompt_raises_one_dialog_for_two_watchdogs_and_continue_relea
     answers = served.answers(key)
     assert {entry["subject"] for entry in answers} == WATCHDOGS
     assert {entry["decision"] for entry in answers} == {"continue"}
+    # The released turn runs on: it is seen out here, so the teardown's delete
+    # meets a settled chat rather than interrupting one. Whether it reached the
+    # model again is not this test's subject, so the wait is on the turn's end.
+    expect(page.locator(TURN_STOP_BUTTON)).to_be_hidden(timeout=TURN_TIMEOUT_MS)
 
 
 def test_the_terminal_shows_the_held_session_and_a_flag_raised_under_it(
@@ -472,6 +513,7 @@ def test_the_terminal_shows_the_held_session_and_a_flag_raised_under_it(
     # that already opted into it does: on a reload.
     arm_terminal_tab(page)
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(TERMINAL)).to_be_visible(timeout=TIMEOUT_MS)
     assert _session_key(page) == key
     _wait_terminal_session(served, key)
@@ -617,6 +659,7 @@ def test_the_hold_survives_reload_a_closed_tab_and_a_restart(
     flag_ids = {flag.flag_id for flag in served.flags(key)}
 
     page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     _assert_dialog_names_both_watchdogs(page, prompt)
     _assert_chip_held(page)
 

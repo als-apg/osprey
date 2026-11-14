@@ -100,6 +100,10 @@ describe('the source a row becomes', () => {
     expect(railSourceOf('alpha', holder)).toEqual({ tab: 'alpha' });
     expect(railSourceOf('gamma', holder)).toEqual({ new: 'gamma' });
     expect(railSourceOf('gamma', null)).toEqual({ new: 'gamma' });
+    // An artifact row's tile key: one tile per artifact, moved once docked.
+    const tiled = await holderOver({ tile: 't1', tabs: ['artifact:a1'], showing: 'artifact:a1' });
+    expect(railSourceOf('artifact:a1', tiled)).toEqual({ tab: 'artifact:a1' });
+    expect(railSourceOf('artifact:a2', tiled)).toEqual({ new: 'artifact:a2' });
   });
 
   test('railDragStart records the source for the bridge, stamps the rail MIME, and reports accepted', async () => {

@@ -115,6 +115,42 @@ class DatabaseQueryError(ARIELException):
         super().__init__(message, ErrorCategory.DATABASE, details)
 
 
+class StoreSilentError(ARIELException):
+    """The store took the connection and did not answer within the caller's deadline.
+
+    A store that refuses ends an open at once with its own error; this one is
+    the other shape, where nothing comes back. The words are built here, once,
+    so every surface that reports it -- a command, the web app's start-up, a
+    tool -- says the same thing. The store is named by host, port and
+    database: enough to find it, without the login or its password.
+
+    Attributes:
+        host: The store's host.
+        port: The store's port.
+        database: The database the open asked for.
+        deadline_s: The seconds the caller gave the store to answer.
+    """
+
+    def __init__(self, host: str, port: str, database: str, deadline_s: float) -> None:
+        """Initialize StoreSilentError.
+
+        Args:
+            host: The store's host.
+            port: The store's port.
+            database: The database the open asked for.
+            deadline_s: The seconds the caller gave the store to answer.
+        """
+        super().__init__(
+            f"the ARIEL store at {host}:{port}/{database} did not answer within {deadline_s:g} s",
+            ErrorCategory.DATABASE,
+            {"host": host, "port": port, "database": database, "deadline_s": deadline_s},
+        )
+        self.host = host
+        self.port = port
+        self.database = database
+        self.deadline_s = deadline_s
+
+
 class EmbeddingGenerationError(ARIELException):
     """Embedding generation failure.
 

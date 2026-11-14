@@ -29,6 +29,7 @@ from osprey.mcp_server.graph.server_context import (
     QUERY_MAX_ROWS_CONFIG_KEY,
     QUERY_TIMEOUT_CONFIG_KEY,
 )
+from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn, registered_tool_names
 
 capabilities_fn = get_tool_fn(mod.capabilities)
@@ -119,6 +120,8 @@ class TestManifestShape:
             "addresses",
             "description_predicates",
             "synonyms",
+            "record_names",
+            "relationships",
             "corpus",
             "limits",
             "notes",
@@ -277,6 +280,89 @@ class TestGraphVocabulary:
         assert synonyms["node_label"] == "Class"
         assert synonyms["type"] == "list"
         assert synonyms["match"].startswith("ANY(")
+
+    def test_synonyms_match_loosely_over_the_entries(self, payload):
+        """A class synonym is a phrase: the rule every agent surface gives is CONTAINS."""
+        synonyms = payload["synonyms"]
+
+        assert synonyms["match"] == (
+            "ANY(l IN cls.altLabel WHERE toLower(l) CONTAINS toLower($synonym))"
+        )
+        assert "whole synonym" not in " ".join(synonyms["notes"])
+
+    def test_record_names_carry_the_record_name_rule_verbatim(self, payload):
+        names = payload["record_names"]
+
+        assert names["property"] == "altLabel"
+        assert names["type"] == "list"
+        assert set(names["carried_by"]) == {"place", "device", "channel"}
+        # The one rule string every surface quotes, not a paraphrase of it.
+        assert names["match"] == RECORD_NAME_MATCH_RULE
+
+    def test_record_names_say_why_a_name_is_not_matched_with_contains(self, payload):
+        notes = " ".join(payload["record_names"]["notes"])
+
+        assert "CONTAINS" in notes
+        assert "whole" in notes
+
+    def test_the_manifest_names_both_place_relationships_with_their_direction(self, payload):
+        ends = {(rel["type"], rel["from"], rel["to"]) for rel in payload["relationships"]}
+
+        assert ("LOCATEDIN", "device", "place") in ends
+        assert ("PARTOF", "place", "parent place") in ends
+        assert ("PARTOF", "device", "device") in ends
+
+    def test_no_relationship_row_is_listed_twice(self, payload):
+        ends = [(rel["type"], rel["from"], rel["to"]) for rel in payload["relationships"]]
+        assert len(ends) == len(set(ends))
+
+    def test_every_relation_type_has_a_row_with_its_vocabulary_ends(self, payload):
+        """Rows come from the view's predicate table and the vocabulary's end kinds."""
+        from osprey.facility.validate import relation_types
+        from osprey.facility.views.graph import RELATION_PREDICATES
+
+        rows = {(rel["type"], rel["from"], rel["to"]): rel for rel in payload["relationships"]}
+        for name, predicate in RELATION_PREDICATES.items():
+            spec = relation_types()[name]
+            key = (predicate.upper(), " or ".join(spec["subject"]), " or ".join(spec["object"]))
+            assert key in rows, key
+            pattern = rows[key]["pattern"]
+            if spec.get("symmetric"):
+                assert f"-[:{predicate.upper()}]-(" in pattern, pattern
+            else:
+                assert f"-[:{predicate.upper()}]->(" in pattern, pattern
+
+    def test_the_symmetric_types_are_undirected(self, payload):
+        patterns = {rel["type"]: rel["pattern"] for rel in payload["relationships"]}
+        for reltype in ("CABLEDTO", "NETWORKEDTO", "SAMEAS"):
+            assert "->" not in patterns[reltype], patterns[reltype]
+            assert "<-" not in patterns[reltype], patterns[reltype]
+        assert "->" in patterns["POWEREDBY"]
+
+    def test_the_group_and_claim_edges_are_listed(self, payload):
+        rows = {rel["type"]: rel for rel in payload["relationships"]}
+
+        assert rows["HASMEMBER"]["from"] == "group"
+        assert rows["HASMEMBER"]["to"] == "device"
+        for reltype in ("CLAIMSUBJECT", "CLAIMOBJECT"):
+            assert rows[reltype]["from"] == "claim"
+            assert "(c:Claim)" in rows[reltype]["pattern"]
+        assert rows["CONTESTS"]["pattern"] == "(c:Claim)-[:CONTESTS]->(rival:Claim)"
+
+    def test_the_notes_state_the_four_relation_rules(self, payload):
+        notes = " ".join(payload["notes"])
+
+        assert "queried undirected, (a)-[:CABLEDTO]-(b)" in notes
+        assert "never cross a disputed fact" in notes
+        assert "LOCATEDINCONTESTED" in notes
+        assert "two LOCATEDIN" in notes
+        assert "WHERE p.placePath = d.placePath" in notes
+        assert "Claim node holds the evidence" in notes
+
+    def test_every_relationship_is_spelled_as_the_loader_spells_it(self, payload):
+        for rel in payload["relationships"]:
+            assert rel["type"] == rel["type"].upper(), rel
+            assert f"[:{rel['type']}]" in rel["pattern"], rel
 
     def test_corpus_identity_is_the_facility_property(self, payload):
         corpus = payload["corpus"]

@@ -18,12 +18,10 @@ import numpy as np
 import pytest
 import yaml
 
+from osprey.apps.sdk.testing import calibrated_setting, measured_sr_deck, model
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
 from tests.facility._pyaml_trees import (
-    _setting,
-    _sr,
-    _sr_deck,
     measured_tree,
     view_inputs,
     with_correctors,
@@ -35,8 +33,7 @@ from tests.facility._synthetic_trees import Deck
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-pytest.importorskip("pyaml")
-at = pytest.importorskip("at")
+import at
 
 #: A corrector step small enough to stay linear, in rad.
 KICK = 1.0e-5
@@ -57,7 +54,7 @@ def _bpm_elements(view: Path) -> dict[str, str]:
     configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
     found: dict[str, str] = {}
     for device in configuration["devices"]:
-        if device["type"] == "pyaml.bpm.bpm":
+        if device["type"] == "pyaml.diagnostics.bpm.bpm":
             (element,) = re.fullmatch(r"list\((.+)\)", device["lattice_names"]).groups()
             found[device["name"]] = element
     return found
@@ -88,7 +85,7 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
     magnet = design.magnet.get(address)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(magnet.strength.get() + KICK)
     after = np.array([reader.positions.get() for reader in readers])
@@ -141,7 +138,7 @@ def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
     magnet = design.magnet.get(address)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(magnet.strength.get() + KICK)
     after = np.array([reader.positions.get() for reader in readers])
@@ -157,7 +154,7 @@ def _sr_deck_with_a_thin_multipole(kick: tuple[float, float]) -> Deck:
     """SR's deck with TCOR, a zero-length multipole kicking by ``kick``, after SCOR."""
 
     def elements(at: Any) -> list[Any]:
-        found = _sr_deck().elements(at)
+        found = measured_sr_deck().elements(at)
         (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
         thin = at.ThinMultipole("TCOR", [0.0, 0.0], [0.0, 0.0], KickAngle=list(kick))
         return [*found[:after], thin, *found[after:]]
@@ -184,9 +181,9 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
     for group in tree["records/groups.yaml"]:
         if group["id"] in ("SR/HCM", "SR/VCM"):
             group["members"].append("SR/COR2")
-    _sr(tree)["wiring"] += [
-        _setting("TCOR:H:SP", "KickAngle", 0, element="TCOR"),
-        _setting("TCOR:V:SP", "KickAngle", 1, element="TCOR"),
+    model(tree, "SR")["wiring"] += [
+        calibrated_setting("TCOR:H:SP", "KickAngle", 0, element="TCOR"),
+        calibrated_setting("TCOR:V:SP", "KickAngle", 1, element="TCOR"),
     ]
 
     directory, _ = write_view(tmp_path, tree)
@@ -205,7 +202,7 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
     magnet = design.magnet.get(address)
     held = magnet.strength.get()
     assert held == pytest.approx(np.sin(kick[plane]), rel=1e-9)
-    readers = [design.bpm.get(name) for name in bpms]
+    readers = [design.diagnostic.bpm.get(name) for name in bpms]
     before = np.array([reader.positions.get() for reader in readers])
     magnet.strength.set(held + KICK)
     after = np.array([reader.positions.get() for reader in readers])

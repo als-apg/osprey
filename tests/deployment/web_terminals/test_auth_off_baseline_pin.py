@@ -111,6 +111,11 @@ exceptions:
       the OSPREY mark inlined as a data URI, so the page's tab is not blank.
       It renders the same under every method and carries no account, role or
       claim.
+  17. **the page-ready mark** — ``data-page-ready="true"`` on the landing
+      page's ``<html>``, the mark every page OSPREY serves sets once it can be
+      driven; the landing page runs no script, so it is in the markup. It is
+      the one landing line reworded rather than added, renders the same under
+      every method and carries no account, role or claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -718,8 +723,14 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
         '            <span class="landing-card-sublabel">assistant</span>': 2,
         # The tab icon — exception 12: the page's one icon link.
         f'  <link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">': 1,
+        # The page-ready mark — exception 17: the <html> line it rewords.
+        '<html lang="en" data-page-ready="true">': 1,
     }
 )
+
+#: The landing lines exception 17 rewords: the <html> line, which now carries the
+#: page-ready mark.
+_REWORDED_LANDING_LINES = frozenset({'<html lang="en">'})
 
 _ALLOWED = {
     "docker-compose.web.yml": _ALLOWED_COMPOSE_LINES,
@@ -1001,7 +1012,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"
-            else frozenset()
+            else _REWORDED_LANDING_LINES
         )
         lost = [
             (tag, old[i1:i2], new[j1:j2])

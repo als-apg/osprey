@@ -17,6 +17,7 @@ from starlette.middleware import Middleware
 import osprey.apps
 from osprey.apps.boundary import check_package
 from osprey.apps.loader import load
+from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
 from osprey.interfaces.common_middleware import WebAuthMiddleware
 from osprey.mcp_server.startup import application_server
@@ -79,7 +80,8 @@ def _client(
 ) -> TestClient:
     from scaffold_app import server as backend
 
-    monkeypatch.setenv(backend.LAUNCH_TOKEN_ENV, TOKEN)
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    monkeypatch.setenv(launch_token_env(APP_NAME), TOKEN)
     monkeypatch.setattr(backend, "_section", lambda: {"type": "virtual_accelerator"})
 
     async def connector_for(_target: str) -> StandInConnector:

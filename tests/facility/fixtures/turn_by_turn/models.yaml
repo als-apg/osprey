@@ -1,0 +1,1599 @@
+# An injection chain whose stored current may be zero, and the example ring on
+# pyAT as a turn-by-turn ring fed by the chain. The ring shot counter steps
+# after the ring charge, so a shot always carries that shot's charge.
+- name: CHAIN
+  engine: injection
+  settings:
+    injection:
+      cycle:
+        period_s: 1.0
+        width_s: 0.5
+      stages: [transfer, ring]
+      current_per_charge: 2.0
+  wiring:
+    - address: INJ:SHOT:REQ
+      engine: {signal: request}
+    - address: INJ:GUN:CHARGE:SP
+      engine: {signal: parameter, quantity: charge, start: 1.5}
+    - address: INJ:TRANSFER:EFF:SP
+      engine: {signal: parameter, quantity: efficiency, stage: 0, start: 0.8}
+    - address: INJ:RING:EFF:SP
+      engine: {signal: parameter, quantity: efficiency, stage: 1, start: 0.6}
+    - address: INJ:RING:CURRENT:SP
+      engine: {signal: parameter, quantity: current, start: 0.0}
+    - address: INJ:SHOT:COUNT
+      engine: {signal: counter, offset_s: 0.01}
+    - address: INJ:TRANSFER:COUNT
+      engine: {signal: counter, offset_s: 0.02}
+    - address: INJ:TRANSFER:CHARGE
+      engine: {signal: charge, offset_s: 0.03, stage: 0}
+    - address: INJ:TRANSFER:EFF
+      engine: {signal: efficiency, offset_s: 0.04, stage: 0}
+    - address: INJ:RING:CHARGE
+      engine: {signal: charge, offset_s: 0.05, stage: 1}
+    - address: INJ:RING:SHOT:COUNT
+      engine: {signal: counter, offset_s: 0.06}
+    - address: INJ:RING:EFF
+      engine: {signal: efficiency, offset_s: 0.07, stage: 1}
+    - address: INJ:RING:CURRENT
+      engine: {signal: current, offset_s: 0.08}
+    - address: INJ:RING:CURRENT:FAST
+      engine: {signal: current_fast}
+    - address: INJ:SHOT:BUSY
+      engine: {signal: busy}
+- name: RING
+  engine: pyat
+  deck: decks/SR.json
+  settings:
+    pyat:
+      solve: periodic
+      # Calibrated with the tracking core: RF off, the radiation loss drives
+      # the bunch into the aperture between turns 110 and 210, none left by
+      # turn 250; RF on, every particle survives 250 turns.
+      turn_by_turn:
+        injection_element: INJ
+        turns: 250
+        trigger_sample: 10
+        particles: 16
+        launch: {x: 0.001, px: 0.0, y: -0.0005, py: 0.0, delta: 0.0, ct: 0.0}
+        emittance_x: 2.0e-08
+        emittance_y: 2.0e-09
+        sigma_delta: 0.001
+        sigma_z: 0.003
+        jitter: {x: 5.0e-05, y: 3.0e-05}
+        aperture: {shape: elliptical, x: 0.004, y: 0.004}
+        sum_per_charge: 1.0
+        sum_per_stored: 0.01
+        sum_floor: 0.01
+        position_noise: 1.0e-05
+        sum_noise: 0.001
+        floor_noise: 0.001
+        tone_period: 10
+        tone_amplitude: 0.5
+  inputs:
+    - {address: INJ:RING:SHOT:COUNT, engine: {signal: shot}}
+    - {address: INJ:RING:CHARGE, engine: {signal: charge}}
+    - {address: INJ:RING:CURRENT, engine: {signal: stored_current}}
+  wiring:
+    - address: SR:RF:SWITCH
+      engine: {signal: rf_switch}
+    - address: SR:DIAG:TBT:PILOT
+      engine: {signal: pilot_tone}
+    - address: SR:DIAG:TBT:STORED:01
+      engine: {signal: stored}
+    - address: SR:DIAG:TBT:STORED:02
+      engine: {signal: stored}
+    - address: SR:DIAG:TBT:TURNS
+      engine: {signal: turns_tracked}
+    - address: SR:DIAG:BPM:01:ARM
+      element: BPM01
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:01:ARMED
+      element: BPM01
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:01:TBT:X
+      element: BPM01
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:01:TBT:Y
+      element: BPM01
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:01:TBT:SUM
+      element: BPM01
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:02:ARM
+      element: BPM02
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:02:ARMED
+      element: BPM02
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:02:TBT:X
+      element: BPM02
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:02:TBT:Y
+      element: BPM02
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:02:TBT:SUM
+      element: BPM02
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:03:ARM
+      element: BPM03
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:03:ARMED
+      element: BPM03
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:03:TBT:X
+      element: BPM03
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:03:TBT:Y
+      element: BPM03
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:03:TBT:SUM
+      element: BPM03
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:04:ARM
+      element: BPM04
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:04:ARMED
+      element: BPM04
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:04:TBT:X
+      element: BPM04
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:04:TBT:Y
+      element: BPM04
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:04:TBT:SUM
+      element: BPM04
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:05:ARM
+      element: BPM05
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:05:ARMED
+      element: BPM05
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:05:TBT:X
+      element: BPM05
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:05:TBT:Y
+      element: BPM05
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:05:TBT:SUM
+      element: BPM05
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:06:ARM
+      element: BPM06
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:06:ARMED
+      element: BPM06
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:06:TBT:X
+      element: BPM06
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:06:TBT:Y
+      element: BPM06
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:06:TBT:SUM
+      element: BPM06
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:07:ARM
+      element: BPM07
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:07:ARMED
+      element: BPM07
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:07:TBT:X
+      element: BPM07
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:07:TBT:Y
+      element: BPM07
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:07:TBT:SUM
+      element: BPM07
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:08:ARM
+      element: BPM08
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:08:ARMED
+      element: BPM08
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:08:TBT:X
+      element: BPM08
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:08:TBT:Y
+      element: BPM08
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:08:TBT:SUM
+      element: BPM08
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:09:ARM
+      element: BPM09
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:09:ARMED
+      element: BPM09
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:09:TBT:X
+      element: BPM09
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:09:TBT:Y
+      element: BPM09
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:09:TBT:SUM
+      element: BPM09
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:10:ARM
+      element: BPM10
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:10:ARMED
+      element: BPM10
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:10:TBT:X
+      element: BPM10
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:10:TBT:Y
+      element: BPM10
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:10:TBT:SUM
+      element: BPM10
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:11:ARM
+      element: BPM11
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:11:ARMED
+      element: BPM11
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:11:TBT:X
+      element: BPM11
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:11:TBT:Y
+      element: BPM11
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:11:TBT:SUM
+      element: BPM11
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:12:ARM
+      element: BPM12
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:12:ARMED
+      element: BPM12
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:12:TBT:X
+      element: BPM12
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:12:TBT:Y
+      element: BPM12
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:12:TBT:SUM
+      element: BPM12
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:13:ARM
+      element: BPM13
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:13:ARMED
+      element: BPM13
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:13:TBT:X
+      element: BPM13
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:13:TBT:Y
+      element: BPM13
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:13:TBT:SUM
+      element: BPM13
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:14:ARM
+      element: BPM14
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:14:ARMED
+      element: BPM14
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:14:TBT:X
+      element: BPM14
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:14:TBT:Y
+      element: BPM14
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:14:TBT:SUM
+      element: BPM14
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:15:ARM
+      element: BPM15
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:15:ARMED
+      element: BPM15
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:15:TBT:X
+      element: BPM15
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:15:TBT:Y
+      element: BPM15
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:15:TBT:SUM
+      element: BPM15
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:16:ARM
+      element: BPM16
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:16:ARMED
+      element: BPM16
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:16:TBT:X
+      element: BPM16
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:16:TBT:Y
+      element: BPM16
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:16:TBT:SUM
+      element: BPM16
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:17:ARM
+      element: BPM17
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:17:ARMED
+      element: BPM17
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:17:TBT:X
+      element: BPM17
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:17:TBT:Y
+      element: BPM17
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:17:TBT:SUM
+      element: BPM17
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:18:ARM
+      element: BPM18
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:18:ARMED
+      element: BPM18
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:18:TBT:X
+      element: BPM18
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:18:TBT:Y
+      element: BPM18
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:18:TBT:SUM
+      element: BPM18
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:19:ARM
+      element: BPM19
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:19:ARMED
+      element: BPM19
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:19:TBT:X
+      element: BPM19
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:19:TBT:Y
+      element: BPM19
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:19:TBT:SUM
+      element: BPM19
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:20:ARM
+      element: BPM20
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:20:ARMED
+      element: BPM20
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:20:TBT:X
+      element: BPM20
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:20:TBT:Y
+      element: BPM20
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:20:TBT:SUM
+      element: BPM20
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:21:ARM
+      element: BPM21
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:21:ARMED
+      element: BPM21
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:21:TBT:X
+      element: BPM21
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:21:TBT:Y
+      element: BPM21
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:21:TBT:SUM
+      element: BPM21
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:22:ARM
+      element: BPM22
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:22:ARMED
+      element: BPM22
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:22:TBT:X
+      element: BPM22
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:22:TBT:Y
+      element: BPM22
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:22:TBT:SUM
+      element: BPM22
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:23:ARM
+      element: BPM23
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:23:ARMED
+      element: BPM23
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:23:TBT:X
+      element: BPM23
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:23:TBT:Y
+      element: BPM23
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:23:TBT:SUM
+      element: BPM23
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:24:ARM
+      element: BPM24
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:24:ARMED
+      element: BPM24
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:24:TBT:X
+      element: BPM24
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:24:TBT:Y
+      element: BPM24
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:24:TBT:SUM
+      element: BPM24
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:25:ARM
+      element: BPM25
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:25:ARMED
+      element: BPM25
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:25:TBT:X
+      element: BPM25
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:25:TBT:Y
+      element: BPM25
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:25:TBT:SUM
+      element: BPM25
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:26:ARM
+      element: BPM26
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:26:ARMED
+      element: BPM26
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:26:TBT:X
+      element: BPM26
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:26:TBT:Y
+      element: BPM26
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:26:TBT:SUM
+      element: BPM26
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:27:ARM
+      element: BPM27
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:27:ARMED
+      element: BPM27
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:27:TBT:X
+      element: BPM27
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:27:TBT:Y
+      element: BPM27
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:27:TBT:SUM
+      element: BPM27
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:28:ARM
+      element: BPM28
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:28:ARMED
+      element: BPM28
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:28:TBT:X
+      element: BPM28
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:28:TBT:Y
+      element: BPM28
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:28:TBT:SUM
+      element: BPM28
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:29:ARM
+      element: BPM29
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:29:ARMED
+      element: BPM29
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:29:TBT:X
+      element: BPM29
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:29:TBT:Y
+      element: BPM29
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:29:TBT:SUM
+      element: BPM29
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:30:ARM
+      element: BPM30
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:30:ARMED
+      element: BPM30
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:30:TBT:X
+      element: BPM30
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:30:TBT:Y
+      element: BPM30
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:30:TBT:SUM
+      element: BPM30
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:31:ARM
+      element: BPM31
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:31:ARMED
+      element: BPM31
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:31:TBT:X
+      element: BPM31
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:31:TBT:Y
+      element: BPM31
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:31:TBT:SUM
+      element: BPM31
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:32:ARM
+      element: BPM32
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:32:ARMED
+      element: BPM32
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:32:TBT:X
+      element: BPM32
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:32:TBT:Y
+      element: BPM32
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:32:TBT:SUM
+      element: BPM32
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:33:ARM
+      element: BPM33
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:33:ARMED
+      element: BPM33
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:33:TBT:X
+      element: BPM33
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:33:TBT:Y
+      element: BPM33
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:33:TBT:SUM
+      element: BPM33
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:34:ARM
+      element: BPM34
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:34:ARMED
+      element: BPM34
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:34:TBT:X
+      element: BPM34
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:34:TBT:Y
+      element: BPM34
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:34:TBT:SUM
+      element: BPM34
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:35:ARM
+      element: BPM35
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:35:ARMED
+      element: BPM35
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:35:TBT:X
+      element: BPM35
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:35:TBT:Y
+      element: BPM35
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:35:TBT:SUM
+      element: BPM35
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:36:ARM
+      element: BPM36
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:36:ARMED
+      element: BPM36
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:36:TBT:X
+      element: BPM36
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:36:TBT:Y
+      element: BPM36
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:36:TBT:SUM
+      element: BPM36
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:37:ARM
+      element: BPM37
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:37:ARMED
+      element: BPM37
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:37:TBT:X
+      element: BPM37
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:37:TBT:Y
+      element: BPM37
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:37:TBT:SUM
+      element: BPM37
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:38:ARM
+      element: BPM38
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:38:ARMED
+      element: BPM38
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:38:TBT:X
+      element: BPM38
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:38:TBT:Y
+      element: BPM38
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:38:TBT:SUM
+      element: BPM38
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:39:ARM
+      element: BPM39
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:39:ARMED
+      element: BPM39
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:39:TBT:X
+      element: BPM39
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:39:TBT:Y
+      element: BPM39
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:39:TBT:SUM
+      element: BPM39
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:40:ARM
+      element: BPM40
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:40:ARMED
+      element: BPM40
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:40:TBT:X
+      element: BPM40
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:40:TBT:Y
+      element: BPM40
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:40:TBT:SUM
+      element: BPM40
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:41:ARM
+      element: BPM41
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:41:ARMED
+      element: BPM41
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:41:TBT:X
+      element: BPM41
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:41:TBT:Y
+      element: BPM41
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:41:TBT:SUM
+      element: BPM41
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:42:ARM
+      element: BPM42
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:42:ARMED
+      element: BPM42
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:42:TBT:X
+      element: BPM42
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:42:TBT:Y
+      element: BPM42
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:42:TBT:SUM
+      element: BPM42
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:43:ARM
+      element: BPM43
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:43:ARMED
+      element: BPM43
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:43:TBT:X
+      element: BPM43
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:43:TBT:Y
+      element: BPM43
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:43:TBT:SUM
+      element: BPM43
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:44:ARM
+      element: BPM44
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:44:ARMED
+      element: BPM44
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:44:TBT:X
+      element: BPM44
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:44:TBT:Y
+      element: BPM44
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:44:TBT:SUM
+      element: BPM44
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:45:ARM
+      element: BPM45
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:45:ARMED
+      element: BPM45
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:45:TBT:X
+      element: BPM45
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:45:TBT:Y
+      element: BPM45
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:45:TBT:SUM
+      element: BPM45
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:46:ARM
+      element: BPM46
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:46:ARMED
+      element: BPM46
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:46:TBT:X
+      element: BPM46
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:46:TBT:Y
+      element: BPM46
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:46:TBT:SUM
+      element: BPM46
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:47:ARM
+      element: BPM47
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:47:ARMED
+      element: BPM47
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:47:TBT:X
+      element: BPM47
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:47:TBT:Y
+      element: BPM47
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:47:TBT:SUM
+      element: BPM47
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:48:ARM
+      element: BPM48
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:48:ARMED
+      element: BPM48
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:48:TBT:X
+      element: BPM48
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:48:TBT:Y
+      element: BPM48
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:48:TBT:SUM
+      element: BPM48
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:49:ARM
+      element: BPM49
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:49:ARMED
+      element: BPM49
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:49:TBT:X
+      element: BPM49
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:49:TBT:Y
+      element: BPM49
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:49:TBT:SUM
+      element: BPM49
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:50:ARM
+      element: BPM50
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:50:ARMED
+      element: BPM50
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:50:TBT:X
+      element: BPM50
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:50:TBT:Y
+      element: BPM50
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:50:TBT:SUM
+      element: BPM50
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:51:ARM
+      element: BPM51
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:51:ARMED
+      element: BPM51
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:51:TBT:X
+      element: BPM51
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:51:TBT:Y
+      element: BPM51
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:51:TBT:SUM
+      element: BPM51
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:52:ARM
+      element: BPM52
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:52:ARMED
+      element: BPM52
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:52:TBT:X
+      element: BPM52
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:52:TBT:Y
+      element: BPM52
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:52:TBT:SUM
+      element: BPM52
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:53:ARM
+      element: BPM53
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:53:ARMED
+      element: BPM53
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:53:TBT:X
+      element: BPM53
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:53:TBT:Y
+      element: BPM53
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:53:TBT:SUM
+      element: BPM53
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:54:ARM
+      element: BPM54
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:54:ARMED
+      element: BPM54
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:54:TBT:X
+      element: BPM54
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:54:TBT:Y
+      element: BPM54
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:54:TBT:SUM
+      element: BPM54
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:55:ARM
+      element: BPM55
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:55:ARMED
+      element: BPM55
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:55:TBT:X
+      element: BPM55
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:55:TBT:Y
+      element: BPM55
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:55:TBT:SUM
+      element: BPM55
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:56:ARM
+      element: BPM56
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:56:ARMED
+      element: BPM56
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:56:TBT:X
+      element: BPM56
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:56:TBT:Y
+      element: BPM56
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:56:TBT:SUM
+      element: BPM56
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:57:ARM
+      element: BPM57
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:57:ARMED
+      element: BPM57
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:57:TBT:X
+      element: BPM57
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:57:TBT:Y
+      element: BPM57
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:57:TBT:SUM
+      element: BPM57
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:58:ARM
+      element: BPM58
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:58:ARMED
+      element: BPM58
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:58:TBT:X
+      element: BPM58
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:58:TBT:Y
+      element: BPM58
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:58:TBT:SUM
+      element: BPM58
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:59:ARM
+      element: BPM59
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:59:ARMED
+      element: BPM59
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:59:TBT:X
+      element: BPM59
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:59:TBT:Y
+      element: BPM59
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:59:TBT:SUM
+      element: BPM59
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:60:ARM
+      element: BPM60
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:60:ARMED
+      element: BPM60
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:60:TBT:X
+      element: BPM60
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:60:TBT:Y
+      element: BPM60
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:60:TBT:SUM
+      element: BPM60
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:61:ARM
+      element: BPM61
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:61:ARMED
+      element: BPM61
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:61:TBT:X
+      element: BPM61
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:61:TBT:Y
+      element: BPM61
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:61:TBT:SUM
+      element: BPM61
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:62:ARM
+      element: BPM62
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:62:ARMED
+      element: BPM62
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:62:TBT:X
+      element: BPM62
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:62:TBT:Y
+      element: BPM62
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:62:TBT:SUM
+      element: BPM62
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:63:ARM
+      element: BPM63
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:63:ARMED
+      element: BPM63
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:63:TBT:X
+      element: BPM63
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:63:TBT:Y
+      element: BPM63
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:63:TBT:SUM
+      element: BPM63
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:64:ARM
+      element: BPM64
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:64:ARMED
+      element: BPM64
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:64:TBT:X
+      element: BPM64
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:64:TBT:Y
+      element: BPM64
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:64:TBT:SUM
+      element: BPM64
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:65:ARM
+      element: BPM65
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:65:ARMED
+      element: BPM65
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:65:TBT:X
+      element: BPM65
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:65:TBT:Y
+      element: BPM65
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:65:TBT:SUM
+      element: BPM65
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:66:ARM
+      element: BPM66
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:66:ARMED
+      element: BPM66
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:66:TBT:X
+      element: BPM66
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:66:TBT:Y
+      element: BPM66
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:66:TBT:SUM
+      element: BPM66
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:67:ARM
+      element: BPM67
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:67:ARMED
+      element: BPM67
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:67:TBT:X
+      element: BPM67
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:67:TBT:Y
+      element: BPM67
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:67:TBT:SUM
+      element: BPM67
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:68:ARM
+      element: BPM68
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:68:ARMED
+      element: BPM68
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:68:TBT:X
+      element: BPM68
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:68:TBT:Y
+      element: BPM68
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:68:TBT:SUM
+      element: BPM68
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:69:ARM
+      element: BPM69
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:69:ARMED
+      element: BPM69
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:69:TBT:X
+      element: BPM69
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:69:TBT:Y
+      element: BPM69
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:69:TBT:SUM
+      element: BPM69
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:70:ARM
+      element: BPM70
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:70:ARMED
+      element: BPM70
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:70:TBT:X
+      element: BPM70
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:70:TBT:Y
+      element: BPM70
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:70:TBT:SUM
+      element: BPM70
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:71:ARM
+      element: BPM71
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:71:ARMED
+      element: BPM71
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:71:TBT:X
+      element: BPM71
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:71:TBT:Y
+      element: BPM71
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:71:TBT:SUM
+      element: BPM71
+      engine: {signal: turn_sum}
+    - address: SR:DIAG:BPM:72:ARM
+      element: BPM72
+      engine: {signal: arm}
+    - address: SR:DIAG:BPM:72:ARMED
+      element: BPM72
+      engine: {signal: armed}
+    - address: SR:DIAG:BPM:72:TBT:X
+      element: BPM72
+      engine: {signal: turn_x}
+    - address: SR:DIAG:BPM:72:TBT:Y
+      element: BPM72
+      engine: {signal: turn_y}
+    - address: SR:DIAG:BPM:72:TBT:SUM
+      element: BPM72
+      engine: {signal: turn_sum}
+    - {address: 'SR:DIAG:BPM:01:POSITION:X', element: BPM01, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:01:POSITION:Y', element: BPM01, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:02:POSITION:X', element: BPM02, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:02:POSITION:Y', element: BPM02, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:03:POSITION:X', element: BPM03, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:03:POSITION:Y', element: BPM03, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:04:POSITION:X', element: BPM04, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:04:POSITION:Y', element: BPM04, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:05:POSITION:X', element: BPM05, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:05:POSITION:Y', element: BPM05, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:06:POSITION:X', element: BPM06, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:06:POSITION:Y', element: BPM06, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:07:POSITION:X', element: BPM07, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:07:POSITION:Y', element: BPM07, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:08:POSITION:X', element: BPM08, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:08:POSITION:Y', element: BPM08, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:09:POSITION:X', element: BPM09, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:09:POSITION:Y', element: BPM09, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:10:POSITION:X', element: BPM10, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:10:POSITION:Y', element: BPM10, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:11:POSITION:X', element: BPM11, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:11:POSITION:Y', element: BPM11, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:12:POSITION:X', element: BPM12, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:12:POSITION:Y', element: BPM12, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:13:POSITION:X', element: BPM13, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:13:POSITION:Y', element: BPM13, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:14:POSITION:X', element: BPM14, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:14:POSITION:Y', element: BPM14, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:15:POSITION:X', element: BPM15, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:15:POSITION:Y', element: BPM15, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:16:POSITION:X', element: BPM16, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:16:POSITION:Y', element: BPM16, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:17:POSITION:X', element: BPM17, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:17:POSITION:Y', element: BPM17, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:18:POSITION:X', element: BPM18, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:18:POSITION:Y', element: BPM18, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:19:POSITION:X', element: BPM19, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:19:POSITION:Y', element: BPM19, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:20:POSITION:X', element: BPM20, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:20:POSITION:Y', element: BPM20, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:21:POSITION:X', element: BPM21, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:21:POSITION:Y', element: BPM21, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:22:POSITION:X', element: BPM22, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:22:POSITION:Y', element: BPM22, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:23:POSITION:X', element: BPM23, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:23:POSITION:Y', element: BPM23, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:24:POSITION:X', element: BPM24, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:24:POSITION:Y', element: BPM24, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:25:POSITION:X', element: BPM25, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:25:POSITION:Y', element: BPM25, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:26:POSITION:X', element: BPM26, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:26:POSITION:Y', element: BPM26, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:27:POSITION:X', element: BPM27, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:27:POSITION:Y', element: BPM27, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:28:POSITION:X', element: BPM28, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:28:POSITION:Y', element: BPM28, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:29:POSITION:X', element: BPM29, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:29:POSITION:Y', element: BPM29, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:30:POSITION:X', element: BPM30, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:30:POSITION:Y', element: BPM30, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:31:POSITION:X', element: BPM31, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:31:POSITION:Y', element: BPM31, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:32:POSITION:X', element: BPM32, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:32:POSITION:Y', element: BPM32, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:33:POSITION:X', element: BPM33, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:33:POSITION:Y', element: BPM33, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:34:POSITION:X', element: BPM34, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:34:POSITION:Y', element: BPM34, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:35:POSITION:X', element: BPM35, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:35:POSITION:Y', element: BPM35, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:36:POSITION:X', element: BPM36, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:36:POSITION:Y', element: BPM36, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:37:POSITION:X', element: BPM37, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:37:POSITION:Y', element: BPM37, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:38:POSITION:X', element: BPM38, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:38:POSITION:Y', element: BPM38, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:39:POSITION:X', element: BPM39, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:39:POSITION:Y', element: BPM39, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:40:POSITION:X', element: BPM40, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:40:POSITION:Y', element: BPM40, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:41:POSITION:X', element: BPM41, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:41:POSITION:Y', element: BPM41, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:42:POSITION:X', element: BPM42, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:42:POSITION:Y', element: BPM42, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:43:POSITION:X', element: BPM43, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:43:POSITION:Y', element: BPM43, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:44:POSITION:X', element: BPM44, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:44:POSITION:Y', element: BPM44, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:45:POSITION:X', element: BPM45, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:45:POSITION:Y', element: BPM45, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:46:POSITION:X', element: BPM46, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:46:POSITION:Y', element: BPM46, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:47:POSITION:X', element: BPM47, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:47:POSITION:Y', element: BPM47, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:48:POSITION:X', element: BPM48, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:48:POSITION:Y', element: BPM48, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:49:POSITION:X', element: BPM49, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:49:POSITION:Y', element: BPM49, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:50:POSITION:X', element: BPM50, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:50:POSITION:Y', element: BPM50, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:51:POSITION:X', element: BPM51, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:51:POSITION:Y', element: BPM51, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:52:POSITION:X', element: BPM52, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:52:POSITION:Y', element: BPM52, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:53:POSITION:X', element: BPM53, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:53:POSITION:Y', element: BPM53, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:54:POSITION:X', element: BPM54, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:54:POSITION:Y', element: BPM54, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:55:POSITION:X', element: BPM55, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:55:POSITION:Y', element: BPM55, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:56:POSITION:X', element: BPM56, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:56:POSITION:Y', element: BPM56, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:57:POSITION:X', element: BPM57, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:57:POSITION:Y', element: BPM57, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:58:POSITION:X', element: BPM58, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:58:POSITION:Y', element: BPM58, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:59:POSITION:X', element: BPM59, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:59:POSITION:Y', element: BPM59, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:60:POSITION:X', element: BPM60, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:60:POSITION:Y', element: BPM60, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:61:POSITION:X', element: BPM61, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:61:POSITION:Y', element: BPM61, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:62:POSITION:X', element: BPM62, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:62:POSITION:Y', element: BPM62, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:63:POSITION:X', element: BPM63, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:63:POSITION:Y', element: BPM63, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:64:POSITION:X', element: BPM64, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:64:POSITION:Y', element: BPM64, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:65:POSITION:X', element: BPM65, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:65:POSITION:Y', element: BPM65, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:66:POSITION:X', element: BPM66, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:66:POSITION:Y', element: BPM66, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:67:POSITION:X', element: BPM67, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:67:POSITION:Y', element: BPM67, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:68:POSITION:X', element: BPM68, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:68:POSITION:Y', element: BPM68, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:69:POSITION:X', element: BPM69, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:69:POSITION:Y', element: BPM69, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:70:POSITION:X', element: BPM70, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:70:POSITION:Y', element: BPM70, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:71:POSITION:X', element: BPM71, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:71:POSITION:Y', element: BPM71, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:72:POSITION:X', element: BPM72, engine: {axis: x}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:DIAG:BPM:72:POSITION:Y', element: BPM72, engine: {axis: y}, calibration: {curve: {linear: {gain: 0.001, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:01:CURRENT:RB', element: HCM01, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:01:CURRENT:SP', element: HCM01, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:02:CURRENT:RB', element: HCM02, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:02:CURRENT:SP', element: HCM02, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:03:CURRENT:RB', element: HCM03, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:03:CURRENT:SP', element: HCM03, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:04:CURRENT:RB', element: HCM04, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:04:CURRENT:SP', element: HCM04, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:05:CURRENT:RB', element: HCM05, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:05:CURRENT:SP', element: HCM05, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:06:CURRENT:RB', element: HCM06, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:06:CURRENT:SP', element: HCM06, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:07:CURRENT:RB', element: HCM07, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:07:CURRENT:SP', element: HCM07, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:08:CURRENT:RB', element: HCM08, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:08:CURRENT:SP', element: HCM08, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:09:CURRENT:RB', element: HCM09, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:09:CURRENT:SP', element: HCM09, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:10:CURRENT:RB', element: HCM10, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:10:CURRENT:SP', element: HCM10, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:11:CURRENT:RB', element: HCM11, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:11:CURRENT:SP', element: HCM11, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:12:CURRENT:RB', element: HCM12, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:12:CURRENT:SP', element: HCM12, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:13:CURRENT:RB', element: HCM13, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:13:CURRENT:SP', element: HCM13, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:14:CURRENT:RB', element: HCM14, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:14:CURRENT:SP', element: HCM14, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:15:CURRENT:RB', element: HCM15, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:15:CURRENT:SP', element: HCM15, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:16:CURRENT:RB', element: HCM16, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:16:CURRENT:SP', element: HCM16, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:17:CURRENT:RB', element: HCM17, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:17:CURRENT:SP', element: HCM17, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:18:CURRENT:RB', element: HCM18, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:18:CURRENT:SP', element: HCM18, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:19:CURRENT:RB', element: HCM19, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:19:CURRENT:SP', element: HCM19, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:20:CURRENT:RB', element: HCM20, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:20:CURRENT:SP', element: HCM20, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:21:CURRENT:RB', element: HCM21, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:21:CURRENT:SP', element: HCM21, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:22:CURRENT:RB', element: HCM22, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:22:CURRENT:SP', element: HCM22, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:23:CURRENT:RB', element: HCM23, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:23:CURRENT:SP', element: HCM23, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:24:CURRENT:RB', element: HCM24, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:24:CURRENT:SP', element: HCM24, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:25:CURRENT:RB', element: HCM25, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:25:CURRENT:SP', element: HCM25, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:26:CURRENT:RB', element: HCM26, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:26:CURRENT:SP', element: HCM26, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:27:CURRENT:RB', element: HCM27, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:27:CURRENT:SP', element: HCM27, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:28:CURRENT:RB', element: HCM28, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:28:CURRENT:SP', element: HCM28, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:29:CURRENT:RB', element: HCM29, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:29:CURRENT:SP', element: HCM29, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:30:CURRENT:RB', element: HCM30, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:30:CURRENT:SP', element: HCM30, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:31:CURRENT:RB', element: HCM31, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:31:CURRENT:SP', element: HCM31, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:32:CURRENT:RB', element: HCM32, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:32:CURRENT:SP', element: HCM32, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:33:CURRENT:RB', element: HCM33, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:33:CURRENT:SP', element: HCM33, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:34:CURRENT:RB', element: HCM34, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:34:CURRENT:SP', element: HCM34, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:35:CURRENT:RB', element: HCM35, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:35:CURRENT:SP', element: HCM35, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:36:CURRENT:RB', element: HCM36, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:36:CURRENT:SP', element: HCM36, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:37:CURRENT:RB', element: HCM37, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:37:CURRENT:SP', element: HCM37, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:38:CURRENT:RB', element: HCM38, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:38:CURRENT:SP', element: HCM38, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:39:CURRENT:RB', element: HCM39, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:39:CURRENT:SP', element: HCM39, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:40:CURRENT:RB', element: HCM40, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:40:CURRENT:SP', element: HCM40, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:41:CURRENT:RB', element: HCM41, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:41:CURRENT:SP', element: HCM41, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:42:CURRENT:RB', element: HCM42, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:42:CURRENT:SP', element: HCM42, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:43:CURRENT:RB', element: HCM43, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:43:CURRENT:SP', element: HCM43, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:44:CURRENT:RB', element: HCM44, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:44:CURRENT:SP', element: HCM44, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:45:CURRENT:RB', element: HCM45, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:45:CURRENT:SP', element: HCM45, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:46:CURRENT:RB', element: HCM46, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:46:CURRENT:SP', element: HCM46, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:47:CURRENT:RB', element: HCM47, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:47:CURRENT:SP', element: HCM47, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:48:CURRENT:RB', element: HCM48, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:48:CURRENT:SP', element: HCM48, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:49:CURRENT:RB', element: HCM49, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:49:CURRENT:SP', element: HCM49, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:50:CURRENT:RB', element: HCM50, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:50:CURRENT:SP', element: HCM50, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:51:CURRENT:RB', element: HCM51, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:51:CURRENT:SP', element: HCM51, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:52:CURRENT:RB', element: HCM52, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:52:CURRENT:SP', element: HCM52, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:53:CURRENT:RB', element: HCM53, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:53:CURRENT:SP', element: HCM53, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:54:CURRENT:RB', element: HCM54, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:54:CURRENT:SP', element: HCM54, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:55:CURRENT:RB', element: HCM55, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:55:CURRENT:SP', element: HCM55, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:56:CURRENT:RB', element: HCM56, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:56:CURRENT:SP', element: HCM56, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:57:CURRENT:RB', element: HCM57, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:57:CURRENT:SP', element: HCM57, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:58:CURRENT:RB', element: HCM58, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:58:CURRENT:SP', element: HCM58, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:59:CURRENT:RB', element: HCM59, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:59:CURRENT:SP', element: HCM59, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:60:CURRENT:RB', element: HCM60, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:60:CURRENT:SP', element: HCM60, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:61:CURRENT:RB', element: HCM61, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:61:CURRENT:SP', element: HCM61, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:62:CURRENT:RB', element: HCM62, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:62:CURRENT:SP', element: HCM62, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:63:CURRENT:RB', element: HCM63, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:63:CURRENT:SP', element: HCM63, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:64:CURRENT:RB', element: HCM64, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:64:CURRENT:SP', element: HCM64, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:65:CURRENT:RB', element: HCM65, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:65:CURRENT:SP', element: HCM65, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:66:CURRENT:RB', element: HCM66, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:66:CURRENT:SP', element: HCM66, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:67:CURRENT:RB', element: HCM67, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:67:CURRENT:SP', element: HCM67, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:68:CURRENT:RB', element: HCM68, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:68:CURRENT:SP', element: HCM68, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:69:CURRENT:RB', element: HCM69, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:69:CURRENT:SP', element: HCM69, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:70:CURRENT:RB', element: HCM70, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:70:CURRENT:SP', element: HCM70, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:71:CURRENT:RB', element: HCM71, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:71:CURRENT:SP', element: HCM71, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:72:CURRENT:RB', element: HCM72, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:HCM:72:CURRENT:SP', element: HCM72, engine: {attribute: KickAngle, index: 0}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:01:CURRENT:RB', element: VCM01, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:01:CURRENT:SP', element: VCM01, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:02:CURRENT:RB', element: VCM02, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:02:CURRENT:SP', element: VCM02, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:03:CURRENT:RB', element: VCM03, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:03:CURRENT:SP', element: VCM03, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:04:CURRENT:RB', element: VCM04, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:04:CURRENT:SP', element: VCM04, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:05:CURRENT:RB', element: VCM05, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:05:CURRENT:SP', element: VCM05, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:06:CURRENT:RB', element: VCM06, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:06:CURRENT:SP', element: VCM06, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:07:CURRENT:RB', element: VCM07, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:07:CURRENT:SP', element: VCM07, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:08:CURRENT:RB', element: VCM08, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:08:CURRENT:SP', element: VCM08, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:09:CURRENT:RB', element: VCM09, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:09:CURRENT:SP', element: VCM09, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:10:CURRENT:RB', element: VCM10, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:10:CURRENT:SP', element: VCM10, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:11:CURRENT:RB', element: VCM11, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:11:CURRENT:SP', element: VCM11, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:12:CURRENT:RB', element: VCM12, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:12:CURRENT:SP', element: VCM12, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:13:CURRENT:RB', element: VCM13, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:13:CURRENT:SP', element: VCM13, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:14:CURRENT:RB', element: VCM14, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:14:CURRENT:SP', element: VCM14, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:15:CURRENT:RB', element: VCM15, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:15:CURRENT:SP', element: VCM15, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:16:CURRENT:RB', element: VCM16, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:16:CURRENT:SP', element: VCM16, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:17:CURRENT:RB', element: VCM17, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:17:CURRENT:SP', element: VCM17, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:18:CURRENT:RB', element: VCM18, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:18:CURRENT:SP', element: VCM18, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:19:CURRENT:RB', element: VCM19, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:19:CURRENT:SP', element: VCM19, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:20:CURRENT:RB', element: VCM20, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:20:CURRENT:SP', element: VCM20, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:21:CURRENT:RB', element: VCM21, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:21:CURRENT:SP', element: VCM21, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:22:CURRENT:RB', element: VCM22, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:22:CURRENT:SP', element: VCM22, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:23:CURRENT:RB', element: VCM23, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:23:CURRENT:SP', element: VCM23, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:24:CURRENT:RB', element: VCM24, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:24:CURRENT:SP', element: VCM24, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:25:CURRENT:RB', element: VCM25, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:25:CURRENT:SP', element: VCM25, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:26:CURRENT:RB', element: VCM26, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:26:CURRENT:SP', element: VCM26, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:27:CURRENT:RB', element: VCM27, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:27:CURRENT:SP', element: VCM27, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:28:CURRENT:RB', element: VCM28, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:28:CURRENT:SP', element: VCM28, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:29:CURRENT:RB', element: VCM29, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:29:CURRENT:SP', element: VCM29, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:30:CURRENT:RB', element: VCM30, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:30:CURRENT:SP', element: VCM30, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:31:CURRENT:RB', element: VCM31, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:31:CURRENT:SP', element: VCM31, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:32:CURRENT:RB', element: VCM32, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:32:CURRENT:SP', element: VCM32, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:33:CURRENT:RB', element: VCM33, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:33:CURRENT:SP', element: VCM33, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:34:CURRENT:RB', element: VCM34, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:34:CURRENT:SP', element: VCM34, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:35:CURRENT:RB', element: VCM35, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:35:CURRENT:SP', element: VCM35, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:36:CURRENT:RB', element: VCM36, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:36:CURRENT:SP', element: VCM36, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:37:CURRENT:RB', element: VCM37, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:37:CURRENT:SP', element: VCM37, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:38:CURRENT:RB', element: VCM38, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:38:CURRENT:SP', element: VCM38, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:39:CURRENT:RB', element: VCM39, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:39:CURRENT:SP', element: VCM39, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:40:CURRENT:RB', element: VCM40, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:40:CURRENT:SP', element: VCM40, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:41:CURRENT:RB', element: VCM41, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:41:CURRENT:SP', element: VCM41, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:42:CURRENT:RB', element: VCM42, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:42:CURRENT:SP', element: VCM42, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:43:CURRENT:RB', element: VCM43, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:43:CURRENT:SP', element: VCM43, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:44:CURRENT:RB', element: VCM44, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:44:CURRENT:SP', element: VCM44, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:45:CURRENT:RB', element: VCM45, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:45:CURRENT:SP', element: VCM45, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:46:CURRENT:RB', element: VCM46, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:46:CURRENT:SP', element: VCM46, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:47:CURRENT:RB', element: VCM47, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:47:CURRENT:SP', element: VCM47, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:48:CURRENT:RB', element: VCM48, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:48:CURRENT:SP', element: VCM48, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:49:CURRENT:RB', element: VCM49, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:49:CURRENT:SP', element: VCM49, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:50:CURRENT:RB', element: VCM50, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:50:CURRENT:SP', element: VCM50, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:51:CURRENT:RB', element: VCM51, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:51:CURRENT:SP', element: VCM51, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:52:CURRENT:RB', element: VCM52, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:52:CURRENT:SP', element: VCM52, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:53:CURRENT:RB', element: VCM53, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:53:CURRENT:SP', element: VCM53, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:54:CURRENT:RB', element: VCM54, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:54:CURRENT:SP', element: VCM54, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:55:CURRENT:RB', element: VCM55, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:55:CURRENT:SP', element: VCM55, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:56:CURRENT:RB', element: VCM56, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:56:CURRENT:SP', element: VCM56, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:57:CURRENT:RB', element: VCM57, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:57:CURRENT:SP', element: VCM57, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:58:CURRENT:RB', element: VCM58, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:58:CURRENT:SP', element: VCM58, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:59:CURRENT:RB', element: VCM59, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:59:CURRENT:SP', element: VCM59, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:60:CURRENT:RB', element: VCM60, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:60:CURRENT:SP', element: VCM60, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:61:CURRENT:RB', element: VCM61, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:61:CURRENT:SP', element: VCM61, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:62:CURRENT:RB', element: VCM62, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:62:CURRENT:SP', element: VCM62, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:63:CURRENT:RB', element: VCM63, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:63:CURRENT:SP', element: VCM63, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:64:CURRENT:RB', element: VCM64, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:64:CURRENT:SP', element: VCM64, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:65:CURRENT:RB', element: VCM65, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:65:CURRENT:SP', element: VCM65, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:66:CURRENT:RB', element: VCM66, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:66:CURRENT:SP', element: VCM66, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:67:CURRENT:RB', element: VCM67, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:67:CURRENT:SP', element: VCM67, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:68:CURRENT:RB', element: VCM68, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:68:CURRENT:SP', element: VCM68, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:69:CURRENT:RB', element: VCM69, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:69:CURRENT:SP', element: VCM69, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:70:CURRENT:RB', element: VCM70, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:70:CURRENT:SP', element: VCM70, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:71:CURRENT:RB', element: VCM71, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:71:CURRENT:SP', element: VCM71, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:72:CURRENT:RB', element: VCM72, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}
+    - {address: 'SR:MAG:VCM:72:CURRENT:SP', element: VCM72, engine: {attribute: KickAngle, index: 1}, calibration: {curve: {linear: {gain: 1.0e-06, offset: 0.0}}, energy_scaling: none}}

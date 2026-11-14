@@ -442,8 +442,8 @@ async def run_dispatch(
     # restates the compose service's value — it is set unconditionally because a
     # worker started without it would otherwise leave the spawned agent and its
     # hook subprocesses (which the agent's working directory does not relocate)
-    # falling back to ``CWD/config.yml`` and failing with "No config.yml found in
-    # current directory" on every dispatch.
+    # falling back to their working directory and failing with "No config.yml
+    # found in current directory" on every dispatch.
     sdk_env["CONFIG_FILE"] = str(deployed_config_path())
 
     # The agent's Claude state (its transcripts) lives on the worker's agent-data

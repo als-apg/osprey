@@ -159,9 +159,14 @@ ACK_TIMEOUT_SEC = 15.0
 """Wait for the ingest thread to acknowledge a pushed envelope."""
 
 BRIDGE_JOIN_TIMEOUT_SEC = 120.0
-WORKER_RUN_CAP_SEC = 90
+WORKER_RUN_CAP_SEC = 15
 """``DISPATCH_TIMEOUT_SEC`` for the worker and ``POLL_BUDGET`` for the bridge (they must
-agree: ``CoreConfig`` refuses ``POLL_BUDGET < DISPATCH_TIMEOUT_SEC``)."""
+agree: ``CoreConfig`` refuses ``POLL_BUDGET < DISPATCH_TIMEOUT_SEC``).
+
+The one proof on the production dispatcher waits this long, whatever its run did: the
+worker has no agent record to answer a finished run's status from, so the bridge polls
+out its whole budget. Short, but well past the dispatcher handshake ``POLL_BUDGET`` also
+bounds, which takes a second or two."""
 
 BUILD_TIMEOUT_SEC = 600
 HOLD_TIMEOUT_SEC = 120.0

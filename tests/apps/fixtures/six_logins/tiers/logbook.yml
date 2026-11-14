@@ -1,0 +1,24 @@
+# Its own lists, shared, read-only; switches off each server it does without.
+name: Logbook
+lists: own
+claude_md_template: CLAUDE.logbook.md.j2
+default_panel: channel-finder
+channel_finder_mode: in_context
+hooks:
+  - approval
+rules:
+  - safety
+  - timezone
+skills:
+  - session-report
+agents: []
+output_styles: []
+web_panels:
+  - channel-finder
+mcp_servers: {}
+config:
+  control_system.writes: never
+  claude_code.servers.controls_admin.enabled: false
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.ariel.enabled: false

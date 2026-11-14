@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces._browser import assert_page_loads_clean
+from tests.interfaces._browser import assert_page_loads_clean, wait_for_page_ready
 from tests.interfaces._launchers import launch_ariel
 
 if TYPE_CHECKING:
@@ -123,6 +123,7 @@ def test_open_via_trigger_and_close_via_close_button(tmp_path, monkeypatch, chro
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -141,6 +142,7 @@ def test_close_via_backdrop_click(tmp_path, monkeypatch, chromium_browser):
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -163,6 +165,7 @@ def test_close_via_escape_key(tmp_path, monkeypatch, chromium_browser):
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -181,6 +184,7 @@ def test_single_active_exclusivity(tmp_path, monkeypatch, chromium_browser):
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -211,6 +215,7 @@ def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromiu
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -242,6 +247,7 @@ def test_dialog_aria_semantics(tmp_path, monkeypatch, chromium_browser):
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
+        wait_for_page_ready(page)
 
         _open_settings_drawer(page)
 
@@ -324,6 +330,7 @@ def test_background_inert_while_open_including_preexisting_modal(
             f"{base_url}/#entry?id={_ENTRY_ID}&attachment={_ATTACHMENT_ID}",
             wait_until="domcontentloaded",
         )
+        wait_for_page_ready(page)
 
         lightbox = page.locator("#image-lightbox")
         expect(lightbox).to_be_visible(timeout=10_000)

@@ -12,11 +12,14 @@ import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import { applyLoginNudge } from './login-nudge.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 
 /**
  * Apply the server's facts to the drawer, tour, nudge and first contact, and
- * set `html[data-panels-ready]`. Call it once, after the rail is rendered,
- * every sidebar control is wired and the panel event stream is open.
+ * set the page-ready mark (page-ready.js). Call it once, after the rail is
+ * rendered, every sidebar control is wired, the panel event stream is open
+ * and the dock grid is drawn (app.js builds the dock synchronously, before
+ * initPanelManager's first await returns).
  * @param {any} panelConfig - the /api/panels payload, or null when the fetch failed
  */
 export function finishStartup(panelConfig) {
@@ -45,6 +48,7 @@ export function finishStartup(panelConfig) {
 
   // Start-up is over. The page ships rail rows of its own, so a row on screen
   // does not say this; anything that drives the hub (a browser test, a docs
-  // recording) waits here.
-  document.documentElement.dataset.panelsReady = 'true';
+  // recording) waits for this mark. index.html declares it pending, so the
+  // shared start-up leaves it to this line.
+  markPageReady();
 }

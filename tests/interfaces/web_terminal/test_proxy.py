@@ -62,7 +62,7 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     _backend_is_loopback,
     _is_stripped_header,
 )
-from osprey.utils.owner_header import OWNER_HEADER
+from osprey.utils.owner_header import CALLER_HEADER, OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -500,7 +500,10 @@ class TestSecretInjection:
             ):
                 pass
 
-        assert fake.kwargs["additional_headers"] == {TERMINAL_SECRET_HEADER: OPERATOR_SECRET}
+        assert fake.kwargs["additional_headers"] == {
+            TERMINAL_SECRET_HEADER: OPERATOR_SECRET,
+            CALLER_HEADER: "panel",
+        }
 
     def test_credentials_failure_forwards_no_secret(self, panels_app, caplog):
         """If the process cannot produce credentials, load unauthenticated — never crash."""
@@ -1379,12 +1382,12 @@ class TestWebSocketBoundary:
             pytest.param("/panel/facility/ws/stream", id="offbox-panel"),
         ],
     )
-    def test_a_panel_ws_carries_no_headers(self, panels_app, path):
+    def test_a_panel_ws_carries_only_the_caller_kind(self, panels_app, path):
         _app, client = panels_app
 
         fake = self._connect(client, path)
 
-        assert fake.kwargs["additional_headers"] is None
+        assert fake.kwargs["additional_headers"] == {CALLER_HEADER: "panel"}
         # No secret in flight → the default redirect handling is left in place.
         assert not fake.refuses_redirects
 

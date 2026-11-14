@@ -156,14 +156,14 @@ class TestSessionScopedDiagnostics:
             }
         ]
 
-    def test_session_agents_with_session_id(self, client, record):
-        """GET /api/session-agents?session_id=<id> drains and reads that session."""
+    def test_session_log_with_session_id(self, client, record):
+        """GET /api/session-log?session_id=<id> drains and reads that session."""
         record.answers["timeline"] = ClientAnswer(data=self._call_nodes(), complete=True)
-        resp = client.get("/api/session-agents?session_id=abc-123")
+        resp = client.get("/api/session-log?session_id=abc-123")
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["tool_calls_by_agent"]["main"][0]["tool"] == "channel_read"
+        assert data["events"][0]["tool"] == "channel_read"
         assert data["record"] == "complete"
         (call,) = record.calls_to("timeline")
         assert call["session_id"] == "abc-123"
@@ -175,7 +175,7 @@ class TestSessionScopedDiagnostics:
     ):
         """With no session_id the routes read the session of the current transcript."""
         with patch(self._CURRENT, return_value=tmp_path / "cur-1.jsonl"):
-            assert client.get("/api/session-agents").status_code == 200
+            assert client.get("/api/session-log").status_code == 200
             assert client.get("/api/session-chat").status_code == 200
         assert [c["session_id"] for c in record.calls_to("timeline")] == ["cur-1", "cur-1"]
 
@@ -187,19 +187,13 @@ class TestSessionScopedDiagnostics:
 
     @pytest.mark.parametrize(
         "path",
-        [
-            "/api/session-agents",
-            "/api/session-log",
-            "/api/session-chat",
-            "/api/session-agent-timeline?agent_id=x&",
-        ],
+        ["/api/session-log", "/api/session-chat", "/api/session-activity"],
     )
     def test_an_unavailable_record_says_so(self, client, monkeypatch, path):
         monkeypatch.setattr(
             session_routes, "record_client", lambda: FakeRecordClient(unavailable="down")
         )
-        sep = "" if path.endswith("&") else "?"
-        data = client.get(f"{path}{sep}session_id=abc-123").json()
+        data = client.get(f"{path}?session_id=abc-123").json()
         assert data["record"] == "unavailable"
         assert data["record_reason"] == "down"
 
@@ -217,23 +211,6 @@ class TestSessionScopedDiagnostics:
         data = client.get("/api/session-log?session_id=abc-123&since=2026-02-19T12:00:00Z").json()
         assert data["total_events"] == 1
 
-    def test_session_agent_timeline_reads_the_subagent(self, client, record):
-        record.answers["agent_timeline"] = ClientAnswer(
-            data=[
-                {"kind": "prompt", "key": "cc:a:s:p:0", "ts": "t0", "body": {"text": "Plot"}},
-                {"kind": "answer", "key": "cc:a:s:q:0", "ts": "t1", "body": {"text": "Done"}},
-            ],
-            complete=True,
-        )
-        data = client.get(
-            "/api/session-agent-timeline?agent_id=agent-xyz&session_id=abc-123"
-        ).json()
-        assert [st["kind"] for st in data["timeline"]] == ["prompt", "reasoning"]
-        assert data["count"] == 2
-        (call,) = record.calls_to("agent_timeline")
-        assert (call["session_id"], call["agent_id"]) == ("abc-123", "agent-xyz")
-        assert call["wait"] == Drain(session_id="abc-123")
-
     @staticmethod
     def _point_key_at_cleared_transcript(client):
         """Map SESSION_KEY to the transcript a ``/clear`` moved it to."""
@@ -241,19 +218,13 @@ class TestSessionScopedDiagnostics:
         client.app.state.transcript_map_provisional = False
 
     @pytest.mark.parametrize(
-        ("path", "read"),
-        [
-            ("/api/session-agents?", "timeline"),
-            ("/api/session-log?", "timeline"),
-            ("/api/session-chat?", "timeline"),
-            ("/api/session-agent-timeline?agent_id=agent-xyz&", "agent_timeline"),
-        ],
+        "path", ["/api/session-log", "/api/session-chat", "/api/session-activity"]
     )
-    def test_a_route_reads_the_transcript_the_key_points_at(self, client, record, path, read):
+    def test_a_route_reads_the_transcript_the_key_points_at(self, client, record, path):
         """A session key is mapped to its current transcript before the record is read."""
         self._point_key_at_cleared_transcript(client)
-        resp = client.get(f"{path}session_id={SESSION_KEY}")
+        resp = client.get(f"{path}?session_id={SESSION_KEY}")
 
         assert resp.status_code == 200
-        (call,) = record.calls_to(read)
+        (call,) = record.calls_to("timeline")
         assert call["session_id"] == CLEARED_TRANSCRIPT

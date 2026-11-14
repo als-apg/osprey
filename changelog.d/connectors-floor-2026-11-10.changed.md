@@ -1,0 +1,1 @@
+The framework requires `osprey-connectors>=2026.11.10`, the first release whose simulator view reads a model's declared inputs and whose composite delivers them, producers before consumers; the virtual accelerator's turn-by-turn ring takes its shot and charge from the injection model that way.

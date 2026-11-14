@@ -10,9 +10,18 @@ These functions read a deck -- a lattice file pyAT loads with
   deck;
 * :func:`describe` says what a wiring record is: its role, the transverse
   plane it steers or reads, and how often it refreshes;
+* :func:`describe_input` checks one input's engine block: a turn-by-turn
+  ring takes the ``shot``, ``charge`` and ``stored_current`` signals;
 * :func:`build` builds the LUME model that serves the wiring;
+* :func:`take_inputs` stores a turn-by-turn ring's delivered inputs, and
+  :func:`advance`, :func:`client_write`, :func:`next_deadline` and
+  :func:`emitted` run its shots: a client write to an ``arm`` record arms its
+  monitor, a rise of the ``shot`` input tracks once for the armed monitors,
+  and their armed flags drop on the first advance after the arrays are
+  drained. On any other ring they do nothing;
 * :func:`response_matrix` steps wired correctors and returns the orbit
-  response at the wired monitors, naming each corrector whose step has no
+  response -- or, on a turn-by-turn ring, the first-turn trajectory
+  response -- at the wired monitors, naming each corrector whose step has no
   solve;
 * :func:`polynomial_kicks` copies a deck so named kick elements carry their
   kicks as dipole polynomials;
@@ -48,6 +57,7 @@ from typing import TYPE_CHECKING, Any
 from lume_pyat.exceptions import AmbiguousElementError, OrbitSolveError, UnknownElementError
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.simulation.engines import pyat_turn_settings as turn_settings
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
 from osprey.simulation.engines.pyat_faults import (
     ELEMENT_SCOPE,
@@ -73,27 +83,36 @@ __all__ = [
     "RequestRefused",
     "ResponseMatrix",
     "SOLVE_ERRORS",
+    "advance",
     "build",
+    "client_write",
     "deck_length",
     "element_index",
     "error_text",
     "fault_variables",
     "describe",
+    "describe_input",
+    "emitted",
     "locate",
+    "next_deadline",
     "polynomial_kicks",
     "prepare",
     "readout",
     "response_matrix",
     "start_values",
+    "take_inputs",
 ]
 
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset(
-    {"solve", "twiss_in", "rest_mass_gev", ERROR_ELEMENTS_KEY}
+    {"solve", "twiss_in", "rest_mass_gev", ERROR_ELEMENTS_KEY, turn_settings.BLOCK_KEY}
 )
 
 #: The ``solve`` values, the first one the default.
 SOLVES: tuple[str, ...] = ("periodic", "single_pass")
+
+#: The kinds of response :func:`response_matrix` answers, the first one the default.
+RESPONSE_KINDS: tuple[str, ...] = ("orbit", "trajectory")
 
 # Stand-in until lume-base states SolveError, the base of every LUME engine's no-solve exception.
 #: The exceptions with which this engine says a request has no solve.
@@ -160,33 +179,57 @@ class Prepared:
         length_m: The end of the deck's s axis, the axis ``locate`` reports
             on: one pass through the elements as written, never multiplied
             by the deck's periodicity.
+        turn_by_turn: The turn-by-turn block, checked and defaulted; ``None``
+            on a ring that is not a turn-by-turn ring.
     """
 
     solve: str
     twiss_in: dict[str, np.ndarray] | None
     rest_mass_gev: float
     length_m: float
+    turn_by_turn: turn_settings.TurnSettings | None = None
 
 
 @dataclass(frozen=True)
 class ResponseMatrix:
-    """The orbit response of a model's wired monitors to its stepped correctors.
+    """The response of a model's wired monitors to its stepped correctors.
+
+    The closed-orbit (or single-pass) response for the ``orbit`` kind, the
+    first-turn trajectory response for the ``trajectory`` kind. The two kinds
+    differ in their rows and in where positions are counted from.
+
+    A position is a lattice element index. For the ``orbit`` kind it is
+    counted from the deck's first element, as :func:`element_index` counts.
+    For the ``trajectory`` kind it is counted from the injection element,
+    ``(index - injection index) mod elements``: the order the bunch meets the
+    elements on its first turn, the injection element itself at 0.
 
     Attributes:
-        rows: The wired monitor readback addresses, ordered by (element
-            lattice index, ``x`` before ``y``).
+        rows: One address per row, ordered by (position, ``x`` before ``y``).
+            For the ``orbit`` kind the wired monitor readbacks, in their
+            hardware unit. For the ``trajectory`` kind the monitors' turn-buffer
+            records, the wiring signals ``turn_x`` and ``turn_y``, in metres as
+            the arrays are.
         columns: The correctors whose two arms solved, in the order asked.
         matrix: One row per address of ``rows`` and one column per corrector
             of ``columns``.
         unsolved: Each corrector whose step has no solve, in the order asked,
             mapped to :func:`error_text` of the failure followed by
             ``(while stepping <address>)``.
+        row_positions: The position of each row's monitor element, aligned
+            with ``rows``; never falling, and strictly rising within a plane
+            that has one record per monitor.
+        column_positions: The position of each column's corrector element,
+            aligned with ``columns``; a corrector on slices is placed at the
+            first of them. In the order asked, so not sorted.
     """
 
     rows: list[str]
     columns: list[str]
     matrix: np.ndarray
     unsolved: dict[str, str]
+    row_positions: list[int] | None = None
+    column_positions: list[int] | None = None
 
 
 @dataclass(frozen=True)
@@ -400,7 +443,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
     Args:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
-            rest_mass_gev?, error_elements?}}``, or ``None``.
+            rest_mass_gev?, error_elements?, turn_by_turn?}}``, or ``None``.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -415,9 +458,12 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             value of the wrong length, a
             ``rest_mass_gev`` that is not a finite non-negative number, or an
             ``error_elements`` list that is malformed, names an element
-            twice, or states ``multipoles`` on an element with no polynomial.
-        ElementStop: an ``error_elements`` item names an element the deck
-            does not hold exactly once.
+            twice, or states ``multipoles`` on an element with no polynomial;
+            or a ``turn_by_turn`` block :func:`pyat_turn_settings.normalise`
+            refuses.
+        ElementStop: an ``error_elements`` item or the ``turn_by_turn``
+            injection element names an element the deck does not hold
+            exactly once.
     """
     import at
 
@@ -440,7 +486,8 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             model_id,
             "model",
             f"settings key pyat carries unknown keys {', '.join(unknown)}",
-            f"use only solve, twiss_in, rest_mass_gev, {ERROR_ELEMENTS_KEY}",
+            f"use only solve, twiss_in, rest_mass_gev, {ERROR_ELEMENTS_KEY}, "
+            f"{turn_settings.BLOCK_KEY}",
         )
     solve = block.get("solve", SOLVES[0])
     if solve not in SOLVES:
@@ -523,8 +570,44 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
         rest_mass_gev = float(rest_mass)
     _check_error_elements(loaded, deck, settings, model_id)
     return Prepared(
-        solve=solve, twiss_in=twiss_in, rest_mass_gev=rest_mass_gev, length_m=loaded.length_m
+        solve=solve,
+        twiss_in=twiss_in,
+        rest_mass_gev=rest_mass_gev,
+        length_m=loaded.length_m,
+        turn_by_turn=_turn_block(loaded, deck, settings, model_id),
     )
+
+
+def _setting_overrides(entry: Mapping[str, Any], active: Mapping[str, Any]) -> dict[str, Any]:
+    """A setting's ``value_range`` and its active scenario's value as its default."""
+    overrides: dict[str, Any] = {}
+    if "value_range" in entry:
+        overrides["value_range"] = tuple(entry["value_range"])
+    address = str(entry["address"])
+    if address in active:
+        overrides["default_value"] = float(active[address])
+    return overrides
+
+
+def _turn_block(
+    loaded: _Loaded, deck: Deck, settings: Any, model_id: str
+) -> turn_settings.TurnSettings | None:
+    """The model's turn-by-turn block, its injection element looked up in the deck."""
+
+    def index_of(element: str) -> int:
+        found = loaded.indices.get(element, ())
+        if len(found) != 1:
+            raise ElementStop(
+                deck,
+                element,
+                len(found),
+                model_id,
+                "model",
+                named_by=f"settings key pyat.{turn_settings.BLOCK_KEY}.injection_element",
+            )
+        return found[0]
+
+    return turn_settings.normalise(settings, str(deck), model_id, index_of)
 
 
 def _check_error_elements(loaded: _Loaded, deck: Deck, settings: Any, model_id: str) -> None:
@@ -665,7 +748,10 @@ def start_values(
     of :data:`DECK_PROPERTIES`, that property of the deck; it is mapped to
     hardware through ``calibration.inverse`` when present, else through the
     algebraic inverse of a ``linear`` curve; with no calibration the physics
-    value is the hardware value. A readback takes its paired setpoint's value
+    value is the hardware value. A turn-by-turn record (its engine block names
+    a ``signal``) starts at its signal's value: a turn array as
+    ``trigger_sample + turns`` zeros, ``rf_switch`` at 1 (on), every other
+    signal at 0. A readback takes its paired setpoint's value
     when that setpoint is in ``wiring``, else zero; a waveform readback wired
     to a whole optics output starts as one zero per plane. Any other record
     that names no element has no start value in the deck and is left out.
@@ -673,7 +759,8 @@ def start_values(
     Args:
         deck: The lattice file.
         wiring: The model's wiring records.
-        settings: The model's settings; pyat's start values read none.
+        settings: The model's settings; only the ``turn_by_turn`` block is
+            read.
         readbacks: Each readback address among the records, mapped to the
             address of its paired setpoint or ``None``; every other record is
             a setpoint.
@@ -695,12 +782,21 @@ def start_values(
             unreadable attribute, or a setpoint's or monitor's (a record whose
             engine block names an ``axis``) table calibration without an
             inverse or linear gain of 0; for a waveform readback that names an
-            ``axis`` or ``index``, or whose shape is not the deck's planes.
+            ``axis`` or ``index``, or whose shape is not the deck's planes;
+            for a turn-by-turn record on a ring whose settings state no
+            ``turn_by_turn`` block, a turn array that is not a waveform of
+            shape ``[trigger_sample + turns]``, any other turn-by-turn record
+            that is not float, or a monitor signal whose element is not a
+            monitor (an ``ElementStop`` when the deck does not hold it once);
+            naming the model, for a ``turn_by_turn`` block
+            :func:`pyat_turn_settings.normalise` refuses.
     """
-    del settings
     readbacks = readbacks or {}
     value_types = value_types or {}
     records = list(wiring)
+    turn_records = [record for record in records if turn_settings.signal_of(record) is not None]
+    records = [record for record in records if turn_settings.signal_of(record) is None]
+    _check_turn_types(deck, turn_records, settings, value_types)
     for record in records:
         address = field(record, "address")
         value_type = value_types.get(address, "float")
@@ -744,7 +840,96 @@ def start_values(
             values[address] = [0.0] * planes
         else:
             values[address] = values.get(pair, 0.0) if pair is not None else 0.0
+    values.update(_turn_start_values(loaded, deck, turn_records, settings, shapes or {}))
     return dict(sorted(values.items()))
+
+
+def _check_turn_types(
+    deck: Deck, records: list[Any], settings: Any, value_types: Mapping[str, str]
+) -> None:
+    """Refuse turn-by-turn records on a ring without the block, or of the wrong value type.
+
+    Raised before the deck is read, in record order.
+    """
+    for record in records:
+        address = field(record, "address")
+        record_id = str(field(record, "id") or address)
+        signal = turn_settings.signal_of(record)
+        if not turn_settings.is_turn_by_turn(settings):
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} carries signal {signal}, but the model's settings state no "
+                f"pyat.{turn_settings.BLOCK_KEY} block",
+                f"state pyat.{turn_settings.BLOCK_KEY} with the injection_element, "
+                "or unwire the record",
+            )
+        value_type = value_types.get(address, "float")
+        if signal in turn_settings.ARRAY_SIGNALS and value_type != "waveform":
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} is {value_type}; a turn array is a waveform",
+                "wire the channel as a waveform of trigger_sample + turns samples",
+            )
+        if signal not in turn_settings.ARRAY_SIGNALS and value_type != "float":
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} is {value_type}; pyat drives float channels only",
+                "wire a float channel, or leave the channel unwired",
+            )
+
+
+def _turn_start_values(
+    loaded: _Loaded,
+    deck: Deck,
+    records: list[Any],
+    settings: Any,
+    shapes: Mapping[str, Iterable[int]],
+) -> dict[str, float | list[float]]:
+    """Each turn-by-turn record's start value, checking its monitor and its array length."""
+    import at
+
+    if not records:
+        return {}
+    model_id = _model_id(deck, None)
+    block = _turn_block(loaded, deck, settings, model_id)
+    assert block is not None  # _check_turn_types refused every record on a ring without it
+    values: dict[str, float | list[float]] = {}
+    for record in records:
+        address = field(record, "address")
+        record_id = str(field(record, "id") or address)
+        signal = str(turn_settings.signal_of(record))
+        if signal in turn_settings.MONITOR_SIGNALS:
+            element = field(record, "element")
+            index = _element_index(loaded, deck, element, record_id, "wiring")
+            if not isinstance(loaded.lattice[index], at.Monitor):
+                raise _stop(
+                    deck,
+                    record_id,
+                    "wiring",
+                    f"{address} carries signal {signal}, but element {element} is not a monitor",
+                    "name a monitor element of the deck",
+                )
+        elif signal == "stored" and field(record, "element") is not None:
+            _element_index(loaded, deck, field(record, "element"), record_id, "wiring")
+        if signal in turn_settings.ARRAY_SIGNALS:
+            shape = list(shapes.get(address, ()))
+            if shape != [block.samples]:
+                raise _stop(
+                    deck,
+                    record_id,
+                    "wiring",
+                    f"{address} is a turn array of shape {shape}; it holds trigger_sample "
+                    f"{block.trigger_sample} + turns {block.turns} samples",
+                    f"declare the channel's shape as [{block.samples}]",
+                )
+        values[address] = turn_settings.start_value(signal, block)
+    return values
 
 
 def _reads_an_output(record: Any) -> bool:
@@ -797,6 +982,13 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
       plane the ``axis``, else the ``index`` (0 is ``x``, 1 is ``y``); a
       whole-output waveform has no plane.
 
+    A record whose engine block names a ``signal`` is a turn-by-turn record,
+    described by :func:`pyat_turn_settings.describe_signal`: ``arm``,
+    ``rf_switch``, ``pilot_tone`` and ``stored`` are setpoints refreshing
+    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and
+    ``turns_tracked`` are outputs refreshing ``event``; none has a plane, and
+    the kind is the signal.
+
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
     index 0 is ``x`` and index 1 is ``y``. A chromaticity output refreshes
     ``periodic``, published by the periodic solve alone; every other record
@@ -813,13 +1005,17 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     Returns:
         ``{role, plane, refresh, kind}``: ``role`` one of ``setpoint``,
         ``readback``, ``monitor``, ``output``; ``plane`` ``x``, ``y`` or
-        ``None``; ``refresh`` ``pass`` or ``periodic``; ``kind`` one of
-        ``kick``, ``strength``, ``rf``, ``energy``, ``monitor``, or ``None``.
+        ``None``; ``refresh`` ``pass``, ``periodic`` or ``event``; ``kind``
+        one of ``kick``, ``strength``, ``rf``, ``energy``, ``monitor``, a
+        turn-by-turn signal, or ``None``.
 
     Raises:
         ValueError: naming the record's address, for a record none of the
-            rules describes.
+            rules describes, or a turn-by-turn record wired against its
+            signal's rules.
     """
+    if turn_settings.signal_of(wiring_record) is not None:
+        return turn_settings.describe_signal(wiring_record)
     block = field(wiring_record, "engine")
     attribute = field(block, "attribute")
     if field(wiring_record, "direction") == "write":
@@ -838,6 +1034,83 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     raise ValueError(
         f"{field(wiring_record, 'address')} is no setpoint, monitor, readback or optics output"
     )
+
+
+def describe_input(input_record: Any) -> Mapping[str, Any]:
+    """Check one model input's engine block.
+
+    A turn-by-turn ring takes inputs whose engine block is exactly ``{signal}``,
+    the signal one of ``shot``, ``charge`` and ``stored_current``. Each signal
+    is declared at most once, and ``shot`` and ``charge`` both once any is;
+    one input alone cannot show that, so
+    :func:`pyat_turn_settings.input_signals` checks the whole list.
+
+    Args:
+        input_record: ``{address, engine}``.
+
+    Returns:
+        ``{signal}``.
+
+    Raises:
+        ValueError: naming the input's address, for an engine block that is
+            not a map, states no signal or an unknown one, or carries another
+            key.
+    """
+    return turn_settings.describe_input(input_record)
+
+
+def take_inputs(
+    model: LUMEModel, inputs: Iterable[tuple[Any, Any]], t_s: float, *, baseline: bool
+) -> None:
+    """Store a turn-by-turn ring's delivered inputs; the next :func:`advance` acts on them.
+
+    Args:
+        model: A built pyat model; any other ring ignores the call.
+        inputs: ``(input_record, value)`` pairs, the record's engine block
+            naming the input's ``signal``.
+        t_s: The epoch second of the delivery.
+        baseline: The delivery is a starting point: nothing is compared
+            against the one before it.
+    """
+    del t_s
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+
+    if not isinstance(model, TurnByTurnModel):
+        return
+    values = {
+        str(field(field(record, "engine"), "signal")): float(value) for record, value in inputs
+    }
+    model.take_inputs(values, baseline=baseline)
+
+
+def advance(model: LUMEModel, t_s: float) -> None:
+    """Apply a turn-by-turn ring's pending drop, then track a delivered shot, by ``t_s``."""
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+
+    if isinstance(model, TurnByTurnModel):
+        model.advance(t_s)
+
+
+def client_write(model: LUMEModel, values: Mapping[str, Any], t_s: float) -> None:
+    """Tell a turn-by-turn ring a client wrote ``values``; an ``arm`` record arms its monitor."""
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+
+    if isinstance(model, TurnByTurnModel):
+        model.client_write(values, t_s)
+
+
+def next_deadline(model: LUMEModel) -> float | None:
+    """The shot's time while a turn-by-turn ring's handshake is pending, else ``None``."""
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+
+    return model.next_deadline() if isinstance(model, TurnByTurnModel) else None
+
+
+def emitted(model: LUMEModel) -> list[str]:
+    """A turn-by-turn ring's event channels changed since the last call, cleared."""
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+
+    return model.emitted() if isinstance(model, TurnByTurnModel) else []
 
 
 def _description(
@@ -975,11 +1248,28 @@ def build(
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``; a
       ``value_type: waveform`` record names neither and reads the whole
-      output, read-only, its ``shape`` the deck's number of planes.
+      output, read-only, its ``shape`` the deck's number of planes;
+    * the ring's RF switch (``signal: rf_switch``, a setpoint on a
+      turn-by-turn ring only) zeroes every cavity's voltage when written
+      zero and restores the deck's otherwise
+      (:class:`~osprey.simulation.engines.pyat_variables.RFSwitchVariable`);
+      it starts on;
+    * every other turn-by-turn record (an engine ``signal``, on a turn-by-turn
+      ring only): ``arm``, ``pilot_tone`` and ``stored`` are settings that
+      hold what is written; ``armed``, the turn arrays and ``turns_tracked``
+      are read-only model state, read from the ring's turn state
+      (:class:`~osprey.simulation.engines.pyat_turn_state.TurnState`), which
+      a turn-by-turn ring is built to hold
+      (:class:`~osprey.simulation.engines.pyat_turn_state.TurnByTurnModel`).
 
     The settings' ``solve`` picks the solve: ``periodic`` solves the closed
     orbit; ``single_pass`` tracks one pass through the line from
-    ``twiss_in`` and serves no tunes or chromaticity.
+    ``twiss_in`` and serves no tunes or chromaticity. A turn-by-turn ring
+    (one whose settings state a ``turn_by_turn`` block) is tolerant: a
+    lattice with no closed orbit, as with the RF off, is a state it holds and
+    serves -- its orbit, optics and chromaticity read NaN and its settings
+    stay writable -- where any other ring refuses the write that leads there
+    and rolls it back.
 
     The model drives its own copy of the deck, so the deck a later call loads
     is never the one a model has written to. Every other key of ``active``
@@ -1019,14 +1309,16 @@ def build(
             ``error_elements`` element is a wired monitor's or is named like
             a wired address
             (:class:`~osprey.simulation.engines.pyat_faults.ErrorElementsError`),
-            or a ``single_pass`` model wires a tune or
-            chromaticity record.
+            a ``single_pass`` model wires a tune or
+            chromaticity record, or a ring that is not a turn-by-turn ring
+            wires an RF switch or another turn-by-turn record, or a turn
+            record's element is not a monitor.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         UnknownElementError: an element error names an element the deck does
             not hold exactly once, or a multipole error one with no such
             polynomial.
         OrbitSolveError: the deck, or the deck at the active scenario, has no
-            stable solve, or loses the single-pass particle; with element
+            stable solve on a ring that is not a turn-by-turn ring, or loses the single-pass particle; with element
             errors seeded, the message says so and names them.
     """
     from osprey.simulation.engines.pyat_model import (
@@ -1035,7 +1327,14 @@ def build(
         ReadbackVariable,
         tune_planes,
     )
-    from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
+    from osprey.simulation.engines.pyat_turn_state import TurnByTurnModel
+    from osprey.simulation.engines.pyat_variables import (
+        EV_PER_GEV,
+        RF_SWITCH_SIGNAL,
+        RFSwitchVariable,
+        turn_variable_from_wiring,
+        variable_from_wiring,
+    )
 
     prepared = prepare(deck, settings, model=model)
     lattice = _load(deck).lattice.deepcopy()
@@ -1052,6 +1351,29 @@ def build(
     channels: list[Any] = []
     for entry in entries:
         address = str(entry["address"])
+        if turn_settings.signal_of(entry) == RF_SWITCH_SIGNAL:
+            if prepared.turn_by_turn is None:
+                raise ValueError(
+                    f"model {model}: {address} is an RF switch, which only a turn-by-turn "
+                    "ring serves; state a turn_by_turn block in its pyat settings"
+                )
+            channels.append(
+                RFSwitchVariable.from_wiring(
+                    entry, lattice=lattice, **_setting_overrides(entry, active)
+                )
+            )
+            continue
+        if turn_settings.signal_of(entry) is not None:
+            if prepared.turn_by_turn is None:
+                raise ValueError(
+                    f"model {model}: {address} is a turn-by-turn record, which only a "
+                    "turn-by-turn ring serves; state a turn_by_turn block in its pyat settings"
+                )
+            overrides = _setting_overrides(entry, active) if address in writes else {}
+            channels.append(
+                turn_variable_from_wiring(entry, samples=prepared.turn_by_turn.samples, **overrides)
+            )
+            continue
         attribute = field(entry.get("engine"), "attribute")
         deck_property = not _names_element(entry) and attribute in DECK_PROPERTIES
         if not _names_element(entry) and not deck_property:
@@ -1082,12 +1404,7 @@ def build(
                 )
             )
             continue
-        overrides: dict[str, Any] = {}
-        if address in writes:
-            if "value_range" in entry:
-                overrides["value_range"] = tuple(entry["value_range"])
-            if address in active:
-                overrides["default_value"] = float(active[address])
+        overrides = _setting_overrides(entry, active) if address in writes else {}
         variable = variable_from_wiring(entry, deck_energy_gev=deck_energy_gev, **overrides)
         if variable is not None:
             channels.append(variable)
@@ -1102,14 +1419,26 @@ def build(
     misalignments, multipoles = _element_errors(errors, element_slots)
     _seed_multipoles(lattice, multipoles)
     try:
-        built = PyATLatticeModel(
-            lattice,
-            channels,
-            faults=faults,
-            element_misalignments=misalignments or None,
-            solve=prepared.solve,
-            twiss_in=prepared.twiss_in,
-        )
+        if prepared.turn_by_turn is None:
+            built = PyATLatticeModel(
+                lattice,
+                channels,
+                faults=faults,
+                element_misalignments=misalignments or None,
+                solve=prepared.solve,
+                twiss_in=prepared.twiss_in,
+            )
+        else:
+            built = TurnByTurnModel(
+                lattice,
+                channels,
+                turn_settings=prepared.turn_by_turn,
+                model_id=str(model),
+                faults=faults,
+                element_misalignments=misalignments or None,
+                solve=prepared.solve,
+                twiss_in=prepared.twiss_in,
+            )
         built.reset()
     except SOLVE_ERRORS as exc:
         if not errors:
@@ -1228,8 +1557,10 @@ def response_matrix(
     settings: Any,
     correctors: list[str],
     step: Mapping[str, float],
+    *,
+    kind: str = RESPONSE_KINDS[0],
 ) -> ResponseMatrix:
-    """Compute the orbit response of the wired monitors to the named correctors.
+    """Compute the response of the wired monitors to the named correctors.
 
     Each corrector is stepped by central difference, ``held ± step/2`` in its
     hardware unit about the value the deck holds, each arm converted to the
@@ -1242,6 +1573,19 @@ def response_matrix(
     column; it is named in ``unsolved`` and the other correctors are still
     stepped.
 
+    The ``trajectory`` kind answers on a turn-by-turn ring only. Each arm
+    tracks one particle, without jitter, from the declared launch offsets for
+    one turn from the injection element, through the declared apertures; a
+    monitor upstream of the injection reads the end of that turn. Its rows
+    are the monitors' turn-buffer records, the wiring signals ``turn_x`` and
+    ``turn_y``, in the order the bunch meets them and in the arrays' metres;
+    a monitor wiring neither has no row, and one wiring one of them has that
+    row alone. A ring wiring no such record at all is refused. A corrector
+    whose kicked particle is lost before a monitor is named in ``unsolved``
+    with where it was lost. When the particle is lost with no corrector
+    stepped, every corrector is named in ``unsolved`` with that loss and the
+    matrix has no column; nothing raises.
+
     Args:
         deck: The lattice file.
         wiring: The model's wiring records.
@@ -1249,17 +1593,22 @@ def response_matrix(
         correctors: The setpoint addresses to step, one column each, in this
             order.
         step: Each corrector's full step width in its hardware unit.
+        kind: ``orbit`` (the default) or ``trajectory``.
 
     Returns:
-        The :class:`ResponseMatrix`: a monitor no record wires has no row, a
-        corrector whose step has no solve has no column and is named in
-        ``unsolved``.
+        The :class:`ResponseMatrix`, every row and column with its position:
+        a monitor no record wires has no row, a corrector whose step has no
+        solve has no column and is named in ``unsolved``.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
-            refuses, or a monitor element the deck does not hold exactly once.
+            refuses, or a monitor or corrector element the deck does not hold
+            exactly once.
         RequestRefused: a corrector is not a wired setpoint naming an
-            element, is named twice, or has no finite non-zero step.
+            element, is named twice, or has no finite non-zero step; the kind
+            is not one of :data:`RESPONSE_KINDS`; or the kind is
+            ``trajectory`` and the ring is not a turn-by-turn ring or wires
+            no ``turn_x`` or ``turn_y`` record.
         ValueError: a monitor record cannot be built as a reading, a defect
             of the wiring rather than of the request.
     """
@@ -1274,22 +1623,62 @@ def response_matrix(
         variable_from_wiring,
     )
 
+    if kind not in RESPONSE_KINDS:
+        raise RequestRefused(
+            f"response kind {kind!r} is not one this engine answers; "
+            f"ask for {' or '.join(RESPONSE_KINDS)}"
+        )
     prepared = prepare(deck, settings)
+    trajectory = kind == RESPONSE_KINDS[1]
+    turns = prepared.turn_by_turn
+    if trajectory and turns is None:
+        raise RequestRefused(
+            "the trajectory response is answered on a turn-by-turn ring only; "
+            f"this model's settings state no pyat.{turn_settings.BLOCK_KEY} block"
+        )
     loaded = _load(deck)
     lattice = loaded.lattice.deepcopy()
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     records = list(wiring)
 
-    readings: list[tuple[tuple[int, str], MonitorVariable]] = []
-    for record in records:
-        if not _is_monitor_reading(record):
-            continue
-        reading = MonitorVariable.from_wiring(record)
-        record_id = str(field(record, "id") or reading.name)
-        index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
-        readings.append(((index, reading.axis), reading))
-    readings.sort(key=lambda item: item[0])
-    monitors = [reading for _, reading in readings]
+    origin = turns.injection_index if trajectory and turns is not None else 0
+
+    def position(index: int) -> int:
+        """A lattice index counted from the kind's origin, in the order the beam meets it."""
+        return (index - origin) % len(lattice)
+
+    monitors: list[MonitorVariable] = []
+    turn_rows: list[tuple[int, str, str]] = []
+    if trajectory:
+        for record in records:
+            axis = _TURN_BUFFER_AXES.get(turn_settings.signal_of(record) or "")
+            if axis is None:
+                continue
+            address = str(field(record, "address"))
+            record_id = str(field(record, "id") or address)
+            index = _element_index(loaded, deck, str(field(record, "element")), record_id, "wiring")
+            turn_rows.append((position(index), axis, address))
+        if not turn_rows:
+            raise RequestRefused(
+                "the trajectory response's rows are the monitors' turn-buffer records, and "
+                "this model wires none: wire each monitor's turn_x and turn_y signals"
+            )
+        turn_rows.sort()
+        rows = [address for _, _, address in turn_rows]
+        row_positions = [place for place, _, _ in turn_rows]
+    else:
+        readings: list[tuple[tuple[int, str], MonitorVariable]] = []
+        for record in records:
+            if not _is_monitor_reading(record):
+                continue
+            reading = MonitorVariable.from_wiring(record)
+            record_id = str(field(record, "id") or reading.name)
+            index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
+            readings.append(((index, reading.axis), reading))
+        readings.sort(key=lambda item: item[0])
+        monitors = [reading for _, reading in readings]
+        rows = [reading.name for reading in monitors]
+        row_positions = [place for (place, _), _ in readings]
 
     setpoints = {
         str(field(record, "address")): record
@@ -1314,13 +1703,54 @@ def response_matrix(
                 f"corrector {address} has step {width!r}; give a finite non-zero step"
             )
         columns.append((variable, float(width)))
+    places = [
+        min(
+            position(_element_index(loaded, deck, binding.element_name, variable.name, "wiring"))
+            for binding in variable.bindings
+        )
+        for variable, _ in columns
+    ]
 
-    simulator = (
-        PyATSimulator(lattice)
-        if prepared.solve == SOLVES[0]
-        else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
-    )
-    matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
+    if trajectory and turns is not None:
+        if turns.aperture is not None:
+            from osprey.simulation.engines.pyat_turns import write_apertures
+
+            write_apertures(lattice, **turns.aperture.keywords)
+        simulator = PyATSimulator(lattice)
+        turn_places = [(place + origin) % len(lattice) for place, _, _ in turn_rows]
+        turn_axes = [axis for _, axis, _ in turn_rows]
+
+        def measure() -> np.ndarray:
+            return _first_turn(lattice, turns, turn_places, turn_axes)
+
+        try:
+            measure()
+        except SOLVE_ERRORS as exc:
+            text = error_text(exc)
+            return ResponseMatrix(
+                rows=rows,
+                columns=[],
+                matrix=np.empty((len(rows), 0), dtype=np.float64),
+                unsolved={
+                    variable.name: f"{text} (with no corrector stepped, before stepping "
+                    f"{variable.name})"
+                    for variable, _ in columns
+                },
+                row_positions=row_positions,
+                column_positions=[],
+            )
+    else:
+        simulator = (
+            PyATSimulator(lattice)
+            if prepared.solve == SOLVES[0]
+            else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
+        )
+
+        def measure() -> np.ndarray:
+            simulator.solve()
+            return np.array([reading._get(simulator) for reading in monitors])
+
+    matrix = np.empty((len(rows), len(columns)), dtype=np.float64)
     solved: list[int] = []
     unsolved: dict[str, str] = {}
     for column, (variable, width) in enumerate(columns):
@@ -1334,8 +1764,7 @@ def response_matrix(
         try:
             for value in (held + 0.5 * width, held - 0.5 * width):
                 variable._set(simulator, value)
-                simulator.solve()
-                arms.append(np.array([reading._get(simulator) for reading in monitors]))
+                arms.append(measure())
         except SOLVE_ERRORS as exc:
             unsolved[variable.name] = f"{error_text(exc)} (while stepping {variable.name})"
             continue
@@ -1347,10 +1776,83 @@ def response_matrix(
         matrix[:, column] = (arms[0] - arms[1]) / width
         solved.append(column)
     return ResponseMatrix(
-        rows=[reading.name for reading in monitors],
+        rows=rows,
         columns=[columns[column][0].name for column in solved],
         matrix=matrix[:, solved],
         unsolved=unsolved,
+        row_positions=row_positions,
+        column_positions=[places[column] for column in solved],
+    )
+
+
+#: The turn-buffer signals the trajectory response's rows are, and the plane each reads.
+_TURN_BUFFER_AXES = {"turn_x": "x", "turn_y": "y"}
+
+
+def _first_turn(
+    lattice: Any,
+    turns: turn_settings.TurnSettings,
+    places: list[int],
+    axes: list[str],
+) -> np.ndarray:
+    """One particle's first-turn position at each lattice index and plane, in metres.
+
+    Raises:
+        OrbitSolveError: the particle is lost before a monitor; its text says
+            where.
+    """
+    import at
+    import numpy as np
+
+    from osprey.simulation.engines.pyat_turns import single_particle
+
+    elements = sorted(set(places))
+    row = {place: position for position, place in enumerate(elements)}
+    try:
+        reading = single_particle(lattice, turns.injection_index, elements, turns.launch)
+    except at.AtError as exc:
+        raise OrbitSolveError(
+            f"first-turn tracking from {turns.injection_element} failed: {error_text(exc)}"
+        ) from exc
+    alive = reading.alive[:, 0]
+    if np.any(alive < 1.0):
+        raise OrbitSolveError(_loss_text(lattice, turns, elements, alive))
+    return np.array(
+        [
+            float((reading.x if axis == "x" else reading.y)[row[place], 0])
+            for place, axis in zip(places, axes, strict=True)
+        ]
+    )
+
+
+def _loss_text(
+    lattice: Any, turns: turn_settings.TurnSettings, elements: list[int], alive: Any
+) -> str:
+    """Where the first-turn particle was lost, and the first monitor it did not reach."""
+    import at
+    import numpy as np
+
+    start = turns.injection_index
+    length = len(lattice)
+    reached = sorted(
+        ((place - start) % length, place)
+        for place, survived in zip(elements, alive, strict=True)
+        if survived < 1.0
+    )
+    missed = lattice[reached[0][1]].FamName
+    where = ""
+    try:
+        launch = np.asarray(turns.launch, dtype=np.float64).reshape(6, 1)
+        _, _, data = at.lattice_track(lattice.rotate(start), launch, nturns=1, losses=True)
+        loss = data["loss_map"]
+        if bool(loss.islost[0]):
+            index = (int(loss.elem[0]) + start) % length
+            where = f" at element {index} ({lattice[index].FamName})"
+    except at.AtError:
+        where = ""
+    return (
+        f"particle launched at {turns.injection_element} lost on the first turn{where}, "
+        f"before monitor {missed}"
     )
 
 

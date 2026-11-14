@@ -19,11 +19,11 @@ alone (this is why they are cheap and never flake):
    pure, cannot check).
 2. **Design-system linked.** The entry HTML must opt into shared theming
    the way every standalone surface does — by referencing the pre-paint
-   boot script *and* the token stylesheet: a
+   boot script *and* the three design-system stylesheets: a
    ``<script src="/design-system/js/theme-boot.js">`` and a
-   ``<link ... href="/design-system/css/tokens.css">`` (see the reference
-   head in ``osprey.interfaces.artifacts.app``). Missing either is an
-   error.
+   ``<link ... href="/design-system/css/<sheet>">`` for each of
+   :data:`PANEL_STYLESHEETS` (tokens, base, primitives). Each one missing
+   is an error.
 3. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
    through ``var(--…)`` design tokens, never raw ``#rgb``/``#rrggbb``
    color literals. Third-party builds under the panel's ``vendor/``
@@ -69,6 +69,8 @@ from osprey.interfaces.design_system.panels.manifest import (
 
 __all__ = [
     "MANIFEST_FILENAME",
+    "PANEL_STYLESHEETS",
+    "missing_stylesheets",
     "PanelRule",
     "PanelFinding",
     "PanelValidationError",
@@ -79,20 +81,38 @@ __all__ = [
 #: The manifest file every panel directory must contain.
 MANIFEST_FILENAME = "manifest.json"
 
-#: The two shared design-system references a themed surface must load: the
+#: The design-system stylesheets every panel's entry HTML links, as the framing
+#: serves them: the tokens (the ``var(--…)`` custom properties everything styles
+#: against), the base element styles, and the shared primitives. ``osprey app
+#: check`` holds an application's panel to the same list.
+PANEL_STYLESHEETS = tuple(
+    f"/design-system/css/{sheet}" for sheet in ("tokens.css", "base.css", "primitives.css")
+)
+
+#: The shared design-system references a themed surface must load: the
 #: pre-paint boot script (resolves the theme before first paint, avoiding a
-#: flash of the wrong theme) and the token stylesheet (the ``var(--…)``
-#: custom properties everything styles against). Matched on the load-bearing
-#: ``src``/``href`` so attribute order and quote style don't matter; the
-#: ``[^>]*`` guards keep each match inside a single tag.
+#: flash of the wrong theme) and each of :data:`PANEL_STYLESHEETS`. Matched on
+#: the load-bearing ``src``/``href`` so attribute order and quote style don't
+#: matter; the ``[^>]*`` guards keep each match inside a single tag.
 _THEME_BOOT_SCRIPT_PATTERN = re.compile(
     r"<script\b[^>]*\bsrc\s*=\s*['\"]/design-system/js/theme-boot\.js['\"][^>]*>",
     re.IGNORECASE,
 )
-_TOKENS_CSS_LINK_PATTERN = re.compile(
-    r"<link\b[^>]*\bhref\s*=\s*['\"]/design-system/css/tokens\.css['\"][^>]*>",
-    re.IGNORECASE,
-)
+_STYLESHEET_LINK_PATTERNS = {
+    sheet: re.compile(
+        rf"<link\b[^>]*\bhref\s*=\s*['\"]{re.escape(sheet)}['\"][^>]*>", re.IGNORECASE
+    )
+    for sheet in PANEL_STYLESHEETS
+}
+
+
+def missing_stylesheets(html: str) -> list[str]:
+    """Each of :data:`PANEL_STYLESHEETS` that *html* does not link, in that order."""
+    return [
+        sheet for sheet, pattern in _STYLESHEET_LINK_PATTERNS.items() if not pattern.search(html)
+    ]
+
+
 _FONTS_CSS_LINK_PATTERN = re.compile(
     r"<link\b[^>]*\bhref\s*=\s*['\"]/static/fonts/fonts\.css['\"][^>]*>",
     re.IGNORECASE,
@@ -148,7 +168,7 @@ class PanelRule(StrEnum):
     MANIFEST_INVALID = "manifest_invalid"
     #: The manifest's declared ``entry`` file does not exist in the dir.
     ENTRY_MISSING = "entry_missing"
-    #: The entry HTML does not reference the design-system token stylesheet.
+    #: The entry HTML does not reference one of the design-system stylesheets.
     MISSING_DESIGN_SYSTEM_LINK = "missing_design_system_link"
     #: The entry HTML does not reference the pre-paint theme-boot script.
     MISSING_THEME_BOOT = "missing_theme_boot"
@@ -262,27 +282,26 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelFinding], Path | None]:
 
 
 def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[PanelFinding]:
-    """Require the entry HTML to load the token stylesheet and boot script.
+    """Require the entry HTML to load the design-system stylesheets and boot script.
 
     Args:
         entry_path: The entry HTML file, for error attribution.
         entry_html: Its full text.
 
     Returns:
-        One error per missing reference (stylesheet and/or boot script).
+        One error per missing reference (each stylesheet and the boot script).
     """
-    errors: list[PanelFinding] = []
-    if not _TOKENS_CSS_LINK_PATTERN.search(entry_html):
-        errors.append(
-            PanelFinding(
-                rule=PanelRule.MISSING_DESIGN_SYSTEM_LINK,
-                message=(
-                    "entry HTML must link the design-system token stylesheet "
-                    '(<link href="/design-system/css/tokens.css">)'
-                ),
-                source=str(entry_path),
-            )
+    errors: list[PanelFinding] = [
+        PanelFinding(
+            rule=PanelRule.MISSING_DESIGN_SYSTEM_LINK,
+            message=(
+                f'entry HTML must link {sheet} (<link href="{sheet}">); a panel links '
+                f"{', '.join(PANEL_STYLESHEETS)}"
+            ),
+            source=str(entry_path),
         )
+        for sheet in missing_stylesheets(entry_html)
+    ]
     if not _THEME_BOOT_SCRIPT_PATTERN.search(entry_html):
         errors.append(
             PanelFinding(

@@ -9,8 +9,9 @@ A stage runs only when every earlier stage is clean::
     S4 references  every id a record names exists; device classes and
                    signal roles are known
     S5 records     pair (stated, or derived by the build), value, limits
-                   and seed rules
-    S6 compute     spans, places, wiring, engines          (later stages)
+                   and seed rules; relation claim shape
+    S6 compute     relation standing, spans, places, wiring,
+                   engines                                 (later stages)
     S7 views       the views the profile asks for          (later stages)
 
 ``validate`` prints every error of the first failing stage, sorted by (table
@@ -49,6 +50,7 @@ from osprey.facility.errors import (
     quoted_slots,
 )
 from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
@@ -69,6 +71,7 @@ __all__ = [
     "need",
     "ordered_slots",
     "paired_nominal_error",
+    "relation_types",
     "report",
     "report_warnings",
     "run_stages",
@@ -109,6 +112,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
         "fix-referenced",
     ),
     ("reference-missing",),
+    ("relation-invalid",),
     ("class-unknown",),
     ("pair-invalid",),
     ("value-invalid",),
@@ -159,6 +163,8 @@ class Validated:
         content_dir: The content root, where the deployment's ``knowledge/``,
             ``ariel/`` and ``benchmarks/`` are read; ``None`` means
             ``facility_dir``, a single tree.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
     """
 
     facility_dir: Path
@@ -168,6 +174,7 @@ class Validated:
     document: dict[str, Any] | None = None
     warnings: list[FacilityBuildWarning] = field(default_factory=list)
     content_dir: Path | None = None
+    judges_kinds: bool = True
 
     @property
     def content_root(self) -> Path:
@@ -229,6 +236,7 @@ def run_stages(
     project_name: str,
     later: Sequence[tuple[str, Stage]] = (),
     content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> StageReport:
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
@@ -240,11 +248,15 @@ def run_stages(
         later: ``(stage name, check)`` for the stages after S5, in order.
         content_dir: The content root when mounted; ``None`` means
             ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
     """
-    validated = Validated(facility_dir, project_name, content_dir=content_dir)
+    validated = Validated(
+        facility_dir, project_name, content_dir=content_dir, judges_kinds=judges_kinds
+    )
     loaded = load_sources(facility_dir)
     validated.sources = loaded.sources
     if loaded.errors:
@@ -253,6 +265,7 @@ def run_stages(
     validated.combined = combined
     if combined.errors:
         return _failed("combine", combined.errors, validated)
+    validated.warnings.extend(combined.warnings)
     document = schema_document(combined.document, loaded.sources, project_name=project_name)
     validated.document = document
     checks: list[tuple[str, Stage]] = [
@@ -348,17 +361,39 @@ def vocabulary() -> dict[str, Any]:
     """The generated vocabulary table.
 
     Returns:
-        The table read from ``schema/_generated/vocabulary.json``: ``classes`` and
-        ``signal_roles`` rows of ``{name, aliases, ...}``.
+        The table read from ``schema/_generated/vocabulary.json``: ``classes``,
+        ``signal_roles`` and ``properties`` rows of ``{name, aliases, ...}``, and
+        ``relations`` rows of ``{name, description, subject, object, symmetric,
+        single_per}``.
     """
     table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
     data: dict[str, Any] = json.loads(table.read_text(encoding="utf-8"))
     return data
 
 
-def signal_roles() -> frozenset[str]:
-    """The signal roles of the vocabulary."""
-    return frozenset(role["name"] for role in vocabulary()["signal_roles"])
+def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The vocabulary's signal roles joined with the facility-added ones.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        Every signal role a channel may carry.
+    """
+    names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
+    names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
+    return frozenset(names)
+
+
+def relation_types() -> dict[str, dict[str, Any]]:
+    """The vocabulary's relation types, keyed by name.
+
+    Returns:
+        Each ``relations`` row of the vocabulary table under its ``name``: the end
+        kinds ``subject`` and ``object``, ``symmetric``, and the ``single_per``
+        key fields, lists in their stated order.
+    """
+    return {row["name"]: row for row in vocabulary()["relations"]}
 
 
 def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
@@ -439,8 +474,8 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
     """Validate the filled document against the generated model (stage S3).
 
     Each failing path is one ``source-invalid`` line naming the dotted path. The
-    slots typed ``Any`` (scenario ``overrides`` and ``faults``) are checked for
-    being mappings here too.
+    slots typed ``Any`` (scenario ``overrides`` and ``faults``, a measurement
+    file's ``groups`` and ``instruments``) are checked for their shape here too.
 
     Args:
         document: The document from ``schema_document``.
@@ -478,7 +513,52 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
                         detail=f"{rel} `{slot}` is not {shape}",
                     )
                 )
+    for index, model in enumerate(document.get("models") or []):
+        measurement = model.get("measurement") if isinstance(model, dict) else None
+        if isinstance(measurement, dict):
+            errors.extend(_measurement_shape(index, str(model.get("name")), measurement))
     return errors
+
+
+#: Each open map of a measurement file, what it is keyed by, what each value is, and the test.
+_MEASUREMENT_MAPS: tuple[tuple[str, str, str, Any], ...] = (
+    (
+        "groups",
+        "role",
+        "a group id or a list of group ids",
+        lambda v: (
+            isinstance(v, str) or (isinstance(v, list) and all(isinstance(i, str) for i in v))
+        ),
+    ),
+    ("instruments", "role", "a channel address", lambda v: isinstance(v, str)),
+    ("kind_blocks", "kind", "a mapping", lambda v: isinstance(v, dict)),
+)
+
+
+def _measurement_shape(
+    index: int, model: str, measurement: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A measurement file's open maps: each a mapping of role to what the role names."""
+    rel = f"measurement/{model}.yaml"
+    for slot, key, shape, fits in _MEASUREMENT_MAPS:
+        value = measurement.get(slot)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            bad: list[str | None] = [None]
+        else:
+            bad = [str(role) for role, named in value.items() if not fits(named)]
+        for role in bad:
+            where = slot if role is None else f"{slot}.{role}"
+            wanted = f"a mapping of {key} to {shape}" if role is None else shape
+            yield FacilityBuildError(
+                "source-invalid",
+                f"models.{index}.measurement.{where}",
+                [rel],
+                f"write `{where}` in {rel} as {wanted}",
+                record_kind="path",
+                detail=f"{rel} `{where}` is not {wanted}",
+            )
 
 
 def _mapping_of_depth(value: Any, depth: int) -> bool:
@@ -524,7 +604,13 @@ def _schema_error(
     )
 
 
-_TOP_SLOT_FILES = {"limits": "limits.yaml", "classes": "classes.yaml", "identity": "identity.yaml"}
+_TOP_SLOT_FILES = {
+    "limits": "limits.yaml",
+    "classes": "classes.yaml",
+    "signals": "signals.yaml",
+    "identity": "identity.yaml",
+    "documents": "documents.yaml",
+}
 
 
 def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...]) -> list[str]:
@@ -612,6 +698,8 @@ class _Index:
         self.channels = _by_key(document.get("channels"), "id")
         self.groups = _by_key(document.get("groups"), "id")
         self.models = _by_key(document.get("models"), "name")
+        self.relations = _by_key(document.get("relations"), "id")
+        self.documents = _by_key(document.get("documents"), "id")
         self.wiring: list[tuple[str, dict[str, Any]]] = []
         self.wired: dict[str, set[str]] = {}
         for name, model in sorted(self.models.items()):
@@ -646,7 +734,10 @@ def check_references(sources: Sources, combined: CombineResult) -> list[Facility
 
     Every referencing slot of the file is checked, plus the entries the combine
     attaches by address or model name without checking them (``seeds.yaml``,
-    measurement files). A missing id is ``reference-missing``, naming the file
+    measurement files). Each id a relation claim's ends state resolves to its
+    kind; when ``documents.yaml`` declares documents, each claim's
+    ``source.document`` and each device and place citation and scheme-name
+    source names a declared one. A missing id is ``reference-missing``, naming the file
     and field, and the new address when the id is a channel's former address or
     the fix when a ``drop`` removed it. A device class or a channel signal the
     vocabulary does not know is ``class-unknown``.
@@ -678,6 +769,8 @@ class _References:
         yield from self._limits()
         yield from self._scenarios()
         yield from self._measurement()
+        yield from self._relations()
+        yield from self._citations()
 
     def _exists(self, kind: str, rid: str) -> bool:
         table = {
@@ -686,6 +779,7 @@ class _References:
             "channel": self.index.channels,
             "group": self.index.groups,
             "model": self.index.models,
+            "document": self.index.documents,
         }[kind]
         return rid in table
 
@@ -779,7 +873,7 @@ class _References:
                 )
 
     def _channels(self) -> Iterator[FacilityBuildError]:
-        roles = signal_roles()
+        roles = signal_roles(self.sources.signals)
         for address, channel in sorted(self.index.channels.items()):
             on = channel.get("on")
             if isinstance(on, dict):
@@ -812,9 +906,9 @@ class _References:
                     "class-unknown",
                     address,
                     stating_files(channel, "signal"),
-                    "use a vocabulary signal role or remove `signal`",
+                    "use a vocabulary signal role, add it to signals.yaml or remove `signal`",
                     record_kind="channel",
-                    detail=f"signal {signal} is not a vocabulary signal role",
+                    detail=f"signal {signal} is in neither the vocabulary nor signals.yaml",
                 )
 
     def _seed_inputs(
@@ -945,6 +1039,67 @@ class _References:
                     "measurement", model, files, f"instruments.{role}", "channel", address
                 )
 
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """Each stated end id of a claim, and its source document, exists."""
+        for rid, claim in sorted(self.index.relations.items()):
+            for end in ("subject", "object"):
+                stated = claim.get(end)
+                if not isinstance(stated, dict):
+                    continue
+                files = stating_files(claim, end)
+                for kind in ("device", "place", "group"):
+                    if kind in stated:
+                        yield from self._missing(
+                            "relation", rid, files, f"{end}.{kind}", kind, stated[kind]
+                        )
+            if self.index.documents:
+                yield from self._cited(
+                    "relation", rid, claim, "source", "source.document", [claim.get("source")]
+                )
+
+    def _citations(self) -> Iterator[FacilityBuildError]:
+        """Each device and place citation and scheme-name source names a document.
+
+        Checked only when ``documents.yaml`` declares documents.
+        """
+        if not self.index.documents:
+            return
+        for record_kind, records in (("device", self.index.devices), ("place", self.index.places)):
+            for rid, record in sorted(records.items()):
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "citations",
+                    "citations.document",
+                    record.get("citations") or [],
+                )
+                aliases = record.get("scheme_names") or []
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "scheme_names",
+                    "scheme_names.source.document",
+                    [a.get("source") for a in aliases if isinstance(a, dict)],
+                )
+
+    def _cited(
+        self,
+        record_kind: str,
+        record_id: str,
+        record: Mapping[str, Any],
+        top: str,
+        slot: str,
+        citations: Any,
+    ) -> Iterator[FacilityBuildError]:
+        files = stating_files(record, top)
+        for citation in citations:
+            if isinstance(citation, dict) and "document" in citation:
+                yield from self._missing(
+                    record_kind, record_id, files, slot, "document", citation["document"]
+                )
+
 
 def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
     provenance = record.get("provenance")
@@ -955,6 +1110,18 @@ def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
 # --- S5: record rules ----------------------------------------------------------------
 
 
+def _relation_slot(detail: str) -> str | None:
+    """The claim slot a ``relation-invalid`` detail is about, or ``None`` for the claim."""
+    if detail.startswith("`subject` and `object`"):
+        return None
+    for slot in ("subject", "object", "basis"):
+        if detail.startswith(f"`{slot}`"):
+            return slot
+    if "`attributes." in detail:
+        return "attributes"
+    return None
+
+
 def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check the pair, value, limits and seed rules (stage S5).
 
@@ -962,7 +1129,8 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
 
     Runs only on a file whose references resolve. The stops are
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
-    (all but the nominal band, which needs the computed operating point).
+    (all but the nominal band, which needs the computed operating point), and
+    ``relation-invalid`` for a relation claim whose shape breaks a rule.
 
     Args:
         document: The document S3 validated.
@@ -999,6 +1167,7 @@ class _Records:
         yield from self._wiring()
         yield from self._limits()
         yield from self._scenarios()
+        yield from self._relations()
 
     # --- helpers -------------------------------------------------------------------
 
@@ -1036,6 +1205,27 @@ class _Records:
 
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
         return stating_files(channel, "simulation")
+
+    # --- relation claims -------------------------------------------------------------
+
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """One ``relation-invalid`` per shape rule a claim breaks.
+
+        Each line names the files that state the slot at fault: the end for an
+        end problem, ``basis`` for an inferred claim without a rule,
+        ``attributes`` for a required attribute, the whole claim otherwise.
+        """
+        types = relation_types()
+        for rid, claim in sorted(self.index.relations.items()):
+            for detail, remedy in shape_problems(claim, types):
+                yield self._error(
+                    "relation-invalid",
+                    "relation",
+                    rid,
+                    stating_files(claim, _relation_slot(detail)),
+                    detail,
+                    remedy,
+                )
 
     # --- value type, options, shape ------------------------------------------------
 
@@ -1308,7 +1498,18 @@ class _Records:
     def _topoff(
         self, address: str, seed: Mapping[str, Any], files: list[str]
     ) -> Iterator[FacilityBuildError]:
-        """A ``topoff`` decays and refills a float channel; it holds its level, not ``nominal``."""
+        """A ``topoff`` decays and refills an unwired float channel; it holds its level."""
+        wired = self.index.wired.get(address)
+        if wired:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                f"a `topoff` on a channel model {', '.join(sorted(wired))} wires",
+                "remove `topoff`; the model computes the channel's value",
+            )
+            return
         value_type = self._type(address)
         if value_type != "float":
             yield self._error(
@@ -1681,13 +1882,9 @@ class _Records:
     # --- wiring --------------------------------------------------------------------
 
     def _wiring(self) -> Iterator[FacilityBuildError]:
-        from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
-
         for model, entry in self.index.wiring:
             wid = str(entry.get("id"))
-            if _single_pass(self.index.models[model]) and _reads_plane_optics(
-                entry, OPTICS_ATTRIBUTES
-            ):
+            if _single_pass_optics(self.index.models[model], entry):
                 yield self._error(
                     "engine-invalid",
                     "wiring",
@@ -2127,23 +2324,44 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
 
     Runs once every wiring slot is filled, so a group or instrument is judged
     by the setpoints and readbacks its model actually wires. A group plays one
-    group role; only ``hcor`` and ``vcor`` may name the same group. For each kind the
-    file allows, every group and instrument the kind needs
-    (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
-    and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
-    every step or settle key the kind's tool takes
-    (:data:`osprey.facility.views.pyaml.TOOL_KEYS`) must be stated.
+    group role; only ``hcor`` and ``vcor`` may name the same group. Every kind
+    the file allows is a registered kind (:mod:`osprey.facility.kinds`). Every
+    role the file names under ``groups`` or ``instruments`` is one the pyAML
+    view ships or one a listed kind declares, named in the map its sort says
+    (:func:`osprey.facility.kinds.member_sorts`); each
+    member the kind declares is judged by its requirement: ``wired`` must be
+    named by the file and wired by the model, ``exists`` named and present in
+    the facility, ``optional`` either absent or present. A ``single_pass``
+    model allows only the kinds that run single pass, every step or settle key
+    the kind's tool takes must be stated. A listed kind's own sub-block
+    ``kind_blocks.<kind>`` (absent: empty) is validated by the kind's
+    ``measurement_schema``, and only a block it admits is handed, with the
+    document, to the kind's ``build_stops`` hook.
+
+    A listed kind no installed package registers stops a tree where kinds are
+    judged (:func:`osprey.facility.kinds.judged_here`). In a machine tree on
+    its own the kind is deferred with a ``kind-deferred`` warning, and its
+    block and the roles nobody here declares are left to the deployment that
+    mounts the tree.
 
     Args:
         validated: What the earlier stages produced.
 
     Returns:
-        Every stop: ``reference-missing`` naming the kind and the member it
-        lacks, ``value-invalid`` naming the kind and the key it lacks, or the
-        two group roles that name one group.
+        Every stop: ``value-invalid`` naming a kind the registry refuses or a
+        role no listed kind declares, ``reference-missing`` naming a kind no
+        installed package registers or
+        the kind and the member it lacks, ``value-invalid`` naming the kind and
+        the key it lacks, what its schema or its hook refuses or a sub-block
+        it takes none of, or the two group roles that name one group.
     """
     document: dict[str, Any] = need(validated.document)
-    return list(_measurement_stops(document))
+    if validated.judges_kinds:
+        return list(_measurement_stops(document))
+    deferred: list[FacilityBuildWarning] = []
+    stops = list(_measurement_stops(document, deferred))
+    validated.warnings.extend(deferred)
+    return stops
 
 
 def _groups_text(value: Any) -> str:
@@ -2154,18 +2372,40 @@ def _groups_text(value: Any) -> str:
     return f"groups {', '.join(families)}"
 
 
-def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
+def _measurement_stops(
+    document: dict[str, Any],
+    deferred: list[FacilityBuildWarning] | None = None,
+) -> Iterator[FacilityBuildError]:
+    from osprey.facility.kinds import (
+        ENTRY_POINT_GROUP,
+        KindRegistryError,
+        kind_source,
+        member_sorts,
+        registered,
+    )
     from osprey.facility.views.pyaml import (
         GROUP_ROLES,
-        KIND_MEMBERS,
         ROLE_PLANES,
-        SINGLE_PASS_KINDS,
-        TOOL_KEYS,
         measurement_groups,
         tune_references,
     )
 
+    try:
+        declared = registered()
+    except KindRegistryError as refused:
+        yield FacilityBuildError(
+            "value-invalid",
+            refused.kind,
+            [refused.source],
+            refused.remedy,
+            record_kind="measurement kind",
+            detail=f"{refused.detail}; declared by {refused.source}",
+        )
+        return
+    single_pass_kinds = [name for name, declaration in declared.items() if declaration.single_pass]
+    blocked: set[str] = set()
     records = FacilityRecords(document)
+    channels = {str(channel["id"]) for channel in document.get("channels") or []}
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
         measurement = model.get("measurement")
         if not isinstance(measurement, dict):
@@ -2193,31 +2433,88 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 record_kind="measurement",
                 detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
-        grouped = measurement_groups(records, name)
+        sorts = member_sorts(
+            declared[str(kind)] for kind in measurement.get("kinds") or [] if str(kind) in declared
+        )
+        # A machine tree on its own: the kind's package is the mounting
+        # deployment's, so the kind is judged there.
+        unjudged = sorted(
+            str(kind)
+            for kind in measurement.get("kinds") or []
+            if deferred is not None and str(kind) not in declared
+        )
+        if deferred is not None:
+            deferred.extend(
+                FacilityBuildWarning(
+                    "kind-deferred",
+                    "measurement",
+                    name,
+                    f"kind {kind} is registered by no installed package; its roles and "
+                    "`kind_blocks` entry are judged where its app is mounted",
+                    "validate the deployment that mounts this machine and lists the kind's package",
+                )
+                for kind in unjudged
+            )
+        yield from _unsorted_roles(
+            name, files, groups_named, instruments, sorts, undeclared=not unjudged
+        )
+        grouped = measurement_groups(records, name, sorts)
+        blocks = measurement.get("kind_blocks") or {}
+        listed = {str(kind) for kind in measurement.get("kinds") or []}
+        for kind in sorted(set(blocks) - listed, key=str):
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"remove `kind_blocks.{kind}`, or list {kind} in `kinds`",
+                record_kind="measurement",
+                detail=f"`kind_blocks.{kind}` is the block of a kind the file does not list",
+            )
         for kind in measurement.get("kinds") or []:
-            if kind not in SINGLE_PASS_KINDS and _single_pass(model):
+            declaration = declared.get(str(kind))
+            if declaration is None:
+                if str(kind) in unjudged:
+                    continue
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} is not registered under {ENTRY_POINT_GROUP} by any installed "
+                    "package",
+                    f"install the kind's package, or remove {kind} from `kinds`",
+                )
+                continue
+            if not declaration.single_pass and _single_pass(model):
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
-                    f"remove {kind} from `kinds`; a single_pass model allows orm alone",
+                    f"remove {kind} from `kinds`; a single_pass model allows "
+                    f"{' and '.join(single_pass_kinds) or 'no kind'} alone",
                 )
                 continue
-            for member in KIND_MEMBERS[kind]:
-                slot = f"groups.{member}" if member in GROUP_ROLES else f"instruments.{member}"
-                named = (
-                    groups_named.get(member) if member in GROUP_ROLES else instruments.get(member)
-                )
+            for member, requirement in declaration.members.items():
+                is_group = sorts[member] != "instrument"
+                slot = f"groups.{member}" if is_group else f"instruments.{member}"
+                named = groups_named.get(member) if is_group else instruments.get(member)
                 if named is None:
-                    yield _measurement_missing(
-                        name,
-                        f"kind {kind} needs `{slot}`, which the file does not name",
-                        f"name `{slot}`, or remove {kind} from `kinds`",
-                    )
-                elif member in GROUP_ROLES and not grouped.get(member):
+                    if requirement != "optional":
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`, which the file does not name",
+                            f"name `{slot}`, or remove {kind} from `kinds`",
+                        )
+                    continue
+                if requirement != "wired":
+                    if not is_group and str(named) not in channels:
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`; {named} is no channel of the facility",
+                            f"name a channel of the facility as `{slot}`",
+                        )
+                    continue
+                if is_group and not grouped.get(member):
                     plane = ROLE_PLANES.get(member)
                     wiring = (
                         "monitor"
-                        if member == "bpm"
+                        if sorts[member] == "monitors"
                         else f"{plane}-plane setpoint"
                         if plane
                         else "setpoint"
@@ -2228,7 +2525,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"model {name} wires",
                         f"name a group holding a {wiring} model {name} wires as `{slot}`",
                     )
-                elif member not in GROUP_ROLES and str(named) not in wired:
+                elif not is_group and str(named) not in wired:
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
@@ -2242,7 +2539,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"wire the other plane's tune reading in model {name}, or name a reading "
                         f"of both planes as `{slot}`",
                     )
-            for key in TOOL_KEYS[kind]:
+            for key in declaration.tool_keys:
                 if key not in measurement:
                     yield FacilityBuildError(
                         "value-invalid",
@@ -2252,6 +2549,136 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind} needs `{key}`, which the file does not state",
                     )
+            block = blocks.get(str(kind))
+            block_refusals = _block_stops(name, files, declaration, block)
+            if block_refusals:
+                blocked.add(str(kind))
+                yield from block_refusals
+            elif declaration.build_stops is not None:
+                try:
+                    stops = [
+                        (str(stop.remedy), str(stop.detail))
+                        for stop in declaration.build_stops(document, block or {})
+                    ]
+                except Exception as error:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"make the build_stops hook of kind {kind} ({kind_source(str(kind))}) "
+                        "accept every block its measurement schema admits",
+                        record_kind="measurement",
+                        detail=(
+                            f"kind {kind}'s build_stops hook fails on this file's block: "
+                            f"{type(error).__name__}: {error}"
+                        ),
+                    )
+                    continue
+                for remedy, detail in stops:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        remedy,
+                        record_kind="measurement",
+                        detail=f"kind {kind}: {detail}",
+                    )
+    yield from _kind_facts_stops(document, {k: v for k, v in declared.items() if k not in blocked})
+
+
+def _kind_facts_stops(
+    document: dict[str, Any], declared: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A kind's facts writer failing on a model's block."""
+    from osprey.facility.kinds import KindFactsError, kind_source, written_facts
+
+    try:
+        written_facts(document, declared)
+    except KindFactsError as failed:
+        yield FacilityBuildError(
+            "value-invalid",
+            failed.model,
+            [f"measurement/{failed.model}.yaml"],
+            f"make the facts writer of kind {failed.kind} ({kind_source(failed.kind)}) "
+            "accept every block its measurement schema admits",
+            record_kind="measurement",
+            detail=f"kind {failed.kind}'s facts writer fails on this file's block: {failed.cause}",
+        )
+
+
+def _block_stops(
+    model: str, files: list[str], declaration: Any, block: Any
+) -> list[FacilityBuildError]:
+    """What a listed kind refuses in its own sub-block; an absent block is an empty one."""
+    from osprey.facility.kinds import block_admitted, block_problems
+
+    if block_admitted(declaration, block):
+        return []
+    kind = declaration.name
+    if declaration.measurement_schema is None:
+        return [
+            FacilityBuildError(
+                "value-invalid",
+                model,
+                files,
+                f"remove `kind_blocks.{kind}`",
+                record_kind="measurement",
+                detail=f"kind {kind} declares no measurement schema, so it takes no block",
+            )
+        ]
+    return [
+        FacilityBuildError(
+            "value-invalid",
+            model,
+            files,
+            f"correct `kind_blocks.{kind}` as kind {kind}'s measurement schema states",
+            record_kind="measurement",
+            detail=f"`kind_blocks.{problem}`",
+        )
+        for problem in block_problems(declaration, {} if block is None else block)
+    ]
+
+
+def _unsorted_roles(
+    model: str,
+    files: list[str],
+    groups_named: Mapping[str, Any],
+    instruments: Mapping[str, Any],
+    sorts: Mapping[str, str],
+    *,
+    undeclared: bool,
+) -> Iterator[FacilityBuildError]:
+    """A role neither the pyAML view nor a listed kind declares, or named in the other map.
+
+    ``undeclared`` is off for a file listing a deferred kind, whose roles
+    nobody here can tell from a role no kind declares.
+    """
+    for slot, named, other in (
+        ("groups", groups_named, "instruments"),
+        ("instruments", instruments, "groups"),
+    ):
+        for role in sorted(named, key=str):
+            sort = sorts.get(str(role))
+            if sort is None:
+                if not undeclared:
+                    continue
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"remove `{slot}.{role}`, or list a kind that declares {role} in `kinds`",
+                    record_kind="measurement",
+                    detail=f"`{slot}.{role}` names a role no listed kind declares",
+                )
+            elif (sort == "instrument") != (slot == "instruments"):
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"move `{slot}.{role}` to `{other}.{role}`",
+                    record_kind="measurement",
+                    detail=(f"`{slot}.{role}` names a role whose kind names it under `{other}`"),
+                )
 
 
 def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildError:
@@ -2331,6 +2758,19 @@ def _single_pass(model: Mapping[str, Any]) -> bool:
     settings = model.get("settings")
     block = settings.get("pyat") if isinstance(settings, dict) else None
     return isinstance(block, dict) and block.get("solve") == "single_pass"
+
+
+def _single_pass_optics(model: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
+    """True when a single-pass ``pyat`` model's wiring entry reads tunes or chromaticity.
+
+    Only a ``pyat`` model has optics attributes; any other engine's entry is
+    never read for them, and the lattice engine is not imported for it.
+    """
+    if model.get("engine") != "pyat" or not _single_pass(model):
+        return False
+    from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
+
+    return _reads_plane_optics(entry, OPTICS_ATTRIBUTES)
 
 
 def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:

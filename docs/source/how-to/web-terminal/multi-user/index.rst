@@ -522,7 +522,7 @@ The landing page
 Open ``http://127.0.0.1:10000``. The landing page groups the users into cards,
 each labelled with the tier it resolves to:
 
-.. figure:: /_static/resources/multi_user_landing_light.png
+.. figure:: /_static/screenshots/multi_user_landing_light.png
    :class: only-light
    :figclass: only-light
    :alt: The multi-user landing page — alice's, bob's and carol's cards under
@@ -532,9 +532,10 @@ each labelled with the tier it resolves to:
 
    The grouped landing page: alice resolves to the readwrite tier, bob to
    readonly, carol to admin, and the shared cards open the logbook, knowledge
-   and channel-finder logins. Click a card to open that session.
+   and channel-finder logins. Click a card to open that session. Captured with
+   OSPREY |captured_multi_user_landing|.
 
-.. figure:: /_static/resources/multi_user_landing_dark.png
+.. figure:: /_static/screenshots/multi_user_landing_dark.png
    :class: only-dark
    :figclass: only-dark
    :alt: The multi-user landing page — alice's, bob's and carol's cards under
@@ -544,7 +545,8 @@ each labelled with the tier it resolves to:
 
    The grouped landing page: alice resolves to the readwrite tier, bob to
    readonly, carol to admin, and the shared cards open the logbook, knowledge
-   and channel-finder logins. Click a card to open that session.
+   and channel-finder logins. Click a card to open that session. Captured with
+   OSPREY |captured_multi_user_landing|.
 
 Each operator card names its tier explicitly — alice the readwrite tier,
 bob the readonly one; carol is on the admin tier. (A bare roster entry would fall back to the
@@ -633,7 +635,7 @@ own ``sidecar`` spool directory, which no terminal mounts at all.
 
 That makes the agent record the place a question spanning several people is
 answered, by a reader whose record login covers those identities
-(:doc:`/how-to/health-and-monitoring/read-the-record`). :ref:`The audit trail
+(:ref:`agent-record-readers`). :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
 
@@ -652,6 +654,30 @@ page's origin**, the web tier's second server on its own port
 agent wrote on the terminals' origin cannot read it. A visit without a valid
 sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
 no history page; each terminal still shows its own past sessions.
+
+.. figure:: /_static/screenshots/agent_record_light.png
+   :class: only-light
+   :figclass: only-light
+   :alt: The history page showing one session — the prompt, a channel read marked
+         allowed, a subagent call, a channel write marked denied and the answer
+   :width: 100%
+
+   One session on the history page, as its owner sees it: the prompt, each
+   tool call with its decision and result, and the answer. A row unfolds to
+   the call's input and full result.
+   Captured with OSPREY |captured_agent_record|.
+
+.. figure:: /_static/screenshots/agent_record_dark.png
+   :class: only-dark
+   :figclass: only-dark
+   :alt: The history page showing one session — the prompt, a channel read marked
+         allowed, a subagent call, a channel write marked denied and the answer
+   :width: 100%
+
+   One session on the history page, as its owner sees it: the prompt, each
+   tool call with its decision and result, and the answer. A row unfolds to
+   the call's input and full result.
+   Captured with OSPREY |captured_agent_record|.
 
 Who sees what is decided per person, from the roster, every time a page loads.
 In ``profile.yml``, the roster goes under ``config:`` and ``agent_record:`` is a
@@ -689,7 +715,7 @@ whole list, so write every entry you keep into it.
   ``authorization.roles`` the person holds, shows every user's sessions.
 - **A reader** — a roster user named under ``agent_record.readers``, or a
   reader recognised by its ``oidc_subject`` — sees every user's sessions,
-  bounded by that reader's ``kinds`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+  bounded by that reader's ``kinds`` and ``days_back`` (:ref:`agent-record-readers`).
   The reader entry takes precedence over ``history:``.
 
 The rules at the edges:

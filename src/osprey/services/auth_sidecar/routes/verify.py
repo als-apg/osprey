@@ -53,9 +53,11 @@ from ..identity_headers import (
     ROLE_HEADER,
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
+    canonical_identity,
     is_header_safe,
     same_identity,
 )
+from ..methods import METHOD_OIDC
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
 from ..roster_env import READER_ENTRY_PREFIX
@@ -236,6 +238,11 @@ def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettin
     is told. It is header-checked by the codec on the way in and again by
     :func:`_authorized` on the way out, like every other value that leaves here.
 
+    Under ``oidc`` the subject travels in its
+    :func:`~osprey.services.auth_sidecar.identity_headers.canonical_identity`
+    spelling, the one the build gives an application's ``access`` members, so
+    a consumer compares the two byte for byte without knowing the claim.
+
     Args:
         username: The roster user this subrequest authorized. Verified against
             the roster, and byte-identical to the entry's own username.
@@ -246,8 +253,11 @@ def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettin
         The subject to report, or ``""`` when this session names no account.
     """
     if entry is not None and entry.admitted_identity:
-        return entry.admitted_identity
-    return session_subject(method=settings.method, username=username, entry=entry)
+        return canonical_identity(entry.admitted_identity, claim=settings.oidc_claim)
+    subject = session_subject(method=settings.method, username=username, entry=entry)
+    if settings.method == METHOD_OIDC:
+        return canonical_identity(subject, claim=settings.oidc_claim)
+    return subject
 
 
 def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSettings) -> Response:

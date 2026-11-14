@@ -266,7 +266,7 @@ def test_the_declared_surface_is_the_defined_one() -> None:
     assert set(identity_headers.__all__) == _defined_here()
 
 
-def test_the_public_surface_is_exactly_these_nine_names() -> None:
+def test_the_public_surface_is_exactly_these_ten_names() -> None:
     """Structural, not a naming canary: any new public name added beside these
     fails this test whatever it is called, so a second, subtly different
     comparator cannot slip in unreviewed."""
@@ -276,6 +276,7 @@ def test_the_public_surface_is_exactly_these_nine_names() -> None:
         "ROLE_HEADER",
         "ROLE_SOURCE_HEADER",
         "CASE_INSENSITIVE_CLAIMS",
+        "canonical_identity",
         "is_header_safe",
         "same_domain",
         "same_identity",

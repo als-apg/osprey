@@ -2,10 +2,12 @@
 
 The verb builds the facility file from ``data/facility/``, renders the repo's
 main profile into a temporary directory and hands that render to
-``render_facility_outputs``, then discards it. A clean repo without a kept
-response export exits 0 and prints nothing; a failing stage prints every one of
-its lines, sorted, to stderr and exits 1. The repo's tree, ``build/`` included,
-is byte-unchanged either way.
+``render_facility_outputs``, then discards it. A clean repo without relation
+claims or a kept response export exits 0 and prints nothing; the demo, which
+ships the Appendix A claims, exits 0 with its two relation warnings and the
+relation summary on stderr; a failing stage prints every one of its lines,
+sorted, to stderr and exits 1. The repo's tree, ``build/`` included, is
+byte-unchanged either way.
 """
 
 from __future__ import annotations
@@ -21,10 +23,17 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey.cli.facility_cmd import _relation_summary
 from osprey.cli.main import cli
 from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import Restorable, init_project, run_build
+from tests.facility._appendix_a import (
+    VARIANTS,
+    Variant,
+    appendix_a_tree,
+    example_without_appendix_a,
+)
 
 pytestmark = pytest.mark.slow
 
@@ -88,7 +97,14 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
 def test_a_clean_repo_exits_0_and_prints_nothing(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Checking a facility file renders outside any build, so it asks no container runtime."""
+    """Checking a facility file renders outside any build, so it asks no container runtime.
+
+    The facility is the example without its Appendix A records, so no claim
+    warns and no relation summary is printed.
+    """
+    facility_dir = repo / "data" / "facility"
+    shutil.rmtree(facility_dir)
+    example_without_appendix_a(facility_dir)
     asked: list[Any] = []
 
     def _ask(config: Any = None) -> list[str]:
@@ -102,6 +118,24 @@ def test_a_clean_repo_exits_0_and_prints_nothing(
     assert asked == []
     assert result.exit_code == 0, result.output
     assert (result.stdout, result.stderr) == ("", "")
+
+
+#: What ``facility validate`` prints for the demo: one ``relation-coarse``
+#: warning, then the relation summary.
+DEMO_STDERR = [
+    "facility: relation-coarse: relation type cabled_to \u2014 1 claim states less than the"
+    " facility knows (1 place end); fix: name the device, port, unit or key attribute the"
+    " claims leave out",
+    "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded",
+]
+
+
+def test_the_demo_exits_0_with_its_relation_warning_and_summary(repo: Path) -> None:
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    assert result.stderr.splitlines() == DEMO_STDERR
 
 
 def test_a_wrapped_position_warns_in_validate_and_in_the_build(repo: Path) -> None:
@@ -382,3 +416,63 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
     result = CliRunner().invoke(cli, ["facility", "validate", "--json", "--repo", str(repo)])
 
     assert result.exit_code == 2
+
+
+def _set_policy(repo: Path, variant: Variant) -> None:
+    """Give the demo repo the ``policy.yaml`` of an Appendix A variant.
+
+    The demo ships the Appendix A records, claims and policy; a variant
+    differs only by its policy, and ``no_policy`` removes the file.
+    """
+    path = repo / "data" / "facility" / "policy.yaml"
+    policy = appendix_a_tree(variant).get("policy.yaml")
+    if policy is None:
+        path.unlink()
+    else:
+        path.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
+
+
+#: The summary line per Appendix A variant: two contested ``located_in``
+#: claims without a policy; the policy supersedes one and settles the other.
+RELATION_SUMMARIES: dict[str, str] = {
+    "no_policy": "relations: 18 claims (16 stated, 2 inferred); 16 accepted, 2 contested",
+    "located_in_precedence": (
+        "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded"
+    ),
+}
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_a_facility_with_claims_closes_with_the_relation_summary(
+    repo: Path, variant: Variant
+) -> None:
+    """The summary counts claims by basis and standing, after every warning."""
+    _set_policy(repo, variant)
+
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    lines = result.stderr.splitlines()
+    assert lines[-1] == RELATION_SUMMARIES[variant]
+    assert [line for line in lines if line.startswith("relations:")] == [lines[-1]]
+
+
+def test_the_summary_names_superseded_only_when_a_claim_is() -> None:
+    claims = [
+        {"standing": "accepted"},
+        {"standing": "accepted", "basis": "inferred"},
+        {"standing": "contested", "basis": "stated"},
+    ]
+
+    assert _relation_summary({"relations": claims}) == (
+        "relations: 3 claims (2 stated, 1 inferred); 2 accepted, 1 contested"
+    )
+    assert _relation_summary({"relations": [*claims, {"standing": "superseded"}]}) == (
+        "relations: 4 claims (3 stated, 1 inferred); 2 accepted, 1 contested, 1 superseded"
+    )
+
+
+def test_a_facility_without_claims_prints_no_summary() -> None:
+    assert _relation_summary({}) is None
+    assert _relation_summary({"relations": []}) is None

@@ -40,6 +40,8 @@ from osprey.interfaces.design_system.panels.validator import (
 # mirroring the reference markup in osprey.interfaces.artifacts.app.
 _THEME_BOOT_TAG = '<script src="/design-system/js/theme-boot.js"></script>'
 _TOKENS_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/tokens.css">'
+_BASE_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/base.css">'
+_PRIMITIVES_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/primitives.css">'
 _FONTS_CSS_TAG = '<link rel="stylesheet" href="/static/fonts/fonts.css">'
 
 
@@ -52,6 +54,8 @@ def _compliant_html(*, body: str = "") -> str:
         '<meta charset="UTF-8">\n'
         f"{_THEME_BOOT_TAG}\n"
         f"{_TOKENS_CSS_TAG}\n"
+        f"{_BASE_CSS_TAG}\n"
+        f"{_PRIMITIVES_CSS_TAG}\n"
         f"{_FONTS_CSS_TAG}\n"
         "<style>\n"
         "  body { background: var(--bg-primary); color: var(--text-primary); }\n"
@@ -204,6 +208,25 @@ def test_missing_design_system_link_errors(tmp_path: Path) -> None:
     errors = validate_panel(panel)
 
     assert _rules(errors) == {PanelRule.MISSING_DESIGN_SYSTEM_LINK}
+
+
+@pytest.mark.parametrize("tag", [_BASE_CSS_TAG, _PRIMITIVES_CSS_TAG])
+def test_each_design_system_sheet_is_required(tmp_path: Path, tag: str) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html().replace(tag, ""))
+
+    [error] = validate_panel(panel)
+
+    assert error.rule is PanelRule.MISSING_DESIGN_SYSTEM_LINK
+    assert tag.split('"')[3] in error.message
+
+
+def test_a_panel_linking_only_the_token_sheet_is_refused(tmp_path: Path) -> None:
+    html = _compliant_html().replace(_BASE_CSS_TAG, "").replace(_PRIMITIVES_CSS_TAG, "")
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    errors = validate_panel(panel)
+
+    assert [error.rule for error in errors] == [PanelRule.MISSING_DESIGN_SYSTEM_LINK] * 2
 
 
 def test_missing_theme_boot_script_errors(tmp_path: Path) -> None:
@@ -455,3 +478,17 @@ def test_assert_valid_panel_raises_for_bad_manifest_fixture() -> None:
         assert_valid_panel(_BAD_MANIFEST_FIXTURE_DIR)
 
     assert all(error.rule is PanelRule.MANIFEST_INVALID for error in excinfo.value.errors)
+
+
+def test_missing_stylesheets_is_the_one_link_rule() -> None:
+    """The sheets a page does not link, in PANEL_STYLESHEETS order; the app check reads this."""
+    from osprey.interfaces.design_system.panels.validator import (
+        PANEL_STYLESHEETS,
+        missing_stylesheets,
+    )
+
+    tokens, base, primitives = PANEL_STYLESHEETS
+    html = f"<link HREF='{tokens}' rel=stylesheet><link rel='stylesheet' href=\"{primitives}\">"
+
+    assert missing_stylesheets(html) == [base]
+    assert missing_stylesheets("") == list(PANEL_STYLESHEETS)

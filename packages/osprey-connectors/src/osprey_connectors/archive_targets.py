@@ -94,7 +94,7 @@ _DEFAULT_ADDRESS_SETTING = "url"
 
 #: The targets the facility's archive serves: the real machine and the
 #: stand-in that rehearses it.
-_APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
+APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
 
 #: The targets the deployment's own store serves: the virtual accelerator.
 _STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
@@ -103,6 +103,7 @@ _STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
 _NO_TARGETS: frozenset[str] = frozenset()
 
 __all__ = [
+    "APPLIANCE_TARGETS",
     "archive_targets",
     "archive_withheld",
 ]
@@ -118,7 +119,7 @@ def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
             section alone does not carry.
 
     Returns:
-        The targets per the module table — :data:`_APPLIANCE_TARGETS`,
+        The targets per the module table — :data:`APPLIANCE_TARGETS`,
         :data:`_STORE_TARGETS` or :data:`_NO_TARGETS`. A target absent from the
         set has no archive: a caller holding it has nothing to offer, never a
         default to fall back on.
@@ -137,7 +138,7 @@ def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
 
     if archiver_type in _STORE_ARCHIVERS:
         return _STORE_TARGETS if virtual_accelerator_port(config) is not None else _NO_TARGETS
-    return _APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
+    return APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
 
 
 def archive_withheld(config: Mapping[str, Any], target: str) -> bool:

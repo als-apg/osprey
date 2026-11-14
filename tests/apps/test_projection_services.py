@@ -205,6 +205,15 @@ def test_an_exhausted_band_refuses_naming_the_container() -> None:
     assert f"{FACILITY_BAND}-{FACILITY_BAND + 99}" in str(error)
 
 
+def test_an_application_with_no_container_projects_no_service_and_spends_no_port() -> None:
+    tools_only = _manifest({"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}})
+    config = {"apps": {"dial": {}, "knob-demo": {}}}
+    with_it = _services(_project([tools_only, _manifest(KNOB)], config))
+    without_it = _services(_project([_manifest(KNOB)], {"apps": {"knob-demo": {}}}))
+    assert "dial" not in with_it
+    assert with_it == without_it
+
+
 def test_projection_is_pure() -> None:
     manifests = [_manifest(KNOB)]
     config = {"apps": {"knob-demo": {"services": {"knob-demo": {"env": ["X"]}}}}}

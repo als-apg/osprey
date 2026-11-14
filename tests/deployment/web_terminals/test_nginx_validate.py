@@ -56,7 +56,12 @@ from osprey.deployment.web_terminals.render import (
     terminal_secret_env_var,
 )
 from osprey.port_layout import default_port
-from tests._container_support import docker_cli_unavailable_reason_once, ensure_image
+from tests._container_support import (
+    docker_cli_unavailable_reason_once,
+    ensure_image,
+    require_container_runtime,
+    runtime_command,
+)
 from tests._renders import tier_render
 from tests.deployment.web_terminals._nginx import (
     nginx_directives,
@@ -68,10 +73,6 @@ from tests.deployment.web_terminals._nginx import (
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
 _NGINX_IMAGE = "nginx:1.31-alpine"
-#: How long one ``docker run --rm`` of that image may take once it is present:
-#: create, start, ``nginx -t``/``-T``, exit and remove. The pull is not in it —
-#: the session fixture below pulls the image before any run starts.
-_NGINX_RUN_BUDGET = 60.0
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
 #: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
@@ -105,8 +106,12 @@ _DEFAULT_CONF_PATH = "/etc/nginx/conf.d/default.conf"
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
+# xdist_group("docker"): every case is a ``docker run`` of nginx, and the group
+# keeps them on the worker that starts every other container, so the sweep does
+# not load the runtime from two workers at once.
 pytestmark = [
     pytest.mark.dockerbuild,
+    pytest.mark.xdist_group("docker"),
     pytest.mark.skipif(
         _DOCKER_UNAVAILABLE is not None or shutil.which("openssl") is None,
         reason=_DOCKER_UNAVAILABLE or "openssl (for the self-signed cert fixture) not on PATH",
@@ -116,11 +121,13 @@ pytestmark = [
 
 @pytest.fixture(scope="session", autouse=True)
 def _nginx_image_present() -> None:
-    """Pull the nginx image once, outside every run's budget.
+    """Ask the runtime once, then pull the nginx image once, before any run.
 
     The module's ``skipif`` applies before fixture setup, so a host without an
-    engine never pulls.
+    engine never pulls. Each run after this waits on its own exit: the runtime
+    answered here, and the per-test timeout breaks a hang.
     """
+    require_container_runtime()
     ensure_image(_NGINX_IMAGE)
 
 
@@ -283,11 +290,8 @@ def _run_nginx_t(
             extra += ["-e", f"{var}={value}"]
     if entrypoint is not None:
         extra += ["--entrypoint", entrypoint]
-    return subprocess.run(
-        ["docker", "run", "--rm", *mounts, *extra, _NGINX_IMAGE, *command],
-        capture_output=True,
-        text=True,
-        timeout=_NGINX_RUN_BUDGET,
+    return runtime_command(
+        "run", "--rm", *mounts, *extra, _NGINX_IMAGE, *command, capture_output=True, text=True
     )
 
 

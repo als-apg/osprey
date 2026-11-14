@@ -11,7 +11,8 @@
 import { fetchJSON, postJSON, putJSON, deleteJSON, ApiError } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
-import { showToast } from './app.js';
+import { icon } from '/design-system/js/icons.js';
+import { showToast } from '/design-system/js/toast.js';
 import {
   getContainer,
   getCurrentKey,
@@ -37,7 +38,8 @@ export async function _renderDetail() {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    if (getContainer() !== container) return;
+    showToast('Entry not found', { kind: 'error' });
     setCurrentKey(null);
     // Drop straight back to the list (as the original did), not through the
     // full dispatcher — avoids a redundant status re-check + loading flash.
@@ -45,40 +47,47 @@ export async function _renderDetail() {
     if (renderList) await renderList();
     return;
   }
+  if (getContainer() !== container) return;
 
   const meta = entry._meta || {};
   const successes = entry.successes || [];
   const failures = entry.failures || [];
 
   const html = `
-    <div class="fb-breadcrumb">
-      <a id="fb-back-link">Feedback</a>
-      <span class="fb-breadcrumb-sep">/</span>
-      <span class="fb-breadcrumb-current">"${esc(meta.query || '(unknown)')}" (${esc(meta.facility || '?')})</span>
-    </div>
+    <nav class="osprey-crumb fb-crumb" aria-label="Breadcrumb">
+      <button type="button" class="osprey-crumb-root fb-crumb-back" data-action="back">Feedback</button>
+      <span class="osprey-crumb-sep" aria-hidden="true"></span>
+      <span class="osprey-crumb-leaf" aria-current="page">"${esc(meta.query || '(unknown)')}" (${esc(meta.facility || '?')})</span>
+    </nav>
 
     <div class="fb-detail-grid">
       <div class="fb-detail-section">
         <div class="fb-detail-section-header fb-success-header">
           <span>Successes (${successes.length})</span>
-          <button class="btn btn-sm btn-secondary" id="fb-add-success">+ Add</button>
+          <button type="button" class="osprey-icon-btn" data-action="add-success"
+                  aria-label="Add success" title="Add success"></button>
         </div>
-        ${successes.length === 0 ? '<div class="empty-state" style="padding: var(--space-4);">No successes</div>' : ''}
+        ${successes.length === 0 ? '<div class="fb-detail-empty">No successes</div>' : ''}
         ${successes.map((/** @type {any} */ s, /** @type {number} */ i) => _renderSuccessCard(s, i)).join('')}
       </div>
 
       <div class="fb-detail-section">
         <div class="fb-detail-section-header fb-failure-header">
           <span>Failures (${failures.length})</span>
-          <button class="btn btn-sm btn-secondary" id="fb-add-failure">+ Add</button>
+          <button type="button" class="osprey-icon-btn" data-action="add-failure"
+                  aria-label="Add failure" title="Add failure"></button>
         </div>
-        ${failures.length === 0 ? '<div class="empty-state" style="padding: var(--space-4);">No failures</div>' : ''}
+        ${failures.length === 0 ? '<div class="fb-detail-empty">No failures</div>' : ''}
         ${failures.map((/** @type {any} */ f, /** @type {number} */ i) => _renderFailureCard(f, i)).join('')}
       </div>
     </div>
   `;
 
   container.innerHTML = html;
+  container.querySelector('.osprey-crumb-sep')?.append(icon('chevron-right'));
+  for (const add of container.querySelectorAll('[data-action^="add-"]')) add.append(icon('plus'));
+  for (const edit of container.querySelectorAll('.fb-edit-record')) edit.append(icon('pen'));
+  for (const remove of container.querySelectorAll('.fb-delete-record')) remove.append(icon('x'));
   _bindDetailEvents(container, meta);
 }
 
@@ -95,8 +104,8 @@ function _renderSuccessCard(record, index) {
         <span class="fb-channel-count">${record.channel_count} channels</span>
         <span class="fb-timestamp">${_formatTime(record.timestamp)}</span>
         <span class="fb-record-actions">
-          <button class="item-action-btn action-edit fb-edit-record" title="Edit">&#9998;</button>
-          <button class="item-action-btn action-delete fb-delete-record" title="Delete">&times;</button>
+          <button type="button" class="osprey-mini fb-edit-record" aria-label="Edit record" title="Edit record"></button>
+          <button type="button" class="osprey-mini fb-delete-record" aria-label="Delete record" title="Delete record"></button>
         </span>
       </div>
     </div>
@@ -116,8 +125,8 @@ function _renderFailureCard(record, index) {
       <div class="fb-record-meta">
         <span class="fb-timestamp">${_formatTime(record.timestamp)}</span>
         <span class="fb-record-actions">
-          <button class="item-action-btn action-edit fb-edit-record" title="Edit">&#9998;</button>
-          <button class="item-action-btn action-delete fb-delete-record" title="Delete">&times;</button>
+          <button type="button" class="osprey-mini fb-edit-record" aria-label="Edit record" title="Edit record"></button>
+          <button type="button" class="osprey-mini fb-delete-record" aria-label="Delete record" title="Delete record"></button>
         </span>
       </div>
     </div>
@@ -130,18 +139,18 @@ function _renderFailureCard(record, index) {
  */
 function _bindDetailEvents(container, meta) {
   // Back link
-  container.querySelector('#fb-back-link')?.addEventListener('click', () => {
+  container.querySelector('[data-action="back"]')?.addEventListener('click', () => {
     setCurrentKey(null);
     _rerender();
   });
 
   // Add success to existing entry
-  container.querySelector('#fb-add-success')?.addEventListener('click', async () => {
+  container.querySelector('[data-action="add-success"]')?.addEventListener('click', async () => {
     await _handleAddRecordToEntry(meta, 'success');
   });
 
   // Add failure to existing entry
-  container.querySelector('#fb-add-failure')?.addEventListener('click', async () => {
+  container.querySelector('[data-action="add-failure"]')?.addEventListener('click', async () => {
     await _handleAddRecordToEntry(meta, 'failure');
   });
 
@@ -217,10 +226,10 @@ async function _handleAddRecordToEntry(meta, entryType) {
       channel_count: parseInt(result.channel_count || '0', 10),
       reason: result.reason || '',
     });
-    showToast('Record added', 'success');
+    showToast('Record added', { kind: 'success' });
     _rerender();
   } catch (err) {
-    showToast(`Add failed: ${messageOf(err)}`, 'error');
+    showToast(`Add failed: ${messageOf(err)}`, { kind: 'error' });
   }
 }
 
@@ -234,14 +243,14 @@ async function _handleEditRecord(recordType, index) {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    showToast('Entry not found', { kind: 'error' });
     return;
   }
 
   const records = entry[recordType] || [];
   const record = records[index];
   if (!record) {
-    showToast('Record not found', 'error');
+    showToast('Record not found', { kind: 'error' });
     return;
   }
 
@@ -297,14 +306,14 @@ async function _handleEditRecord(recordType, index) {
 
   try {
     await putJSON(`/api/feedback/${getCurrentKey()}/${recordType}/${index}`, body);
-    showToast('Record updated', 'success');
+    showToast('Record updated', { kind: 'success' });
     _rerender();
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) {
-      showToast('Record changed by another user, refreshing...', 'info');
+      showToast('Record changed by another user, refreshing...', { kind: 'info' });
       _rerender();
     } else {
-      showToast(`Edit failed: ${messageOf(err)}`, 'error');
+      showToast(`Edit failed: ${messageOf(err)}`, { kind: 'error' });
     }
   }
 }
@@ -319,14 +328,14 @@ async function _handleDeleteRecord(recordType, index) {
   try {
     entry = await fetchJSON(`/api/feedback/${getCurrentKey()}`);
   } catch {
-    showToast('Entry not found', 'error');
+    showToast('Entry not found', { kind: 'error' });
     return;
   }
 
   const records = entry[recordType] || [];
   const record = records[index];
   if (!record) {
-    showToast('Record not found', 'error');
+    showToast('Record not found', { kind: 'error' });
     return;
   }
 
@@ -342,14 +351,14 @@ async function _handleDeleteRecord(recordType, index) {
     await deleteJSON(`/api/feedback/${getCurrentKey()}/${recordType}/${index}`, {
       expected_timestamp: record.timestamp,
     });
-    showToast('Record deleted', 'success');
+    showToast('Record deleted', { kind: 'success' });
     _rerender();
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) {
-      showToast('Record changed, refreshing...', 'info');
+      showToast('Record changed, refreshing...', { kind: 'info' });
       _rerender();
     } else {
-      showToast(`Delete failed: ${messageOf(err)}`, 'error');
+      showToast(`Delete failed: ${messageOf(err)}`, { kind: 'error' });
     }
   }
 }

@@ -676,6 +676,15 @@ class LimitsValidator:
 
         return True
 
+    def measures_step(self, channel_address: str) -> bool:
+        """Whether :meth:`validate` reads this channel's present value.
+
+        True for a channel with a ``max_step``. A caller that validates many
+        writes at once reads exactly these channels beforehand, together.
+        """
+        channel_config = self.limits.get(channel_address)
+        return channel_config is not None and channel_config.max_step is not None
+
     @staticmethod
     def _validate_channel_config(channel_name: str, config_dict: dict) -> None:
         """Validate a single channel configuration structure.

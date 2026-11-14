@@ -107,10 +107,10 @@ class TestDepsLayerOrder:
             before = deps[: deps.index(step)].rstrip()
             assert before.endswith("&&"), f"{step!r} is not &&-chained:\n{deps}"
 
-    def test_the_setuptools_constraint_is_unchanged_and_belongs_to_one_run(self):
+    def test_the_setuptools_dso_constraint_is_unchanged_and_belongs_to_one_run(self):
         text = _render_template(pip_dependency_args=PROFILE_DEPS)
         deps = _deps_body(text)
-        assert "printf 'setuptools<84\\n' > /tmp/deps-ctx/pip-constraints.txt" in deps
+        assert "printf 'setuptools-dso>=2.12.4\\n' > /tmp/deps-ctx/pip-constraints.txt" in deps
         assert "export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt" in deps
         assert [b for b in _run_bodies(text) if "PIP_CONSTRAINT" in b] == [deps]
 
@@ -308,12 +308,12 @@ def wheelhouse(tmp_path_factory) -> Path:
     _make_wheel(house, "site-extra", "1.0", ("fwdep",))
     _make_wheel(house, "pin-mover", "1.0", ("fwdep>=2",))
     # The lock-driven path's own cases: a dependency only a dropped wheel adds,
-    # and a build-tool pin the setuptools constraint has to refuse.
+    # and a build-tool pin the setuptools_dso constraint has to refuse.
     _make_wheel(house, "newdep", "1.0")
     _make_wheel(house, "newdep", "2.0")
-    _make_wheel(house, "setuptools", "83.0")
-    _make_wheel(house, "setuptools", "84.0")
-    _make_wheel(house, "needs-setuptools", "1.0", ("setuptools",))
+    _make_wheel(house, "setuptools-dso", "2.12.3")
+    _make_wheel(house, "setuptools-dso", "2.12.4")
+    _make_wheel(house, "needs-setuptools-dso", "1.0", ("setuptools-dso",))
     return house
 
 
@@ -589,17 +589,17 @@ class TestLockPathUnderRealInstallers:
         assert result.returncode == 0, _output(result)
         assert image.installed() == {"fwdep": "1.0"}
 
-    def test_a_lock_that_pins_setuptools_84_fails_the_layer(self, image):
-        self._stage(image, "setuptools==84.0\n", manifest="needs-setuptools\n")
+    def test_a_lock_that_pins_setuptools_dso_below_the_fix_fails_the_layer(self, image):
+        self._stage(image, "setuptools-dso==2.12.3\n", manifest="needs-setuptools-dso\n")
         result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
         assert result.returncode != 0, _output(result)
-        assert "setuptools" in _output(result)
+        assert "setuptools-dso" in _output(result)
 
-    def test_a_lock_below_84_satisfies_the_setuptools_constraint(self, image):
-        self._stage(image, "setuptools==83.0\n", manifest="needs-setuptools\n")
+    def test_a_lock_at_the_fix_satisfies_the_setuptools_dso_constraint(self, image):
+        self._stage(image, "setuptools-dso==2.12.4\n", manifest="needs-setuptools-dso\n")
         result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
         assert result.returncode == 0, _output(result)
-        assert image.installed()["needs-setuptools"] == "1.0"
+        assert image.installed()["needs-setuptools-dso"] == "1.0"
 
     def test_a_dropped_wheels_new_dependency_is_held_to_the_lock(self, image, tmp_path):
         self._stage(image, "fwdep==1.0\nnewdep==1.0\n")

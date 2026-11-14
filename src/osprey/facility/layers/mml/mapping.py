@@ -112,7 +112,7 @@ import functools
 import math
 import re
 import textwrap
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from collections.abc import Mapping as Map
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1361,10 +1361,12 @@ def _family_field(mapping: Mapping, family: str, name: str) -> str | None:
     return None
 
 
-def _field_signals(mapping: Mapping) -> Iterator[Problem]:
+def _field_signals(mapping: Mapping, roles: frozenset[str] | None = None) -> Iterator[Problem]:
+    """A field's signal names a vocabulary role or one of ``roles``."""
     from osprey.facility.validate import signal_roles
 
-    roles = signal_roles()
+    if roles is None:
+        roles = signal_roles()
     for raw, family in mapping.families.items():
         for name, fld in family.fields.items():
             if fld.signal is not None and fld.signal not in roles:
@@ -1773,7 +1775,12 @@ def _judgment_problems(mapping: Mapping, pending: dict[str, list[Any]]) -> list[
     return list(found.values())
 
 
-def check_mapping(mapping: Mapping, ao: dict | None = None) -> list[Problem]:
+def check_mapping(
+    mapping: Mapping,
+    ao: dict | None = None,
+    *,
+    signals: Iterable[dict[str, Any]] = (),
+) -> list[Problem]:
     """Check what a parsed mapping means, alone and against its export.
 
     Undecided slots are not problems here; :func:`require_decided` stops on
@@ -1783,11 +1790,17 @@ def check_mapping(mapping: Mapping, ao: dict | None = None) -> list[Problem]:
         mapping: The parsed mapping.
         ao: The merged export, ``{system: {family: body}}`` plus ``_``-prefixed
             bookkeeping keys; ``None`` checks the mapping alone.
+        signals: The facility's ``signals.yaml`` records, whose roles a field
+            signal may name beside the vocabulary's.
 
     Returns:
         Every problem, in rule order and document order within a rule.
     """
-    problems = [problem for rule in _RULES for problem in rule(mapping)]
+    from osprey.facility.validate import signal_roles
+
+    field_signals = functools.partial(_field_signals, roles=signal_roles(signals))
+    rules = [field_signals if rule is _field_signals else rule for rule in _RULES]
+    problems = [problem for rule in rules for problem in rule(mapping)]
     if ao is not None:
         problems.extend(_against_export(mapping, ao))
     return problems

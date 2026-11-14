@@ -1,0 +1,1 @@
+The All PVs selection persists across new words, filter changes and paging and is handed off in selection order; the `#/allpvs` route carries the view's filters, and the toolbar search of a PV or IOC page opens All PVs.

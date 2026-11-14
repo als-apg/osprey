@@ -30,7 +30,7 @@ from osprey_optimizer.events import (
     PhaseFailedData,
     PhaseStartedData,
 )
-from osprey_optimizer.models.config import ConstraintSpec, OptimizationConfig
+from osprey_optimizer.models.config import ConstraintSpec, OptimizationConfig, VariableOverride
 from osprey_optimizer.models.enums import AlgorithmType, ConstraintType
 from osprey_optimizer.models.exceptions import (
     CancellationError,
@@ -48,7 +48,11 @@ from osprey_optimizer.optimization.runner import (
     report_results,
     run_optimization_phase,
 )
-from osprey_optimizer.optimization.xopt_backend import XoptOptimizer
+from osprey_optimizer.optimization.xopt_backend import (
+    XoptOptimizer,
+    _stalls_on_constant,
+    start_cannot_move,
+)
 from osprey_optimizer.services.bounds_resolver import snap_value_to_grid
 
 from ._fakes import FakeInjectorEnvironment
@@ -646,6 +650,11 @@ class TestGridSnappingEndToEnd:
             pytest.param(
                 AlgorithmType.UPPER_CONFIDENCE_BOUND, 4, 3, 2, 20.0, id="bayesian_fine_grid"
             ),
+            # Sequential generators accept back only the point they proposed, so a
+            # run on a coarse grid must still complete with every record on the grid.
+            pytest.param(AlgorithmType.EXTREMUM_SEEKING, 4, 1, 2, 5.0, id="es_coarse_grid"),
+            pytest.param(AlgorithmType.NELDER_MEAD, 4, 1, 2, 5.0, id="neldermead_coarse_grid"),
+            pytest.param(AlgorithmType.RCDS, 4, 1, 2, 5.0, id="rcds_coarse_grid"),
         ],
     )
     def test_recorded_values_land_on_grid(
@@ -683,6 +692,73 @@ class TestGridSnappingEndToEnd:
                 assert v == pytest.approx(
                     snap_value_to_grid(v, vmin=g.min, vmax=g.max, step=g.step)
                 )
+
+
+class TestStartCannotMoveMatchesARun:
+    """The draft-time check predicts a noise-free run: it warns when, and only
+    when, the real run writes nothing but its starting point."""
+
+    @pytest.mark.parametrize(
+        ("algorithm", "algorithm_params", "step"),
+        [
+            pytest.param(AlgorithmType.NELDER_MEAD, None, 0.2, id="neldermead-fine"),
+            pytest.param(AlgorithmType.NELDER_MEAD, None, 0.5, id="neldermead-coarse"),
+            pytest.param(AlgorithmType.RCDS, None, 0.2, id="rcds-fine"),
+            pytest.param(AlgorithmType.RCDS, None, 0.5, id="rcds-coarse"),
+            # Extremum seeking's steps also turn with the objective's value, which the
+            # check does not read; it warns if any of four readings a quarter turn
+            # apart stalls. These cases agree at every reading (asserted below), so
+            # the prediction is exact here too.
+            pytest.param(AlgorithmType.EXTREMUM_SEEKING, None, 0.5, id="es-coarse"),
+            pytest.param(
+                AlgorithmType.EXTREMUM_SEEKING,
+                {"oscillation_size": 0.01},
+                0.5,
+                id="es-small-oscillation-coarse",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("start", [0.0, 5.0, 10.0], ids=["zero", "centre", "top"])
+    def test_prediction_matches_the_run(
+        self,
+        env: FakeInjectorEnvironment,
+        algorithm: AlgorithmType,
+        algorithm_params: dict[str, Any] | None,
+        step: float,
+        start: float,
+    ) -> None:
+        all_vars = env.variables
+        names = list(all_vars)[:2]
+        bounds: VariableBounds = {n: [all_vars[n].min_value, all_vars[n].max_value] for n in names}
+        grid = {n: VariableGrid(min=lo, max=hi, step=step) for n, (lo, hi) in bounds.items()}
+        current = dict.fromkeys(names, start)
+        config = OptimizationConfig(
+            algorithm=algorithm,
+            n_iterations=8,
+            objective_name=OBJECTIVE,
+            objective_direction=Direction.MAXIMIZE,
+            algorithm_params=algorithm_params,
+            variables=names,
+            variable_overrides={
+                n: VariableOverride(min=lo, max=hi, step_size=step)
+                for n, (lo, hi) in bounds.items()
+            },
+        )
+
+        if algorithm is AlgorithmType.EXTREMUM_SEEKING:
+            # The premise: every reading agrees, so the objective's value cannot
+            # change the outcome. (k = 2, xopt's default gain.)
+            stalls = {_stalls_on_constant(config, current, j * math.pi / 4) for j in range(4)}
+            assert len(stalls) == 1
+        predicted = start_cannot_move(config, current) is not None
+        result = run_real_phase(env, bounds, current, config, grid=grid)
+
+        home = {
+            n: snap_value_to_grid(start, vmin=g.min, vmax=g.max, step=g.step)
+            for n, g in grid.items()
+        }
+        written = result.data.select(names).to_dicts()
+        assert predicted == all(row == home for row in written)
 
 
 class TestFeasibilityFilter:

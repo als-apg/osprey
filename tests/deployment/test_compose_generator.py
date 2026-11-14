@@ -8362,8 +8362,8 @@ class TestHubImage:
 
     def test_a_docker_io_reference_is_rebased(self) -> None:
         assert (
-            self._hub_image("docker.io/library/alpine:3.20", self.MIRROR)
-            == f"{self.MIRROR}/library/alpine:3.20"
+            self._hub_image("docker.io/library/alpine:3.23", self.MIRROR)
+            == f"{self.MIRROR}/library/alpine:3.23"
         )
         assert (
             self._hub_image("docker.io/clickhouse/clickhouse-server:26.8", self.MIRROR)
@@ -8384,7 +8384,7 @@ class TestHubImage:
 
     @pytest.mark.parametrize(
         "reference",
-        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.20"],
+        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.23"],
     )
     def test_no_base_registry_leaves_every_reference_unchanged(self, reference: str) -> None:
         assert self._hub_image(reference, "") == reference
@@ -8662,8 +8662,67 @@ class TestBuildPathProvisionsTheControlTree:
         assert _mode_of(tree) == 0o2770
         assert (tree / CONTROL_TREE_MARKER_NAME).is_file()
         assert "BuildAcct" in caplog.text
-        assert "OSPREY_AUDIT_IDENTITY" in caplog.text
+        assert "deployment.host_identity" in caplog.text
         assert "must match" not in caplog.text, "the generic seam wording names no remedy"
+
+    def test_the_stamped_host_identity_names_the_operators_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The operator is who ``osprey web`` signs in as: the render's host identity.
+
+        The build may run under another name (``OSPREY_AUDIT_IDENTITY`` set, or a
+        profile stating ``deployment.host_identity``). The directory has to be the
+        one the terminal's login owns, or the lanes read a record nobody writes.
+        """
+        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+
+        monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "someone-else")
+
+        tree = _control_tree_build(tmp_path, deployment={"host_identity": "operator"})
+
+        assert (tree / "operator").is_dir()
+        assert not (tree / "someone-else").exists()
+
+    def test_a_roster_deployment_keeps_the_account_running_the_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Multi-user: the roster names the people; this entry stays the build account's.
+
+        The stamped host identity changes nothing here, and a name the tree refuses
+        is answered with the remedy that applies to it, ``OSPREY_AUDIT_IDENTITY``.
+        """
+        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+
+        monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "builder")
+        roster = {"web_terminals": {"users": [{"name": "alice", "index": 0}]}}
+
+        tree = _control_tree_build(
+            tmp_path, deployment={"host_identity": "operator"}, modules=roster
+        )
+
+        assert (tree / "builder").is_dir()
+        assert not (tree / "operator").exists()
+
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "BuildAcct")
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            _control_tree_build(tmp_path, deployment={"host_identity": "operator"}, modules=roster)
+        assert "OSPREY_AUDIT_IDENTITY" in caplog.text
+
+    def test_an_unnamed_build_account_provisions_no_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``unknown`` is the ladder's word for "no name"; no record is filed under it."""
+        from osprey_connectors.identity import UNKNOWN_IDENTITY
+
+        monkeypatch.setattr("osprey_connectors.identity.acting_identity", lambda: UNKNOWN_IDENTITY)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            tree = _control_tree_build(tmp_path)
+
+        assert not (tree / UNKNOWN_IDENTITY).exists()
+        assert "deployment.host_identity" in caplog.text
 
     def test_a_symlink_planted_at_the_control_tree_marker_is_not_written_through(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

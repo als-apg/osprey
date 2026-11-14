@@ -63,14 +63,17 @@ import yaml
 from playwright.sync_api import Frame, FrameLocator, Page, expect
 
 from osprey.interfaces._serving import run_app_server
-from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
     PLANS,
     live_chat_server,
 )
 
-pytestmark = [pytest.mark.browser, pytest.mark.slow]
+# xdist_group("docker"): the session's Postgres container, on the worker that
+# starts every other container, so the sweep does not load the runtime from two
+# workers at once.
+pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.xdist_group("docker")]
 
 #: Seconds ARIEL's ``/api/capabilities`` is held before it answers.
 CAPABILITIES_DELAY_S = 1.5
@@ -150,41 +153,9 @@ _IFRAME_AT_ITS_SRC = """
 
 
 # ---------------------------------------------------------------------------
-# Postgres (testcontainers), one container per module, one database per test
+# Postgres: the session's own container (``pgvector_container_url``, from
+# ``tests/conftest.py``), one database per test
 # ---------------------------------------------------------------------------
-
-
-def _skip_or_fail(reason: str) -> None:
-    """Skip for want of Postgres, or fail when the gate demands a database."""
-    if os.environ.get("ARIEL_TEST_REQUIRE_DB") == "1":
-        pytest.fail(f"{reason} (ARIEL_TEST_REQUIRE_DB=1)")
-    pytest.skip(reason)
-
-
-@pytest.fixture(scope="module")
-def ariel_postgres_url() -> Iterator[str]:
-    """The admin DSN of a pgvector Postgres owned by this module."""
-    if not is_docker_available():
-        _skip_or_fail("docker daemon is not reachable")
-    try:
-        from testcontainers.postgres import PostgresContainer
-    except ImportError:
-        _skip_or_fail("testcontainers[postgres] not installed")
-    container, _port = start_or_fail(
-        lambda: PostgresContainer(
-            image="ankane/pgvector:latest",
-            username="ariel",
-            password="ariel",
-            dbname="ariel_embedded",
-        ),
-        "postgres (embedded ARIEL browser tests)",
-        5432,
-    )
-    try:
-        url = container.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
-        yield url
-    finally:
-        stop_quietly(container)
 
 
 def _fresh_database(admin_url: str, name: str) -> str:
@@ -433,6 +404,7 @@ def _ariel_stack(
                     page = browser.new_page(viewport={"width": 1600, "height": 1000})
                     page.add_init_script(_PROBES)
                     page.goto(base_url, wait_until="domcontentloaded")
+                    wait_for_page_ready(page)
                     expect(page.locator(_INPUT)).to_be_visible(timeout=15_000)
 
                     stack = Stack(
@@ -466,7 +438,7 @@ def _ariel_stack(
 
 
 @pytest.fixture
-def stack_factory(tmp_path, chromium_browser, ariel_postgres_url, monkeypatch):
+def stack_factory(tmp_path, chromium_browser, pgvector_container_url, monkeypatch):
     """Build the stack opened at a given ARIEL hash; torn down after the test."""
     with contextlib.ExitStack() as exits:
 
@@ -475,7 +447,7 @@ def stack_factory(tmp_path, chromium_browser, ariel_postgres_url, monkeypatch):
                 _ariel_stack(
                     tmp_path,
                     chromium_browser,
-                    ariel_postgres_url,
+                    pgvector_container_url,
                     monkeypatch,
                     initial_hash=initial_hash,
                 )
@@ -748,6 +720,7 @@ def test_ariel_entry_open_after_a_hub_reload_shows_the_entry(stack_factory):
     expect(stack.frame_locator.locator(_ROWS).first).to_be_visible(timeout=15_000)
 
     stack.page.reload(wait_until="domcontentloaded")
+    wait_for_page_ready(stack.page)
     expect(stack.page.locator(_INPUT)).to_be_visible(timeout=15_000)
     stack.wait_settled()
 

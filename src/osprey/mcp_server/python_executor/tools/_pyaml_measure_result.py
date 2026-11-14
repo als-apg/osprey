@@ -3,7 +3,8 @@
 The script ends with one ``OSPREY_PYAML_MEASURE <json>`` line on stdout, also
 when the measurement stopped, failed or was interrupted.
 :func:`parse_measure_result` reads that line and returns the tool's result for
-one kind:
+one kind, told by the caller whether the kind's result is a response matrix
+(the kind block's ``matrix``, as the build rendered it):
 
 * every result carries ``kind``, ``model``, ``completed`` and ``sha256``, the
   digest of the pyAML view the script loaded, the ``modulation`` (and ``by``)
@@ -14,11 +15,11 @@ one kind:
   whose ``max_step`` bounded a step; a group adds ``delta_basis``; an RF step
   adds ``rf_span_hz`` and ``rf_limited_by``, the chromaticity monitor
   ``e_delta_used``;
-* a completed ``orm``, ``dispersion``, ``trm`` or ``crm``: ``shape``,
+* a completed response-matrix kind: ``shape``,
   ``observables`` (``[name, plane]`` per row, the plane read as ``x`` or
   ``y``), ``variables`` (one name per column), the steps used and
   ``data_file``;
-* a completed ``chromaticity_monitor``: ``chromaticity`` ``[xi_x, xi_y]`` and
+* a completed scalar kind: the plan's scalar field, a pair of numbers, and
   ``data_file``;
 * ``missing``: ``{}`` for a completed run; for a stopped run each variable
   not measured (the kind itself when none is left) mapped to the first line
@@ -52,9 +53,6 @@ __all__ = [
 
 #: The tag of the script's one result line.
 RESULT_TAG = "OSPREY_PYAML_MEASURE"
-
-#: The kinds whose result is a response matrix.
-_MATRIX_KINDS = ("orm", "dispersion", "trm", "crm")
 
 #: The planes a row may be read in.
 _PLANES = ("x", "y")
@@ -201,12 +199,17 @@ def _missing(line: Mapping[str, Any], completed: bool) -> dict[str, str | None]:
     return dict(value)
 
 
-def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
+def parse_measure_result(
+    stdout: str | bytes, kind: str, *, matrix: bool, scalar: str | None = None
+) -> dict[str, Any]:
     """The ``pyaml_measure`` result for ``kind`` from the script's output.
 
     Args:
         stdout: Everything the script printed to stdout.
         kind: The kind the script was built for.
+        matrix: Whether the kind's completed result is a response matrix.
+        scalar: The field a completed scalar kind's result is read under (the
+            plan's ``scalar``); ``None`` for a kind whose plan names none.
 
     Returns:
         The result described in the module docstring.
@@ -242,7 +245,7 @@ def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
     for name in _ECHOED:
         if name in line:
             result[name] = _string(line, name)
-    if kind in _MATRIX_KINDS:
+    if matrix:
         result["deltas"] = _steps(line)
     for name in _NAMED:
         if name in line:
@@ -255,7 +258,7 @@ def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
             result[name] = _number(line[name], name)
 
     if completed:
-        if kind in _MATRIX_KINDS:
+        if matrix:
             result["shape"] = _shape(line)
             result["observables"] = _observables(line)
             result["variables"] = _names(line, "variables")
@@ -265,10 +268,14 @@ def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
                     f"observables and {len(result['variables'])} variables"
                 )
         else:
-            value = _require(line, "chromaticity")
+            if scalar is None:
+                raise MeasureResultError(
+                    f"kind {kind!r} is not a response matrix and its plan names no scalar field"
+                )
+            value = _require(line, scalar)
             if not isinstance(value, list) or len(value) != 2:
-                raise MeasureResultError(f"'chromaticity' is not [xi_x, xi_y]: {value!r}")
-            result["chromaticity"] = [_number(item, "chromaticity") for item in value]
+                raise MeasureResultError(f"{scalar!r} is not a pair of numbers: {value!r}")
+            result[scalar] = [_number(item, scalar) for item in value]
         result["data_file"] = _string(line, "data_file")
     result[MISSING_KEY] = _missing(line, completed)
     return result

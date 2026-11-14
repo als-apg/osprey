@@ -4,7 +4,8 @@ This module is the only reader of which CANOPY and PyDMConverter are installed
 and whether they are the proven commits, and the only formatter of the line
 that says so. It imports nothing outside the standard library, so ``--pins``
 runs by path with a bare interpreter before any environment exists, and prints
-the two pins, one ``name=commit`` per line::
+the two pins, then everything else the proven payload was built from, one
+``key=value`` per line::
 
     python3 src/osprey/integrations/canopy/proven.py --pins
 
@@ -37,8 +38,45 @@ from dataclasses import dataclass
 #: The canopy-contract check runs against exactly these; a payload and the shipped
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
-    "canopy": "166989aade14853aeefaa8b34ce760ea4d68ed37",  # osprey:not-a-port (a sha)
-    "PyDMConverter": "67129697d7fa8b87309f96e4f08ee05f38dc7867",
+    "canopy": "13c3242030bf97e27a14f2e5b3e14e4a82a2a513",  # osprey:not-a-port (a sha)
+    "PyDMConverter": "4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f",
+}
+
+#: The public mirror each repository of the proven payload is cloned from.
+_MIRROR = "https://github.com/als-apg/canopy-osprey-mirror-"
+
+#: The other repositories the proven payload was built from, at their commits,
+#: and the commit of the canopy mirror whose ``scripts/build-payload.sh`` built
+#: it. Recorded so the payload can be rebuilt, never judged: the stage check
+#: reads :data:`PROVEN_COMMITS` alone.
+PAYLOAD_COMMITS: dict[str, str] = {
+    "canopy-screen-runtime": "70b47fc14986ea003580d237139358445cf23430",
+    "react-trace": "cb9d19b5cb4b4ecab9fe290d059481debf1dfc7c",
+    "canopy-sdk-js": "d07d7f4c23ce52347cca312268b8078cdd87282f",
+    "builder": "7a6c250cdf344016cf09bd65c66e241a12097b08",
+}
+
+#: Where each repository of :data:`PROVEN_COMMITS` and :data:`PAYLOAD_COMMITS` is public.
+MIRRORS: dict[str, str] = {
+    "canopy": _MIRROR + "canopy",
+    "PyDMConverter": _MIRROR + "pydm-converter-tool",
+    "canopy-screen-runtime": _MIRROR + "screen-runtime",
+    "react-trace": _MIRROR + "react-trace",
+    "canopy-sdk-js": _MIRROR + "sdk-js",
+    "builder": _MIRROR + "canopy",
+}
+
+#: The rest of the proven build, keyed as ``build-payload.sh`` reads it where
+#: it reads it at all: the builder's branch, the SDK release its packs come
+#: from, the pnpm the commits name, and the versions the build is expected to
+#: give the two wheels (``canopy_version`` and ``pydm_version`` in the payload's
+#: ``STAGED.json``), for a reader to check against.
+PAYLOAD_BUILD: dict[str, str] = {
+    "builder.branch": "als/payload-sdk-release",
+    "SDK_PACKS": _MIRROR + "sdk-js/releases/download/v0.3.1-als.2",
+    "pnpm": "11.1.1",
+    "canopy.version": "0.0.2.dev293+g13c324203",
+    "PyDMConverter.version": "1.0.9.dev10+g4b8183f39",
 }
 
 #: The ``STAGED.json`` key that names each distribution's commit.
@@ -210,12 +248,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Judge the installed CANOPY against the commits this OSPREY is proven against.",
     )
     parser.add_argument(
-        "--pins", action="store_true", help="print the proven commits, one name=commit per line"
+        "--pins",
+        action="store_true",
+        help="print the proven commits and what the proven payload was built from,"
+        " one key=value per line",
     )
     args = parser.parse_args(argv)
     if args.pins:
-        for distribution, commit in PROVEN_COMMITS.items():
-            sys.stdout.write(f"{distribution}={commit}\n")
+        commits = {**PROVEN_COMMITS, **PAYLOAD_COMMITS}
+        mirrors = {f"{name}.mirror": MIRRORS[name] for name in commits}
+        for key, value in {**commits, **mirrors, **PAYLOAD_BUILD}.items():
+            sys.stdout.write(f"{key}={value}\n")
         return 0
     judgement = judge()
     sys.stdout.write(line(judgement, ran=None) + "\n")

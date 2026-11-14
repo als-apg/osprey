@@ -1,0 +1,1 @@
+`osprey app check` refuses an app agent's or listed skill's frontmatter whose delimiter line is not exactly `---` (trailing spaces or tabs) or that carries a lone carriage return, which the check no longer reads as a line end while the copy keeps it.

@@ -50,6 +50,7 @@ __all__ = [
     "ROLE_SOURCE_HEADER",
     "SUBJECT_HEADER",
     "CASE_INSENSITIVE_CLAIMS",
+    "canonical_identity",
     "is_header_safe",
     "same_domain",
     "same_identity",
@@ -75,8 +76,9 @@ without an account.
 SUBJECT_HEADER = "X-Osprey-Auth-Subject"
 """Names who proved the login behind an authorized request.
 
-An OIDC session carries the provider's subject; a password session carries the
-roster username of whoever proved the login. Under either method the value
+An OIDC session carries the provider's subject in its :func:`canonical_identity`
+spelling; a password session carries the roster username of whoever proved the
+login. Under either method the value
 matches the account on an own card and differs from it on a shared card.
 Emitted only when the session holds one, so its presence always means a known
 identity and no consumer has to tell an empty value from an absent one.
@@ -187,9 +189,29 @@ def same_identity(asserted: str, configured: str, *, claim: str) -> bool:
         same mailbox — both sides casefolded, then compared in constant time.
         For every other claim, exactly :func:`same_value`.
     """
-    if claim in CASE_INSENSITIVE_CLAIMS:
-        return same_value(asserted.casefold(), configured.casefold())
-    return same_value(asserted, configured)
+    return same_value(
+        canonical_identity(asserted, claim=claim), canonical_identity(configured, claim=claim)
+    )
+
+
+def canonical_identity(value: str, *, claim: str | None) -> str:
+    """The one spelling of a mapped identity under ``claim``'s rule.
+
+    What :func:`same_identity` compares, produced once so a value can be
+    compared later without knowing the claim: the sidecar forwards a subject in
+    this spelling, and the build spells an application's ``access`` members the
+    same way, so the terminal compares the two byte for byte.
+
+    Args:
+        value: An asserted or configured identity.
+        claim: The ID-token claim the deployment maps on; ``None`` is the
+            default (``sub``), compared exactly.
+
+    Returns:
+        ``value`` casefolded for a claim in :data:`CASE_INSENSITIVE_CLAIMS`,
+        else ``value`` unchanged.
+    """
+    return value.casefold() if claim in CASE_INSENSITIVE_CLAIMS else value
 
 
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")

@@ -505,54 +505,57 @@ class TestCompanionProbeAttribution:
     probe attributes the port and names the two escapes that exist.
     """
 
-    #: A base well clear of the default block, so the ports this class binds
-    #: cannot collide with a real deployment on the developer's host.
-    BASE = 21000
-    #: The artifact gallery's index-0 slot at :attr:`BASE`. Artifacts is the one
-    #: UNIVERSAL panel, so it is probed with no `web.panels` config at all.
-    ARTIFACT_PORT = BASE + 200
+    #: The artifact gallery's offset from the port base: its index-0 slot.
+    #: Artifacts is the one UNIVERSAL panel, so it is probed with no
+    #: `web.panels` config at all.
+    ARTIFACT_OFFSET = 200
 
-    def _render(self, lifecycle_repo, monkeypatch, *, roster: bool) -> None:
-        """Stand this repo's render on ``BASE``, with the roster on or off."""
+    @pytest.fixture
+    def artifact_port(self, reserve_port) -> int:
+        """A free port reserved for this test, taken as the artifact index-0 slot.
+
+        The attribution keys off the port EQUALLING the family's index-0 slot,
+        so the base is derived from a reserved port rather than fixed: a fixed
+        base lands on whatever another process on the host already holds, and
+        the clean-host case then reports that listener.
+        """
+        return reserve_port()
+
+    def _render(self, lifecycle_repo, monkeypatch, artifact_port: int, *, roster: bool) -> int:
+        """Stand this repo's render on the base under *artifact_port*; return the base."""
         from osprey_connectors.workspace import reset_config_cache
 
+        base = artifact_port - self.ARTIFACT_OFFSET
         build = stub_build(
             lifecycle_repo,
             config=(
                 "claude_code:\n  provider: anthropic\n"
-                f"deployment:\n  port_base: {self.BASE}\n"
+                f"deployment:\n  port_base: {base}\n"
                 f"modules:\n  web_terminals:\n    enabled: {str(roster).lower()}\n"
             ),
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
         reset_config_cache()
+        return base
 
     @contextlib.contextmanager
-    def _listener_on_artifact_port(self):
-        """Hold a listener on the artifact index-0 port, or skip the test.
-
-        The port is a fixed number rather than an OS-assigned one — that is the
-        whole point, since the attribution keys off the port EQUALLING the
-        family's index-0 slot — so it can genuinely be unavailable on a busy
-        host. That is a fact about the machine, not a failure of the probe.
-        """
+    def _listener_on(self, port: int):
+        """Hold a listener on *port*, the reserved artifact index-0 slot."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(("127.0.0.1", self.ARTIFACT_PORT))
+            sock.bind(("127.0.0.1", port))
             sock.listen(1)
-        except OSError as exc:
-            sock.close()
-            pytest.skip(f"port {self.ARTIFACT_PORT} unavailable on this host: {exc}")
-        try:
             yield
         finally:
             sock.close()
 
-    def test_companion_port_held_by_the_roster_is_attributed(self, lifecycle_repo, monkeypatch):
+    def test_companion_port_held_by_the_roster_is_attributed(
+        self, lifecycle_repo, monkeypatch, artifact_port
+    ):
         from osprey.cli.web_cmd import _probe_companion_ports
 
-        self._render(lifecycle_repo, monkeypatch, roster=True)
-        with self._listener_on_artifact_port():
+        base = self._render(lifecycle_repo, monkeypatch, artifact_port, roster=True)
+        with self._listener_on(artifact_port):
             failures = _probe_companion_ports()
 
         assert len(failures) == 1, failures
@@ -560,35 +563,37 @@ class TestCompanionProbeAttribution:
         assert "multi-user roster (user 0) owns this port" in finding
         # The port is named as the family's index-0 slot at THIS base, not as
         # an anonymous busy number.
-        assert f"'artifact' family's index-0 slot at port base {self.BASE}" in finding
-        assert str(self.ARTIFACT_PORT) in finding
+        assert f"'artifact' family's index-0 slot at port base {base}" in finding
+        assert str(artifact_port) in finding
         # Both escapes, and no `lsof` hunt for a process the operator owns.
         assert "artifact_server.port" in finding
         assert "--port" in finding
         assert "lsof" not in finding
 
-    def test_companion_port_held_without_a_roster_stays_foreign(self, lifecycle_repo, monkeypatch):
+    def test_companion_port_held_without_a_roster_stays_foreign(
+        self, lifecycle_repo, monkeypatch, artifact_port
+    ):
         """Same listener, same port — but with the web tier off, nothing in this
         repo can account for it, so the foreign-listener wording is unchanged."""
         from osprey.cli.web_cmd import _probe_companion_ports
 
-        self._render(lifecycle_repo, monkeypatch, roster=False)
-        with self._listener_on_artifact_port():
+        self._render(lifecycle_repo, monkeypatch, artifact_port, roster=False)
+        with self._listener_on(artifact_port):
             failures = _probe_companion_ports()
 
         assert len(failures) == 1, failures
         finding = failures[0]
         assert "is already in use by another process" in finding
-        assert f"lsof -i :{self.ARTIFACT_PORT}" in finding
+        assert f"lsof -i :{artifact_port}" in finding
         assert "roster" not in finding
 
     def test_companion_probe_is_clean_when_nothing_holds_the_port(
-        self, lifecycle_repo, monkeypatch
+        self, lifecycle_repo, monkeypatch, artifact_port
     ):
         """The roster flag alone reports nothing: attribution needs a listener."""
         from osprey.cli.web_cmd import _probe_companion_ports
 
-        self._render(lifecycle_repo, monkeypatch, roster=True)
+        self._render(lifecycle_repo, monkeypatch, artifact_port, roster=True)
         assert _probe_companion_ports() == []
 
 

@@ -251,7 +251,11 @@ class MockArchiverConnector(ArchiverConnector):
             description=f"Mock archived channel: {channel}",
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
-        """Whether the simulator view holds each channel."""
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+        """Whether the simulator view holds each channel.
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
+        """
         served = set(self._current().addresses)
         return {channel: channel in served for channel in channels}

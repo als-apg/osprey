@@ -46,7 +46,12 @@
  * window's realm, so nothing here tests them with `instanceof Node`.
  *
  * Focus contract — opening records the document's `activeElement` and focuses the
- * first enabled row. That focus is handed back only on the KEYBOARD dismissals
+ * first enabled row. A row is lit by the pointer on it, or by focus that the
+ * keyboard moved (`:focus-visible`), so a menu opened with the pointer shows no
+ * lit row until one is hovered. An enabled row takes focus when the pointer
+ * enters it and gives it to its level when the pointer leaves, and a submenu
+ * closes a moment after the pointer leaves every level: nothing stays lit or
+ * open behind the pointer. That focus is handed back only on the KEYBOARD dismissals
  * (Escape/Tab) and on close-before-run, where it is restored before the action
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
  * and resize dismissals never move focus: blur in particular fires AFTER focus
@@ -89,7 +94,9 @@
  * still matches only rows that draw one.
  *
  * Submenus — a row with `submenu` items (any depth) ends in a fourth column,
- * `<span class="osprey-context-submenu" aria-hidden="true">▸</span>`, carries
+ * `<span class="osprey-context-submenu" aria-hidden="true">▸</span>`, after
+ * an optional `<span class="osprey-context-value">` naming the row's current
+ * choice (`value`; the hint column stays for shortcuts). The row carries
  * `aria-haspopup="menu"` and `aria-expanded`, and runs nothing itself: it
  * opens a child `<div class="osprey-context-menu" role="menu" data-depth="1">`
  * named after the row. The child opens on hover (after {@link HOVER_DELAY}),
@@ -119,6 +126,8 @@
  * @property {string} [code]      - a value the verb acts on, drawn monospace after the label
  * @property {string} [glyph]     - leading glyph tying the row to the surface's iconography
  * @property {string} [hint]      - right-aligned secondary text (a shortcut, a count), muted
+ * @property {string} [value]     - a submenu row's current choice, right-aligned and muted
+ *   before its ▸ (a view menu's "Group by  Date ▸"); never a shortcut, which is `hint`
  * @property {boolean} [checked]  - a toggle row: true draws ✓, false draws nothing; undefined is a plain verb
  * @property {boolean} [disabled] - render the row inert (aria-disabled, no run)
  * @property {string} [tip]       - a hover tip, e.g. why a disabled row is disabled
@@ -138,10 +147,16 @@
  *   button carries `aria-expanded` while the menu is open; a press on it
  *   does not count as an outside press, and opening again from the same
  *   button while its menu is open closes the menu instead (a toggle).
+ * @property {'below' | 'right'} [side] - where a trigger's menu opens: under it,
+ *   right edges aligned (the default, for a ⋯ at a bar's end), or beside it
+ *   as a submenu beside its row (a button at a sidebar's edge); either flips
+ *   at the viewport's edge
  * @property {string} ariaLabel - the menu's accessible name
  * @property {MenuItem[]} items - the rows, in order
  * @property {string} [classPrefix] - class-name stem, `osprey-context` by default
  */
+
+import { followPointer } from './context-menu-pointer.js';
 
 const DEFAULT_PREFIX = 'osprey-context';
 
@@ -313,6 +328,7 @@ function openSubmenu(row, items, depth, focusFirst) {
     menu.setAttribute('aria-label', row.querySelector(`.${prefix}-label`)?.textContent ?? '');
     menu.dataset.depth = String(depth + 1);
     menu.addEventListener('contextmenu', (e) => e.preventDefault());
+    followPointer(menu, () => closeLevelsFrom(1));
     for (const item of items) menu.appendChild(buildRow(item, depth + 1));
     ownerDoc.body.appendChild(menu);
     const dir = placeSubmenu(menu, row, depth === 0 ? 1 : subs[depth - 1].dir, ownerView);
@@ -563,6 +579,19 @@ export function closeContextMenu() {
 }
 
 /**
+ * One cell of a row: a `<span>` of the menu's prefix and `part`, as text.
+ * @param {string} part  @param {string} text  @param {boolean} [decorative]  aria-hidden
+ * @returns {HTMLSpanElement}
+ */
+function cell(part, text, decorative = false) {
+  const span = document.createElement('span');
+  span.className = `${prefix}-${part}`;
+  if (decorative) span.setAttribute('aria-hidden', 'true');
+  span.textContent = text;
+  return span;
+}
+
+/**
  * Build one row element.
  * @param {MenuItem} item
  * @param {number} depth - depth of the level the row belongs to (0 = root)
@@ -594,11 +623,7 @@ function buildRow(item, depth) {
   // Leading column: the glyph, or an empty slot of the same width so the
   // labels of glyph-less rows line up with the rest.
   const glyphText = toggle ? (item.checked ? '✓' : '') : (item.glyph ?? '');
-  const glyph = document.createElement('span');
-  glyph.className = glyphText ? `${prefix}-glyph` : `${prefix}-glyph-blank`;
-  glyph.setAttribute('aria-hidden', 'true');
-  glyph.textContent = glyphText;
-  btn.appendChild(glyph);
+  btn.appendChild(cell(glyphText ? 'glyph' : 'glyph-blank', glyphText, true));
 
   // Text nodes only: labels and values routinely carry server-supplied names.
   const label = document.createElement('span');
@@ -612,22 +637,14 @@ function buildRow(item, depth) {
   }
   btn.appendChild(label);
 
-  if (item.hint) {
-    const hint = document.createElement('span');
-    hint.className = `${prefix}-hint`;
-    hint.textContent = item.hint;
-    btn.appendChild(hint);
-  }
-
+  // The right-hand cells: a shortcut or count, the current choice, the ▸.
+  if (item.hint) btn.appendChild(cell('hint', item.hint));
+  if (item.value) btn.appendChild(cell('value', item.value));
   const submenu = item.submenu;
   if (submenu) {
     btn.setAttribute('aria-haspopup', 'menu');
     btn.setAttribute('aria-expanded', 'false');
-    const arrow = document.createElement('span');
-    arrow.className = `${prefix}-submenu`;
-    arrow.setAttribute('aria-hidden', 'true');
-    arrow.textContent = '▸';
-    btn.appendChild(arrow);
+    btn.appendChild(cell('submenu', '▸', true));
   }
 
   if (item.tip) btn.title = item.tip;
@@ -707,6 +724,7 @@ export function openContextMenu(opts) {
   // A right-click on the popover itself (or the menu key on a focused row)
   // must not stack the browser's native menu on top of this one.
   menu.addEventListener('contextmenu', (e) => e.preventDefault());
+  followPointer(menu, () => closeLevelsFrom(1));
 
   for (const item of items) menu.appendChild(buildRow(item, 0));
 
@@ -733,6 +751,8 @@ export function openContextMenu(opts) {
  * menu opened near the right or bottom edge flips to the cursor's other side
  * rather than overflowing. Under a trigger button: right edges aligned, a
  * small gap below it, flipped above it when the bottom edge is short of
+ * room. Beside one (`side: 'right'`): placed as a submenu is beside its row
+ * ({@link placeSubmenu}), to the right unless the right edge is short of
  * room. Measured after insertion, at x/y, so the menu's own size is known.
  * @param {HTMLElement} menu
  * @param {OpenOptions} opts
@@ -743,16 +763,18 @@ function place(menu, opts, view) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   const rect = menu.getBoundingClientRect();
-  if (opts.triggerEl) {
+  if (opts.triggerEl && opts.side === 'right') {
+    placeSubmenu(menu, opts.triggerEl, 1, view);
+  } else if (opts.triggerEl) {
     const r = opts.triggerEl.getBoundingClientRect();
     const below = r.bottom + TRIGGER_GAP;
     const fits = below + rect.height <= view.innerHeight;
     menu.style.left = `${Math.max(0, r.right - rect.width)}px`;
     menu.style.top = `${Math.max(0, fits ? below : r.top - rect.height - TRIGGER_GAP)}px`;
-    return;
+  } else {
+    if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
+    if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
   }
-  if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
-  if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
 }
 
 /**

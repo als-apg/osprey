@@ -121,6 +121,7 @@ function settleBootLayout() {
 // import next to the dock-iframe one below for the same freshness reason.
 const JS_DIR = '../../../src/osprey/interfaces/web_terminal/static/js';
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
+const DOCK_SYNC_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
 const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
   restartTerminal: vi.fn(async () => {}),
@@ -308,7 +309,7 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (testWatchdog) clearTimeout(testWatchdog);
   testWatchdog = null;
   const elapsed = performance.now() - testStarted;
@@ -318,6 +319,9 @@ afterEach(() => {
     );
   }
 
+  // A layout change in the test armed dock-sync's settle window; with the fetch
+  // stub gone, that report would reach the next test as an unstubbed request.
+  (await import(DOCK_SYNC_PATH)).cancelLayoutReport();
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-panel-labels');
   document.body.innerHTML = '';
@@ -2526,16 +2530,24 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
   async function bootResync() {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    const server = { visible: ['artifacts', 'ariel'] };
+    /** `held`, when set, keeps a read's answer back after the server has made it. */
+    const server = {
+      visible: ['artifacts', 'ariel'],
+      /** @type {Promise<void> | null} */ held: null,
+      reads: 0,
+    };
     vi.stubGlobal(
       'fetch',
       vi.fn(async (/** @type {string} */ url) => {
         if (url === '/api/panels') {
+          server.reads += 1;
+          const visible = [...server.visible];
+          if (server.held) await server.held;
           return jsonOk({
             enabled: ['artifacts', 'ariel'],
             custom: [],
             default: null,
-            visible: [...server.visible],
+            visible,
             active: null,
             labels: {},
           });
@@ -2550,12 +2562,14 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
       })
     );
 
-    /** @type {{ onopen?: (() => void) | null }[]} */
+    /** @type {{ onopen?: (() => void) | null, onmessage?: ((e: {data: string}) => void) | null }[]} */
     const sources = [];
     class FakeEventSource {
       constructor() {
         /** @type {(() => void) | null} */
         this.onopen = null;
+        /** @type {((e: {data: string}) => void) | null} */
+        this.onmessage = null;
         sources.push(this);
       }
       close() {}
@@ -2569,6 +2583,10 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
       server,
       open: () => {
         for (const s of sources) s.onopen?.();
+      },
+      /** @param {object} frame */
+      emit: (frame) => {
+        for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) });
       },
     };
   }
@@ -2599,6 +2617,32 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
     open();
 
     await settled(() => expect(entry('ariel')).not.toBeNull());
+  });
+
+  test('a hide that overtakes the read made on reconnect is not undone by it', async () => {
+    const { mod, server, open, emit } = await bootResync();
+    /** @type {() => void} */
+    let release = () => {};
+    server.held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const before = server.reads;
+    open();
+    await settled(() => expect(server.reads).toBe(before + 1));
+
+    // The server answered with ariel on the rail, then ariel was hidden: the
+    // frame reaches the page first, the older answer after it.
+    server.visible = ['artifacts'];
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    expect(entry('ariel')).toBeNull();
+    server.held = null;
+    release();
+
+    // The page reads the list again rather than applying the older answer.
+    await settled(() => expect(server.reads).toBe(before + 2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(entry('ariel')).toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id)).toContain('ariel');
   });
 
   test('an in-sync reconnect changes nothing', async () => {
@@ -3074,7 +3118,13 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('ariel'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Open', 'Open in new window', 'Move to', 'Remove from rail']);
+    expect(menuLabels()).toEqual([
+      'Open',
+      'Open in new window',
+      'Open in new session',
+      'Move to',
+      'Remove from rail',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
   });
 
@@ -3087,6 +3137,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Focus tile',
       'Open in a new tile',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);
@@ -3128,6 +3179,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Restart server',
       'Open',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);
@@ -3463,7 +3515,12 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Group by', 'Show pinned sessions', 'Expand all']);
+    expect(menuLabels()).toEqual([
+      'New session',
+      'Artifacts by',
+      'Show pinned sessions',
+      'Expand all',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
@@ -3472,6 +3529,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuLabels()).toEqual([
       'Switch to chat',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -3517,6 +3575,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Switch to terminal',
       'Export conversation',
       'Maximize',
+      'Zoom',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',

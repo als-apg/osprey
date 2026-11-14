@@ -1,0 +1,16 @@
+# The chain's setpoints: the request and the four parameters.
+- {id: INJ:SHOT:REQ, role: setpoint}
+- {id: INJ:GUN:CHARGE:SP, role: setpoint}
+- {id: INJ:TRANSFER:EFF:SP, role: setpoint}
+- {id: INJ:RING:EFF:SP, role: setpoint}
+- {id: INJ:RING:CURRENT:SP, role: setpoint}
+# The chain's readings.
+- {id: INJ:SHOT:COUNT}
+- {id: INJ:TRANSFER:COUNT}
+- {id: INJ:TRANSFER:CHARGE}
+- {id: INJ:TRANSFER:EFF}
+- {id: INJ:RING:CHARGE}
+- {id: INJ:RING:EFF}
+- {id: INJ:RING:CURRENT}
+- {id: INJ:RING:CURRENT:FAST}
+- {id: INJ:SHOT:BUSY}

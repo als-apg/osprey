@@ -5,7 +5,7 @@ for each login file under ``tiers/``, and an image context
 ``build/.image/<project>-<name>/`` for each of them beside the deployment's own.
 A tier render is the deployment's agent at one access level, so it records the
 deployment's preset; an app render is its own agent over the deployment's
-services. The logbook app is checked end to end: its servers, its subagent, its
+services. The logbook login is checked end to end: its servers, its subagent, its
 rules, its write posture, and the card the roster resolves for it.
 """
 
@@ -34,7 +34,7 @@ TIERS = ("readonly", "readwrite", "admin")
 APPS = ("logbook", "knowledge", "channel-finder")
 HOST_PRESET = "demo"
 
-#: Servers the logbook app must not run: the deployment's write and compute
+#: Servers the logbook login must not run: the deployment's write and compute
 #: surfaces, and the services only an operator's agent dials.
 LOGBOOK_ABSENT_SERVERS = ("bluesky", "health", "controls", "python")
 
@@ -173,7 +173,7 @@ def test_tier_renders_keep_their_own_write_posture(built, name):
 
 
 # ---------------------------------------------------------------------------
-# The logbook app, end to end
+# The logbook login, end to end
 # ---------------------------------------------------------------------------
 
 

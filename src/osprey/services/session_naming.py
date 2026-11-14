@@ -39,9 +39,10 @@ NAMING_TIMEOUT_S = 20.0
 #: The most tokens a naming reply may take: a title, with room for a reasoning
 #: model's thinking before it.
 NAMING_MAX_TOKENS = 256
-#: The longest automatic title, in words and in characters.
-MAX_TITLE_WORDS = 6
-MAX_TITLE_CHARS = 60
+#: The longest automatic title, in words and in characters: short enough to fit
+#: the sidebar's session row without an ellipsis.
+MAX_TITLE_WORDS = 4
+MAX_TITLE_CHARS = 32
 #: How much of the first prompt the model is shown.
 PROMPT_CHARS = 2000
 #: Seconds the shutdown waits for a cancelled naming to unwind.
@@ -50,9 +51,12 @@ _SHUTDOWN_GRACE_S = 5.0
 NAMING_ALIAS = "haiku"
 
 _SYSTEM_PROMPT = (
-    "You name conversations. Reply with a short title for the conversation that "
-    f"starts with the user's message: at most {MAX_TITLE_WORDS} words, no quotes, "
-    "no trailing punctuation, nothing else."
+    "You name conversations for a narrow sidebar list. Reply with a short title for "
+    "the conversation that starts with the user's message: a noun phrase of 2 to "
+    f"{MAX_TITLE_WORDS} words that names the system or the task, such as "
+    "'SR vacuum pressures' or 'RF cavity stability'. Keep the user's own "
+    "abbreviations. No leading verb such as Check or Analyze, no filler words, no "
+    "quotes, no trailing punctuation, nothing else."
 )
 
 _EDGE_JUNK = "\"'`*_#>«»“”‘’ \t"
@@ -60,7 +64,7 @@ _TRAILING_PUNCT = ".,;:!?…-–—"
 
 
 def trim_title(reply: str | None) -> str | None:
-    """A model reply as a title: its first line, unquoted, ≤ 6 words and ≤ 60 chars.
+    """A model reply as a title: its first line, unquoted, ≤ 4 words and ≤ 32 chars.
 
     ``None`` when nothing usable is left.
     """

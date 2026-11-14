@@ -159,7 +159,7 @@ describe('the revision / Start gate', () => {
   test('the first rendering of a draft enables Start with that revision', () => {
     const s = reduceApproval(approvalInit(), draft('r1'));
     expect(s.revision).toBe('r1');
-    expect(startGate(s, created, ready)).toEqual({ enabled: true, reason: null, warning: null });
+    expect(startGate(s, created, ready)).toEqual({ enabled: true, reason: null, warnings: [] });
   });
 
   test('the same revision again changes nothing', () => {
@@ -207,7 +207,7 @@ describe('the revision / Start gate', () => {
     expect(startGate(s, created)).toEqual({
       enabled: false,
       reason: "Direction unverified: the draft's environment is loading.",
-      warning: null,
+      warnings: [],
     });
   });
 
@@ -243,7 +243,7 @@ describe('the revision / Start gate', () => {
     expect(startGate(s, created, { ...ready, ownerKnown: false })).toEqual({
       enabled: true,
       reason: null,
-      warning: OWNER_UNKNOWN_NOTICE,
+      warnings: [OWNER_UNKNOWN_NOTICE],
     });
   });
 
@@ -255,7 +255,7 @@ describe('the revision / Start gate', () => {
     expect(startGate(s, created, { ...ready, ownerKnown })).toEqual({
       enabled: true,
       reason: null,
-      warning: null,
+      warnings: [],
     });
   });
 
@@ -264,10 +264,29 @@ describe('the revision / Start gate', () => {
       ...draft('r1'),
       config: storedConfig({ execution_mode: 'readonly' }),
     });
-    expect(startGate(readonly, created, { ...ready, ownerKnown: false }).warning).toBeNull();
+    expect(startGate(readonly, created, { ...ready, ownerKnown: false }).warnings).toEqual([]);
     const s = reduceApproval(approvalInit(), draft('r1'));
     const ended = { job_id: 'j1', status: 'error' };
-    expect(startGate(s, ended, { ...ready, ownerKnown: false }).warning).toBeNull();
+    expect(startGate(s, ended, { ...ready, ownerKnown: false }).warnings).toEqual([]);
+  });
+
+  test("a draft that may not move warns beside Start, next to the owner's, and never holds it", () => {
+    const s = reduceApproval(approvalInit(), draft('r1'));
+    const stuck = {
+      ...created,
+      start_notice: 'Nelder-Mead may not move from the current setpoints.',
+    };
+    expect(startGate(s, stuck, ready)).toEqual({
+      enabled: true,
+      reason: null,
+      warnings: ['Nelder-Mead may not move from the current setpoints.'],
+    });
+    expect(startGate(s, stuck, { ...ready, ownerKnown: false }).warnings).toEqual([
+      OWNER_UNKNOWN_NOTICE,
+      'Nelder-Mead may not move from the current setpoints.',
+    ]);
+    expect(startGate(s, { ...stuck, start_notice: null }, ready).warnings).toEqual([]);
+    expect(startGate(s, { ...stuck, status: 'running' }, ready).warnings).toEqual([]);
   });
 
   test('only the service draft-changed 409 counts as a draft change', () => {

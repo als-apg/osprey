@@ -14,7 +14,9 @@
  *
  * The row is a plain HTML5 drag source: panel-rail.js sets `draggable` and
  * forwards dragstart/dragend through panel-menu-policy to railDragStart /
- * railDragEnd.
+ * railDragEnd. An artifact row of the session tree is one too: its id is its
+ * artifact's tile key (artifact-tiles.js), sidebar-artifacts.js starts it, and
+ * the failsafe below ends it.
  *
  * Landing: once a drop has put the panel in the held layout and the held apply
  * has rebuilt the dock, `onRailDrop(id, {wasOnScreen})` runs, so the caller can

@@ -226,7 +226,7 @@ class TestEnhanceImageEmbedding:
         pools: list[Any] = []
         real_service = ariel_pkg.create_ariel_service
 
-        async def _service(config):
+        async def _service(config, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             service = await real_service(config)
             pools.append(service.pool)
             return service

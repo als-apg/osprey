@@ -12,13 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import measured_tree, write_view
-
-pytest.importorskip("pyaml")
 
 
 def _devices(tmp_path: Path, tree: dict[str, Any], model: str) -> dict[str, dict[str, Any]]:
@@ -50,7 +47,7 @@ def test_a_paired_setpoint_reads_its_readback(tmp_path: Path) -> None:
 def test_a_bpm_reads_both_planes_in_its_channels_unit(tmp_path: Path) -> None:
     devices = _devices(tmp_path, measured_tree(), "SR")
     assert devices["SR_BPM1"] == {
-        "type": "pyaml.bpm.bpm",
+        "type": "pyaml.diagnostics.bpm.bpm",
         "name": "SR_BPM1",
         "lattice_names": "list(BPM1)",
         "x_pos": "BPM1:X[mm]",

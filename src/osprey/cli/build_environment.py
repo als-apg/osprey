@@ -15,18 +15,20 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
+from osprey.apps.origin import listed_installed
 from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     FRAMEWORK_DISTRIBUTION,
     DeploymentPackage,
     refuse_named_twice,
+    refuse_unshipped_apps,
     refuse_unshipped_kinds,
 )
 from osprey_connectors.errors import BuildProfileError
@@ -237,8 +239,9 @@ def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
             if not is_release():
                 raise BuildProfileError(
                     f"Cannot pin osprey-framework: {unreleased_pin_reason()} "
-                    "Set `osprey_install` in your profile to a source path or an "
-                    "explicit PEP 508 spec, or build from a released osprey."
+                    "From a clone, install it editable (`pip install -e <clone>`); or set "
+                    "`osprey_install` in your profile to a source path or an explicit "
+                    "PEP 508 spec, or build from a released osprey."
                 )
             spec = f"osprey-framework=={get_release_version()}"
             return spec, spec
@@ -917,7 +920,11 @@ def deployment_dependencies(
 
 
 def _plan_project_venv(
-    profile: Any, deployment_packages: Sequence[DeploymentPackage] = (), *, install: bool
+    profile: Any,
+    deployment_packages: Sequence[DeploymentPackage] = (),
+    *,
+    install: bool,
+    listed_kinds: Mapping[str, str] | None = None,
 ) -> _ProjectVenvPlan:
     """Judge the project environment's inputs without writing anything.
 
@@ -945,6 +952,10 @@ def _plan_project_venv(
 
     See :func:`_resolve_osprey_spec` for how ``profile.osprey_install`` is
     interpreted.
+
+    ``listed_kinds`` is what a caller that builds no wheel hands in for
+    ``deployment_packages``: the kinds the listed packages' project files
+    declare (:func:`osprey.facility.kinds.listed_kinds`).
     """
     import sys
 
@@ -1001,7 +1012,8 @@ def _plan_project_venv(
         if packages
         else None
     )
-    refuse_unshipped_kinds(extra_deps)
+    refuse_unshipped_kinds(extra_deps, listed=listed_kinds)
+    refuse_unshipped_apps(extra_deps, listed_installed(profile.apps or {}))
 
     # --- Choose the installer ---
     # The pip path names the workspace members beside the framework; a spec

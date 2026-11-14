@@ -420,24 +420,20 @@ class TestWhereAnOverrideBinds:
         ) == ["SR:D1:X"]
         assert list(crossing_instances_db._build_channel_map()) == ["SR:D1:X", "SR:D2:X"]
 
-    def test_a_multi_value_selection_is_walked_by_its_first_value_only(
-        self, separator_override_db
-    ) -> None:
-        """Characterized as-is, not endorsed: one branch decides the whole product.
+    def test_a_multi_value_selection_is_walked_once_per_value(self, separator_override_db) -> None:
+        """Each combination collects the overrides of its own branch.
 
-        The walk reduces ``["BPM", "QUAD"]`` to ``"BPM"`` and collects ``BPM``'s
-        underscore, then the product applies it to every combination -- so the
-        ``QUAD`` channel is emitted with a separator ``QUAD`` does not set, and
-        does not match the name the expansion gives it.
+        ``BPM``'s underscore applies to the ``BPM`` combination only; ``QUAD``
+        sets none and keeps the pattern's colon, whatever the order of the list.
+        Called directly, the walk still follows a list by its first value.
         """
-        built = separator_override_db.build_channels_from_selections(
+        assert separator_override_db.build_channels_from_selections(
             {"system": "SR", "device": ["BPM", "QUAD"], "signal": "X", "suffix": "RB"}
-        )
-        assert built == ["SR-BPM_X:RB", "SR-QUAD_X:RB"]
-        assert built[1] not in separator_override_db.channel_map
-
-        # Reversing the order moves the underscore, and the same two selections
-        # then render with the pattern's colon instead.
+        ) == ["SR-BPM_X:RB", "SR-QUAD:X:RB"]
         assert separator_override_db.build_channels_from_selections(
             {"system": "SR", "device": ["QUAD", "BPM"], "signal": "X", "suffix": "RB"}
-        ) == ["SR-QUAD:X:RB", "SR-BPM:X:RB"]
+        ) == ["SR-QUAD:X:RB", "SR-BPM_X:RB"]
+
+        assert separator_override_db._collect_separator_overrides(
+            {"system": "SR", "device": ["BPM", "QUAD"], "signal": "X", "suffix": "RB"}
+        ) == {("system", "device"): "-", ("device", "signal"): "_"}

@@ -363,6 +363,8 @@ def health(repo: Path | None) -> None:
     lines += _export_lines(body.get("export") or {}, problems)
     if body.get("jobs_clock"):
         lines.append(f"Jobs clock: fixed at {body['jobs_clock']}")
+    if body.get("stopped_after_s"):
+        lines.append(f"Stopped threshold: overridden to {body['stopped_after_s']:g} s")
     for line in lines:
         report(line)
     for problem in problems:

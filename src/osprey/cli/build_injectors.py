@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Iterable, Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -64,6 +64,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
+    from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
     from osprey.cli.build_profile import (
@@ -630,6 +631,7 @@ def project_app_login(
     manifests: Iterable[AppManifest],
     ports: Mapping[str, Any],
     selection: LoginSelection,
+    agents: Mapping[str, Sequence[AppAgent]] | None = None,
 ) -> tuple[list[str], dict[str, McpServerDef]]:
     """Write what one login's render carries of its applications into ``config.yml``.
 
@@ -638,12 +640,13 @@ def project_app_login(
         manifests: The deployment's validated manifests.
         ports: A config holding each projected ``services.<key>.port``.
         selection: This render's selection.
+        agents: Each application's checked subagents, by application name.
 
     Returns:
         The panel ids this render adds to its own selection, and its projected
         tool servers, for the caller's panel selection and server persistence.
     """
-    projected = project_login(manifests, ports, selection)
+    projected = project_login(manifests, ports, selection, agents=agents)
     overrides: dict[str, Any] = {
         f"web.panels.{pid}": block for pid, block in projected["web"]["panels"].items()
     }
@@ -961,13 +964,13 @@ def _inject_dispatch(
                 {
                     "url": events_url,
                     "path": "/dashboard",
-                    "label": "EVENTS",
+                    "label": "Events",
                     "health_endpoint": "/health",
                 },
             )
         else:
             _fill_panel_defaults(
-                events_panel, events_url, "/dashboard", "EVENTS", health_endpoint="/health"
+                events_panel, events_url, "/dashboard", "Events", health_endpoint="/health"
             )
 
     save_config_document(config_path, config)
@@ -1891,7 +1894,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     # double-prefix sub-routes. `setdefault` on `path`/`label` honors a
     # facility override.
     default_url = f"${{BLUESKY_WEB_URL:-http://localhost:{bluesky_web.port}}}"
-    panel_specs = (("bluesky", "/bluesky/", "BLUESKY"),)
+    panel_specs = (("bluesky", "/bluesky/", "Bluesky"),)
     panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
         panel_cfg = panels.get(panel_id)
@@ -1984,12 +1987,12 @@ def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path)
             {
                 "url": default_url,
                 "path": "/optimizer/",
-                "label": "OPTIMIZER",
+                "label": "Optimizer",
                 "read_timeout_s": OPTIMIZER_PANEL_READ_TIMEOUT_S,
             },
         )
     else:
-        _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "OPTIMIZER")
+        _fill_panel_defaults(panel_cfg, default_url, "/optimizer/", "Optimizer")
         # ``null`` is an explicit choice (unbounded), so only an absent key is filled.
         if "read_timeout_s" not in panel_cfg:
             anchored_put(panel_cfg, "read_timeout_s", OPTIMIZER_PANEL_READ_TIMEOUT_S)

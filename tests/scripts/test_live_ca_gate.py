@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import types
+from contextlib import suppress
 from pathlib import Path
 from typing import IO, Any
 
@@ -204,15 +205,24 @@ def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(
     assert str(module) in out
 
 
-def _until_counts_reported(stdout: IO[str]) -> None:
-    """Return once the child's output file holds the counts line, without moving its offset."""
+def _counts_reported(stdout: IO[str]) -> bool:
+    """Whether the child's output file holds the counts line, read without moving its offset."""
     fd = stdout.fileno()
+    text = os.pread(fd, os.fstat(fd).st_size, 0).decode(errors="replace")
+    return any(line.startswith(gate.COUNTS_SENTINEL) for line in text.splitlines())
 
-    def reported() -> bool:
-        text = os.pread(fd, os.fstat(fd).st_size, 0).decode(errors="replace")
-        return any(line.startswith(gate.COUNTS_SENTINEL) for line in text.splitlines())
 
-    wait_until(reported, timeout=_PROMPT_S, interval=0.02, what="the module's counts line")
+def _until_counts_reported(proc: subprocess.Popen[str], stdout: IO[str]) -> None:
+    """Return once the child has printed its counts line, or has ended without one.
+
+    No wall-clock budget: the child's own run bounds the wait, however slowly it
+    starts on a loaded host, since before its counts line it either prints that
+    line or exits; the hang comes only after the line.
+    """
+    while not _counts_reported(stdout):
+        with suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=0.02)
+            return
 
 
 class _TimedFromCounts:
@@ -224,7 +234,7 @@ class _TimedFromCounts:
 
     def wait(self, timeout: float | None = None) -> int:
         if timeout is not None:
-            _until_counts_reported(self._stdout)
+            _until_counts_reported(self._real, self._stdout)
         return self._real.wait(timeout=timeout)
 
     def __getattr__(self, name: str) -> object:
@@ -314,3 +324,14 @@ def test_the_limit_comes_from_the_flag_then_the_environment_then_the_default(
         ("tests/a.py", 45.0),
         ("tests/a.py", 7.5),
     ]
+
+
+def test_pva_mode_runs_the_seam_timed_passes_injection_and_turn_suites_in_that_order() -> None:
+    assert gate.PVA_SUITES == (
+        "tests/va/test_lume_pva_seam.py",
+        "tests/va/test_timed_passes_live.py",
+        "tests/va/test_injection_live.py",
+        "tests/va/test_turn_by_turn_live.py",
+    )
+    root = _MODULE_PATH.parents[3]
+    assert all((root / suite).is_file() for suite in (*gate.LIVE_SUITES, *gate.PVA_SUITES))

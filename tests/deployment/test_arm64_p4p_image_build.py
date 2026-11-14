@@ -4,12 +4,13 @@
 EPICS connector). It ships binary wheels for macOS universal2, linux x86_64 and
 windows — but **not** for linux aarch64, and neither do the two native libraries
 underneath it (``pvxslibs``, ``epicscorelibs``). On an arm64 Linux image all
-three therefore build from source, which needs a C toolchain *and* a setuptools
-older than 84.0.0: 84.0.0 broke ``setuptools_dso``'s compile-probe error
-handling, so a naive arm64 build of the EPICS stack fails (upstream p4p#156).
+three therefore build from source, which needs a C toolchain *and*, under
+setuptools 84, a ``setuptools_dso`` of 2.12.4 or later: earlier releases let a
+failed compile probe's ``CompileError`` escape, so an arm64 build of the EPICS
+stack with an older one fails (upstream p4p#156).
 
 The project image's deps layer already carries both halves of that — it stages
-``build-essential``/``python3-dev``, writes a ``setuptools<84`` file and exports
+``build-essential``/``python3-dev``, writes a ``setuptools-dso>=2.12.4`` file and exports
 ``PIP_CONSTRAINT`` at it (a plain requirement pin would not reach pip's isolated
 build environments), then purges the toolchain in the same ``RUN`` so it never
 lands in the shipped image. Every one of those is a string in a template that no
@@ -17,9 +18,9 @@ x86_64 build can falsify, which is what this module is for.
 
 Two tests, deliberately split by cost:
 
-``test_deps_layer_stages_a_toolchain_under_the_setuptools_constraint`` reads the
+``test_deps_layer_stages_a_toolchain_under_the_setuptools_dso_constraint`` reads the
 Dockerfile ``osprey build`` renders and asserts the mechanism is present —
-toolchain in, constraint exported at a ``setuptools<84`` file, toolchain purged.
+toolchain in, constraint exported at a ``setuptools-dso>=2.12.4`` file, toolchain purged.
 It needs no container runtime and runs wherever the suite runs, so deleting the
 constraint from the template is caught immediately rather than only on a host
 that can build arm64.
@@ -44,9 +45,10 @@ What the built image is then asked to prove, in one ``docker run``:
   ``WHEEL`` metadata, which only a local source build writes (a downloaded wheel
   would say ``manylinux…``). This is what pins the test to the source-build path
   and survives a fully cached rebuild, unlike scraping the build log;
-- their ``WHEEL`` generator is a setuptools below 84 — direct evidence that
-  ``PIP_CONSTRAINT`` reached the isolated build environment, the one thing the
-  constraint exists to do;
+- their ``WHEEL`` generator is setuptools. Which ``setuptools_dso`` built them
+  is recorded nowhere in the image, and uv's cache mount reuses wheels built
+  under an earlier constraint, so the floor itself is guarded only by the
+  render test above;
 - ``gcc`` is gone, so the same-``RUN`` purge still holds on the platform that
   actually uses the toolchain.
 
@@ -99,9 +101,6 @@ RUN_TIMEOUT = 300
 # The distributions with no linux-aarch64 wheel: each one must show up in the
 # image as a locally built artifact, not a download.
 SOURCE_BUILT_DISTRIBUTIONS = ("p4p", "pvxslibs", "epicscorelibs")
-
-# setuptools 84.0.0 is the release the deps layer's constraint exists to exclude.
-MAX_BUILD_SETUPTOOLS_MAJOR = 84
 
 # Opt-in for running the build under emulation on CI; see _arm64_skip_reason.
 EMULATED_BUILD_OPT_IN = "OSPREY_ARM64_EMULATED_BUILD"
@@ -325,10 +324,10 @@ def _deps_copy(instructions: list[str]) -> str:
 # --------------------------------------------------------------------------
 
 
-def test_deps_layer_stages_a_toolchain_under_the_setuptools_constraint(
+def test_deps_layer_stages_a_toolchain_under_the_setuptools_dso_constraint(
     rendered_dockerfile: str,
 ) -> None:
-    """The deps layer stages a compiler, constrains setuptools, and purges again.
+    """The deps layer stages a compiler, constrains setuptools_dso, and purges again.
 
     Guarding all three here — not only inside the arm64 build — is deliberate:
     the build test skips on every host without an arm64 builder, and a template
@@ -342,12 +341,12 @@ def test_deps_layer_stages_a_toolchain_under_the_setuptools_constraint(
         "deps layer no longer stages a C toolchain; p4p/pvxslibs/epicscorelibs "
         f"cannot build from source on linux/arm64 without one:\n{deps_run}"
     )
-    assert "setuptools<84" in deps_run, (
-        "deps layer no longer pins setuptools below 84.0.0, which breaks "
-        f"setuptools_dso's compile probe and fails every EPICS source build:\n{deps_run}"
+    assert "setuptools-dso>=2.12.4" in deps_run, (
+        "deps layer no longer holds setuptools_dso at 2.12.4+, without which "
+        f"setuptools 84 breaks its compile probe and fails every EPICS source build:\n{deps_run}"
     )
     assert "PIP_CONSTRAINT" in deps_run, (
-        "the setuptools pin must be exported as PIP_CONSTRAINT — a plain "
+        "the setuptools_dso floor must be exported as PIP_CONSTRAINT — a plain "
         f"requirement pin does not reach pip's isolated build environments:\n{deps_run}"
     )
     assert "apt-get purge -y build-essential python3-dev" in deps_run, (
@@ -401,24 +400,27 @@ def _deps_layer_dockerfile(rendered: str) -> str:
     out; that omission is what makes this "the deps layer only".
     """
     instructions = _instructions(rendered)
-
-    from_lines = [text for text in instructions if text.startswith("FROM ")]
-    assert len(from_lines) == 1, (
-        f"expected exactly one FROM instruction in the rendered Dockerfile, found "
-        f"{len(from_lines)}: this helper derives the deps layer by taking the single "
-        "stage's base image, which is only correct while the render is single-stage. "
-        "If the image template became multi-stage, re-derive the deps stage here "
-        "explicitly (name the stage the deps RUN belongs to and carry its FROM plus "
-        "any stages it copies from) rather than letting this take the first FROM"
-    )
-    from_line = from_lines[0]
-    from_index = instructions.index(from_line)
-    # An ARG ahead of the FROM is global and the FROM line reads it, so it stays ahead.
-    global_args = [text for text in instructions[:from_index] if text.startswith("ARG ")]
-    args = [text for text in instructions[from_index:] if text.startswith("ARG ")]
     apt_preamble = _only_instruction(instructions, "RUN", "Acquire::Retries", "apt preamble RUN")
     deps_copy = _deps_copy(instructions)
     deps_run = _deps_run(instructions)
+
+    # The deps RUN's stage is the one opened by the last FROM ahead of it; the
+    # stages before it (Node, for the Claude CLI) feed only `COPY --from` layers,
+    # which are left out with the rest of the node layers.
+    deps_index = instructions.index(deps_run)
+    from_index = max(
+        index for index, text in enumerate(instructions[:deps_index]) if text.startswith("FROM ")
+    )
+    from_line = instructions[from_index]
+    stage = instructions[from_index:deps_index]
+    assert apt_preamble in stage and deps_copy in stage, (
+        "the apt preamble and the deps-context COPY must sit in the deps RUN's own "
+        f"stage, opened by {from_line!r}"
+    )
+    # An ARG ahead of the first FROM is global and the FROM line reads it, so it stays ahead.
+    first_from = next(i for i, text in enumerate(instructions) if text.startswith("FROM "))
+    global_args = [text for text in instructions[:first_from] if text.startswith("ARG ")]
+    args = [text for text in instructions[from_index:] if text.startswith("ARG ")]
 
     return (
         "# syntax=docker/dockerfile:1\n"
@@ -531,14 +533,11 @@ def test_deps_layer_builds_p4p_from_source_on_arm64(
             f"{name} {wheel['version']} came from a prebuilt wheel ({wheel['Tag']}), "
             "so this run never exercised the source-build path — if upstream "
             "started shipping linux-aarch64 wheels, the toolchain and the "
-            "setuptools constraint are no longer what makes arm64 work"
+            "setuptools_dso constraint are no longer what makes arm64 work"
         )
         generator = wheel["Generator"]
-        built_by = re.search(r"setuptools \((\d+)\.", generator)
-        assert built_by is not None, f"{name} was not built by setuptools: {generator}"
-        assert int(built_by.group(1)) < MAX_BUILD_SETUPTOOLS_MAJOR, (
-            f"{name} was built by {generator}: PIP_CONSTRAINT did not reach pip's "
-            "isolated build environment, which is the one thing it exists to do"
+        assert generator.startswith("setuptools ("), (
+            f"{name} was not built by setuptools: {generator}"
         )
 
     assert facts["gcc"] is None, (

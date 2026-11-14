@@ -161,6 +161,16 @@ export function createThinkingBlock(since = Date.now()) {
   }
   syncOpenable();
 
+  // The body keeps the reasoning's line breaks (pre-wrap), so whitespace the
+  // model ends a thought with (often "\n\n") would show as blank lines under
+  // the text. A settled thought is trimmed; streaming pieces are appended as
+  // they come, and the finish trims them once.
+  function trimBody() {
+    const text = row.body.textContent ?? '';
+    const trimmed = text.trim();
+    if (trimmed !== text) row.body.textContent = trimmed;
+  }
+
   return {
     el: row.el,
     add(text) {
@@ -168,7 +178,7 @@ export function createThinkingBlock(since = Date.now()) {
       syncOpenable();
     },
     set(text) {
-      row.body.textContent = text;
+      row.body.textContent = text.trim();
       syncOpenable();
     },
     record(ms) {
@@ -178,6 +188,7 @@ export function createThinkingBlock(since = Date.now()) {
       row.setState('done');
       row.label.classList.remove('op-shimmer');
       row.label.textContent = thoughtLabel(recorded === undefined ? Date.now() - since : recorded);
+      trimBody();
       syncOpenable();
     },
   };

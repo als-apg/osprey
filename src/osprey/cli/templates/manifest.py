@@ -546,7 +546,7 @@ def generate_manifest(
 
     # Preserve the CLAUDE.md template choice so a later `osprey build` can
     # re-render against the same render (e.g. CLAUDE.logbook.md.j2 for the
-    # logbook app). Default is the control-system render.
+    # logbook login). Default is the control-system render.
     claude_md_template = context.get("claude_md_template")
     if claude_md_template and claude_md_template != DEFAULT_CLAUDE_MD_TEMPLATE:
         creation_block["claude_md_template"] = claude_md_template

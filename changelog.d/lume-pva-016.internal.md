@@ -1,0 +1,1 @@
+The virtual-accelerator extra pins `lume-pva-apg[ca,pva]==0.1.6`. The model runner uses its three additions: a forced Channel Access monitor event for a `fast` or `event` channel posted at an unchanged value, a rollback snapshot narrowed to what a pass can change, and a flush that visits only the channels posted.

@@ -56,6 +56,14 @@ SDK_NAMES = {
     "ResponseMatrix",
     "prewrite_verdict",
     "WriteVerdictView",
+    "bridges_for_target",
+    "audit_surface",
+    "canonical_json",
+    "input_digest",
+    "CALLER_HEADER",
+    "caller_from_header",
+    "caller_kind",
+    "launch_token_env",
 }
 
 

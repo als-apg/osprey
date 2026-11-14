@@ -314,7 +314,9 @@ Service Factory
 
 The ``get_ariel_search_service()`` function provides a singleton
 ``ARIELSearchService`` instance. The service is lazily initialized from
-``config.yml`` on first access and reused for subsequent calls.
+``config.yml`` on first access and reused for subsequent calls. The first
+access gives the database 10 s to answer; a database that does not answer
+raises ``StoreSilentError`` and nothing is cached, so the next call asks again.
 
 .. literalinclude:: examples/ariel-service-factory.py
    :language: python
@@ -576,7 +578,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, the ``CONFIG_FILE`` environment variable, ``/app/config.yml`` (a hand-authored container mount), and the current directory. The DSN is then resolved by ``resolve_ariel_dsn``, which applies the ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` overrides for Docker networking.
 
-         3. **Service creation** --- creates the ``ARIELSearchService`` from the loaded config and stores it in ``app.state.ariel_service``.
+         3. **Service creation** --- creates the ``ARIELSearchService`` from the loaded config and stores it in ``app.state.ariel_service``. The database gets 30 s to answer. One that refuses leaves the app in degraded mode; one that does not answer raises ``StoreSilentError`` out of the lifespan, so start-up fails with ``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``.
 
          4. **Health check** --- validates the database connection and logs the result.
 

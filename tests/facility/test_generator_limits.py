@@ -78,7 +78,7 @@ def corrector_band(address: str) -> dict[str, float]:
 CAVITY_OPERATING_MHZ = 500.417
 
 #: The measurement keys that are not pyAML step or settle keys.
-_MEASUREMENT_ROLES = {"kinds", "groups", "instruments"}
+_MEASUREMENT_ROLES = {"kinds", "groups", "instruments", "kind_blocks"}
 
 
 @cache

@@ -58,14 +58,14 @@ of its channels, and says so:
 - A read of such an address raises ``ChannelNotFoundError``, whose message is
   ``<address> is not a channel of this facility``.
 - A write to such an address is not raised: it comes back with outcome
-  ``refused`` and ``refusal_reason`` ``CHANNEL_NOT_FOUND``, so the outcomes of
-  the other writes in the same batch are kept.
+  ``refused`` and ``refusal_reason`` ``CHANNEL_NOT_FOUND``. In a batch it is
+  one refused row, and no write of that batch is sent.
 
 The controls tools report both as error type ``not_found``, naming the address
 under ``details.channel``. A read that names several channels still succeeds
 for the ones that answered and names the unknown address under ``missing``
 (see :doc:`partial-answers`); a batch write reports the unknown address as its
-``refused`` row beside the rows that were written.
+``refused`` row beside the rows it held back (``BATCH_REFUSED``).
 
 A Channel Access connector cannot tell an unknown name from an unreachable one
 -- a search that finds nothing times out -- so it reports
@@ -189,6 +189,40 @@ passing nothing means "no opinion" and leaves the choice to the configuration.
 would, which is why ``osprey.runtime.write_channels`` behaves like
 ``osprey.runtime.write_channel``.
 
+What a batch means
+~~~~~~~~~~~~~~~~~~
+
+``write_multiple_channels()`` checks every write before it sends any, on every
+connector. The promise covers refusals known before the send:
+
+- **The checks are all-or-nothing.** Every write passes what a single write
+  passes before its put: the write verdict, the connector's own refusals and
+  the limits, ``max_step`` included (the stepped channels are read together,
+  once). If one write is refused, no write of the batch is sent. Every row is
+  ``refused``: a refused write with its own reason, each other write with
+  ``BATCH_REFUSED``, whose message names a refused one.
+- **Past the checks each write is sent and verified on its own.** A write that
+  fails, mismatches or stays unconfirmed does not recall the others, which may
+  already hold their values. The batch succeeded only if every row is
+  ``confirmed`` or ``unrequested``.
+- **A refusal given only at the send is a row, not a recall.** A control system
+  that refuses at the put (a connector with no precheck, a value the target
+  coerces, a read-only channel) can do so after earlier writes of the batch
+  went out. Each row says what happened to its own channel.
+
+A batch names a channel once; one that names a channel more than once is
+refused whole (``VALIDATION_ERROR`` on the repeated writes). The write verdict
+is asked again right before the send: a switch turned off, a hold or a stop
+that arrived during the checks refuses every write not yet sent.
+
+A batch does not raise ``ChannelLimitsViolationError``; a limits refusal is a
+``refused`` row with reason ``LIMITS``. The EPICS connector sends the puts of a
+batch together; the other connectors send them in the order given.
+
+A caller that must not proceed on a batch passes its results to
+``raise_for_write_results()``, which raises for a refused write before the
+writes its batch held back.
+
 How values are compared
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -218,8 +252,8 @@ points to.
    :language: yaml
 
 
-It is spelled in ``tiers/*.yml``, in the deployment root for the root or
-single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
+It is spelled in ``tiers/*.yml`` and, for the root or single-user render, in
+the deployment root; a shared login is always ``never``. A tier
 overrides the root. Only ``asked`` and ``allowed`` arm; any other value, and no
 key at all, reads ``never``. The tier is a ceiling, not a selection: an armed
 tier may write to every machine the deployment configures, and the switch picks
@@ -474,9 +508,9 @@ Earlier releases armed writes per connector type, with
 - **Until you do**, each retired key builds with one warning naming the new
   key. A layer with a literal ``true`` in its flat or any per-type key reads
   ``writes: allowed`` --- for every machine, not only the type it named; any
-  other value reads ``never``. An app always reads ``never``. A file that
+  other value reads ``never``. A shared login always reads ``never``. A file that
   spells both the retired and the new key is refused. The retired keys are
-  refused from 2026.12.0.
+  refused in the next stable release.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
 - **Every machine starts at off.** After the rebuild, nothing writes until a
@@ -486,7 +520,8 @@ Earlier releases armed writes per connector type, with
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
-- **Two countdowns, warn now, refused from 2026.12.0.** A facility tool that
+- **Two countdowns, warn now, refused in the next stable release.** A facility
+  tool that
   a server lists under ``permissions.ask``, or whose name carries a
   destructive marker, and that is missing from that server's
   ``mcp_servers.<server>.writes`` list, is a build warning.
@@ -648,6 +683,11 @@ control-system connector answers about the present.
 
 Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
+``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
+are ``None`` when the archiver cannot say; ``check_availability`` raises
+``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
+answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
+newest sample); the default answers every part unknown, with a reason.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
 with exactly three columns, sorted by ``channel`` then ``timestamp``:

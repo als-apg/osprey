@@ -20,6 +20,8 @@ export default {
     testTimeout: HANG_BOUND_MS,
     hookTimeout: HANG_BOUND_MS,
     pool: 'vmThreads',
+    // Vitest's module cache defaults to node_modules/ under the root; keep it beside the toolchain too.
+    fsModuleCachePath: fileURLToPath(new URL('./.vitest-cache/', import.meta.url)),
     setupFiles: [fileURLToPath(new URL('./vitest.setup.mjs', import.meta.url))],
     include: ['tests/**/*.test.{js,mjs}'],
   },

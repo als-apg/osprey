@@ -1,0 +1,1 @@
+The web terminal's Send feedback dialog uses the same text scale as the sidebar and the tour card: 13 px labels, options and text field instead of 10–11 px, 12 px hints, a 16 px title, larger spacing and accent-coloured controls. Send is now a filled accent button, the same as the tour's primary button. Only the styles change; the form and what it sends stay the same.

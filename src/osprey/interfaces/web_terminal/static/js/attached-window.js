@@ -57,6 +57,7 @@
  */
 
 import { withPrefix } from './api.js';
+import { PAGE_READY_ATTRIBUTE, markPageReady } from '/design-system/js/page-ready.js';
 
 /** The page every window opens on; its <html> carries {@link SHELL_MARKER}. */
 export const SHELL_PATH = '/static/attached-window.html';
@@ -324,6 +325,10 @@ function dressWindow(entry) {
   };
   entry.ready = true;
   runHook(() => spec.onDress?.(mount));
+  // The window's page-ready mark, on its own document: the node is in and the
+  // caller has dressed it, so whatever acts on the window acts on the finished
+  // page. mirrorAttributes never copies the hub's mark across.
+  markPageReady(doc);
 }
 
 /**
@@ -485,17 +490,22 @@ function mirrorStyles(doc) {
 
 /**
  * Keep `to`'s attributes equal to `from`'s: the theme, the view and the
- * Agent's state all live on the hub's <html>.
+ * Agent's state all live on the hub's <html>. The page-ready mark is the one
+ * attribute each document keeps for itself.
  * @param {Element} from
  * @param {Element} to
  * @returns {() => void} stop following
  */
 function mirrorAttributes(from, to) {
+  // The page-ready mark says whether THIS document is dressed: the window
+  // keeps its own, never the hub's.
   const copy = () => {
     for (const name of to.getAttributeNames()) {
+      if (name === PAGE_READY_ATTRIBUTE) continue;
       if (!from.hasAttribute(name)) to.removeAttribute(name);
     }
     for (const name of from.getAttributeNames()) {
+      if (name === PAGE_READY_ATTRIBUTE) continue;
       to.setAttribute(name, /** @type {string} */ (from.getAttribute(name)));
     }
   };

@@ -19,6 +19,7 @@ from osprey.cli.build_profile_panels import (
     apply_panel_selection,
     panel_id_errors,
     panel_leaf_spellings,
+    panel_presentation_errors,
     panel_selection_errors,
     panel_selection_overrides,
     panel_spelling_errors,
@@ -433,3 +434,46 @@ def test_every_offered_panel_carries_a_description() -> None:
 
     assert {name for name, _ in entries} == BUILTIN_PANELS - UNIVERSAL_PANELS
     assert [name for name, description in entries if not description] == []
+
+
+# ---------------------------------------------------------------------------
+# panel_presentation_errors — label and icon
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"web.panels.ariel.label": "Logbook"}, id="builtin_label"),
+        pytest.param({"web.panels.ariel.icon": "book-open"}, id="builtin_icon"),
+        pytest.param(
+            {"web.panels.grafana": {"label": "GRAFANA", "url": "http://x:1", "icon": "monitor"}},
+            id="declared_panel",
+        ),
+        pytest.param({"web": {"panels": {"okf": {"icon": "library"}}}}, id="nested"),
+        pytest.param({"web.panels.okf.enabled": True}, id="neither_key"),
+        pytest.param(None, id="no_config"),
+    ],
+)
+def test_a_label_and_a_drawn_icon_are_accepted(config) -> None:
+    assert panel_presentation_errors(config) == []
+
+
+@pytest.mark.parametrize("label", ["", "  ", 7, None, ["Logbook"]])
+def test_a_label_that_is_not_text_is_refused(label) -> None:
+    (error,) = panel_presentation_errors({"web.panels.ariel.label": label})
+
+    assert error.startswith("web.panels.ariel.label: ")
+    assert "is not a label" in error
+
+
+@pytest.mark.parametrize("icon", ["monitr", "", 3, None])
+def test_an_icon_the_design_system_does_not_draw_is_refused(icon) -> None:
+    """A typo would otherwise read as a setting that did nothing."""
+    (error,) = panel_presentation_errors(
+        {"web.panels.grafana": {"label": "GRAFANA", "url": "http://x:1", "icon": icon}}
+    )
+
+    assert error.startswith("web.panels.grafana: icon: ")
+    assert "is not a design-system icon" in error
+    assert "monitor" in error

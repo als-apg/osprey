@@ -123,7 +123,6 @@ def test_a_stated_value_beside_a_mark_is_refused(tmp_path: Path, profile: dict[s
     remedy = stop.value.remedy
     assert f"remove `{DEFAULT_SCENARIOS_KEY}`" in remedy
     assert f"`{DEFAULT_SCENARIOS_KEY}: null`" in remedy
-    assert "SITE-DEVIATION" in remedy
 
 
 @pytest.mark.parametrize(

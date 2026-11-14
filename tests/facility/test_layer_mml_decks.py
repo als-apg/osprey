@@ -13,6 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 
 from osprey.facility.layers.mml.decks import (
@@ -30,8 +31,6 @@ from osprey.facility.layers.mml.mapping import (
     WiringFamily,
     read_mapping,
 )
-
-at = pytest.importorskip("at")
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 

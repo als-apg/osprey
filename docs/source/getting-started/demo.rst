@@ -151,6 +151,8 @@ same safety hooks, then adds production capabilities. The most visible additions
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
+       The Channels panel's **All PVs** view lists every PV the simulator
+       serves (:ref:`channel-finder-all-pvs`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
@@ -216,7 +218,7 @@ transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
 from the facility knowledge graph that ``osprey build`` writes from the
-facility file. The channel-finder agent works with five tools:
+facility file. The channel-finder agent works with twelve tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
@@ -229,9 +231,13 @@ facility file. The channel-finder agent works with five tools:
   with ``read_cypher``.
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
+- **All PVs.** When the graph has no answer, ``directory_search``,
+  ``directory_properties``, ``pv_record``, ``ioc_record``, ``active_alarms``,
+  ``alarm_state`` and ``alarm_config`` read the simulator's own directory and its
+  replayed alarms.
 
 The agent **never fabricates PV names**: every address it returns is one the
-graph holds. For the other search strategies, see
+graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
 
 Step 4: Search the Electronic Logbook
@@ -367,6 +373,8 @@ every later build — you can also just edit that file instead.
 
 See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
+.. _demo-archive-size:
+
 **Tune how much history the archive keeps.** Two settings decide the store's
 size and reach: ``retention_days`` (how far back it goes — 30 by default) and
 ``hot_span_hours`` (how much of that is kept at the dense 10-second cadence —
@@ -386,6 +394,11 @@ longer matches what the profile asks for, says what changed, and reseeds it
 (pass ``--keep-archiver-base`` to leave the old data alone instead). Do **not**
 copy these keys into the project's ``config.yml`` — the build writes that file
 from the block, and a second copy is free to disagree with the first.
+
+Size the host for the seed. At the defaults (about 4,700 channels over 30
+days) MongoDB reached 7.4 GB of memory while seeding, and a Docker VM with
+less OOM-kills it and the seed fails. Give the container engine that much
+memory, or lower ``retention_days``.
 
 **Switch to real hardware.** As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility

@@ -121,7 +121,7 @@ def test_host_contract_resolves_on_a_bare_page(
 
     page = chromium_browser.new_page()
     try:
-        page.goto(probe.as_uri())
+        page.goto(probe.as_uri())  # page-ready: a file:// probe, not an OSPREY page
         # A sheet that failed to load leaves every property empty, which would
         # read as 27 unresolved names; say what actually happened instead.
         loaded = page.evaluate("Array.from(document.styleSheets, (sheet) => sheet.href)")
@@ -174,7 +174,7 @@ def test_bar_names_resolve_to_the_shared_values(
 
     page = chromium_browser.new_page()
     try:
-        page.goto(probe.as_uri())
+        page.goto(probe.as_uri())  # page-ready: a file:// probe, not an OSPREY page
         result = page.evaluate(
             _READ_CONTRACT, [theme, list(HOST_CONTRACT_NAMES), _HOST_PREFIX, _ANCHOR]
         )

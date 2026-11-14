@@ -124,6 +124,8 @@ describe('initPanelSidebar', () => {
     expect($('toggle').getAttribute('aria-expanded')).toBe('true');
     expect($('toggle').getAttribute('aria-controls')).toBe('side');
     expect($('toggle').querySelector('svg.osprey-ic')).not.toBeNull();
+    // The class the stylesheet turns the icon's chevron under.
+    expect($('toggle').classList.contains('osprey-panel-sidebar-toggle')).toBe(true);
 
     $('toggle').click();
     expect($('root').getAttribute('data-open')).toBe('false');

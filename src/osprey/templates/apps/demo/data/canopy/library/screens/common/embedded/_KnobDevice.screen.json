@@ -41,8 +41,8 @@
       "width": 81,
       "height": 70,
       "backgroundColor": {
-        "$role": "Display_Background",
-        "fallback": "#ffffff"
+        "$role": "Transparent",
+        "fallback": "#ffffff00"
       }
     },
     "geometry": {
@@ -66,34 +66,48 @@
         },
         "children": [
           {
-            "id": "w-003",
+            "id": "w-trigger",
             "type": "pv-label",
             "props": {
-              "pv": "${CNTL_PV}",
-              "precision": 2,
-              "showUnits": false,
-              "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
-              },
-              "backgroundColor": {
-                "$role": "Grid_Fill",
-                "fallback": "#808080"
-              },
-              "fontSize": 14,
-              "align": "center"
+              "pv": "loc://testtriggercolorcode?type=int&init=1",
+              "precision": 0
             },
             "geometry": {
-              "x": 1,
-              "y": 22,
-              "width": 70,
-              "height": 20
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0
+            }
+          },
+          {
+            "id": "w-tile",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Grid",
+                "fallback": "#d8d9da",
+                "fallbackDark": "#2c3235"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "Tile_Background",
+                "fallback": "#ffffff",
+                "fallbackDark": "#22252b"
+              },
+              "cornerRadius": 5
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 72,
+              "height": 62
             },
             "rules": [
               {
-                "id": "r-001",
-                "name": "Text color",
-                "targetProperty": "foregroundColor",
+                "id": "r-off-frame",
+                "name": "Supply off frame",
+                "targetProperty": "lineColor",
                 "pvs": [
                   {
                     "name": "${COLOR_PV}",
@@ -102,63 +116,24 @@
                 ],
                 "conditions": [
                   {
-                    "expression": "{0} == 1",
-                    "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
-                    }
-                  },
-                  {
                     "expression": "{0} == 0",
                     "value": {
                       "$role": "STOP",
-                      "fallback": "#ff0000"
-                    }
-                  },
-                  {
-                    "expression": "{0} != (1  or  0)",
-                    "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   }
                 ],
                 "default": {
-                  "$role": "Text",
-                  "fallback": "#000000"
+                  "$role": "Grid",
+                  "fallback": "#d8d9da",
+                  "fallbackDark": "#2c3235"
                 }
-              }
-            ]
-          },
-          {
-            "id": "w-004",
-            "type": "pv-label",
-            "props": {
-              "pv": "${MON_PV}",
-              "precision": 2,
-              "showUnits": false,
-              "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
               },
-              "backgroundColor": {
-                "$role": "Grid_Fill",
-                "fallback": "#808080"
-              },
-              "fontSize": 14,
-              "align": "center"
-            },
-            "geometry": {
-              "x": 1,
-              "y": 41,
-              "width": 70,
-              "height": 20
-            },
-            "rules": [
               {
-                "id": "r-002",
-                "name": "Text color",
-                "targetProperty": "foregroundColor",
+                "id": "r-off-width",
+                "name": "Supply off frame width",
+                "targetProperty": "lineWidth",
                 "pvs": [
                   {
                     "name": "${COLOR_PV}",
@@ -167,143 +142,252 @@
                 ],
                 "conditions": [
                   {
-                    "expression": "{0} == 1",
-                    "value": {
-                      "$role": "On",
-                      "fallback": "#00ff00"
-                    }
-                  },
-                  {
                     "expression": "{0} == 0",
+                    "value": 2
+                  }
+                ],
+                "default": 1
+              }
+            ]
+          },
+          {
+            "id": "w-stripe",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Transparent",
+                "fallback": "#ffffff00"
+              },
+              "lineWidth": 0,
+              "fill": true,
+              "fillColor": {
+                "$role": "Family_Other",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
+              },
+              "cornerRadius": 2
+            },
+            "geometry": {
+              "x": 0,
+              "y": 0,
+              "width": 4,
+              "height": 62
+            },
+            "rules": [
+              {
+                "id": "r-family",
+                "name": "Family colour",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "loc://testtriggercolorcode",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "${COLOR_CODE} == 0",
                     "value": {
-                      "$role": "STOP",
-                      "fallback": "#ff0000"
+                      "$role": "Family_VCM",
+                      "fallback": "#1a9fb0",
+                      "fallbackDark": "#4cc3d4"
                     }
                   },
                   {
-                    "expression": "{0} != (1  or  0)",
+                    "expression": "${COLOR_CODE} == 1",
                     "value": {
-                      "$role": "INVALID",
-                      "fallback": "#ff00ff"
+                      "$role": "Family_Other",
+                      "fallback": "#6e6e77",
+                      "fallbackDark": "#8e8e9a"
+                    }
+                  },
+                  {
+                    "expression": "${COLOR_CODE} == 2",
+                    "value": {
+                      "$role": "Family_HCM",
+                      "fallback": "#6f4fc2",
+                      "fallbackDark": "#9d82e6"
+                    }
+                  },
+                  {
+                    "expression": "${COLOR_CODE} == 3",
+                    "value": {
+                      "$role": "Family_Quad",
+                      "fallback": "#2f62c4",
+                      "fallbackDark": "#7b9cff"
+                    }
+                  },
+                  {
+                    "expression": "${COLOR_CODE} == 4",
+                    "value": {
+                      "$role": "Family_Septum",
+                      "fallback": "#8b8f99",
+                      "fallbackDark": "#a7abb5"
+                    }
+                  },
+                  {
+                    "expression": "${COLOR_CODE} == 5",
+                    "value": {
+                      "$role": "Family_Dipole",
+                      "fallback": "#d9822b",
+                      "fallbackDark": "#f0a252"
                     }
                   }
                 ],
                 "default": {
-                  "$role": "Text",
-                  "fallback": "#000000"
+                  "$role": "Family_Other",
+                  "fallback": "#6e6e77",
+                  "fallbackDark": "#8e8e9a"
                 }
               }
             ]
           },
           {
-            "id": "w-005",
+            "id": "w-caption",
             "type": "text-label",
             "props": {
               "text": "${DESC}",
-              "align": "center",
+              "align": "left",
               "foregroundColor": {
-                "$role": "Text",
-                "fallback": "#000000"
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
+              },
+              "fontSize": 10
+            },
+            "geometry": {
+              "x": 8,
+              "y": 2,
+              "width": 60,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-off",
+            "type": "text-label",
+            "props": {
+              "text": "OFF",
+              "align": "right",
+              "foregroundColor": {
+                "$role": "STOP",
+                "fallback": "#c4162a",
+                "fallbackDark": "#e05454"
+              },
+              "fontSize": 9
+            },
+            "geometry": {
+              "x": 44,
+              "y": 2,
+              "width": 24,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-off-badge",
+                "name": "Show OFF",
+                "targetProperty": "visible",
+                "pvs": [
+                  {
+                    "name": "${COLOR_PV}",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} == 0",
+                    "value": true
+                  }
+                ],
+                "default": false
+              }
+            ]
+          },
+          {
+            "id": "w-sp",
+            "type": "pv-text-input",
+            "props": {
+              "pv": "${CNTL_PV}",
+              "kind": "number",
+              "writeOnEnter": true,
+              "fontSize": 11.5,
+              "align": "right",
+              "precision": 3,
+              "precisionFromPV": false
+            },
+            "geometry": {
+              "x": 5,
+              "y": 17,
+              "width": 64,
+              "height": 21
+            }
+          },
+          {
+            "id": "w-rb",
+            "type": "pv-label",
+            "props": {
+              "pv": "${MON_PV}",
+              "precision": 3,
+              "precisionFromPV": false,
+              "showUnits": false,
+              "foregroundColor": {
+                "$role": "Text_Muted",
+                "fallback": "#6e6e77",
+                "fallbackDark": "#8e8e9a"
               },
               "backgroundColor": {
                 "$role": "Transparent",
                 "fallback": "#ffffff00"
               },
-              "fontSize": 12
+              "fontSize": 11.5,
+              "align": "right"
             },
             "geometry": {
-              "x": 1,
-              "y": 1,
-              "width": 70,
-              "height": 20
+              "x": 5,
+              "y": 40,
+              "width": 60,
+              "height": 19
             },
             "rules": [
               {
-                "id": "r-003",
-                "name": "background color",
-                "targetProperty": "backgroundColor",
-                "pvs": [
-                  {
-                    "name": "loc://testtriggercolorcode",
-                    "trigger": true
-                  }
-                ],
-                "conditions": [
-                  {
-                    "expression": "${COLOR_CODE} == 0",
-                    "value": "#00ffff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 1",
-                    "value": "#000000"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 2",
-                    "value": "#4d3399"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 3",
-                    "value": "#0000ff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 4",
-                    "value": "#ffffff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 5",
-                    "value": "#ff7f00"
-                  }
-                ],
-                "default": {
-                  "$role": "Transparent",
-                  "fallback": "#ffffff00"
-                }
-              },
-              {
-                "id": "r-004",
-                "name": "text color",
+                "id": "r-rb",
+                "name": "Readback state",
                 "targetProperty": "foregroundColor",
                 "pvs": [
                   {
-                    "name": "loc://testtriggercolorcode",
+                    "name": "${CNTL_PV}",
+                    "trigger": true
+                  },
+                  {
+                    "name": "${MON_PV}",
+                    "trigger": true
+                  },
+                  {
+                    "name": "${COLOR_PV}",
                     "trigger": true
                   }
                 ],
                 "conditions": [
                   {
-                    "expression": "${COLOR_CODE} == 0",
+                    "expression": "{2} == 0",
                     "value": {
-                      "$role": "Text",
-                      "fallback": "#000000"
+                      "$role": "STOP",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
                     }
                   },
                   {
-                    "expression": "${COLOR_CODE} == 1",
-                    "value": "#ffffff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 2",
-                    "value": "#ffffff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 3",
-                    "value": "#ffffff"
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 4",
+                    "expression": "({0} - {1}) * ({0} - {1}) > (0.005 * {0}) * (0.005 * {0}) + 0.0004",
                     "value": {
-                      "$role": "Text",
-                      "fallback": "#000000"
+                      "$role": "Attention",
+                      "fallback": "#b5710d",
+                      "fallbackDark": "#f5b73d"
                     }
-                  },
-                  {
-                    "expression": "${COLOR_CODE} == 5",
-                    "value": "#ffffff"
                   }
                 ],
                 "default": {
-                  "$role": "Text",
-                  "fallback": "#000000"
+                  "$role": "Text_Muted",
+                  "fallback": "#6e6e77",
+                  "fallbackDark": "#8e8e9a"
                 }
               }
             ]

@@ -5,9 +5,10 @@ preset as ``apps/<name>/``. ``init`` copies each named one into the new repo as
 deployment source, drops the byte-code a source checkout leaves in it, and
 writes a ``.provenance`` sidecar inside it: the preset it came from, that
 preset's hash, and the digest of the tree as copied. ``osprey validate`` and
-``osprey init --revalidate`` compare that digest with the tree on disk, skipping
-the files the build itself writes into the directory, so a build never reads as
-an edit. A directory the preset does not list is not copied.
+``osprey init --revalidate`` compare the digest of the bundled tree today with
+the one recorded, so the operator's own edits to the copy are never reported
+and a change to the preset's copy is said once. The files the build writes into
+the directory are skipped. A directory the preset does not list is not copied.
 """
 
 from __future__ import annotations
@@ -22,12 +23,13 @@ from click.testing import CliRunner
 
 from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import resolve_build_profile
-from osprey.cli.build_profile_drift import (
+from osprey.cli.build_profile_merge import compute_preset_hash
+from osprey.cli.build_profile_updates import (
     APP_PROVENANCE_FILENAME,
     app_tree_digest,
-    preset_drift_report,
+    changed_apps,
+    read_saved_copy,
 )
-from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import unselected_convention_artifacts
 
@@ -149,79 +151,66 @@ def test_the_tree_digest_ignores_byte_code(app_preset: Path, repo: Path) -> None
     assert app_tree_digest(source) == app_tree_digest(repo / "apps" / APP)
 
 
-def _provenance(repo: Path):
-    from osprey.cli.build_profile_schema import ProfileProvenance
-
-    block = yaml.safe_load((repo / "profile.yml").read_text())["provenance"]
-    return ProfileProvenance(preset=block["preset"], preset_hash=block["preset_hash"])
+def _changed(repo: Path) -> list[str]:
+    return changed_apps(repo, read_saved_copy(repo))
 
 
-def _app_findings(repo: Path):
-    report = preset_drift_report(repo / "profile.yml", _provenance(repo))
-    return [f for f in report.findings if f.subject.startswith("apps/")]
+def test_an_unedited_application_has_nothing_to_take(repo: Path) -> None:
+    assert _changed(repo) == []
 
 
-def test_an_unedited_application_reports_no_drift(repo: Path) -> None:
-    assert _app_findings(repo) == []
-
-
-def test_an_edited_application_is_a_drift_note(repo: Path) -> None:
+def test_an_edited_copy_is_the_operators_and_is_not_reported(repo: Path) -> None:
     (repo / "apps" / APP / "panel" / "index.html").write_text("<p>mine</p>\n", encoding="utf-8")
 
-    (finding,) = _app_findings(repo)
-
-    assert finding.subject == f"apps/{APP}/"
-    assert finding.kind == "value"
-    assert not finding.marked
+    assert _changed(repo) == []
 
 
-def test_a_marker_in_the_sidecar_claims_the_edit(repo: Path) -> None:
-    (repo / "apps" / APP / "panel" / "index.html").write_text("<p>mine</p>\n", encoding="utf-8")
-    sidecar = repo / "apps" / APP / APP_PROVENANCE_FILENAME
-    sidecar.write_text(
-        f"# DEVIATION: apps/{APP} carries our own panel\n" + sidecar.read_text(),
-        encoding="utf-8",
+def test_a_changed_bundled_application_is_reported(app_preset: Path, repo: Path) -> None:
+    (app_preset / "apps" / APP / "panel" / "index.html").write_text(
+        "<p>knob 2</p>\n", encoding="utf-8"
     )
 
-    (finding,) = _app_findings(repo)
-
-    assert finding.marked
+    assert _changed(repo) == [APP]
 
 
-def test_files_the_build_writes_into_the_application_are_not_drift(repo: Path) -> None:
-    app_dir = repo / "apps" / APP
-    manifest = yaml.safe_load((app_dir / "app.yml").read_text())
+def test_files_the_build_writes_into_the_bundled_tree_are_not_a_change(app_preset: Path) -> None:
+    source = app_preset / "apps" / APP
+    before = app_tree_digest(source)
+    manifest = yaml.safe_load((source / "app.yml").read_text())
     manifest["vendor"] = [{"url": "https://example.org/lib.js", "into": "static/lib.js"}]
-    sidecar = yaml.safe_load((app_dir / APP_PROVENANCE_FILENAME).read_text())
-    _write_yaml(app_dir / "app.yml", manifest)
-    # The sidecar is re-stated for the edited manifest, so only the build's
-    # writes below can move the digest.
-    sidecar["tree_digest"] = app_tree_digest(app_dir)
-    _write_yaml(app_dir / APP_PROVENANCE_FILENAME, sidecar)
+    _write_yaml(source / "app.yml", manifest)
+    after_manifest = app_tree_digest(source)
 
-    (app_dir / "panel" / "vendor").mkdir()
-    (app_dir / "panel" / "vendor" / "d3.js").write_text("// d3\n", encoding="utf-8")
-    (app_dir / "static").mkdir()
-    (app_dir / "static" / "lib.js").write_text("// lib\n", encoding="utf-8")
+    (source / "panel" / "vendor").mkdir()
+    (source / "panel" / "vendor" / "d3.js").write_text("// d3\n", encoding="utf-8")
+    (source / "static").mkdir()
+    (source / "static" / "lib.js").write_text("// lib\n", encoding="utf-8")
 
-    assert app_tree_digest(app_dir) == sidecar["tree_digest"]
-    assert _app_findings(repo) == []
+    assert after_manifest != before
+    assert app_tree_digest(source) == after_manifest
 
 
-def test_revalidate_reports_an_edited_application_and_leaves_it(
-    repo: Path, runner: CliRunner
+def test_revalidate_says_once_that_the_bundled_application_changed(
+    app_preset: Path, repo: Path, runner: CliRunner
 ) -> None:
     edited = repo / "apps" / APP / "panel" / "index.html"
     edited.write_text("<p>mine</p>\n", encoding="utf-8")
+    (app_preset / "apps" / APP / "panel" / "index.html").write_text(
+        "<p>knob 2</p>\n", encoding="utf-8"
+    )
 
-    result = runner.invoke(init, [str(repo), "--revalidate"], catch_exceptions=False)
+    first = runner.invoke(init, [str(repo), "--revalidate"], catch_exceptions=False)
+    again = runner.invoke(init, [str(repo), "--revalidate"], catch_exceptions=False)
 
-    assert result.exit_code == 0, result.output
-    assert f"apps/{APP}/" in result.output
+    assert first.exit_code == 0, first.output
+    assert f"apps/{APP}/" in first.output
+    assert f"apps/{APP}/" not in again.output
     assert edited.read_text(encoding="utf-8") == "<p>mine</p>\n"
 
 
-def test_revalidate_is_quiet_about_an_unedited_application(repo: Path, runner: CliRunner) -> None:
+def test_revalidate_is_quiet_about_an_edited_application(repo: Path, runner: CliRunner) -> None:
+    (repo / "apps" / APP / "panel" / "index.html").write_text("<p>mine</p>\n", encoding="utf-8")
+
     result = runner.invoke(init, [str(repo), "--revalidate"], catch_exceptions=False)
 
     assert result.exit_code == 0, result.output

@@ -119,7 +119,7 @@ def test_an_unknown_entry_key_is_refused_naming_the_valid_keys() -> None:
     message = _parse_refusal({"knob": {"confg": {}}})
 
     assert "apps.knob.confg" in message
-    assert "config, services, shown" in message
+    assert "config, panel_hidden, services, shown" in message
 
 
 @pytest.mark.parametrize("key", ["image", "ports", "volumes", "http"])
@@ -260,6 +260,12 @@ def test_a_login_lists_value_is_checked() -> None:
     assert "lists must be one of own, add" in _login_refusal({"lists": "none"})
 
 
+def test_a_login_panel_hidden_is_a_boolean() -> None:
+    assert "apps.knob.panel_hidden must be true or false" in _login_refusal(
+        {"apps": {"knob": {"shown": True, "panel_hidden": "yes"}}}
+    )
+
+
 def test_a_login_shown_is_a_boolean() -> None:
     assert "apps.knob.shown must be true or false" in _login_refusal(
         {"apps": {"knob": {"shown": "no"}}}
@@ -280,6 +286,58 @@ def test_validate_refuses_a_login_file_as_the_loader_does(tmp_path: Path, runner
     assert result.exit_code == 2, result.output
     assert "apps.knob.config" in result.output
     assert "apps.knob.config" in str(excinfo.value)
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_manifest_refusal_reaches_validate_as_its_violations(tmp_path: Path, runner) -> None:
+    from osprey.apps.errors import AppsRefusedError
+    from osprey.cli.validate_cmd import validate
+
+    repo = _repo(tmp_path, {"apps": {"knob": {}}})
+    _write_yaml(repo / "apps" / "knob" / "app.yml", {**_MANIFEST, "colour": "blue"})
+
+    result = runner.invoke(validate, [str(repo / "profile.yml")])
+    with pytest.raises(AppsRefusedError) as excinfo:
+        load_profile_document(repo / "profile.yml")
+
+    assert [v.rule for v in excinfo.value.violations] == ["extra_forbidden"]
+    assert result.exit_code == 2, result.output
+    assert "apps/knob/app.yml: colour: " in result.output
+    assert "[extra_forbidden]" in result.output
+    assert "1 violation(s)." in result.output
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_manifest_refusal_is_a_profile_error_to_every_other_reader(tmp_path: Path) -> None:
+    # A command that only asks whether the profile resolves (a profile card, the
+    # scaffold, a tolerant loop over logins) catches BuildProfileError or
+    # ConfigurationError; the refusal reaches it as one, never as a traceback.
+    from osprey_connectors.errors import ConfigurationError
+
+    repo = _repo(tmp_path, {"apps": {"knob": {}}})
+    _write_yaml(repo / "apps" / "knob" / "app.yml", {**_MANIFEST, "colour": "blue"})
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        load_profile_document(repo / "profile.yml")
+
+    assert isinstance(excinfo.value, BuildProfileError)
+    assert "apps/knob/app.yml: colour: " in str(excinfo.value)
+    assert "[extra_forbidden]" in str(excinfo.value)
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_manifest_refusal_is_reported_beside_the_other_profile_errors(tmp_path: Path) -> None:
+    from osprey.apps.errors import AppsRefusedError
+
+    repo = _repo(tmp_path, {"apps": {"knob": {}}, "channel_finder_mode": "bogus"})
+    _write_yaml(repo / "apps" / "knob" / "app.yml", {**_MANIFEST, "colour": "blue"})
+
+    with pytest.raises(AppsRefusedError) as excinfo:
+        load_profile_document(repo / "profile.yml")
+
+    assert [v.rule for v in excinfo.value.violations] == ["extra_forbidden"]
+    assert any("channel_finder_mode" in error for error in excinfo.value.errors)
+    assert "channel_finder_mode" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +464,17 @@ def test_a_login_may_open_on_the_panel_of_an_application_it_shows(tmp_path: Path
     profile = load_profile_document(layer).profile
 
     assert profile.default_panel == "knob-board"
+
+
+@pytest.mark.usefixtures("facility_data_tree")
+def test_a_login_may_keep_a_shown_applications_panel_off_the_sidebar(tmp_path: Path) -> None:
+    layer = _panel_login(tmp_path, {"knob": {"shown": True, "panel_hidden": True}})
+
+    profile = load_profile_document(layer).profile
+
+    assert profile.app_shown("knob") is True
+    assert profile.app_panel_hidden("knob") is True
+    assert profile.app_panel_hidden("unlisted") is False
 
 
 @pytest.mark.usefixtures("facility_data_tree")

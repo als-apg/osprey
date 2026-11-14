@@ -19,6 +19,8 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
+from tests.interfaces._browser import wait_for_page_ready
+
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 try:
@@ -59,7 +61,9 @@ def page(context):
 
 def _boot(page: Page, hub) -> None:
     page.goto(hub.base_url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     expect(page.locator(f"{_TREE} .osprey-tree-session").first).to_be_visible(timeout=_TIMEOUT_MS)
+    wait_for_page_ready(page)
 
 
 def _session(page: Page, sid: str):
@@ -118,8 +122,9 @@ def test_the_row_is_named_sessions_and_its_plus_starts_a_new_session(hub, page):
     page.locator("#sidebar-toggle").click()
     expect(page.locator("html")).to_have_attribute("data-sidebar", "expanded")
     expect(row.locator('svg[data-icon="agent"]')).to_be_hidden()
-    # One menu, the right-click one: no "more" button beside the row.
-    expect(page.locator("#sidebar-agent-wrap button:not(#sidebar-session-tree *)")).to_have_count(2)
+    # One menu, the right-click one: no "more" button beside the row. The buttons
+    # are the row, View and "+".
+    expect(page.locator("#sidebar-agent-wrap button:not(#sidebar-session-tree *)")).to_have_count(3)
     row.click(button="right")
     expect(page.get_by_role("menu", name="Sessions actions")).to_be_visible()
     page.keyboard.press("Escape")

@@ -109,7 +109,7 @@ Ask the OSPREY agent for these in plain language: *"what am I pointed at?"*,
 working on the machine. Reads, writes, the python executor and notebook cells
 all follow the switch.
 
-There is **one control target per deployment**, not one per conversation. A
+There is **one control target per login**, not one per conversation. A
 switch made anywhere moves everything: every chat and terminal window, every
 notebook kernel on its next cell, and the agent's own tools. That is
 deliberate. A machine that one window can write to while another window shows

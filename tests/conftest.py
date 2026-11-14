@@ -57,6 +57,9 @@ from tests._builds import (  # noqa: F401 - the session's shared builds
     built_demo_watchdog_on,
     offline_build_env,
 )
+from tests._session_database import (  # noqa: F401 - the session's shared Postgres container
+    pgvector_container_url,
+)
 from tests.e2e import refusals
 
 if TYPE_CHECKING:
@@ -142,16 +145,17 @@ def stub_agent_cli(request, monkeypatch):
 
 @pytest.fixture
 def real_host_trust_seed():
-    """Opt a test out of :func:`no_host_trust_seed`: the web app seeds trust for real."""
+    """Opt a test out of :func:`no_host_trust_seed`: trust is seeded for real."""
 
 
 @pytest.fixture(autouse=True, scope="function")
 def no_host_trust_seed(request, monkeypatch):
-    """Keep the web app's startup off the developer's own ``~/.claude.json``.
+    """Keep the web app's startup and ``osprey chat`` off the developer's own ``~/.claude.json``.
 
-    On a host, web-terminal startup marks its render trusted in Claude Code's
-    state file under ``CLAUDE_CONFIG_DIR`` or ``HOME``. Every test that runs the
-    app's lifespan would otherwise add a ``tmp_path`` entry to the real file.
+    On a host, web-terminal startup and an ``osprey chat`` launch mark their
+    render trusted in Claude Code's state file under ``CLAUDE_CONFIG_DIR`` or
+    ``HOME``. Every test that runs the app's lifespan or the chat verb would
+    otherwise add a ``tmp_path`` entry to the real file.
     A test that points ``CLAUDE_CONFIG_DIR`` at its own directory and needs the
     real seed requests ``real_host_trust_seed``.
     """
@@ -1541,8 +1545,11 @@ def _memoized_entry_points():
     on each call — tens of milliseconds in this environment — and a build of
     the demo facility looks its simulation engines up a few hundred times, so
     the suite spent a large share of every build re-reading the same
-    ``entry_points.txt`` files. Nothing a test does installs a distribution, so
-    the answer for one selection is the same for the whole session.
+    ``entry_points.txt`` files. The answer for one selection is the same for the
+    whole session, unless a test installs a distribution: such a test clears
+    this reading through the shared helper (``read_entry_points_afresh`` in
+    ``tests/facility/_fixture_kind.py``, before and after it through the
+    ``entry_points_read_afresh`` fixture), so the next caller reads afresh.
 
     A test that hands the code a fake registry still does so by patching
     ``metadata.entry_points`` itself; its patch replaces this one for that test

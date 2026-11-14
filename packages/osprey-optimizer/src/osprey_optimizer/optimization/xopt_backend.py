@@ -9,9 +9,10 @@ so nothing above the seam imports xopt.
 """
 
 import logging
+import math
 import random
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, TypeGuard
 
@@ -28,6 +29,7 @@ from xopt.errors import (
 from xopt.generator import Generator
 from xopt.generators import get_generator
 from xopt.generators.bayesian.bayesian_generator import BayesianGenerator
+from xopt.generators.sequential.sequential_generator import SequentialGenerator
 from xopt.vocs import VOCS
 
 from osprey_optimizer.models.config import ConstraintSpec, OptimizationConfig
@@ -38,6 +40,7 @@ from osprey_optimizer.models.enums import (
 )
 from osprey_optimizer.models.exceptions import InvalidSuggestionError, OptimizerError
 from osprey_optimizer.models.types import Direction, VariableBounds
+from osprey_optimizer.services.bounds_resolver import snap_value_to_grid
 
 from ..utils.numeric import is_usable_setpoint_number
 from .best_point import feasible_filter
@@ -345,6 +348,10 @@ class XoptOptimizer:
         # evaluated-point record.
         self._has_feasible_point = False
 
+        # A sequential generator's last proposal, until its reply is ingested
+        # (see ``ingest``). Always None for every other generator.
+        self._pending_proposal: dict[str, Any] | None = None
+
     def suggest(self, num_points: int | None = None) -> list[dict[str, Any]]:
         """Ask the generator for the next candidate point(s).
 
@@ -357,7 +364,10 @@ class XoptOptimizer:
             return [self._validated_candidate(self._random_within_bounds()) for _ in range(n)]
         with _translate_xopt_errors():
             candidates = self._generator.generate(n)
-        return [self._validated_candidate(dict(candidate)) for candidate in candidates]
+        validated = [self._validated_candidate(dict(candidate)) for candidate in candidates]
+        if isinstance(self._generator, SequentialGenerator):
+            self._pending_proposal = dict(validated[0])
+        return validated
 
     def _validated_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         """Coerce each variable value to a finite builtin float, in place.
@@ -402,9 +412,27 @@ class XoptOptimizer:
 
         Fixed-feature columns (if any) are appended to each row so the surrogate
         trains on the full feature set.
+
+        A sequential generator (extremum seeking, Nelder-Mead, RCDS) accepts
+        back only the point it proposed, while the evaluated point may have
+        been snapped to a step grid. The first ingest after a suggest is taken
+        as the reply to that suggestion: when it is a single row, it carries
+        the proposed variable values with the measured outcome; the run's
+        record keeps the snapped values. Points ingested before the generator
+        proposes anything (the seed) pass through unchanged, and so do several
+        rows at once or a point answering no suggestion, which xopt refuses.
         """
         defaults = self.fixed_features or {}
         rows: list[dict[str, Any]] = [{**defaults, **point} for point in points]
+        proposal, self._pending_proposal = self._pending_proposal, None
+        if (
+            proposal is not None
+            and len(rows) == 1
+            and isinstance(self._generator, SequentialGenerator)
+            and self._generator.is_active
+        ):
+            proposed = {name: proposal[name] for name in self._vocs.variable_names}
+            rows = [{**rows[0], **proposed}]
         if self._constraints and not self._has_feasible_point and rows:
             feasible = pl.DataFrame(rows).filter(feasible_filter(self._constraints))
             self._has_feasible_point = not feasible.is_empty()
@@ -429,3 +457,135 @@ class XoptOptimizer:
         if _is_exportable_bayesian(self._generator):
             return list(self._generator.model_input_names)
         return None
+
+
+# How a start notice names each sequential algorithm.
+_SEQUENTIAL_LABELS: dict[AlgorithmType, str] = {
+    AlgorithmType.EXTREMUM_SEEKING: "Extremum seeking",
+    AlgorithmType.NELDER_MEAD: "Nelder-Mead",
+    AlgorithmType.RCDS: "RCDS",
+}
+
+
+# A dry run replays at most this many proposals. In a sweep of 7,125
+# configurations every run that left its start did so within 10 proposals,
+# even on a budget of 100.
+_DRY_RUN_PROPOSAL_CAP = 100
+
+
+def start_cannot_move(config: OptimizationConfig, start: Mapping[str, float]) -> str | None:
+    """A warning that a run of *config* may never leave *start*, or None.
+
+    Only a sequential algorithm can stall there: its first moves may round back
+    onto the grid point it starts from, so it measures its start again and
+    again. While that lasts, a run on a steady reading sees the same objective
+    at every evaluation, as on a constant objective. So the check drives a
+    fresh generator on a constant, writing and reading nothing, and warns when
+    none of its proposals snaps to another grid point within the run's budget
+    (at most the first 100 proposals).
+
+    A constant is the most pessimistic replay, so the warning says "may":
+    Nelder-Mead sees every comparison tie and only shrinks its simplex, while
+    on a machine noise breaks the ties and often lets it escape; extremum
+    seeking's step turns with the value read, which a draft does not measure,
+    so the check replays it at four readings a quarter turn apart and warns if
+    any of them stalls. The notice is advice for the operator, never a gate.
+
+    *config* is a resolved draft and *start* the current setpoints of its
+    variables. Any failure is logged and reads as None, so the check never
+    blocks a draft.
+    """
+    try:
+        return _start_cannot_move(config, start)
+    except Exception:
+        logger.warning("Could not check whether the run can move from its start", exc_info=True)
+        return None
+
+
+def _start_cannot_move(config: OptimizationConfig, start: Mapping[str, float]) -> str | None:
+    algorithm = config.algorithm
+    generator_class = _CUSTOM_GENERATORS.get(algorithm) or get_generator(algorithm)
+    if not issubclass(generator_class, SequentialGenerator) or config.n_iterations == 0:
+        return None
+    grid = _resolved_grid(config)
+    # An empty window cannot be searched; the draft says so elsewhere.
+    if any(lo >= hi for lo, hi, _ in grid.values()):
+        return None
+
+    probe = _dry_run_optimizer(config, grid, _snapped(start, grid))
+    # Random seed points move the run away from its start before the generator
+    # proposes anything.
+    if probe.resolve_n_initial() > 1:
+        return None
+
+    # Extremum seeking steps along cos(w*dt*i + k*f): the reading f turns its
+    # step by k*f, so four readings a quarter turn apart cover its directions.
+    # (xopt requires k > 0.)
+    readings = [0.0]
+    if algorithm is AlgorithmType.EXTREMUM_SEEKING:
+        gain = float(probe._generator.k)
+        readings = [j * 2 * math.pi / (4 * gain) for j in range(4)]
+
+    if not any(_stalls_on_constant(config, start, reading) for reading in readings):
+        return None
+    label = _SEQUENTIAL_LABELS.get(algorithm, algorithm.value)
+    return (
+        f"{label} may not move from the current setpoints: its first moves round "
+        "back to the starting values, so on a steady reading the run would keep "
+        "measuring its starting point."
+    )
+
+
+def _resolved_grid(config: OptimizationConfig) -> dict[str, tuple[float, float, float]]:
+    """Each variable's (min, max, step) from a resolved draft."""
+    overrides = config.variable_overrides or {}
+    grid: dict[str, tuple[float, float, float]] = {}
+    for name in config.variables or []:
+        override = overrides[name]
+        if override.min is None or override.max is None or override.step_size is None:
+            raise ValueError(f"config is not resolved: incomplete override for '{name}'")
+        grid[name] = (override.min, override.max, override.step_size)
+    return grid
+
+
+def _snapped(
+    point: Mapping[str, float], grid: Mapping[str, tuple[float, float, float]]
+) -> dict[str, float]:
+    return {
+        name: snap_value_to_grid(point[name], vmin=lo, vmax=hi, step=step)
+        for name, (lo, hi, step) in grid.items()
+    }
+
+
+def _dry_run_optimizer(
+    config: OptimizationConfig,
+    grid: Mapping[str, tuple[float, float, float]],
+    home: dict[str, float],
+) -> XoptOptimizer:
+    return XoptOptimizer(
+        variables={name: [lo, hi] for name, (lo, hi, _) in grid.items()},
+        objective_name=config.objective_name or "objective",
+        direction=config.objective_direction or Direction.MAXIMIZE,
+        config=config,
+        current_env_values=home,
+    )
+
+
+def _stalls_on_constant(
+    config: OptimizationConfig, start: Mapping[str, float], reading: float
+) -> bool:
+    """Whether a fresh generator of *config*, every evaluation reading *reading*,
+    proposes nothing that snaps away from *start*'s grid point within the run's
+    budget (at most ``_DRY_RUN_PROPOSAL_CAP`` proposals)."""
+    grid = _resolved_grid(config)
+    # The run's first evaluation writes the start snapped onto the grid.
+    home = _snapped(start, grid)
+    objective = config.objective_name or "objective"
+    optimizer = _dry_run_optimizer(config, grid, home)
+    optimizer.ingest([{**home, objective: reading}])
+    for _ in range(min(config.n_iterations, _DRY_RUN_PROPOSAL_CAP)):
+        (proposal,) = optimizer.suggest()
+        if _snapped(proposal, grid) != home:
+            return False
+        optimizer.ingest([{**proposal, objective: reading}])
+    return True

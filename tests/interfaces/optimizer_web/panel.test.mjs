@@ -20,7 +20,7 @@ const INDEX = `${cwd()}/src/osprey/interfaces/optimizer_web/panels/optimizer/ind
 function sidecar() {
   const world = {
     current: /** @type {string|null} */ ('j1'),
-    /** @type {Record<string, { status: string, revision: string, config: any }>} */
+    /** @type {Record<string, { status: string, revision: string, config: any, start_notice?: string|null }>} */
     jobs: { j1: { status: 'created', revision: 'rev-1', config: storedConfig() } },
     /** @type {{ status: number, body: any }|null} */
     startReply: null,
@@ -105,7 +105,12 @@ function sidecar() {
           headers: { 'X-Config-Revision': job.revision },
         });
       }
-      const body = { job_id: jobMatch[1], status: job.status, job_type: 'optimization' };
+      const body = {
+        job_id: jobMatch[1],
+        status: job.status,
+        job_type: 'optimization',
+        start_notice: job.start_notice ?? null,
+      };
       return new Response(JSON.stringify(body), { status: 200 });
     }
     const route = routes[`${method} ${path}`];
@@ -345,6 +350,23 @@ test('a session naming no account warns before Start, and Start stays enabled', 
       false
     )
   );
+});
+
+test('a start notice that comes or goes on the same revision re-renders the card', async () => {
+  const { start, world, panel } = await bootPanel();
+  const warning = () => document.querySelector('#approval-card .start-warn')?.textContent ?? null;
+  expect(warning()).toBeNull();
+
+  const notice = 'Nelder-Mead may not move from the current setpoints.';
+  world.jobs.j1.start_notice = notice;
+  await panel.poller.now();
+  await vi.waitFor(() => expect(warning()).toBe(notice));
+  expect(panel.state.approval.revision).toBe('rev-1');
+  expect(start()?.disabled).toBe(false);
+
+  world.jobs.j1.start_notice = null;
+  await panel.poller.now();
+  await vi.waitFor(() => expect(warning()).toBeNull());
 });
 
 test('a named session says whose the run is; a failed session read says nothing', async () => {

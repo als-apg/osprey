@@ -56,7 +56,7 @@ def ariel_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle,
         "_migrate_ariel_store",
-        lambda ariel_config: state["migrated"].append(ariel_config),
+        lambda ariel_config, store_deadline_s: state["migrated"].append(ariel_config),
     )
 
     from osprey.simulation import apply as apply_mod
@@ -64,7 +64,9 @@ def ariel_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(
         apply_mod,
         "seed_active_logbook",
-        lambda config, project_dir, ariel_config: state["seeded"].append(ariel_config) or 3,
+        lambda config, project_dir, ariel_config, *, store_deadline_s=None: (
+            state["seeded"].append(ariel_config) or 3
+        ),
     )
     return state
 
@@ -117,6 +119,44 @@ def test_the_active_narrative_is_seeded_after_the_schema(ariel_stubs, tmp_path):
     # Assert
     assert len(ariel_stubs["seeded"]) == 1
     assert ariel_stubs["seeded"][0] == ariel_stubs["migrated"][0]
+
+
+@pytest.mark.wallclock
+@pytest.mark.usefixtures("ariel_stubs")
+def test_a_slow_start_leaves_the_schema_and_seed_steps_their_whole_deadline(tmp_path, monkeypatch):
+    """The start-up wait and a store open are two clocks: a store that took its
+    whole start-up wait to come up still gets the deploy's stated time to answer
+    the schema step and the seed step, never what the wait left over."""
+    import time
+
+    from osprey.simulation import apply as apply_mod
+
+    given: dict[str, float] = {}
+    monkeypatch.setattr(container_lifecycle, "_ARIEL_HEALTH_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_wait_for_ariel_store",
+        # The store comes up only as the start-up wait runs out.
+        lambda ariel_config, deadline: time.sleep(max(deadline - time.monotonic(), 0) + 0.02),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_migrate_ariel_store",
+        lambda ariel_config, store_deadline_s: given.setdefault("schema", store_deadline_s),
+    )
+    monkeypatch.setattr(
+        apply_mod,
+        "seed_active_logbook",
+        lambda config, project_dir, ariel_config, *, store_deadline_s=None: (
+            given.setdefault("seed", store_deadline_s) and 0
+        ),
+    )
+
+    _stage(ARIEL_CONFIG, tmp_path)
+
+    stated = container_lifecycle._ARIEL_STORE_DEADLINE_S
+    assert given == {"schema": stated, "seed": stated}
+    assert stated > 0
 
 
 def test_a_store_the_project_does_not_run_is_left_alone(ariel_stubs, tmp_path):
@@ -217,7 +257,7 @@ def test_defaults_activated_over_a_full_logbook_say_how_to_bring_their_narrative
     deploy just activated cannot add its entries; the warning names the command."""
     from osprey.simulation import apply as apply_mod
 
-    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a: 0)
+    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a, **kw: 0)
 
     with caplog.at_level("WARNING"):
         container_lifecycle._stage_ariel_store(
@@ -235,7 +275,7 @@ def test_defaults_activated_over_a_full_logbook_say_how_to_bring_their_narrative
 def test_a_full_logbook_with_nothing_activated_stays_quiet(tmp_path, monkeypatch, caplog):
     from osprey.simulation import apply as apply_mod
 
-    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a: 0)
+    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a, **kw: 0)
 
     with caplog.at_level("WARNING"):
         _stage(ARIEL_CONFIG, tmp_path)

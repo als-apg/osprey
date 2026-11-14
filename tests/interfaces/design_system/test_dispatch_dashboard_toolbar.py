@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -86,6 +87,7 @@ def quiet_url() -> Iterator[str]:
 
 def _open(page: Page, url: str) -> None:
     page.goto(url, wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     page.wait_for_function(
         "() => document.querySelector('#panel-state').hidden",
         timeout=10_000,
@@ -172,7 +174,8 @@ def test_the_tile_bar_gets_only_the_menu_and_clear_filters_resets(
     page = chromium_browser.new_page(viewport=VIEWPORT)
     # A same-origin host page standing in for the hub: it frames the panel and
     # records each contribution.
-    page.goto(f"{busy_url}/dashboard/state", wait_until="domcontentloaded")
+    host = f"{busy_url}/dashboard/state"
+    page.goto(host, wait_until="domcontentloaded")  # page-ready: a JSON route, the host stand-in
     page.evaluate(
         """() => {
           window.__items = [];
@@ -198,6 +201,7 @@ def test_the_tile_bar_gets_only_the_menu_and_clear_filters_resets(
     assert len(last) == 1
 
     frame = page.frame_locator("#panel")
+    wait_for_page_ready(frame)
     assert frame.locator("#status-filter > button[aria-pressed='true']").inner_text() == "Failed"
 
     page.evaluate(

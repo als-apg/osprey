@@ -30,7 +30,7 @@
  *     interface's own global drawer.css.
  *   - Registration guard: `customElements.define` is only ever reached
  *     behind `!customElements.get(...)`, so a double side-effect import
- *     (`import '/design-system/js/components/osprey-drawer.js'`) is safe.
+ *     of this module is safe.
  *   - Canonical state lives on the `open` boolean attribute — deliberately
  *     not a same-named JS property, which would collide with the
  *     open()/close()/toggle() methods below. `open()`/`close()` validate

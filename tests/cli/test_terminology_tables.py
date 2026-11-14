@@ -345,6 +345,41 @@ def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_d
     assert re.findall(r"`([^`]+)`", sentence.group(1)) == levels
 
 
+def test_the_hierarchical_table_never_names_a_level_the_hierarchy_dropped(tmp_path, built_demo):
+    """A level word only places holding no channel carry stays out of the table.
+
+    The facts' ``place_levels`` gains ``building`` and a named ``HALL`` place
+    of that level, as a rack tree beside the ring would add; ``hierarchy_levels``
+    does not, so neither the level sentence nor a place row names it.
+    """
+    document = hierarchical_document(FacilityRecords(built_demo.facility))
+    levels = [level["name"] for level in document["hierarchy"]["levels"]]
+    facts = json.loads(_demo_facts_path(built_demo).read_text(encoding="utf-8"))
+    assert facts["hierarchy_levels"] == levels[: -len(("class", "device", "leaf"))]
+    facts["place_levels"] = ["building", *facts["place_levels"]]
+    facts["places"] = [
+        {**facts["places"][0], "id": "HALL", "level": "building", "names": ["equipment hall"]},
+        *facts["places"],
+    ]
+    build_data = tmp_path / "build" / "data"
+    build_data.mkdir(parents=True)
+    (build_data / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
+    facility = built_demo.build_dir / FACILITY_FILE
+    if facility.is_file():
+        shutil.copyfile(facility, build_data.parent / FACILITY_FILE)
+
+    _manager, project_dir = _project(
+        tmp_path, "cf-tree-racks", "hierarchical", build_data / FACTS_FILE
+    )
+    section = _terminology_section(project_dir)
+
+    assert "building" not in section
+    assert "equipment hall" not in section
+    sentence = re.search(r"top to bottom,\s+are (.+?)\.\n", section, re.DOTALL)
+    assert sentence
+    assert re.findall(r"`([^`]+)`", sentence.group(1)) == levels
+
+
 @pytest.mark.parametrize("mode", ("in_context", "hierarchical"))
 def test_role_rows_come_from_the_records_roles(tmp_path, built_demo, mode):
     """Each role row lists exactly the signals the records give that role."""
@@ -414,7 +449,9 @@ def test_a_cell_names_each_family_as_the_index_files_it_under_each_system():
             {"id": "MAG/QF", "members": ["M/S1"], "signals": {"SP": "the setpoint"}},
             {"id": "M/ALL", "members": ["M/Q1", "M/S1"]},
         ],
-        "channels": [],
+        "channels": [
+            {"id": f"{device}:SP", "on": {"device": device}} for device in ("M/Q1", "N/Q1", "M/S1")
+        ],
     }
 
     assert _middle_layer_families(facility) == {
@@ -537,3 +574,89 @@ def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_demo, 
         rendered.render(**ctx).encode("utf-8")
         == (project_dir / ".claude" / "agents" / "channel-finder.md").read_bytes()
     )
+
+
+@pytest.mark.parametrize("structural", (False, True))
+def test_the_graph_partial_states_names_places_and_routes(structural):
+    """The graph terminology, in both of its consumers' branches.
+
+    Names on places, devices and channels match whole-entry by the one rule
+    string; class synonyms keep ``CONTAINS`` but only over ``(c:Class)``; both
+    place relationships are listed with their direction; a device is told from
+    a place by ``deviceId``, not by ``rawType``; and no facility device kind or
+    protocol word is spelled in the text.
+    """
+    from osprey.services.graph_store.prompt_snapshot import RECORD_NAME_MATCH_RULE
+    from tests._vocabulary import hardcoded_vocabulary_hits
+
+    rendered = (
+        TemplateManager()
+        .jinja_env.get_template("claude_code/claude/agents/_terminology/graph.md.j2")
+        .render(graph_terminology_structural=structural)
+    )
+
+    assert f"`{RECORD_NAME_MATCH_RULE}`" in rendered
+    assert "`(d)-[:LOCATEDIN]->(p)`" in rendered
+    assert "`(p)-[:PARTOF]->(parent)`" in rendered
+    assert "`deviceId IS NOT NULL`" in rendered
+    assert "`placePath IS NOT NULL AND deviceId IS NULL`" in rendered
+    assert "A query that means devices keeps" not in rendered
+    assert "`ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`" in rendered
+    sentences = re.split(r"(?<=[.;])\s+|\n\s*\n|\n(?=\s*[-|*])", rendered)
+    unscoped = [
+        s
+        for s in sentences
+        if "altLabel" in s and "CONTAINS" in s and not re.search(r"\(\w*:Class\b", s)
+    ]
+    assert unscoped == []
+    generic = [s for s in sentences if "CONTAINS $term" in s and "altLabel" not in s]
+    assert generic and all("description" in s.lower() for s in generic), generic
+    assert hardcoded_vocabulary_hits(rendered) == []
+    assert PROTOCOL_WORDS.search(rendered) is None
+
+
+#: The four things the agent text must say about relations and claims.
+RELATION_RULES = (
+    "Symmetric types are queried undirected",
+    "`(a)-[:CABLEDTO]-(b)`",
+    "Plain edges never cross a disputed fact",
+    "A device can have two `LOCATEDIN`",
+    "carrying the device's `placePath`",
+    "A `:Claim` node holds the evidence",
+)
+
+
+@pytest.mark.parametrize("structural", (False, True))
+def test_the_graph_partial_states_the_relation_rules(structural):
+    """Relation edges, their twins, groups and claims, in both branches."""
+    from osprey.facility.views.graph import RELATION_PREDICATES
+
+    rendered = (
+        TemplateManager()
+        .jinja_env.get_template("claude_code/claude/agents/_terminology/graph.md.j2")
+        .render(graph_terminology_structural=structural)
+    )
+
+    for rule in RELATION_RULES:
+        assert rule in rendered, rule
+    flat = " ".join(rendered.split())
+    assert "each backed by a `:Claim` node" not in flat
+    assert "Claim nodes follow the corpus's `facility_graph.claims` setting" in flat
+    assert "Group membership is `HASMEMBER`, not a claim" in flat
+    for predicate in RELATION_PREDICATES.values():
+        assert f"`{predicate.upper()}`" in rendered, predicate
+    for shape in (
+        "`(a)-[:POWEREDBYCONTESTED]->(b)`",
+        "`(g:Group)-[:HASMEMBER]->(d)`",
+        "`(c:Claim)-[:CLAIMSUBJECT]->(a)`",
+        "`(c:Claim)-[:CLAIMOBJECT]->(b)`",
+        "`(c:Claim)-[:CONTESTS]->(rival:Claim)`",
+    ):
+        assert shape in rendered, shape
+
+
+def test_the_channel_finder_names_the_resolved_place():
+    source = (_TEMPLATE_ROOT.parent / "channel-finder.md.j2").read_text(encoding="utf-8")
+    prose = " ".join(source.split())
+    assert "A device can have two `LOCATEDIN`" in prose
+    assert "the place carrying the device's `placePath`" in prose

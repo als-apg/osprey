@@ -88,6 +88,12 @@ def url(config, spool_zone, mounts, tmp_path) -> Iterator[str]:
             yield base
 
 
+def _operator(url: str) -> RecordClient:
+    """A client logged in as the operator, who reads every identity's entries."""
+    login = ids.login_for(ids.OPERATOR_IDENTITY)
+    return RecordClient(url, login, _token(login))
+
+
 def _history(url: str, identity: str) -> ConversationHistory:
     login = ids.login_for(identity)
     return ConversationHistory(RecordClient(url, login, _token(login)))
@@ -228,9 +234,13 @@ def test_the_second_question_sees_the_first_answer(
     (turn,) = second["conversation_so_far"]
     assert (turn["question"], turn["answer"], turn["run_id"]) == (FIRST, ANSWER, "run-1")
     assert turn["asked_by"] == {"id": "users/7", "name": "Pat"}
-    turns = spool_zone.recorded_entries(c.KIND_BRIDGE_TURN)
-    assert sorted(e.body["question"] for e in turns) == ["and yesterday?", FIRST]
-    assert {e.identity for e in turns} == {TEAMS}
+    # The service's own consumer takes (and deletes) the spool's segments, so the
+    # turns are read from its record, behind a drain, not by a second consumer.
+    answer = _operator(url).entries(c.KIND_BRIDGE_TURN, wait=c.Drain())
+    assert answer.available and answer.complete, answer.reason
+    turns = answer.data or []
+    assert sorted(e["body"]["question"] for e in turns) == ["and yesterday?", FIRST]
+    assert {e["identity"] for e in turns} == {TEAMS}
 
 
 def test_a_bridge_sees_only_its_own_turns(url, config, spool_zone, spool_for, mounts):

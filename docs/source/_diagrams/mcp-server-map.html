@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
-  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, or pv-directory when the config has a pv_directory section; all run as child processes of the harness and expose no network port.</desc>
   <defs>
     <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -45,18 +45,22 @@
   <text class="tn" x="756" y="274" text-anchor="middle">python_executor</text>
   <text class="ts" x="756" y="290" text-anchor="middle">execute</text>
   <!-- servers, row 2 -->
-  <rect class="mask" x="216" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="216" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="296" y="362" text-anchor="middle">ariel</text>
-  <text class="ts" x="296" y="378" text-anchor="middle">logbook search</text>
-  <rect class="mask" x="400" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="400" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="480" y="362" text-anchor="middle">facility_knowledge</text>
-  <text class="ts" x="480" y="378" text-anchor="middle">OKF bundle</text>
-  <rect class="mask" x="584" y="336" width="160" height="64" rx="6"/>
-  <rect class="nb" x="584" y="336" width="160" height="64" rx="6"/>
-  <text class="tn" x="664" y="362" text-anchor="middle">graph</text>
-  <text class="ts" x="664" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <rect class="mask" x="124" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="124" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="204" y="362" text-anchor="middle">ariel</text>
+  <text class="ts" x="204" y="378" text-anchor="middle">logbook search</text>
+  <rect class="mask" x="308" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="308" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="388" y="362" text-anchor="middle">facility_knowledge</text>
+  <text class="ts" x="388" y="378" text-anchor="middle">OKF bundle</text>
+  <rect class="mask" x="492" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="492" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="572" y="362" text-anchor="middle">graph</text>
+  <text class="ts" x="572" y="378" text-anchor="middle">facility graph · Cypher</text>
+  <rect class="mask" x="676" y="336" width="160" height="64" rx="6"/>
+  <rect class="nb" x="676" y="336" width="160" height="64" rx="6"/>
+  <text class="tn" x="756" y="362" text-anchor="middle">pv-directory</text>
+  <text class="ts" x="756" y="378" text-anchor="middle">read-only · if configured</text>
   <!-- zone footnote -->
   <text class="ts" x="480" y="428" text-anchor="middle">rendered from config.yml by osprey build — profiles can inject more servers</text>
 </svg>

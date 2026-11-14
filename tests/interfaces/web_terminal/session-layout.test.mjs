@@ -4,9 +4,10 @@
  *   npx vitest run tests/interfaces/web_terminal/session-layout.test.mjs
  *
  * A switch applies the arriving session's stored layout and each panel's
- * page; a session with none keeps the layout on screen and stores it (a new
- * session inherits it); leaving writes the screen left; a restore is never
- * written back.
+ * page; a session with none keeps the layout on screen and stores it; leaving
+ * writes the screen left; a restore is never written back. A new session the
+ * operator starts opens on the Agent pane alone, and the session left keeps
+ * its own layout.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -30,6 +31,13 @@ const mocks = vi.hoisted(() => ({
   server: {},
   applyDock: vi.fn(),
   restorePanelPage: vi.fn(),
+  closeDockPanel: vi.fn(),
+  isTerminalPanelOpen: vi.fn(),
+  openTerminalPanel: vi.fn(),
+  /** How deep the dock-sync echo guard is raised. */
+  guard: 0,
+  /** Keys closed with the echo guard down. @type {string[]} */
+  unguarded: [],
 }));
 
 const api = () => ({
@@ -65,8 +73,21 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   getDockApi: () => (mocks.noDock ? null : api()),
   currentDock: () => mocks.dock,
   applyDock: mocks.applyDock,
+  closeDockPanel: mocks.closeDockPanel,
+  isTerminalPanelOpen: mocks.isTerminalPanelOpen,
+  openTerminalPanel: mocks.openTerminalPanel,
   setLayoutRestoredHook: (/** @type {() => void} */ fn) => {
     mocks.restoredHook = fn;
+  },
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js', () => ({
+  withEchoSuppressed: (/** @type {() => any} */ fn) => {
+    mocks.guard += 1;
+    try {
+      return fn();
+    } finally {
+      mocks.guard -= 1;
+    }
   },
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js', () => ({
@@ -137,6 +158,17 @@ beforeEach(async () => {
   mocks.server = {};
   mocks.applyDock.mockReset();
   mocks.restorePanelPage.mockReset();
+  // A tile × takes its panel off the screen.
+  mocks.guard = 0;
+  mocks.unguarded = [];
+  mocks.closeDockPanel.mockReset().mockImplementation((/** @type {string} */ key) => {
+    if (mocks.guard === 0) mocks.unguarded.push(key);
+    const left = Object.keys(mocks.dock.panels).filter((id) => id !== key);
+    mocks.dock = dockWith(...left);
+    return true;
+  });
+  mocks.isTerminalPanelOpen.mockReset().mockReturnValue(true);
+  mocks.openTerminalPanel.mockReset();
   // A stored layout applies: the screen becomes it.
   mocks.applyDock.mockImplementation((/** @type {any} */ value) => {
     mocks.dock = { version: value.version, layout: value.layout, panels: value.panels };
@@ -191,14 +223,15 @@ describe('arriving at a session', () => {
     ]);
   });
 
-  test('a new session inherits the layout on screen once it has a transcript', async () => {
+  test('a key the listing has not caught up with keeps the screen, stored once it has a transcript', async () => {
     mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
     mocks.server[TNEW] = null;
     await boot(TA);
     vi.advanceTimersByTime(mod.SETTLE_MS);
     fetchMock.mockClear();
 
-    // "+ New": the listing has no transcript for the key yet.
+    // A key move the operator did not start as a new session (Restart
+    // terminal): the listing has no transcript for the key yet.
     await switchTo(null);
     mocks.dock = dockWith('knowledge', 'notebook');
     dockChanged();
@@ -498,5 +531,138 @@ describe('settled', () => {
     mocks.restoredHook?.();
     await switchTo(null);
     expect(await isSettled()).toBe(true);
+  });
+});
+
+describe('a new session the operator starts', () => {
+  /** The page holder: each of `keys` in a tile of its own, the terminal's last. */
+  async function holderWith(/** @type {string[]} */ ...keys) {
+    const { initLayoutHolder } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js');
+    const { detachPlacement } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js');
+    const holder = initLayoutHolder({
+      dockPx: { width: 1200, height: 600 },
+      placement: detachPlacement,
+    });
+    const tiles = [...keys, 'terminal'];
+    holder.restore({
+      split: 'row',
+      items: tiles.map((key, i) => ({
+        tile: `t${i + 1}`,
+        tabs: [key],
+        showing: key,
+        size: 1 / tiles.length,
+      })),
+    });
+    mocks.dock = dockWith(...keys);
+    return holder;
+  }
+
+  /** The model says the operator started a new session (`switchTo({new: true})`). */
+  function startNew() {
+    for (const fn of mocks.sessionListeners) fn({ reason: 'new' });
+  }
+
+  const closed = () => mocks.closeDockPanel.mock.calls.map(([key]) => key).sort();
+
+  test.each([
+    ['on the terminal, `new` comes before the pointer moves', true],
+    ['in the chat, the pointer moves before `new`', false],
+  ])('%s: the Agent pane alone, and the session left keeps its tiles', async (_, newFirst) => {
+    await holderWith('knowledge', 'notebook');
+    mocks.server[TA] = { ...dockWith('knowledge', 'notebook'), pages: {} };
+    mocks.server[TNEW] = null;
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    fetchMock.mockClear();
+
+    if (newFirst) {
+      startNew();
+      await switchTo(null);
+    } else {
+      await switchTo(null);
+      startNew();
+    }
+
+    // Every other tile closed as its × closes it, under the echo guard.
+    expect(closed()).toEqual(['knowledge', 'notebook']);
+    expect(mocks.unguarded).toEqual([]);
+    expect(mocks.openTerminalPanel).not.toHaveBeenCalled();
+    dockChanged();
+    vi.advanceTimersByTime(mod.SAVE_DEBOUNCE_MS);
+    expect(puts()).toEqual([]);
+    expect(mocks.server[TA].panels).toEqual(dockWith('knowledge', 'notebook').panels);
+
+    // The new session stores the Agent pane alone once it has a transcript.
+    await switchTo(TNEW);
+    expect(puts()).toEqual([{ tid: TNEW, layout: { ...dockWith(), pages: {} } }]);
+
+    // Back on the session left, its tiles come back.
+    await switchTo(TA);
+    expect(mocks.applyDock.mock.calls.at(-1)?.[0].panels).toEqual(
+      dockWith('knowledge', 'notebook').panels
+    );
+    expect(mocks.dock.panels).toEqual(dockWith('knowledge', 'notebook').panels);
+  });
+
+  test('a reload on the new session shows the Agent pane alone', async () => {
+    await holderWith('knowledge');
+    mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
+    mocks.server[TNEW] = null;
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    startNew();
+    await switchTo(TNEW);
+
+    // The reload: the dock's own restore brought something else back.
+    mod.resetSessionLayout();
+    mocks.sessionListeners = [];
+    mocks.applyDock.mockClear();
+    mocks.dock = dockWith('knowledge');
+    await boot(TNEW);
+    expect(mocks.applyDock).toHaveBeenCalledOnce();
+    expect(mocks.dock.panels).toEqual({});
+  });
+
+  test('a pane in a window of its own closes too, the way its window closes', async () => {
+    const holder = await holderWith('knowledge', 'notebook');
+    holder.detach('knowledge');
+    mocks.server[TA] = null;
+    await boot(TA);
+    startNew();
+    expect(closed()).toEqual(['knowledge', 'notebook']);
+    expect(mocks.unguarded).toEqual([]);
+  });
+
+  test('a closed Agent pane opens; one in a window of its own stays there', async () => {
+    const holder = await holderWith('knowledge');
+    mocks.server[TA] = null;
+    await boot(TA);
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    startNew();
+    expect(mocks.openTerminalPanel).toHaveBeenCalledOnce();
+    expect(closed()).toEqual(['knowledge']);
+
+    mocks.openTerminalPanel.mockClear();
+    mocks.closeDockPanel.mockClear();
+    holder.detach('terminal');
+    startNew();
+    expect(mocks.openTerminalPanel).not.toHaveBeenCalled();
+    expect(closed()).toEqual(['knowledge']);
+  });
+
+  test('an arrive still pending is not applied over the new session', async () => {
+    mocks.server[TA] = null;
+    mocks.server[TB] = { ...dockWith('notebook'), pages: {} };
+    await boot(TA);
+    mocks.row = { transcript_id: TB };
+    for (const fn of mocks.sessionListeners) fn({ reason: 'pointer' });
+    startNew();
+    await flush();
+    expect(mocks.applyDock).not.toHaveBeenCalled();
+    dockChanged();
+    vi.advanceTimersByTime(mod.SAVE_DEBOUNCE_MS);
+    expect(puts().filter((p) => p.tid === TB)).toEqual([]);
   });
 });

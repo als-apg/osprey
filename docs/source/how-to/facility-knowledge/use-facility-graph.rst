@@ -80,7 +80,9 @@ corrector is a corrector, and a corrector is a magnet.
    :file: ../../_diagrams/facility-graph-primer.html
 
 An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
-tie each device to its class, and teal marks the walk in step 4.
+tie each device to its class, and teal marks the walk in step 4. The legend
+adds the edges relation claims write; the demo's claims are the sector-3
+example in :doc:`/architecture/facility-relations`.
 
 The walk is what a list of addresses cannot do on its own: the question says
 "steerer" and "section 1", and no address spells either. The same shape answers
@@ -112,7 +114,7 @@ the questions that come up around a machine:
 
    .. code-block:: cypher
 
-      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE l = "steerer")
+      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE toLower(l) CONTAINS "steerer")
       MATCH (cls:Class)-[:SUBCLASSOF*0..]->(word)
       MATCH (d:Resource)-[:TYPE]->(cls)
       WHERE d.sectionCode = "SECT1"
@@ -273,6 +275,43 @@ that instead.
    view from that.
 
 
+.. _graph-view:
+
+Browsing the Graph
+==================
+
+To look at the graph yourself instead of asking the agent, open the KNOWLEDGE
+panel. At startup it reads the graph view ``services.graphdb.ttl_path`` names
+and adds a **Graph** view beside **Knowledge**. It reads the file, not the
+store: it works while the store is down, and does not show what a store the
+facility runs holds. With no ``ttl_path`` there is no **Graph** view.
+
+* **Overview** draws one mark per class, and the places, channels and signals
+  as one group each. Click a mark to list its members.
+* **Neighbourhood** draws what lies within one to three hops of a node, at most
+  120 nodes. A node with more than 12 relations is drawn but not walked
+  through; its badge counts what is left out. Double-click a node to move the
+  focus to it.
+* The search field matches a node's label — a device's id, a place's path, a
+  channel's address, a class or signal name — or its id, ignoring case. It
+  does not search ``altLabel`` names.
+* The relation checkboxes take a relation out of the drawing and out of the
+  walk.
+* Right-click a node, a relation or the empty drawing for its menu: copy a
+  name, hide a relation or show it alone, reset the view.
+
+A device's place is its stored ``locatedIn`` relation, and a place's parent its
+stored ``partOf``. The **Overview** draws no ``partOf``, since both ends sit in
+the one places group; the legend still counts it. Each relation edge between
+devices and places (``poweredBy``, ``cabledTo`` and the rest, and their
+``Contested`` twins, :ref:`reference-facility-graph`) is drawn in the same
+generic style as any other relation. Claim and group nodes, and the edges that
+end on them, are not drawn.
+
+Clicking a ``facility:`` link in a concept document opens the linked record in
+the **Graph** view, and a picked node lists the concept documents that name it.
+
+
 .. _graph-external-store:
 
 Pointing at a Store the Facility Runs
@@ -296,24 +335,15 @@ To point the deployment at the facility's store:
    an edit replaces it whole — write out the services you *do* want rather
    than the one you are taking away.
 
-#. Mark both edits with a ``# DEVIATION: <why>`` comment. Both are structural
-   differences from the preset the profile was materialized from, so
-   ``osprey validate`` refuses them until a comment claims each one. A dropped
-   list member needs its own marker: one comment does not cover the key beside
-   it. The block then reads:
+   The block then reads:
 
    .. code-block:: yaml
 
       config:
-        # DEVIATION: the graph store is the facility's, not this deployment's
         services.graphdb.uri: bolt://graph.facility.example:7687
         services.graphdb.username: osprey
         # ... the rest of your services keys, unchanged
-        # DEVIATION: graphdb is the facility's store, so deployed_services drops it
         deployed_services: [postgresql, qmd]   # no graphdb
-
-   Which differences are refused and which are only reported is set out under
-   :ref:`Preset drift <profile-preset-drift>` in the profile reference.
 
 #. If the corpus lives in a database other than ``neo4j`` on that store, name
    it with ``services.graphdb.database``. The store this deployment runs is a
@@ -372,7 +402,7 @@ only its own status channels. After ``osprey build`` the views hold:
      - Relationship to the graph
    * - Graph view (``data/graph/facility.ttl``)
      - 4731
-     - Build output, written from the facility file: 1016 devices, and one
+     - Build output, written from the facility file: 1027 devices, and one
        binding per channel; the 674 setpoint channels are the write-direction
        bindings.
    * - Channel finder — hierarchical and graph builds
@@ -509,7 +539,7 @@ can write, so the graph server's read transaction, not the credential, keeps
 that tier read-only, as with the ARIEL database credential.
 
 ``demo-logbook`` has no control surface and no graph tools.
-``demo-knowledge`` is the app built around the graph: it keeps
+``demo-knowledge`` is the login built around the graph: it keeps
 the facility-knowledge-graph agent, the graph-backed channel finder and the
 KNOWLEDGE panel, and nothing that reads or writes the machine.
 

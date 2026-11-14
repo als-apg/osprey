@@ -452,7 +452,7 @@ def ariel_service(monkeypatch: pytest.MonkeyPatch):
     import osprey.services.ariel_search as ariel_pkg
 
     def _install(service: _StubService) -> None:
-        async def _fake_create(_config: Any) -> _StubService:
+        async def _fake_create(_config: Any, *, store_deadline_s=None) -> _StubService:  # noqa: ARG001 - the signature it stands in for
             return service
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)

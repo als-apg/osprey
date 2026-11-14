@@ -25,6 +25,7 @@ const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
   fitTerminal: () => {},
   getCurrentSessionId: () => null,
+  onSessionChange: () => () => {},
 }));
 // No project key: persistence stays inert, so every apply builds a default.
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({

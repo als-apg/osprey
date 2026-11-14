@@ -242,3 +242,47 @@ def test_no_alias_for_a_panel_that_does_not_ask_for_one(repo: Path, entry_point:
     assert rendered["services"]["knob-demo"]["environment"] == {"PORT": "18000"}
     plain = _render(entry_point, "plain", _roster_less(repo, single_user_alias=True))
     assert plain["services"]["plain"]["environment"] == {"PORT": "18001"}
+
+
+def _optimizer_web_single_user(repo: Path, **deployment: str) -> dict:
+    """A roster-less deployment serving the OPTIMIZER tab through optimizer_web."""
+    service = repo / "services" / "optimizer_web"
+    service.mkdir(parents=True, exist_ok=True)
+    (service / "docker-compose.yml.j2").write_text(_TEMPLATE)
+    config = _roster_less(repo, single_user_alias=False)
+    config["services"]["optimizer_web"] = {"path": "services/optimizer_web", "port": 18002}
+    config["deployed_services"].append("optimizer_web")
+    config["deployment"] = dict(deployment)
+    return config
+
+
+@pytest.mark.parametrize("entry_point", _ENTRY_POINTS)
+def test_the_optimizer_sidecar_names_the_stamped_host_identity(
+    repo: Path, entry_point: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The alias owner is who ``osprey web`` signs in as, not who ran the build.
+
+    A Start from the panel files its write request under this name, and the
+    terminal's chip lists only the requests its own login owns: two names for one
+    person would leave the request unapprovable.
+    """
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "someone-else")
+    var = terminal_secret_var("operator")
+    suffix = var.removeprefix("OSPREY_TERMINAL_SECRET_")
+    config = _optimizer_web_single_user(repo, host_identity="operator")
+    rendered = _render(entry_point, "optimizer_web", config)
+    assert rendered["services"]["optimizer_web"]["environment"] == {
+        "PORT": "18002",
+        "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS": "1",
+        var: "${OSPREY_TERMINAL_SECRET}",
+        "OSPREY_TERMINAL_ROSTER_OWNERS": f"{suffix}=operator",
+    }
+
+
+@pytest.mark.parametrize("entry_point", _ENTRY_POINTS)
+def test_the_optimizer_sidecar_published_on_the_network_names_nobody(
+    repo: Path, entry_point: str
+) -> None:
+    config = _optimizer_web_single_user(repo, host_identity="operator", bind_address="0.0.0.0")
+    rendered = _render(entry_point, "optimizer_web", config)
+    assert rendered["services"]["optimizer_web"]["environment"] == {"PORT": "18002"}

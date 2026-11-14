@@ -9,8 +9,8 @@ verb a CI pipeline runs first and an operator runs after every profile edit.
 Zero-argument is the normal spelling: the repo enclosing the working directory
 is the thing being validated, found by the same walk every repo-scoped command
 uses. The optional path argument stays for the one profile that is not a repo
-root — a tier under ``tiers/`` or an app under ``apps/``, each a profile in its
-own right with its own way to be wrong.
+root — a login file under ``tiers/``, a profile in its own right with its own
+way to be wrong.
 
 ``osprey profile validate`` is the same verb spelled as part of the ``profile``
 noun group, and both spellings are documented surface. Only the INTERFACE
@@ -39,7 +39,7 @@ def profile_file_at(target: Path) -> Path:
 
     Both spellings are accepted because both are things an operator has on
     hand: a directory (the repo root, or any directory holding a
-    ``profile.yml``) and an explicit path to a profile file (how tiers and apps
+    ``profile.yml``) and an explicit path to a profile file (how logins
     are named, since each is a file beside its siblings, not a directory).
 
     Raises:
@@ -57,7 +57,7 @@ def profile_file_at(target: Path) -> Path:
 
 
 def _reject_unknown_layer_keys(profile_file: Path) -> None:
-    """Refuse a tier or app file spelling a key not legal in its kind.
+    """Refuse a login file spelling a key not legal in its kind.
 
     Checked on the file's own document, before it is merged over the root
     profile, so a deployment key in a tier is named against the tier's key set
@@ -76,13 +76,14 @@ def _reject_unknown_layer_keys(profile_file: Path) -> None:
         reject_unknown_kind_keys(raw, kind, layer_file_label(profile_file))
 
 
-def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
+def check_profile_file(profile_file: Path) -> None:
     """Validate the profile at *profile_file* and print the verdict.
 
     The whole of what both spellings of the verb do once a profile file has been
     named: resolve the ``extends:`` chain, run the profile's own consistency
     check, lint the declared web stack against the config a build would render,
-    compare a materialized profile with the preset it came from, and report.
+    say whether the preset a materialized profile came from has moved on, and
+    report.
 
     The host-variant overlay is applied first, exactly as ``osprey build``
     applies it. Without that, this verb would judge a document no host builds:
@@ -93,12 +94,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     Args:
         profile_file: An existing profile file — a repo's ``profile.yml`` or a
-            tier or app file.
-        drift: ``error`` refuses a profile that differs STRUCTURALLY from its
-            preset in a place no marker comment claims — a key, block or list
-            member one document has and the other has not; ``warn`` prints
-            those places and passes. A value difference on a key both carry is
-            printed either way and refuses under neither.
+            login file.
 
     Raises:
         click.UsageError: With every accumulated problem, so the caller exits 2.
@@ -113,10 +109,9 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         limits_block_errors,
         profile_dispatch_tier,
     )
-    from .build_profile_drift import MARKER_REACH, preset_drift_report
     from .build_profile_presets import bundled_layer_file_refusal
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
+    from .build_profile_updates import preset_update_note
     from .profile_root import resolve_profile_root
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
@@ -127,7 +122,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     variant = VariantSelection(name=None, path=None)
     try:
         # Only a deployment has a host variant, and it overlays the deployment's
-        # profile.yml: a tier or app named directly is judged over the root its
+        # profile.yml: a login file named directly is judged over the root its
         # render merges over, so the setting is read off that root, never off
         # the `tiers/` or `apps/` directory.
         root_dir, kind = resolve_profile_root(profile_file)
@@ -182,7 +177,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         *system_timezone_errors(build_profile.config),
     ]
     # The CANOPY home screen, as `osprey build` judges it: a repo's profile
-    # together with every tier and app file the build renders, a file named
+    # together with every login file the build renders, a file named
     # directly on its own, against the library under the profile's data root.
     try:
         if profile_file.name == PROFILE_FILENAME:
@@ -215,48 +210,16 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     ):
         note(f"⚠ {warning}")
 
-    # A materialized profile against the preset it was written from, and each
-    # tier and app file against the bundled tier or app its own provenance
-    # names. Only a document `osprey init` stamped has a source to be compared
-    # with; a hand-written one has nothing to drift from — the lint reports
-    # nothing for it, so it runs whether or not the root carries a stamp.
-    #
-    # Only the STRUCTURAL findings refuse, because only they name the silent
-    # kind of failure — a key, a block or a member the preset gained and this
-    # copy never did builds green forever, and nothing says so. A value
-    # difference on a key both documents carry is the operator doing what the
-    # emitted profile invites, so it is printed and never refused; the cost of
-    # that ruling is that a preset changing a default in a newer OSPREY arrives
-    # as a note. Either way a facility fact is claimed once, with a marker
-    # comment, and never asked about again.
+    # Whether the presets this repo took have changed since it last took them:
+    # one line, never a refusal. The profile is the operator's to edit, and
+    # applying what a preset changed is `osprey init --revalidate`'s job. The
+    # real checks above are what refuse.
     try:
-        report_card = preset_drift_report(profile_file, build_profile.provenance)
+        update_note = preset_update_note(profile_file)
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
-    if report_card.note:
-        note(report_card.note)
-    for stale in report_card.stale_markers:
-        note(f"⚠ {stale}")
-    for finding in report_card.notes:
-        note(f"⚠ preset drift: {finding.render()}")
-    refusals = report_card.refusals
-    if refusals and drift == "error":
-        tag = (
-            build_profile.provenance.deviation_marker
-            if build_profile.provenance is not None
-            else DEFAULT_DEVIATION_MARKER
-        )
-        raise click.UsageError(
-            f"Profile differs from what it was materialized from in {len(refusals)} "
-            f"place(s) no marker claims:\n  - "
-            + "\n  - ".join(finding.render() for finding in refusals)
-            + f"\nA deliberate difference is marked with a `# {tag}: <why>` comment "
-            f"within {MARKER_REACH} lines above its line, or one naming the key or "
-            f"member when the file has no line for it. `--drift=warn` reports "
-            f"without refusing."
-        )
-    for finding in refusals:
-        note(f"⚠ preset drift: {finding.render()}")
+    if update_note:
+        note(update_note)
 
     # Before the verdict, and worded as `osprey build` words it: the reader has
     # to know WHICH document was judged before being told it is fine.
@@ -285,35 +248,22 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
 @click.command()
 @click.argument("target", required=False, type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--drift",
-    type=click.Choice(["error", "warn"]),
-    default="error",
-    show_default=True,
-    help=(
-        "What an unmarked structural difference from the profile's preset does: "
-        "refuse, or warn. A value difference is always reported."
-    ),
-)
 @repo_option
-def validate(target: Path | None, drift: str, repo: Path | None) -> None:
+def validate(target: Path | None, repo: Path | None) -> None:
     """Check the deployment profile without building.
 
     With no argument, validates the deployment repo enclosing the working
-    directory. TARGET names a different profile to check instead — a tier
-    under tiers/, an app under apps/, or a directory holding a profile.yml.
+    directory. TARGET names a different profile to check instead — a login file
+    under tiers/, or a directory holding a profile.yml.
 
     Resolves extends: chains and runs the full consistency check — convention
     directories, the data: tree, service templates, lifecycle steps, env vars —
     then lints the declared web stack against the config a build would render.
     Every problem found is reported, not just the first.
 
-    A profile `osprey init` wrote is also compared with the preset it came from,
-    and each tier and app file with the bundled tier or app its provenance
-    names. A key, block or list member one of them has and the
-    other has not is refused unless a marker comment (`# DEVIATION: <why>`, tag
-    set by provenance.deviation_marker) claims it; --drift=warn reports those
-    and passes. A key both carry with different values is always just reported.
+    For a profile `osprey init` wrote, and each login file it copied, a note
+    says when the bundled preset has changed since. Your own edits to the
+    profile are never refused: it is yours to change.
 
     Judges what this host builds: when .env.variant selects an overlay under
     profiles/, that overlay is merged in first, and named in the output.
@@ -325,7 +275,7 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
 
     \b
       $ osprey validate
-      $ osprey validate apps/logbook.yml
+      $ osprey validate tiers/readonly.yml
       $ osprey validate --repo ~/my-assistant
     """
     if target is not None and repo is not None:
@@ -341,4 +291,4 @@ def validate(target: Path | None, drift: str, repo: Path | None) -> None:
         # so there is no second existence check to make here.
         profile_file = find_repo_root(repo) / PROFILE_FILENAME
 
-    check_profile_file(profile_file, drift=drift)
+    check_profile_file(profile_file)

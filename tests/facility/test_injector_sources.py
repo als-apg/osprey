@@ -419,6 +419,7 @@ def test_the_middle_layer_view_keys_both_septa_under_the_septum_family() -> None
     doc = {
         "devices": _committed("records/devices.yaml"),
         "groups": _committed("records/groups.yaml"),
+        "channels": _committed("records/channels.yaml"),
     }
     assert middle_layer_families(FacilityRecords(doc))["Septum"] == [
         ("BR", "SEPTUM"),

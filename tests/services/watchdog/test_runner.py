@@ -845,3 +845,16 @@ class TestRecorder:
         (verdict,) = seen
         assert verdict.session_key == POOL_KEY
         assert verdict.prompt_ref == f"{RECORD_SESSION}:{SUBMISSION}"
+
+
+def test_the_agent_engine_is_built_with_the_terminals_judge_grants(tmp_path: Path) -> None:
+    grants = object()
+    runner = WatchdogRunner(
+        [agent("a")],
+        hold_root=None,
+        notify=lambda *_a, **_k: None,
+        build_dir=tmp_path,
+        judge_grants=grants,  # type: ignore[arg-type]
+    )
+    engine = runner._build_engine(ENGINE_AGENT)
+    assert engine._grants is grants  # type: ignore[attr-defined]

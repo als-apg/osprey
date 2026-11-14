@@ -89,7 +89,7 @@ forge is filled in.
 The directory's name is proposed as the deployment's name: ``osprey init``
 normalizes it to a valid compose project name and records it in
 ``profile.yml`` as ``project_name:``, beside the display ``name:``. That
-tracked value names the compose project, volumes, images and tier and app renders
+tracked value names the compose project, volumes, images and login renders
 on every host from then on; the folder a later clone sits in plays no part. Change
 it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
 first ``osprey up`` if the folder name is not the name you want
@@ -148,15 +148,31 @@ no container runtime answers. To keep the old data instead, pass
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
 ``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
-this OSPREY in place: the current profile vocabulary, every config key the
-profile leaves to its preset (from ``--preset NAME``, or the preset the profile
-records), the provider entries and keys OSPREY ships that ``providers.yml``
-lacks and no deviation marker claims absent (every value already in it is
-kept, an edited entry OSPREY ships included), and, while the profile's lists name nothing by path, the repo's own
+this OSPREY in place: the current profile vocabulary, what the presets changed
+since the repository last took them, the provider entries and keys OSPREY
+added since (every value already in ``providers.yml`` is kept), and, while the
+profile's lists name nothing by path, the repo's own
 skills, agents, rules, output styles and hooks named by path in ``profile.yml``
-and each app (a bare entry the repo ships a file for becomes its path), so
+and each ``lists: own`` login (a bare entry the repo ships a file for becomes its path), so
 every render keeps what it carried.
-Your deployment's own selections — the roster, the shared apps, the default
+A preset change is applied only where your file still holds the preset's old
+value: an added key, panel or step you lack is added, and a removed or changed
+one you kept is removed or updated. Anything you changed yourself is left
+alone, and a key, entry or provider you deleted is not added back. What it does
+not apply but you may want is printed once, under "left for you". Drop any
+change you do not want from the diff before you commit: it is not offered
+again. ``--preset NAME`` switches the profile to that preset and fills in what
+it has and the profile lacks. A repository made before this tracking existed
+starts it on its first ``--revalidate``: nothing records what its presets said,
+so that run fills in the ``config:`` keys the profile lacks and lists whatever
+else differs from the presets under "left for you", applying none of it.
+A login file left in ``apps/`` moves to ``tiers/<name>.yml``: one never edited
+is re-emitted from the bundled login, an edited one keeps its lines and gains
+``lists: own`` and, unless it states its writes, ``control_system.writes:
+never``; where the ``tiers/`` file already exists, the output says to merge the
+two by hand. A ``landing.groups`` entry ``type: apps`` becomes
+``type: shared``; until then it reads as ``shared`` for one release.
+Your deployment's own selections — the roster, the shared logins, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
@@ -233,12 +249,11 @@ Check the deployment profile without building.
 
 .. code-block:: bash
 
-   osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
+   osprey validate [TARGET] [--repo DIRECTORY]
 
 With no argument, validates the deployment repository enclosing the working
-directory. ``TARGET`` names a different profile to check instead — a tier
-file under ``tiers/``, an app file under ``apps/``, or a directory holding a
-``profile.yml``.
+directory. ``TARGET`` names a different profile to check instead — a login
+file under ``tiers/``, or a directory holding a ``profile.yml``.
 
 Resolves ``extends:`` chains and runs the full consistency check — convention
 directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
@@ -246,28 +261,10 @@ then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
-A profile ``osprey init`` wrote is also compared with the preset it came from,
-tier and app files included, and the two kinds of difference are treated
-differently.
-
-**Structural** differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or an
-``exclude:`` of something the preset keeps. Each is reported with both
-``file:line`` references unless a ``# DEVIATION: <why>`` comment within three
-lines above the profile line claims it (for a missing line, a comment anywhere
-naming the key or member). The tag is set by ``provenance.deviation_marker``; a
-marker that no longer marks a difference is reported as stale.
-``--drift=warn`` prints them and passes.
-
-**Value** differences — a key both documents carry, set to different values —
-are always only reported, on every setting. The profile is the source of truth,
-so a preset that changes a value in a later OSPREY release turns up as a note
-rather than failing a build that was fine yesterday.
-
-``osprey build`` prints the same list under ``-v`` and, whenever the bundled
-preset's hash differs from the recorded one, a one-line note that the preset
-has moved on. A ``providers.yml`` that no longer matches the packaged catalog
-is reported the same way — as a note, never a refusal.
+The profile is yours to edit, so no difference from the preset ``osprey init``
+wrote it from is refused or listed, in ``profile.yml``, a login file, or
+``providers.yml``. When the bundled preset has changed since, ``validate`` and
+``osprey build`` print one line saying so.
 
 .. code-block:: bash
 
@@ -364,7 +361,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    Print the composition card ``osprey init`` prints, for a repo that already
    exists: who can sign in and with what rights, what the agent runs on, what
    machine it talks to, and what runs beside it. It reads ``profile.yml`` and
-   the tier and app files beside it; nothing is built, started or probed.
+   the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
 
@@ -443,7 +440,7 @@ has changed since the build, ``up`` refuses and says what moved, because
 starting would deploy something other than what the profile now describes.
 
 One exception, by design: a deployment with web terminals re-renders that stack
-at every start — its compose file, nginx config, landing page, and any tier or app
+at every start — its compose file, nginx config, landing page, and any login
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.
 
@@ -1171,7 +1168,9 @@ is :doc:`/how-to/apps/index`.
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
-   does not name is reported and not checked. The JS checks execute the
+   does not name is reported and not checked. An application an installed package
+   ships is checked too; its violations name the
+   distribution (``<dist>:<module path>/<file>``). The JS checks execute the
    application's JS tests, with none of the shell's secrets; they need Node and
    install a pinned toolchain into the user's cache once; an application with no
    JS needs neither.
@@ -1201,9 +1200,29 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    on stderr; the exit code is unchanged.
    Each link of a knowledge page under ``data/facility/knowledge`` that the
    facility file does not hold, a ``device_id`` that is no device id or a
-   ``facility:`` link in the body that names no channel or device, prints one
+   ``facility:`` link in the body that names no channel or device (or, as
+   ``facility:place/<id>``, no place), prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
+   A measurement kind no installed package registers, in a tree that mounts no
+   machine root and lists no application and no dependency, prints one
+   ``facility: kind-deferred: measurement <model> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
+   A group whose sources state different members prints one
+   ``members-disagree`` warning naming which source states which member; the
+   group carries them all.
+   Relation claims print, in both commands and with the exit code unchanged,
+   one ``relation-contested`` warning per key a dispute leaves unsettled, one
+   ``relation-coarse`` per relation type with coarse claims, one
+   ``alias-shared`` per scheme name two records carry, one
+   ``identity-ambiguous`` per imported layer holding two devices one
+   ``same_as`` chain joins, one ``part-cycle`` per loop of ``part_of`` and
+   ``runs_on`` claims, one ``relation-stub`` per imported layer with
+   ``Unidentified`` devices that claims name, and one ``place-unplaced`` per
+   place a relations layer creates top-level with no citation. This command alone then closes stderr with one summary line,
+   ``relations: <n> claims (<s> stated, <i> inferred); <a> accepted, <c> contested``,
+   followed by ``, <x> superseded`` when any are; a claim without ``basis``
+   counts as stated, and a file with no claims prints no line.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
@@ -1217,33 +1236,49 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    deployment repo; without it, the nearest ``profile.yml`` at or above the
    current directory is used.
 
-``osprey facility show [--json] [ID] [--repo DIRECTORY]``
+``osprey facility show [--json] [TEXT] [--repo DIRECTORY]``
    Build the facility in memory as ``osprey facility validate`` does, and exit
-   1 like it, with its lines on stderr, when the build stops. Without ``ID`` it
+   1 like it, with its lines on stderr, when the build stops. Without ``TEXT`` it
    prints the identity, the record count per kind (places, devices, channels,
-   groups) and the wiring record count per model, each model with its engine,
+   groups), the relation claim count and the wiring record count per model,
+   each model with its engine,
    whether the main render serves it and its solve setting, and each view with
    its path under the render and whether it is written. The views are those of
-   the main render, ``build/config.yml``; a tier's or app's selection does not change
+   the main render, ``build/config.yml``; a login's selection does not change
    them. A view that is not written names the config key or model fact that
-   left it out. With ``ID`` it prints every place, device, channel, group or
-   model of that id, each under its kind, with its provenance (the layer and
-   file each field came from, the fields the build filled) and the fixes
-   applied to it. An id that names no record prints
-   ``facility show: no record <id>`` on stderr and exits 1. ``--json`` prints
+   left it out. With ``TEXT`` it prints every place, device, channel, group or
+   model of that id; when there is none, the relation claim of that id; when
+   there is none, the places and devices ``TEXT`` names by a ``names`` or
+   ``scheme_names`` name, or, for a place, by the last segment of its id
+   (``S01`` finds ``SR/S01``, never ``SR/XS01``). Each record prints under its
+   kind with its provenance (the layer and file each field came from, the
+   fields the build filled) and the fixes applied to it; a header
+   ``<kind> <id> (match: <match>)`` marks a record ``TEXT`` did not name by id.
+   A place or device lists the claims it is an end of, one line each: id,
+   the claim read subject first with the record itself written ``(this)``
+   (``type <other>`` when the record is the subject, ``<other> type (this)``
+   when it is the object, ``(this) type (this)`` when it is both), standing,
+   and the unit when the claim's place end gives one. A
+   ``TEXT`` that matches nothing prints
+   ``facility show: no record <text>`` on stderr and exits 1. ``--json`` prints
    one JSON document on stdout and every other line, view notes included, on
    stderr; on an error stdout is empty. The facility
    document's keys are ``identity``, ``counts`` (``places``, ``devices``,
-   ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
+   ``channels``, ``groups``, ``relations``, and ``wiring`` keyed by model), ``models``
    (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
    ``path``, ``written``, and ``reason`` only on a view that is not written);
    the record document is ``records``, one entry per record with ``record``,
-   ``kind``, ``provenance`` and ``fixes_applied``, in place, device, channel,
-   group, model order.
+   ``kind``, ``match`` (``id``, ``claim``, ``name`` or ``segment``),
+   ``provenance`` and ``fixes_applied``, and ``claims`` on a place or device
+   (``id``, ``type``, ``other``, ``standing``, ``role`` — ``subject``,
+   ``object`` or ``both``, ``other`` then being the record itself — and
+   ``unit`` when given), in place,
+   device, channel, group, model order.
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
-   ``data/facility/imported/``; the importers are ``mml`` and ``list``.
+   ``data/facility/imported/``; the importers are ``mml``, ``list`` and
+   ``relations``.
 
 ``osprey facility import mml EXPORT... [--repo DIRECTORY]``
    Write MML exports as the mml layer's sources under
@@ -1269,6 +1304,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    Hand-written records of a kind the format writes print
    ``import mml: data/facility/ holds hand-written <kinds> records, which this
    import writes:``, each file, and a remedy, then exit 1 with nothing changed.
+   A facility that already holds an imported layer is not refused: records
+   written by hand beside a layer stay.
    Otherwise bundled files are replaced, printing
    ``import mml: replaced the bundled <name> facility (<n> files)``, everything
    else stays, the knowledge indexes are regenerated, and a blank
@@ -1306,6 +1343,25 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    for a device no row states ``s`` for is ignored with one ``import list:``
    warning on stderr naming the file, row, device and model; the rest of the
    device's rows are imported.
+
+``osprey facility import relations TABLE --layer NAME [--names FILE] [--places FILE] [--members FILE] [--stub-unknown] [--repo DIRECTORY]``
+   Write relation tables as the sources of the layer ``NAME`` under
+   ``data/facility/imported/<NAME>/``. ``TABLE`` holds the claims;
+   ``--names``, ``--places`` and ``--members`` name the three optional tables
+   the claims lean on. The tables and their columns are in
+   :ref:`how-to-describe-your-facility-relations`. A device end the facility
+   lacks is stubbed only when its row states ``subject_class`` or
+   ``object_class``, or, as ``Unidentified``, with ``--stub-unknown``; place
+   and group ends are never stubbed. Ends and names resolve against the whole
+   facility except the layer being replaced. The layer directory is replaced
+   whole and no other file changes: the run does not replace a bundled
+   facility nor refuse hand-written records. Each file written prints one
+   ``wrote <path>`` line. ``NAME`` must match ``[a-z0-9][a-z0-9_-]*`` and is
+   not ``authored``, ``list`` or ``mml``, and a directory holding a file this
+   import never writes is refused. A refused name, directory or row prints one
+   ``facility: source-invalid:`` line per problem; the import writes nothing
+   and exits 1. A profile that does not resolve prints a one-line failure and
+   exits 1. A profile that states ``machine:`` imports into that machine root.
 
 .. _cli-osprey-sim:
 
@@ -1369,6 +1425,12 @@ osprey ariel
 
 Manage the ARIEL logbook search service. Run from anywhere inside a deployment
 repo: the commands read its ``build/config.yml``.
+
+Every command gives the database 30 s to answer when it opens it; the limit
+covers the open, not the work after it. A database that does not answer ends
+the command with exit code 1 and
+``the ARIEL store at <host>:<port>/<database> did not answer within 30 s``. A
+database that refuses the connection fails at once.
 
 ``osprey ariel quickstart [-s, --source PATH]``
    Full setup: migrate, then ingest ``--source`` or the configured ingestion
@@ -1681,7 +1743,7 @@ All subcommands accept a common flag:
 
 ``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
-   allocation, reserved service names, duplicate users, tier and app references).
+   allocation, reserved service names, duplicate users, login references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate. The retired ``--config`` is refused,
    as under ``render`` below.
@@ -1728,6 +1790,10 @@ switch the interfaces over to local bundles.
 
    ``-t, --target DIR`` — Fetch only the assets for this manifest target
    directory, e.g. ``tuning/static/vendor/`` (repeatable). Default: every target.
+   A target the manifest marks ``"base": "package"`` is named relative to the
+   ``osprey`` package rather than its ``interfaces`` package; an unknown target is
+   refused with the list of known ones. An application's own ``vendor:`` entries
+   are fetched by ``osprey build``, not by this command.
 
    Behind a proxy that re-signs TLS with a site CA (e.g. Squid), the fetch
    fails cert verification until it is pointed at the site's CA bundle.

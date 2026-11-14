@@ -483,3 +483,12 @@ def test_both_verbs_are_registered_as_top_level_commands() -> None:
     an operator's ``osprey validate`` goes through."""
     assert cli.get_command(None, "validate") is validate
     assert cli.get_command(None, "config") is config
+
+
+def test_the_validate_help_names_login_files_under_tiers_and_no_apps_target():
+    """The help teaches only targets the build accepts: a login file under tiers/."""
+    result = CliRunner().invoke(validate, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "tiers/" in result.output
+    assert "apps/" not in result.output

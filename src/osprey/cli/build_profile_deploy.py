@@ -355,7 +355,7 @@ def build_lint_view(
 
     - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
     - the render projection ``modules.web_terminals.renders`` — one entry per
-      tier and app file under *profile_root*, its ``project`` /
+      login file under *profile_root*, its ``project`` /
       ``project_path`` derived from ``project_name``
       (:func:`~osprey.deployment.web_terminals.render_naming.derived_renders`);
     - ``project_name`` itself, at the root, where the rendered config carries
@@ -566,8 +566,8 @@ def facility_write_warnings(
     PR-5a: a non-empty ``control_system.write_tools`` still gates the tools it
     names; the warning names the per-server key that replaces it.
 
-    Both are refused from :data:`~osprey.cli.build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM`;
-    the release that reaches it moves this call to the deploy-aware errors.
+    Both are refused in :data:`~osprey.cli.build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM`;
+    that release moves this call to the deploy-aware errors.
 
     Reads the profile's loaded *mcp_servers* (``McpServerDef`` or mappings) and
     the ``claude_code.servers`` specs *config* persists; a server named in both
@@ -607,7 +607,7 @@ def facility_write_warnings(
             "control_system.write_tools is deprecated: use `mcp_servers.<server>.writes` "
             "to name a facility server's write tools. "
             + (f"It still gates {listed} as writes" if listed else "It still gates its tools")
-            + f" until it is refused from OSPREY {RETIRED_WRITE_KEYS_REFUSED_FROM}."
+            + f" until it is refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}."
         )
     return warnings
 
@@ -640,7 +640,7 @@ def _undeclared_write_tool_warnings(name: str, perms: Any, writes: Any, sunset: 
             f"mcp_servers.{name}: tool `{tool}` {reason} but is not in its `writes:` "
             "list, so it is gated as a write the list does not declare. Add it to "
             f"mcp_servers.{name}.writes; a server whose list leaves out such a tool is "
-            f"refused from OSPREY {sunset}."
+            f"refused in {sunset}."
         )
     return warnings
 

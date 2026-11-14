@@ -162,17 +162,21 @@ async def test_a_write_to_an_unknown_address_is_not_found():
 
 
 @pytest.mark.usefixtures("served")
-async def test_a_mixed_write_reports_the_unknown_row_and_keeps_the_written_one():
-    data = extract_response_dict(
+async def test_a_mixed_write_is_not_found_and_sends_nothing():
+    """A batch is checked whole: the unknown row speaks for it, not the row it held back."""
+    with assert_raises_error() as raised:
         await _write([{"channel": "A:SP", "value": 1.5}, {"channel": UNKNOWN, "value": 1.5}])
-    )
 
-    rows = {row["channel"]: row for row in data["summary"]["results"]}
-    assert rows["A:SP"]["outcome"] == "confirmed"
+    envelope = raised["envelope"]
+    rows = {row["channel"]: row for row in envelope["details"]["results"]}
+    assert (rows["A:SP"]["outcome"], rows["A:SP"]["refusal_reason"]) == ("refused", "BATCH_REFUSED")
     unknown = rows[UNKNOWN]
-    assert unknown["outcome"] == "refused"
-    assert unknown["refusal_reason"] == "CHANNEL_NOT_FOUND"
+    assert (unknown["outcome"], unknown["refusal_reason"]) == ("refused", "CHANNEL_NOT_FOUND")
     assert unknown["error"] == f"{UNKNOWN} is not a channel of this facility"
+    assert envelope["error_type"] == "not_found"
+    assert envelope["details"]["channel"] == UNKNOWN
+    held = extract_response_dict(await _read(["A:SP"]))["summary"]["readings"]["A:SP"]
+    assert held["value"] != 1.5, held
 
 
 async def test_a_history_read_of_an_unknown_address_is_not_found():

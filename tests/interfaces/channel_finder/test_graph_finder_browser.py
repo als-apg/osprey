@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces.conftest import launch_graph_channel_finder
 
@@ -105,6 +106,7 @@ def test_a_dragged_header_moves_its_column_and_the_order_is_kept(
     assert page.locator('th[data-col="signal"]').get_attribute("aria-sort") == "none"
 
     page.reload()
+    wait_for_page_ready(page)
     page.wait_for_selector(ROWS)
     assert _columns(page)[1:3] == ["signal", "device"]
 
@@ -126,6 +128,7 @@ def test_a_dragged_edge_resizes_its_column_and_the_width_is_kept(
     assert after == pytest.approx(before + 90, abs=3)
 
     page.reload()
+    wait_for_page_ready(page)
     page.wait_for_selector(ROWS)
     kept = _box(page, '.result-table th[data-col="address"]')["width"]
     assert kept == pytest.approx(after, abs=1)

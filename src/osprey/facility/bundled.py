@@ -25,6 +25,7 @@ from pathlib import Path
 
 __all__ = [
     "HEADER_CAPABLE",
+    "LAYER_ROOT",
     "Classification",
     "bundled_origin",
     "classify",
@@ -37,7 +38,8 @@ HEADER_CAPABLE = frozenset({".yaml", ".yml", ".md"})
 
 _ORIGIN_TEXT = "Bundled with OSPREY: the {} facility. Delete this line to make the file yours."
 _ORIGIN = re.compile(re.escape(_ORIGIN_TEXT).replace(r"\{\}", r"(\S+)"))
-_LAYER_DIR = "imported"
+#: The directory, under ``data/facility``, that holds one directory per imported layer.
+LAYER_ROOT = "imported"
 _FRONTMATTER = "---"
 
 
@@ -142,7 +144,7 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
     origins = {
         relative: bundled_origin(path)
         for path, relative in files
-        if relative.parts[0] != _LAYER_DIR
+        if relative.parts[0] != LAYER_ROOT
     }
     named = {origin for origin in origins.values() if origin is not None}
     name = named.pop() if len(named) == 1 else None
@@ -150,7 +152,7 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
 
     classes: dict[str, list[str]] = {"bundled": [], "seeded": [], "layer": [], "authored": []}
     for path, relative in files:
-        if relative.parts[0] == _LAYER_DIR:
+        if relative.parts[0] == LAYER_ROOT:
             found = "layer"
         elif _is_seeded(path):
             found = "seeded"

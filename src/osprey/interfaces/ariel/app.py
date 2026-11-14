@@ -29,6 +29,11 @@ logger = get_logger("ariel")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+#: Seconds the web app's start-up gives the ARIEL store to answer. A store that
+#: stays silent past it ends start-up, so the process exits on that line rather
+#: than idling until its container's health check gives up.
+_STORE_DEADLINE_S = 30.0
+
 #: The panel starts on every one of these; they only describe how much of it
 #: works. ``ok`` — the config parsed clean; ``configuration_warning`` — the
 #: config parsed and the service can run, but a key is wrong;
@@ -387,8 +392,13 @@ def _create_lifespan(config_path: str | Path | None = None):
         """Manage application lifecycle.
 
         Initialize ARIEL service on startup, cleanup on shutdown.
-        Gracefully degrades when the database is unavailable — the web UI,
-        draft routes, config/settings endpoints still work.
+        Gracefully degrades when the database refuses — the web UI, draft
+        routes, config/settings endpoints still work. A database that does not
+        answer within :data:`_STORE_DEADLINE_S` ends start-up instead: every
+        later request would wait on the same store.
+
+        Raises:
+            StoreSilentError: The store did not answer within the deadline.
         """
         logger.info("Starting ARIEL Web Interface...")
 
@@ -444,11 +454,15 @@ def _create_lifespan(config_path: str | Path | None = None):
         if ariel_config is None:
             logger.info("Skipping database connection: no usable configuration")
         else:
+            from osprey.services.ariel_search.exceptions import StoreSilentError
+
             try:
                 from osprey.services.ariel_search import create_ariel_service
                 from osprey.services.ariel_search.exceptions import ConfigurationError
 
-                service = await create_ariel_service(ariel_config)
+                service = await create_ariel_service(
+                    ariel_config, store_deadline_s=_STORE_DEADLINE_S
+                )
 
                 healthy, message = await service.health_check()
                 if healthy:
@@ -466,6 +480,9 @@ def _create_lifespan(config_path: str | Path | None = None):
                     if config_status != CONFIG_STATUS_INVALID:
                         config_remedy = table_error.remedy or REMEDY_NAMED_KEY
                     config_status = CONFIG_STATUS_INVALID
+            except StoreSilentError as e:
+                logger.error(str(e))
+                raise
             except Exception as e:
                 logger.warning(
                     "\n"

@@ -267,6 +267,26 @@ def test_a_pin_the_deployment_agent_file_overrides_is_refused(runner, lifecycle_
     assert _profile_text(lifecycle_repo) == before
 
 
+def test_a_pin_on_an_applications_agent_is_written(runner, lifecycle_repo):
+    app_dir = lifecycle_repo / "apps" / "knob"
+    (app_dir / "agents").mkdir(parents=True)
+    (app_dir / "app.yml").write_text("name: knob\nagents: [knob-helper]\n", encoding="utf-8")
+    (app_dir / "agents" / "knob-helper.md").write_text(
+        "---\nname: knob-helper\ndescription: Knob questions.\ntools: Read\n"
+        "delegation: Delegate knob questions.\n---\n",
+        encoding="utf-8",
+    )
+    with (lifecycle_repo / "profile.yml").open("a", encoding="utf-8") as profile:
+        profile.write("\napps:\n  knob: {}\n")
+
+    result = _invoke(runner, lifecycle_repo, f"{_PIN}.knob-helper=claude-haiku-4-5")
+
+    assert result.exit_code == 0, result.output
+    assert "claude_code.agent_models.knob-helper: claude-haiku-4-5" in (
+        _profile_text(lifecycle_repo)
+    )
+
+
 def test_dotted_config_key_replaces_the_literal_entry(runner, lifecycle_repo):
     """``config.`` keys address the profile's dotted entries, not a subtree."""
     result = _invoke(runner, lifecycle_repo, "config.control_system.type=epics")

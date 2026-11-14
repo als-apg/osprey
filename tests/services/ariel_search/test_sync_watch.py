@@ -133,12 +133,26 @@ def _patch_poll_neighbours(
     """Fake the resync pre-step and the catch-up around the poll."""
     enhance_calls: list[dict[str, Any]] = []
 
-    async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+    async def _resync(
+        config_dict: dict,  # noqa: ARG001 - the signature it stands in for
+        progress: Any = None,  # noqa: ARG001 - the signature it stands in for
+        *,
+        config: Any = None,  # noqa: ARG001 - the signature it stands in for
+        store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+    ):
         if order is not None:
             order.append("resync")
         return None
 
-    async def _enhance(config_dict: dict, *, budget_s, stop_event, progress=None, config=None):  # noqa: ARG001 - the run_catchup signature
+    async def _enhance(
+        config_dict: dict,  # noqa: ARG001 - the signature it stands in for
+        *,
+        budget_s,
+        stop_event,
+        progress=None,  # noqa: ARG001 - the signature it stands in for
+        config=None,  # noqa: ARG001 - the signature it stands in for
+        store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+    ):
         if order is not None:
             order.append("enhance")
         enhance_calls.append({"budget_s": budget_s, "stop_event": stop_event})
@@ -159,7 +173,7 @@ def _patch_sync(
     """Replace the sync half; returns the call log so order can be asserted."""
     order: list[str] = []
 
-    async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
+    async def _sync(config_dict, limit=None, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the run_sync signature
         order.append("sync")
         if error is not None:
             raise error
@@ -326,7 +340,7 @@ class TestRunSyncWatch:
         started = asyncio.Event()
         reached: list[str] = []
 
-        async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
+        async def _sync(config_dict, limit=None, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the run_sync signature
             started.set()
             await asyncio.Event().wait()
 
@@ -399,10 +413,24 @@ class TestPerPollWrapper:
 
         seen: list[tuple[str, Any]] = []
 
-        async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+        async def _resync(
+            config_dict: dict,  # noqa: ARG001 - the signature it stands in for
+            progress: Any = None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            config: Any = None,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             seen.append(("resync", config))
 
-        async def _catchup(config_dict: dict, *, budget_s, stop_event, progress=None, config=None):  # noqa: ARG001 - the run_catchup signature
+        async def _catchup(
+            config_dict: dict,  # noqa: ARG001 - the signature it stands in for
+            *,
+            budget_s,  # noqa: ARG001 - the signature it stands in for
+            stop_event,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            config=None,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             seen.append(("catchup", config))
             return ops.EnhanceResult(entries_processed=0, module_names=[])
 
@@ -644,7 +672,7 @@ class TestSyncWatchCommand:
     def _patch_composite(self, monkeypatch, result: Any = None, error: BaseException | None = None):
         calls: list[dict[str, Any]] = []
 
-        async def _composite(config_dict, progress=None):  # noqa: ARG001 - the run_sync_watch signature
+        async def _composite(config_dict, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the run_sync_watch signature
             calls.append({"config_dict": config_dict})
             if error is not None:
                 raise error
@@ -691,7 +719,7 @@ class TestSyncWatchCommand:
         composite_calls = self._patch_composite(monkeypatch, result=None)
         sync_calls: list[Any] = []
 
-        async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
+        async def _sync(config_dict, limit=None, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the run_sync signature
             sync_calls.append(limit)
             return ops.SyncResult(
                 migrations_applied=0,

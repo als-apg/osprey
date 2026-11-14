@@ -100,9 +100,10 @@ Command write
 ``osprey.runtime.guarded_run.command_write(connector, addresses, value)``
 fires one value at a batch of commands (arm a monitor, request a shot) under
 the run lock. A command is the facility's word, never the caller's: a channel
-of the rendered facility definition whose role is ``setpoint`` and whose
-signal ends in ``command``. With no rendered facility definition, no command
-fires.
+the rendered facility definition marks ``command``. The build marks a setpoint
+whose signal ends in ``command`` and a channel a model's engine marks
+``command``, and stops when an engine describes a ``*_command`` setpoint
+without the mark. With no rendered facility definition, no command fires.
 
 The whole batch is refused, before anything is written, unless:
 

@@ -17,9 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.cli.build_profile import list_presets
-from osprey.cli.build_profile_drift import app_tree_digest
 from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_updates import app_tree_digest
 from osprey.profiles import presets
 
 PRESET_APPS_DIR = Path(presets.__file__).parent / "apps"
@@ -37,7 +37,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:4a73620e8f9f33f01f7461fde17c220b9311d553ac4721f8a92ce0e1b8e43fb0"),
+    "demo": ("sha256:e322c477cd42221e9649b3f3b2ab4177701be22142e6fb6b984ac1cc1c31fe02"),
     "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
@@ -45,8 +45,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "tiers/channel-finder": (
         "sha256:fae0acda4aeea5d60ce3815317c71cdeb521c94b8fe386da5b6dac9146dccb5f"
     ),
-    "tiers/knowledge": ("sha256:aad58175d81be08290f70d7112b4660805de3965f6d14c1db6ef56f201d76ba7"),
-    "tiers/logbook": ("sha256:a52457ba046a8a47ae66000d46ced8f07641e10037958518579427d16a1fe5ea"),
+    "tiers/knowledge": ("sha256:73c2cc7786478434689f4824f4de88de0c85cd9c666f6231f4e432595506816f"),
+    "tiers/logbook": ("sha256:5386977660a6d0ce083984abc91cad3b6ea3bb26accb8e1c899319fa9546d00b"),
 }
 
 
@@ -54,7 +54,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
 PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "orbit-bump": ("sha256:200fc1ef7a8157899696a317232e877967af8cedd30c76e3df8c391c4df99fa3"),
+    "orbit-bump": ("sha256:6ea5135ff2b83aed5746aef774473ff310e658d6326c7aa23a10a4db2abc29d6"),
 }
 
 

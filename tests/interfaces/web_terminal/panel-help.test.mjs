@@ -20,12 +20,19 @@ import {
   helpUrl,
   openHelp,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-help.js';
+import {
+  PANELS,
+  customPanelEntry,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/panel-catalog.js';
 
 // node:path, not the global URL: happy-dom replaces URL and rejects file: bases.
 const DOCS_SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/source');
 
 afterEach(() => {
   delete document.documentElement.dataset.docsUrl;
+  for (let i = PANELS.length - 1; i >= 0; i--) {
+    if (PANELS[i].id === 'dial' || PANELS[i].id === 'manual') PANELS.splice(i, 1);
+  }
   vi.restoreAllMocks();
 });
 
@@ -76,6 +83,30 @@ describe('helpUrl', () => {
   test('is null for a panel with no page, including inherited names', () => {
     expect(helpUrl('no-such-panel', 'https://d.example')).toBeNull();
     expect(helpUrl('toString', 'https://d.example')).toBeNull();
+  });
+
+  test('an application panel declares its own page under the docs root', () => {
+    PANELS.push(
+      customPanelEntry({ id: 'dial', label: 'DIAL', help: 'how-to/apps/build-your-own-app.html' })
+    );
+    expect(helpUrl('dial', 'https://d.example/')).toBe(
+      'https://d.example/how-to/apps/build-your-own-app.html'
+    );
+    expect(helpUrl('dial', '')).toBeNull();
+  });
+
+  test('an application panel may declare an absolute https page, with or without a docs root', () => {
+    const page = 'https://example.org/dial/manual.html#start';
+    PANELS.push(customPanelEntry({ id: 'manual', label: 'MANUAL', help: page }));
+    expect(helpUrl('manual', 'https://d.example/')).toBe(page);
+    expect(helpUrl('manual', '')).toBe(page);
+  });
+
+  test('a built-in panel keeps its mapped page', () => {
+    PANELS.push(customPanelEntry({ id: 'dial', label: 'DIAL', help: 'other.html' }));
+    expect(helpUrl('ariel', 'https://d.example')).toBe(
+      'https://d.example/how-to/ariel/web-interface.html'
+    );
   });
 
   test('reads the root from the page by default', () => {

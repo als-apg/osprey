@@ -1,0 +1,1 @@
+In the web terminal sidebar, an open session's artifact list now shows at least five rows, with half of a sixth row under the fade, before it scrolls. Before, it shrank to three rows when the Sessions group ran short of room. A list with six rows or fewer still shows all of them.

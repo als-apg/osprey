@@ -90,27 +90,23 @@ def _plant_outside(tmp_path: Path, escaping: Path) -> str:
     return "../" * len(escaping.relative_to(tmp_path).parts) + "outside/planted"
 
 
-@pytest.mark.parametrize("route", ["session-chat", "session-log", "session-agent-timeline"])
-def test_a_traversal_id_reads_as_a_missing_transcript(client, transcripts, tmp_path, route):
+@pytest.mark.parametrize(
+    ("route", "expected"),
+    [
+        ("session-chat", {"turns": [], "count": 0, "record": "complete"}),
+        ("session-log", {"events": [], "total_events": 0, "showing": 0, "record": "complete"}),
+        (
+            "session-activity",
+            {"session": None, "nodes": [], "artifacts": [], "record": "complete"},
+        ),
+    ],
+)
+def test_a_traversal_id_reads_as_a_missing_transcript(
+    client, transcripts, tmp_path, route, expected
+):
     _, claude_dir = transcripts
-    if route == "session-agent-timeline":
-        (claude_dir / "parent.jsonl").write_text("{}\n")
-        subagent_dir = claude_dir / "parent" / "subagents"
-        subagent_dir.mkdir(parents=True)
-        agent_id = _plant_outside(tmp_path, subagent_dir)
-        resp = client.get(
-            "/api/session-agent-timeline",
-            params={"agent_id": agent_id, "session_id": "parent"},
-        )
-        expected = {"agent_id": agent_id, "timeline": [], "count": 0, "record": "complete"}
-    else:
-        session_id = _plant_outside(tmp_path, claude_dir)
-        resp = client.get(f"/api/{route}", params={"session_id": session_id})
-        expected = (
-            {"turns": [], "count": 0, "record": "complete"}
-            if route == "session-chat"
-            else {"events": [], "total_events": 0, "showing": 0, "record": "complete"}
-        )
+    session_id = _plant_outside(tmp_path, claude_dir)
+    resp = client.get(f"/api/{route}", params={"session_id": session_id})
 
     assert resp.status_code == 200
     assert resp.json() == expected

@@ -757,3 +757,57 @@ def test_panel_auth_headers_survive_a_refused_credential_population(monkeypatch)
     assert PANEL_TOKEN_ENV not in os.environ
     assert peek_web_credentials() is None
     assert http._panel_auth_headers() == {"Authorization": "Bearer handed-in"}
+
+
+def _project_at(monkeypatch, root):
+    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", lambda: root)
+
+
+def test_panel_auth_headers_fall_back_to_the_token_the_project_shares(monkeypatch, tmp_path):
+    """A process no launcher started sends what a sibling hosting the gallery verifies."""
+    from osprey.interfaces import web_auth
+
+    monkeypatch.delenv(web_auth.PANEL_TOKEN_ENV, raising=False)
+    web_auth.share_panel_token_with_project(tmp_path)
+    hosted = web_auth.get_web_credentials()  # the sibling process hosting the gallery
+    web_auth.reset_web_credentials()  # this process holds nothing
+    _project_at(monkeypatch, tmp_path)
+
+    headers = http._panel_auth_headers()
+
+    assert headers == {"Authorization": f"Bearer {hosted.panel_token}"}
+    assert web_auth.peek_web_credentials() is None  # the lookup did not populate anything
+
+
+def test_panel_auth_headers_never_create_the_shared_token(monkeypatch, tmp_path):
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+
+    monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
+    _project_at(monkeypatch, tmp_path)
+
+    assert http._panel_auth_headers() == {}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_panel_auth_headers_prefer_a_handed_token_over_the_shared_one(monkeypatch, tmp_path):
+    from osprey.interfaces import web_auth
+
+    web_auth.share_panel_token_with_project(tmp_path)
+    web_auth.get_web_credentials()
+    web_auth.reset_web_credentials()
+    _project_at(monkeypatch, tmp_path)
+    monkeypatch.setenv(web_auth.PANEL_TOKEN_ENV, "handed-in")
+
+    assert http._panel_auth_headers() == {"Authorization": "Bearer handed-in"}
+
+
+def test_panel_auth_headers_send_nothing_when_the_project_does_not_resolve(monkeypatch):
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+
+    def _unresolvable():
+        raise RuntimeError("no project here")
+
+    monkeypatch.delenv(PANEL_TOKEN_ENV, raising=False)
+    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", _unresolvable)
+
+    assert http._panel_auth_headers() == {}

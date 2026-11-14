@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import html
-import json
 import logging
 import math
 import os
@@ -57,7 +56,9 @@ from osprey.apps.sdk import (
     OWNER_STATE_KEY,
     ModelMembers,
     bind_owner,
+    canonical_json,
     configure_app,
+    launch_token_env,
     owner_from_header,
     owner_target,
     prewrite_verdict,
@@ -73,9 +74,6 @@ from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
 
 _log = logging.getLogger(__name__)
-
-#: Where the deployment hands this application its launch token.
-LAUNCH_TOKEN_ENV = APP_NAME.upper().replace("-", "_") + "_LAUNCH_TOKEN"
 
 #: The panel's state.
 STATE_ROUTE = "/api/state"
@@ -214,10 +212,7 @@ def _call_bound(section: Mapping[str, Any], target: str) -> float:
 def setpoint_digest(correctors: Iterable[Mapping[str, Any]]) -> str:
     """The sha256 of the canonical JSON ``[[setpoint_addr, new], ...]``, in plan order."""
     pairs = [[row["setpoint_addr"], row["new"]] for row in correctors]
-    text = json.dumps(
-        pairs, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    )
-    return hashlib.sha256(text.encode("ascii")).hexdigest()
+    return hashlib.sha256(canonical_json(pairs).encode("ascii")).hexdigest()
 
 
 def _width(line: str) -> int:
@@ -1147,7 +1142,7 @@ def create_app(
 
     @app.post(APPLY_ROUTE)
     async def apply(body: ApplyRequest, request: Request) -> dict[str, Any]:
-        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), LAUNCH_TOKEN_ENV)
+        verify_launch_token(request.headers.get(LAUNCH_TOKEN_HEADER), launch_token_env())
         owner = owner_of(request)
         target = target_of(owner)
         stance = posture(target, owner)

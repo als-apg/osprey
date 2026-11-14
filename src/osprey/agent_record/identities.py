@@ -164,6 +164,32 @@ def host_identity(config: Mapping[str, Any] | None) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+#: What an account name holds that a host identity cannot: anything but
+#: lowercase ASCII letters, digits, ``_`` and ``-``.
+_NOT_IDENTITY_RE = re.compile(r"[^a-z0-9_-]+")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def derived_host_identity(account: str) -> str | None:
+    """The host identity a build records for the OS account *account*.
+
+    A name in the roster's username charset is its own identity. Any other is
+    lowercased, each run of characters outside ``[a-z0-9_-]`` becomes one
+    ``-``, and leading ``-`` and ``_`` and trailing ``-`` are dropped:
+    ``GMartino`` is ``gmartino``, ``first.last`` is ``first-last``. ``None``
+    when nothing usable is left. Only ASCII letters are lowercased and no
+    domain is stripped: folding Unicode or dropping a domain would let two
+    accounts derive one identity.
+    """
+    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
+
+    if USERNAME_CHARSET_RE.fullmatch(account):
+        return account
+    candidate = _NOT_IDENTITY_RE.sub("-", account.translate(_ASCII_LOWER))
+    candidate = candidate.lstrip("-_").rstrip("-")
+    return candidate if USERNAME_CHARSET_RE.fullmatch(candidate) else None
+
+
 def reader_entries(config: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     """The ``agent_record.readers`` entries that name a reader."""
     block = _config(config).get("agent_record") or {}

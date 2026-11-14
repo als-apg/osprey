@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from orbit_bump import APP_NAME
 from orbit_bump import server as backend
 from orbit_bump.plans import (
     APPLIED,
@@ -38,7 +39,6 @@ from orbit_bump.server import (
     COMPUTE_ROUTE,
     DISCARD_ROUTE,
     DRAFT_ROUTE,
-    LAUNCH_TOKEN_ENV,
     MAX_DISPLAY_LINE_CHARS,
     MAX_DISPLAY_LINES,
     NO_TOLERANCE_NOTE,
@@ -52,6 +52,7 @@ from orbit_bump.server import (
 )
 from starlette.middleware import Middleware
 
+from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import (
     LAUNCH_TOKEN_HEADER,
     OWNER_STATE_KEY,
@@ -265,7 +266,8 @@ def section() -> dict[str, Any]:
 
 @pytest.fixture
 def app(monkeypatch, sdk, machines, verdicts, section) -> FastAPI:  # noqa: ARG001
-    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    monkeypatch.setenv(launch_token_env(APP_NAME), TOKEN)
     monkeypatch.setattr(backend, "_section", lambda: section, raising=True)
 
     async def connector_for(target: str) -> StandInConnector:

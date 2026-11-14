@@ -9,6 +9,60 @@ agent, the plans, the safety layers — is written against those two interfaces,
 so moving from the simulator to real hardware is a change of
 ``control_system.type`` and its connector block, not of code.
 
+What a connector is, and who talks to it
+----------------------------------------
+
+A connector is a Python object with a fixed set of methods: connect, read a
+channel, write a channel, subscribe, get metadata. Each control system (EPICS,
+DOOCS, the simulator, the mock) is one class that implements them.
+
+Nothing in OSPREY reaches a control system any other way. There is no shared
+connector service: each caller below holds its own connector instance, built
+from the same ``config.yml`` and pointed at the login's control target.
+
+.. raw:: html
+   :file: ../../_diagrams/connector-callers.html
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Who
+     - How it reaches the connector
+   * - Operator
+     - Never directly. The operator picks the control target, sets the write
+       switch (off, asked or allowed) and answers approval prompts. Each login
+       has its own target and switches. See
+       :ref:`web-terminal-session-posture` and
+       :ref:`how-to-switch-control-target`.
+   * - Agent
+     - Through the ``controls`` tools: ``channel_read``, ``channel_write`` and
+       ``archiver_read``. With two or more targets configured, the connector
+       runs in a child process and a switch replaces that process: a process
+       holds one Channel Access context, so a new target needs a new process.
+       With one target it runs inside the ``controls`` server.
+   * - Agent-written Python
+     - Through ``osprey.runtime`` (``read_channel``, ``write_channel``). Each
+       run builds its own connector for the login's target. A write is refused
+       if the target changed after the run started. See
+       :ref:`how-to-write-from-a-program`.
+   * - Notebooks
+     - The same ``osprey.runtime`` calls. The kernel re-reads the target
+       before each cell. See :ref:`Notebooks <notebooks-write-channel>`.
+   * - Bluesky plans
+     - Every plan read and write goes through a connector the queue worker
+       builds for its own target, which can differ from the login's.
+   * - Panels and apps
+     - CANOPY's data process serves every PV from one connector and is
+       replaced when the target moves. An app backend builds its own
+       connector for the target of the login it answers; a write approved
+       for another target is refused. See :ref:`how-to-apps`.
+
+Because every path ends in the same class, the last write check is the same
+everywhere: the connector re-checks the write switch on each write, whoever
+called it. The checks before that point differ by path and are listed in order
+in :ref:`architecture-safety-chain-order`.
+
 One API, whatever the machine
 -----------------------------
 

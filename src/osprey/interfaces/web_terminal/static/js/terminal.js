@@ -9,11 +9,16 @@ import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-
 import { queryAllDocuments } from './attached-window.js';
 import { matcherFor } from './key-bindings.js';
 import { installTerminalMenu } from './terminal-menu.js';
+import { onPaneZoomChange, paneZoom } from './pane-zoom.js';
 
 /** @type {any} */
 let term = null;
 /** @type {any} */
 let fitAddon = null;
+
+/** @returns {number} the font size, 14 px at the Agent pane's zoom (to the half pixel) */
+const terminalFontSize = () => Math.round(14 * paneZoom('terminal') * 2) / 2;
+
 /** @type {ReturnType<typeof createWebSocket>|null} */
 let wsConnection = null;
 let hasConnectedBefore = false;
@@ -234,7 +239,7 @@ export function initTerminal(containerId) {
     // xterm takes a family at construction and measures cell width from it,
     // so the stack is read once here rather than re-read on a theme change.
     fontFamily: monoFontStack(),
-    fontSize: 14,
+    fontSize: terminalFontSize(),
     lineHeight: 1.2,
     theme: xtermPalette(),
     // The agent switches mouse tracking on (DECSET 1000/1002/1003/1006): a
@@ -250,6 +255,11 @@ export function initTerminal(containerId) {
   // never deduped on an unchanged theme id).
   subscribe(() => {
     if (term) term.options.theme = xtermPalette();
+  });
+  // The Agent pane's zoom (pane-zoom.js) is the terminal's font size.
+  onPaneZoomChange((kind) => {
+    if (term && kind === 'agent') term.options.fontSize = terminalFontSize();
+    if (kind === 'agent') fitTerminal();
   });
 
   fitAddon = new FitAddon.FitAddon();

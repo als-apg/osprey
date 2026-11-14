@@ -29,7 +29,9 @@
  * mirrored to `[data-open]` on the sidebar and on the panel root (the
  * panel's own stylesheet hook), and to the toggle's `aria-expanded`, title
  * and accessible name ("Hide sidebar" / "Show sidebar", through
- * `writeTitle`). The toggle gets `aria-controls` when it has none.
+ * `writeTitle`). The toggle gets `aria-controls` when it has none, and
+ * `.osprey-panel-sidebar-toggle`, under which the icon's chevron points the
+ * way the sidebar will move.
  *
  * ---- What is stored ----
  *
@@ -214,6 +216,7 @@ export function initPanelSidebar({
 
   if (toggle) {
     if (!toggle.firstElementChild) toggle.append(icon('panel-left'));
+    toggle.classList.add('osprey-panel-sidebar-toggle');
     if (!toggle.hasAttribute('aria-controls')) toggle.setAttribute('aria-controls', sidebar.id);
   }
 

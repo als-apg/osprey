@@ -27,6 +27,7 @@ import pytest
 
 from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.agent_runner.primitives import build_agent_options
+from osprey.agent_runner.provider_env import base_url_env
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
 pytestmark = [pytest.mark.slow, pytest.mark.usefixtures("real_agent_cli")]
@@ -213,6 +214,7 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
         ClaudeSDKClient,
         ResultMessage,
         SystemMessage,
+        TextBlock,
         ToolResultBlock,
         ToolUseBlock,
         UserMessage,
@@ -224,12 +226,15 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
     (home / ".claude").mkdir(parents=True)
     # The probe runs the pinned build under the environment a headless run gets:
     # the product's base child env, with only the isolation keys laid over it.
+    # The stand-in is a custom base URL, so it is pointed at the way the product
+    # points at a gateway: from 2.1.304 the CLI would otherwise hold the tools
+    # back behind ``ToolSearch``.
     env = {
         **build_base_child_env(),
         "HOME": str(home),
         "CLAUDE_CONFIG_DIR": str(home / ".claude"),
         "ANTHROPIC_API_KEY": "scripted",
-        "ANTHROPIC_BASE_URL": messages_api,
+        **base_url_env(messages_api),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     }
     try:
@@ -243,6 +248,8 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
     version: list[str] = []
     calls: dict[str, str] = {}
     results: dict[str, tuple[bool, str]] = {}
+    #: Assistant messages that carried an error: (error, their text).
+    refused: list[tuple[str, str]] = []
 
     async def run() -> None:
         async with ClaudeSDKClient(options=options) as client:
@@ -253,6 +260,9 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
                     version.append(str(message.data.get("claude_code_version")))
                 elif isinstance(message, AssistantMessage | UserMessage):
                     blocks = message.content if isinstance(message.content, list) else []
+                    if isinstance(message, AssistantMessage) and message.error:
+                        text = " ".join(b.text for b in blocks if isinstance(b, TextBlock))
+                        refused.append((str(message.error), text))
                     for block in blocks:
                         if isinstance(block, ToolUseBlock):
                             calls[block.id] = block.name
@@ -271,7 +281,13 @@ def test_a_headless_run_of_the_pinned_build_creates_and_lists_a_task(
     assert all({"TaskCreate", "TaskList"} <= offered for offered in _ScriptedMessagesApi.offered), (
         "the tools were offered to the model on every turn"
     )
-    assert set(results) == {"TaskCreate", "TaskList"}, f"tool results seen: {results}"
+    assert not any("ToolSearch" in offered for offered in _ScriptedMessagesApi.offered), (
+        "behind a gateway the tools are sent directly, with no search step"
+    )
+    assert set(results) == {"TaskCreate", "TaskList"}, (
+        f"tool results seen: {results}; the run resolved {options.cli_path}; "
+        f"assistant messages with an error: {refused or 'none'}"
+    )
     created_failed, created = results["TaskCreate"]
     assert not created_failed, f"TaskCreate failed: {created}"
     listing_failed, listing = results["TaskList"]

@@ -196,25 +196,28 @@ _CARD_SHOWN_JS = (
     '`#sidebar-session-tree .osprey-list-row[data-id="${CSS.escape(id)}"]`)'
 )
 
-# The preview pane shows the artifact whose file path names ``id`` (every
-# stored filename starts with its id), and its viewport has content: an
-# iframe whose document has loaded a body, an image that decoded, a
-# time-series viewer whose Plotly chart has drawn its traces, or a container
-# the renderer has filled.
+# The hub marks the row of the artifact its viewer shows.
+_ROW_SELECTED_JS = (
+    "(id) => !!document.querySelector("
+    '`#sidebar-session-tree .osprey-list-row[data-id="${CSS.escape(id)}"][aria-selected="true"]`)'
+)
+
+# The viewer shows ``id`` and its viewport has content: an image that decoded,
+# a time-series viewer whose Plotly chart has drawn its traces, or a container
+# the renderer has filled. The viewer names no artifact of its own; a view
+# loaded from the artifact's file must load ``id``'s, so the view of the
+# artifact shown before never passes for it. An iframe answers 'frame': an
+# agent-written document is sandboxed away from its parent, so its content is
+# read in the frame itself (_FRAME_LOADED_JS).
 _PREVIEW_SHOWS_JS = """(id) => {
   const content = document.getElementById('preview-content');
   if (!content || content.classList.contains('hidden')) return false;
-  const path = content.querySelector('.preview-path-text');
-  if (!path || !path.textContent.includes(id)) return false;
   const shown = content.querySelector('.preview-viewport > *');
   if (!shown) return false;
-  if (shown.tagName === 'IFRAME') {
-    try {
-      const doc = shown.contentDocument;
-      return !!doc && doc.readyState === 'complete' && !!doc.body
-        && doc.body.childElementCount > 0;
-    } catch (e) { return false; }
-  }
+  const source = shown.getAttribute('src')
+    || (shown.querySelector('a[href]') || shown).getAttribute('href');
+  if (source && !source.includes('/' + encodeURIComponent(id) + '/')) return false;
+  if (shown.tagName === 'IFRAME') return 'frame';
   if (shown.tagName === 'IMG') return shown.complete && shown.naturalWidth > 0;
   if (shown.classList.contains('preview-download')) return true;
   if (shown.classList.contains('ts-viewport-container')) {
@@ -225,13 +228,20 @@ _PREVIEW_SHOWS_JS = """(id) => {
   return shown.childElementCount > 0 || shown.textContent.trim().length > 0;
 }"""
 
+PREVIEW_IFRAME = "#preview-content .preview-viewport > iframe"
+
+_FRAME_LOADED_JS = (
+    "() => document.readyState === 'complete' && !!document.body"
+    " && document.body.childElementCount > 0"
+)
+
 _PREVIEW_STATE_JS = """() => {
   const content = document.getElementById('preview-content');
   if (!content || content.classList.contains('hidden')) return 'preview: empty';
-  const path = content.querySelector('.preview-path-text');
   const shown = content.querySelector('.preview-viewport > *');
   const what = shown ? (shown.tagName.toLowerCase() + '.' + shown.className) : 'nothing';
-  return `preview: ${path ? path.textContent.trim() : '?'} showing ${what}`;
+  const source = shown && shown.getAttribute('src');
+  return `preview: showing ${what}${source ? ' from ' + source : ''}`;
 }"""
 
 
@@ -247,10 +257,26 @@ def card_shown(page: Any, artifact_id: str) -> bool:
     return bool(page.evaluate(_CARD_SHOWN_JS, artifact_id))
 
 
+def preview_rendered(panel: Any, artifact_id: str) -> bool:
+    """Whether the viewer in ``panel`` has rendered ``artifact_id``."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    state = panel.evaluate(_PREVIEW_SHOWS_JS, artifact_id)
+    if state != "frame":
+        return bool(state)
+    try:
+        frame = _child_frame(panel, PREVIEW_IFRAME)
+        return bool(frame is not None and frame.evaluate(_FRAME_LOADED_JS))
+    except PlaywrightError:
+        return False  # the frame navigated or was replaced mid-read
+
+
 def preview_shows(page: Any, artifact_id: str) -> bool:
-    """Whether the preview pane has rendered ``artifact_id``."""
+    """Whether the hub has ``artifact_id`` selected and its viewer has rendered it."""
+    if not page.evaluate(_ROW_SELECTED_JS, artifact_id):
+        return False
     panel = _panel(page)
-    return bool(panel is not None and panel.evaluate(_PREVIEW_SHOWS_JS, artifact_id))
+    return panel is not None and preview_rendered(panel, artifact_id)
 
 
 def preview_state(page: Any) -> str:
@@ -323,7 +349,7 @@ def await_relayout(frame: Any, timeout_ms: int = RELAYOUT_TIMEOUT_MS) -> bool:
 # same origin, so the canvas is not tainted; if it were, getImageData throws
 # and the draft counts as not ready.
 _DRAFT_JS = """() => {
-  const banner = document.querySelector('#draft-banner[data-draft-id]');
+  const banner = document.querySelector('#ariel-compose-banner[data-draft-id]');
   const img = document.querySelector('#file-preview img');
   const out = {banner: !!banner, image: !!img && img.complete && img.naturalWidth > 0,
                greyLevels: 0};

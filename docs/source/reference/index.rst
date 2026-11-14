@@ -18,8 +18,8 @@ lookup material; the how-to guides link here for every value they mention.
       :link: configuration/index
       :link-type: doc
 
-      Paged by the file you have open: ``profile.yml``, ``config.yml``, and
-      the environment variables.
+      Paged by the file you have open: ``profile.yml``, ``config.yml``, the
+      environment variables, and a scenario file.
 
    .. grid-item-card:: Contracts
       :link: contracts/index

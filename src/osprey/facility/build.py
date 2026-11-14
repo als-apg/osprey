@@ -2,6 +2,7 @@
 
 ``build_facility`` runs S1 to S5 and the stages after them, in order::
 
+    relations    standing, contests, relation warnings        (relations.py)
     wiring       the computed slots of every wiring record    (wiring.py)
     compute      positions, places, ordinals, deck checks     (compute.py)
     measurement  each measurement file against its model      (validate.py)
@@ -20,6 +21,7 @@ from typing import Any, TypeAlias
 from osprey.facility.compute import check_compute
 from osprey.facility.errors import FacilityBuildWarning
 from osprey.facility.knowledge_links import check_knowledge_links
+from osprey.facility.relations import fill_relation_slots
 from osprey.facility.validate import Stage, check_measurement, run_stages
 from osprey.facility.wiring import fill_wiring_slots
 
@@ -30,6 +32,7 @@ FacilityDocument: TypeAlias = dict[str, Any]
 
 #: The stages after S5, in the order they run.
 LATER_STAGES: tuple[tuple[str, Stage], ...] = (
+    ("relations", fill_relation_slots),
     ("wiring", fill_wiring_slots),
     ("compute", check_compute),
     ("measurement", check_measurement),
@@ -38,7 +41,11 @@ LATER_STAGES: tuple[tuple[str, Stage], ...] = (
 
 
 def build_facility(
-    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
+    facility_dir: Path,
+    *,
+    project_name: str,
+    content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> FacilityDocument:
     """Build the facility file in memory.
 
@@ -49,6 +56,8 @@ def build_facility(
             when there is no ``identity.yaml``.
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The facility file.
@@ -57,12 +66,16 @@ def build_facility(
         FacilityBuildError: The first error of the first stage that fails.
     """
     return build_facility_with_warnings(
-        facility_dir, project_name=project_name, content_dir=content_dir
+        facility_dir, project_name=project_name, content_dir=content_dir, judges_kinds=judges_kinds
     )[0]
 
 
 def build_facility_with_warnings(
-    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
+    facility_dir: Path,
+    *,
+    project_name: str,
+    content_dir: Path | None = None,
+    judges_kinds: bool = True,
 ) -> tuple[FacilityDocument, list[FacilityBuildWarning]]:
     """Build the facility file in memory, with the warnings of the build.
 
@@ -73,6 +86,8 @@ def build_facility_with_warnings(
             when there is no ``identity.yaml``.
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey.facility.kinds.judged_here`).
 
     Returns:
         The facility file and the warnings the stages found, in the order
@@ -82,7 +97,11 @@ def build_facility_with_warnings(
         FacilityBuildError: The first error of the first stage that fails.
     """
     report = run_stages(
-        facility_dir, project_name=project_name, later=LATER_STAGES, content_dir=content_dir
+        facility_dir,
+        project_name=project_name,
+        later=LATER_STAGES,
+        content_dir=content_dir,
+        judges_kinds=judges_kinds,
     )
     report.raise_first()
     document = report.validated.document

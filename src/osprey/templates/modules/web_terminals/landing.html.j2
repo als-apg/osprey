@@ -98,7 +98,9 @@
   navigation) instead of being dropped, so a misconfigured group is still visible.
 #}
 <!DOCTYPE html>
-<html lang="en">
+{#- No script runs here: the page is ready to drive once parsed, so it carries
+    the page-ready mark (design-system/js/page-ready.js) in its markup. #}
+<html lang="en" data-page-ready="true">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

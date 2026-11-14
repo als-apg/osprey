@@ -12,14 +12,25 @@ same proxy. Nested values are the file's own objects, and no reader writes them.
 Every id is indexed as its string. A record without its id slot is skipped, and
 a duplicate id within one kind is won by the first record in document order.
 
-Nothing here recognises a record by its spelling: every answer is a lookup by a
-stated id, and every multi-record answer has a stated order. Lookup serves five
-kinds; resolution answers channels and devices only:
+Every answer but one is a lookup by a stated id, and every multi-record answer
+has a stated order. Lookup by id serves five kinds; resolution answers channels
+and devices only:
 
 - :meth:`FacilityRecords.find` lists records in ``RECORD_KINDS`` order: place,
   device, channel, group, model.
 - :meth:`FacilityRecords.resolve` and :meth:`FacilityRecords.describe` list them
   in ``LINK_KINDS`` order: channel, then device.
+
+``find``, ``resolve``, ``targets`` and ``describe`` match exact ids only, never a
+name or a label. :meth:`FacilityRecords.lookup` is the one name-aware entry: it
+finds places and devices by id, then by a ``names`` entry or a
+``scheme_names[].name``, then (places only) by a flat last id segment, each
+record once at its first match.
+
+:meth:`FacilityRecords.resolve_link` is the one link resolver: a knowledge-page
+link target resolves as :meth:`~FacilityRecords.resolve` does, and a target
+``place/<id>`` that resolves to nothing there names the place ``<id>``. The
+place form stays outside ``LINK_KINDS`` and :meth:`~FacilityRecords.targets`.
 
 A finished document holds these invariants, each enforced by a build stage:
 
@@ -40,12 +51,13 @@ A finished document holds these invariants, each enforced by a build stage:
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
+from osprey.facility.places import resolve_place_name
 from osprey.utils.facility import FacilityFileError
 
 __all__ = [
@@ -55,7 +67,11 @@ __all__ = [
     "FacilityRecord",
     "FacilityRecords",
     "LinkKind",
+    "PLACE_LINK_PREFIX",
     "RecordKind",
+    "group_kind",
+    "describe_records",
+    "is_family",
 ]
 
 #: The kinds of record the read model serves.
@@ -71,11 +87,33 @@ RECORD_KINDS: tuple[tuple[RecordKind, str, str], ...] = (
     ("model", "models", "name"),
 )
 
+#: The kind of a group that states none.
+DEFAULT_GROUP_KIND = "family"
+
+
+def group_kind(group: Mapping[str, Any]) -> str:
+    """A group's kind: the one it states, else ``family``."""
+    return str(group.get("kind") or DEFAULT_GROUP_KIND)
+
+
+def is_family(group: Mapping[str, Any]) -> bool:
+    """Whether a group is a family, the only kind of group a view treats as one.
+
+    A family describes its members and files as a Family in the middle-layer
+    index; a group of another kind (a ``section``) does neither.
+    """
+    return group_kind(group) == DEFAULT_GROUP_KIND
+
+
 #: The kinds of record a reference may name.
 LinkKind = Literal["channel", "device"]
 
 #: The link kinds, in the order of :meth:`FacilityRecords.resolve`.
 LINK_KINDS: tuple[LinkKind, ...] = get_args(LinkKind)
+
+#: The target prefix of a knowledge-page link that names a place,
+#: ``facility:place/<id>``; see :meth:`FacilityRecords.resolve_link`.
+PLACE_LINK_PREFIX = "place/"
 
 #: How a refusal words the JSON type a facility file holds instead of an object.
 _JSON_TYPE_WORDS: Mapping[type, str] = {
@@ -199,6 +237,11 @@ class FacilityRecords:
             for entry in wiring if isinstance(wiring, list) else ():
                 if isinstance(entry, Mapping) and entry.get("address") is not None:
                     self._wiring.setdefault(str(entry["address"]), (name, entry))
+        self._by_name: dict[str, set[tuple[RecordKind, str]]] = {}
+        for kind in _LOOKUP_KINDS:
+            for id_, record in self._by_kind[kind].items():
+                for name in _record_names(record):
+                    self._by_name.setdefault(name, set()).add((kind, id_))
 
     @classmethod
     def from_file(cls, path: Path) -> FacilityRecords | None:
@@ -280,6 +323,40 @@ class FacilityRecords:
             for kind, _key, _slot in RECORD_KINDS
             if id in self._by_kind[kind]
         )
+
+    def lookup(self, text: str) -> tuple[tuple[str, FacilityRecord], ...]:
+        """The places and devices ``text`` names, each with how it matched.
+
+        Matches come in three groups: ``"id"`` (the record's id is ``text``),
+        ``"name"`` (a ``names`` entry or a ``scheme_names[].name`` is ``text``,
+        exact string), then ``"segment"`` (places only: the flat-name rule of
+        :func:`~osprey.facility.places.resolve_place_name`). Within a group,
+        places come before devices, each kind in id order. A record appears
+        once, at its first match. :meth:`find`, :meth:`resolve`,
+        :meth:`targets` and :meth:`describe` stay exact-id.
+
+        Args:
+            text: An id, a name, or a flat place name.
+
+        Returns:
+            ``(match, record)`` entries in that order; empty when nothing matches.
+        """
+        rank = {kind: index for index, (kind, _key, _slot) in enumerate(RECORD_KINDS)}
+        hits: list[tuple[str, RecordKind, str]] = [
+            ("id", kind, text) for kind in _LOOKUP_KINDS if text in self._by_kind[kind]
+        ]
+        named = sorted(self._by_name.get(text, ()), key=lambda hit: (rank[hit[0]], hit[1]))
+        hits += [("name", kind, id_) for kind, id_ in named]
+        segment = resolve_place_name(text, self._by_kind["place"])
+        segments = [segment] if isinstance(segment, str) else segment or []
+        hits += [("segment", "place", id_) for id_ in segments]
+        found: list[tuple[str, FacilityRecord]] = []
+        seen: set[tuple[RecordKind, str]] = set()
+        for match, kind, id_ in hits:
+            if (kind, id_) not in seen:
+                seen.add((kind, id_))
+                found.append((match, FacilityRecord(kind, id_, self._by_kind[kind][id_])))
+        return tuple(found)
 
     def channels_on(self, device_id: str) -> tuple[Mapping[str, Any], ...]:
         """The channels on a device: its ``on.device`` and ``endpoint_of`` channels.
@@ -394,6 +471,27 @@ class FacilityRecords:
             if target in self._by_kind[kind]
         )
 
+    def resolve_link(self, target: str) -> tuple[FacilityRecord, ...]:
+        """The records a knowledge-page link target names.
+
+        The exact :meth:`resolve` answer wins, so a channel or device whose id is
+        literally ``place/<id>`` keeps its link. Otherwise a target
+        ``place/<id>`` names the place ``<id>``.
+
+        Args:
+            target: A link's target text, verbatim.
+
+        Returns:
+            :meth:`resolve`'s records when there are any; else the one place a
+            ``place/<id>`` target names; else empty.
+        """
+        found = self.resolve(target)
+        if found or not target.startswith(PLACE_LINK_PREFIX):
+            return found
+        place_id = target[len(PLACE_LINK_PREFIX) :]
+        record = self._by_kind["place"].get(place_id)
+        return () if record is None else (FacilityRecord("place", place_id, record),)
+
     def targets(self) -> frozenset[str]:
         """Every string :meth:`resolve` resolves to at least one record."""
         return self._targets
@@ -410,15 +508,41 @@ class FacilityRecords:
             when the record states them. Empty for a target that resolves to
             nothing.
         """
-        described: list[dict[str, Any]] = []
-        for found in self.resolve(target):
-            entry: dict[str, Any] = {"kind": found.kind, "id": found.id}
-            for key in ("unit", "description"):
-                value = found.record.get(key)
-                if isinstance(value, str) and value:
-                    entry[key] = value
-            described.append(entry)
-        return described
+        return describe_records(self.resolve(target))
+
+
+def describe_records(found: Iterable[FacilityRecord]) -> list[dict[str, Any]]:
+    """What a reader shows of each record: ``{kind, id, unit?, description?}``.
+
+    Args:
+        found: Records, as :meth:`FacilityRecords.resolve` or
+            :meth:`FacilityRecords.resolve_link` returned them.
+
+    Returns:
+        One entry per record, in the order given; ``unit`` and ``description``
+        appear only when the record states them as a non-empty string.
+    """
+    described: list[dict[str, Any]] = []
+    for record in found:
+        entry: dict[str, Any] = {"kind": record.kind, "id": record.id}
+        for key in ("unit", "description"):
+            value = record.record.get(key)
+            if isinstance(value, str) and value:
+                entry[key] = value
+        described.append(entry)
+    return described
+
+
+_LOOKUP_KINDS: tuple[RecordKind, ...] = ("place", "device")
+
+
+def _record_names(record: Mapping[str, Any]) -> set[str]:
+    """A record's ``names`` entries and ``scheme_names[].name`` values, as strings."""
+    names = {str(name) for name in record.get("names") or () if name is not None}
+    for alias in record.get("scheme_names") or ():
+        if isinstance(alias, Mapping) and alias.get("name") is not None:
+            names.add(str(alias["name"]))
+    return names
 
 
 def _is_at_or_under(place: str, named: str) -> bool:

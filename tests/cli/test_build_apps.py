@@ -832,3 +832,129 @@ def test_the_text_summary_carries_the_application_block() -> None:
 
     assert "apps.knob" in text
     assert "KNOB_LAUNCH_TOKEN" in text
+
+
+# --- applications with no container ------------------------------------------------
+
+#: A tool server with read tools only: no container, no panel.
+DIAL_TOOLS: dict[str, Any] = {
+    "name": "dial",
+    "tools": {"module": "dial_app.tools", "read": ["dial_read"]},
+}
+
+#: An application that carries a skill and nothing else.
+GUIDE: dict[str, Any] = {"name": "guide", "skills": ["guide-tune"]}
+
+GUIDE_SKILL = "---\nname: guide-tune\ndescription: Tune the guide.\n---\n\nGently.\n"
+
+
+@pytest.fixture(scope="module")
+def containerless_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("containerless") / EXEMPLAR_DIRNAME)
+    _write_app(repo, DIAL_TOOLS)
+    skill = _write_app(repo, GUIDE) / "skills" / "guide-tune"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(GUIDE_SKILL, encoding="utf-8")
+    _list_apps(repo, {"dial": {}, "guide": {}})
+    return _built(repo)
+
+
+def test_a_tool_server_with_no_container_is_projected_beside_the_agent(
+    containerless_repo: Path,
+) -> None:
+    render = rendered_config(containerless_repo)
+
+    server = render["claude_code"]["servers"]["dial"]
+    assert server["args"] == ["-m", "dial_app.tools"]
+    assert server["writes"] == []
+    assert render["apps"]["dial"]["tools"]["read"] == ["dial_read"]
+
+
+def test_a_skill_of_an_application_with_no_container_reaches_the_render(
+    containerless_repo: Path,
+) -> None:
+    copied = containerless_repo / "build" / ".claude" / "skills" / "guide-tune" / "SKILL.md"
+
+    assert copied.read_text(encoding="utf-8") == GUIDE_SKILL
+
+
+@pytest.mark.parametrize("app", ["dial", "guide"])
+def test_an_application_with_no_container_projects_no_service(
+    containerless_repo: Path, app: str
+) -> None:
+    render = rendered_config(containerless_repo)
+    build = containerless_repo / "build"
+
+    assert app not in render.get("services", {})
+    assert app not in render.get("deployed_services", [])
+    assert not (build / "services" / app).exists()
+    assert not list(build.rglob("app-config.yml"))
+
+
+def test_a_service_axis_on_an_application_with_no_container_is_refused(
+    lifecycle_repo: Path, no_artifact
+) -> None:
+    _write_app(lifecycle_repo, DIAL_TOOLS)
+    _list_apps(lifecycle_repo, {"dial": {"services": {"dial": {"env": ["X"]}}}})
+
+    output = no_artifact(lifecycle_repo)
+
+    assert "apps.dial.services.dial names no container of dial: its app.yml declares none." in (
+        " ".join(output.split())
+    )
+
+
+def test_config_for_an_application_with_no_container_is_refused(
+    lifecycle_repo: Path, no_artifact
+) -> None:
+    _write_app(lifecycle_repo, DIAL_TOOLS)
+    _list_apps(lifecycle_repo, {"dial": {"config": {"gain": 3}}})
+
+    output = " ".join(no_artifact(lifecycle_repo).split())
+
+    assert "apps.dial.config" in output
+    assert "declares no container" in output
+
+
+@pytest.mark.parametrize(
+    ("manifest", "refusal"),
+    [
+        (
+            {"name": "dial", "panel": {"label": "Dial", "container": "dial"}},
+            "it declares no container",
+        ),
+        (
+            {
+                "name": "dial",
+                "tools": {
+                    "module": "dial_app.tools",
+                    "approval": [{"tool": "dial_zero", "prompt": "Zero the dial"}],
+                },
+            },
+            "that sets drives_target: true",
+        ),
+        (
+            {
+                "name": "dial",
+                "tools": {
+                    "module": "dial_app.tools",
+                    "approval": [
+                        {"tool": "dial_zero", "prompt": "Zero", "state_path": "/api/state"}
+                    ],
+                },
+            },
+            "the application has none",
+        ),
+    ],
+    ids=["panel", "write-tool", "state-path"],
+)
+def test_a_part_that_needs_a_container_is_refused_when_there_is_none(
+    lifecycle_repo: Path, no_artifact, manifest: dict[str, Any], refusal: str
+) -> None:
+    _write_app(_roster_less(lifecycle_repo, "allowed"), manifest)
+    _list_apps(lifecycle_repo, {"dial": {}})
+
+    output = no_artifact(lifecycle_repo)
+
+    assert "apps/dial/app.yml" in output
+    assert refusal in " ".join(output.split())

@@ -17,15 +17,30 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   channel settable by -- and ``ro`` for everything else, the status addresses
   included.
 
-:func:`periodic_addresses` names the channels the view says refresh
-``periodic``, which a write pass leaves for the next periodic pass.
+It also refuses a view with a waveform channel whose array -- its declared
+length times :data:`ARRAY_ELEMENT_BYTES` -- exceeds the configuration's
+``max_array_bytes``: such a channel would be served truncated, so the runner
+fails at start instead.
 
-:func:`setting_records` and :func:`pass_readback` name what a write pass of
-physics settings reads back. A physics setting reaches its own model alone, and
-there moves itself, its readback and what the model computes from its settings.
-Every other value stands as the last pass left it -- what moves with time alone,
-the next periodic pass publishes -- and reading it back again would make each
-write, one per corrector for an apply, cost the whole roster.
+:func:`periodic_addresses` names the channels the view says refresh
+``periodic`` and the IOC health addresses that move with time alone, which a
+write pass leaves for the next periodic pass.
+
+:func:`ioc_health_addresses` names every IOC health address of the view, so
+the runner can serve a text one on Channel Access as the string record it
+stands in for.
+
+:func:`fast_addresses` and :func:`event_addresses` name the channels the view
+says refresh ``fast`` and ``event``, which timed passes publish beside the
+global tick; a view with neither runs no timed pass at all.
+
+:func:`setting_records`, :func:`write_records` and :func:`pass_readback` name
+what a write pass reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings;
+a texture setpoint moves itself, its echo and the texture channels derived from
+either. Every other value stands as the last pass left it -- what moves with
+time alone, the next periodic pass publishes -- and reading it back again would
+make each write, one per corrector for an apply, cost the whole roster.
 
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
@@ -37,22 +52,35 @@ tested in process.
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-from osprey_connectors.simulation.view import PERIODIC, SETPOINT
+from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
+
+try:
+    from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH
+except ImportError:  # a connectors release whose view names no IOC health signals
+    from osprey_connectors.simulation.view import PERIODIC as _FLOOR_STAND_IN  # noqa: F401
+
+    PERIODIC_IOC_HEALTH = ()  # type: ignore[assignment]
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
 __all__ = [
+    "ARRAY_ELEMENT_BYTES",
     "FLOAT_PRECISION",
     "HEALTH_KEYS",
     "SAFETY_KEYS",
     "apply_safety",
+    "event_addresses",
+    "fast_addresses",
+    "ioc_health_addresses",
     "pass_readback",
     "periodic_addresses",
     "setting_records",
+    "write_records",
 ]
 
 #: The write-path keys every model runner configuration carries.
@@ -74,7 +102,13 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 #: corrector kick in mrad below a microradian, where none would show either as 0.
 FLOAT_PRECISION = 4
 
+#: The bytes of one element of a served waveform: arrays are served as doubles.
+ARRAY_ELEMENT_BYTES = 8
+
 _FLOAT = "float"
+_WAVEFORM = "waveform"
+# The refresh words of the view's vocabulary, taken from it, never restated.
+_, _, _FAST, _EVENT = REFRESH
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -92,6 +126,10 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
         variable's ``mode`` stated, each setpoint's ``value_range`` set to
         the view's, and each float channel's ``precision`` set: the view's
         where it states one, else :data:`FLOAT_PRECISION`.
+
+    Raises:
+        ValueError: a waveform channel's array, its declared length times
+            :data:`ARRAY_ELEMENT_BYTES`, exceeds ``max_array_bytes``.
     """
     safe: dict[str, Any] = copy.deepcopy(dict(config))
     safe.update(SAFETY_KEYS)
@@ -112,23 +150,93 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
             entry["precision"] = (
                 channel.precision if channel.precision is not None else FLOAT_PRECISION
             )
+        elif channel.value_type == _WAVEFORM and channel.shape is not None:
+            _check_array_size(address, channel.shape, safe["max_array_bytes"])
     return safe
 
 
+def _check_array_size(address: str, shape: Iterable[int], limit: int | str) -> None:
+    """Refuse the waveform at ``address`` when its array exceeds ``limit`` bytes."""
+    size = math.prod(shape) * ARRAY_ELEMENT_BYTES
+    if size > int(limit):
+        raise ValueError(
+            f"channel {address} is an array of {size} bytes, over the configuration's "
+            f"array byte limit of {int(limit)} (max_array_bytes): it would be served "
+            "truncated"
+        )
+
+
 def periodic_addresses(view: SimulatorView) -> frozenset[str]:
-    """The addresses whose binding refreshes ``periodic``, across every model of the view.
+    """The addresses only a periodic pass publishes, across every model of the view.
+
+    Args:
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
+
+    Returns:
+        The addresses bound to refresh ``periodic``, and the ``HEARTBEAT`` and
+        ``UPTIME`` IOC health addresses.
+    """
+    return _refreshing(view, PERIODIC) | {
+        address
+        for signals in _ioc_health_by_model(view).values()
+        for signal, address in signals.items()
+        if signal in PERIODIC_IOC_HEALTH
+    }
+
+
+def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
+    """The addresses whose binding refreshes ``refresh``, across every model of the view."""
+    return frozenset(
+        binding.address
+        for binding in view.bindings(served_only=False)
+        if binding.refresh == refresh
+    )
+
+
+def ioc_health_addresses(view: SimulatorView) -> frozenset[str]:
+    """Every IOC health address of the view, across every model.
+
+    Args:
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
+
+    Returns:
+        The ``ioc_health`` addresses the view lists.
+    """
+    return frozenset(
+        address for signals in _ioc_health_by_model(view).values() for address in signals.values()
+    )
+
+
+def _ioc_health_by_model(view: SimulatorView) -> Mapping[str, Mapping[str, str]]:
+    """The view's IOC health addresses, ``{model: {signal: address}}``; none from an older view."""
+    ioc_health = getattr(view, "ioc_health_by_model", None)
+    return ioc_health() if ioc_health is not None else {}
+
+
+def fast_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``fast``, across every model of the view.
 
     Args:
         view: The simulator view.
 
     Returns:
-        The bound addresses the periodic solve alone publishes.
+        The bound addresses every timed pass reads and posts.
     """
-    return frozenset(
-        binding.address
-        for binding in view.bindings(served_only=False)
-        if binding.refresh == PERIODIC
-    )
+    return _refreshing(view, _FAST)
+
+
+def event_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``event``, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses posted when their engine emits them.
+    """
+    return _refreshing(view, _EVENT)
 
 
 def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
@@ -166,6 +274,23 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
     return records
 
 
+def write_records(
+    view: SimulatorView, texture_reach: Mapping[str, frozenset[str]]
+) -> dict[str, frozenset[str]]:
+    """The records any setpoint's write can change, by setpoint address.
+
+    Args:
+        view: The simulator view.
+        texture_reach: What a write to each settable texture channel can
+            change, as the composite's ``texture_reach`` names it.
+
+    Returns:
+        ``texture_reach``, and over it the :func:`setting_records` of the
+        setpoints a physics model binds.
+    """
+    return {**texture_reach, **setting_records(view)}
+
+
 def pass_readback(
     records: Mapping[str, frozenset[str]], written: Iterable[str]
 ) -> frozenset[str] | None:
@@ -173,7 +298,7 @@ def pass_readback(
 
     Args:
         records: The records each address's write can change, as
-            :func:`setting_records` names them.
+            :func:`write_records` names them.
         written: The addresses the pass writes.
 
     Returns:

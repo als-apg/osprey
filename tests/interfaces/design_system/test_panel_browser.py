@@ -40,7 +40,7 @@ from starlette.responses import FileResponse
 import osprey.interfaces.design_system.panels as _panels_pkg
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import assert_page_loads_clean
+from tests.interfaces._browser import assert_page_loads_clean, wait_for_page_ready
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -134,6 +134,7 @@ def test_reference_panel_boots_to_valid_theme_without_query(chromium_browser):
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/panel", wait_until="domcontentloaded")
+            wait_for_page_ready(page)
             applied = _applied_theme(page)
             assert applied in THEME_IDS, (
                 f"reference panel booted to unexpected data-theme: {applied!r}"

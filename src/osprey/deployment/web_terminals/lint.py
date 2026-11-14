@@ -34,6 +34,7 @@ from osprey.agent_record.config import HISTORY_SERVICE, history_origin_port, his
 from osprey.agent_record.identities import (
     BRIDGE_IDENTITIES,
     OPERATOR_IDENTITY,
+    derived_host_identity,
     host_identity,
     reader_entries,
 )
@@ -85,6 +86,7 @@ from osprey.deployment.web_terminals.roster import (
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     _roster_entry_name,
+    app_access_refusal,
     as_dict,
     auth_is_enforced,
     authored_people,
@@ -96,6 +98,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     effective_tier,
     entry_is_shared,
+    expand_login_principals,
     expand_tier_principals,
     image_tag_problem,
     is_app_entry,
@@ -245,6 +248,11 @@ def lint_web_terminals(
         )
     )
     findings.extend(_check_shared_app_access(web_terminals))
+    findings.extend(
+        _check_app_entry_access(
+            web_terminals, rendered_project=rendered_project, profile_root=profile_root
+        )
+    )
     findings.extend(_check_render_charset(web_terminals))
     findings.extend(_check_render_seed_base(web_terminals))
     findings.extend(_check_default_tier_exists(web_terminals))
@@ -311,6 +319,7 @@ def lint_web_terminals(
         # answered anyway would be guessing at the one file the deploy gate
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
+        findings.extend(_check_open_mode_code_panel(root, project_root=project_root))
         # Both read the deployment's `.env` or `.env.auth`, so they ride the
         # same gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
@@ -1140,6 +1149,86 @@ def _check_shared_app_access(web_terminals: dict[str, Any]) -> list[Finding]:
     return findings
 
 
+def _authored_app_access(profile_root: Path | None) -> list[tuple[str, str, Any]]:
+    """Every ``apps.<name>.access`` the profile and its login files spell, as written.
+
+    Read raw rather than through the profile loader, which refuses an unreadable
+    value before lint could name it. The files are the build's own listing
+    (:func:`~osprey.cli.profile_root.layer_files`), each login named as the
+    build names it: the deployment's file by its filename, a layer by its stem.
+
+    Returns:
+        ``(login, application, authored access)`` in file order; a file that
+        does not read as a mapping contributes nothing.
+    """
+    from osprey.cli.profile_root import layer_files
+    from osprey.utils.workspace import PROFILE_FILENAME
+
+    base = profile_root or Path(".")
+    files = [(PROFILE_FILENAME, base / PROFILE_FILENAME)]
+    files.extend((path.stem, path) for _kind, path in layer_files(base))
+    found: list[tuple[str, str, Any]] = []
+    for login, path in files:
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            continue
+        apps = data.get("apps") if isinstance(data, dict) else None
+        for name, entry in (apps if isinstance(apps, dict) else {}).items():
+            if isinstance(entry, dict) and "access" in entry:
+                found.append((login, str(name), entry["access"]))
+    return found
+
+
+def _check_app_entry_access(
+    web_terminals: dict[str, Any], *, rendered_project: bool, profile_root: Path | None
+) -> list[Finding]:
+    """A login's ``apps.<name>.access`` must parse and must admit a browser caller. ERROR.
+
+    The twin of :func:`_check_shared_app_access` over every login file's
+    ``apps:`` block. ``invalid_app_access`` is the roster parser's refusal;
+    ``access_principal_without_idp`` and ``tier_principal_admits_nobody`` are
+    :func:`~osprey.deployment.web_terminals.roster.app_access_refusal`, the
+    predicate the build refuses on, asked of the set the build resolves. Profile
+    altitude only: a rendered config carries the resolved set, not the authored
+    one. An unknown ``auth.method`` skips the predicate, as every method-keyed
+    check does (:func:`_auth_context`).
+    """
+    if rendered_project:
+        return []
+    context = _auth_context(web_terminals)
+    method = context["auth_method"] if context is not None else None
+    claim = context["auth_oidc_claim"] if context is not None else None
+    cards = resolve_cards(web_terminals, {}, strict=False)
+    findings: list[Finding] = []
+    for login, name, access in _authored_app_access(profile_root):
+        try:
+            principals = resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "login": login, "access": access}
+            )
+        except ValueError as exc:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_app_access",
+                    message=str(exc),
+                )
+            )
+            continue
+        if context is None:
+            continue  # _check_auth_method names the unknown method on its own
+        resolved = expand_login_principals(
+            principals, cards, login=login, method=method, claim=claim
+        )
+        refusal = app_access_refusal(resolved, login=login, app=name, method=method)
+        if refusal is not None:
+            code, message = refusal
+            findings.append(
+                Finding(severity="error", code=f"web_terminals.{code}", message=message)
+            )
+    return findings
+
+
 def _check_shared_apps(
     web_terminals: dict[str, Any],
     users: list[Any],
@@ -1356,7 +1445,7 @@ def _check_render_charset(web_terminals: dict[str, Any]) -> list[Finding]:
             code="web_terminals.invalid_render_charset",
             message=(
                 f"modules.web_terminals.renders key {render_name!r} does not "
-                f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
+                f"match {USERNAME_CHARSET_RE.pattern!r} (login names become "
                 "image-tag suffixes and path components)"
             ),
         )
@@ -1993,7 +2082,7 @@ def _check_unreadable_tier_privileges(
                 severity=severity,
                 code="web_terminals.render_privileges_unknown",
                 message=(
-                    f"modules.web_terminals tier or app {render_name!r} could not be read, so "
+                    f"modules.web_terminals login {render_name!r} could not be read, so "
                     f"this build cannot tell whether it holds "
                     f"{privilege_phrase(ALL_PRIVILEGES)} — and {', and '.join(reasons)}. "
                     # The shape clause is a whole sentence and brings its own
@@ -2922,7 +3011,7 @@ def _check_render_bundle_path_agreement(
                 severity="error",
                 code="web_terminals.render_bundle_path_divergence",
                 message=(
-                    f"tier or app {render_name!r} sets facility_knowledge.bundle_path to "
+                    f"login {render_name!r} sets facility_knowledge.bundle_path to "
                     f"{render_bundle!r}, but this deployment sets {deploy_bundle!r}. "
                     "The bundle is bind-mounted at the DEPLOYMENT's path while the "
                     "card's knowledge tools read its own, so that container would "
@@ -2991,17 +3080,17 @@ def _check_render_mirror_agreement(
             continue
         if deploy_mirror is None:
             message = (
-                f"tier or app {render_name!r} runs an ARIEL qmd export writing "
+                f"login {render_name!r} runs an ARIEL qmd export writing "
                 f"{render_mirror!r}, but this deployment runs none, so no mirror "
                 "directory is bound into that container: its exporter would write into "
                 "the container's writable layer, which the qmd sidecar never indexes and "
                 "the next recreate discards. Enable the export on the hosting profile "
                 "(one shared mirror, indexed by the sidecar) or switch it off in the "
-                "tier or app"
+                "login"
             )
         else:
             message = (
-                f"tier or app {render_name!r} sets ariel.enhancement_modules.qmd_export."
+                f"login {render_name!r} sets ariel.enhancement_modules.qmd_export."
                 f"mirror_path to {render_mirror!r}, but this deployment sets "
                 f"{deploy_mirror!r}. The mirror is bind-mounted at the DEPLOYMENT's path "
                 "while the card's exporter writes its own, so its entries would land "
@@ -3029,15 +3118,15 @@ def _check_render_project_collisions(
     rather than by a tag suffix. Config-only, so it runs at both altitudes —
     no filesystem is consulted. Two invariants:
 
-    * **Render vs render.** No two referenced tiers or apps may share a
+    * **Render vs render.** No two referenced logins may share a
       ``project``. Each one is its own render, so two of them on one
       ``project`` race their builds onto one tag: the last build wins, and
       every card of the losing render silently runs the winning render's
       image — an entitlement bleed, not just a naming wart. Pointing both at
-      one ``project_path`` does not make that safe: a tier and an app are
+      one ``project_path`` does not make that safe: two logins are
       separate definitions, and one render serving two names is a second
       name for one agent rather than a second agent.
-    * **Render vs project.** No tier or app ``project`` may equal the
+    * **Render vs project.** No login's ``project`` may equal the
       deployment's own project name: the project image already owns that
       ``<project>:local`` tag (the dispatch worker and the deployment's own
       services run it), and a render build would overwrite it (or be
@@ -3078,10 +3167,10 @@ def _check_render_project_collisions(
                     severity="error",
                     code="web_terminals.render_project_collision",
                     message=(
-                        f"tiers or apps {names} share project {project!r}; their builds "
+                        f"logins {names} share project {project!r}; their builds "
                         f"would race onto the one image tag '{project}:local', and the "
                         "cards of the losing one would silently run the winning one's "
-                        "image. Give each tier and app its own project (matching its "
+                        "image. Give each login its own project (matching its "
                         "render)"
                     ),
                 )
@@ -3092,7 +3181,7 @@ def _check_render_project_collisions(
                     severity="error",
                     code="web_terminals.render_shadows_project_image",
                     message=(
-                        f"tiers or apps {', '.join(repr(name) for name, _ in members)} "
+                        f"logins {', '.join(repr(name) for name, _ in members)} "
                         f"use project {project!r}, which is this deployment's own project "
                         f"name; their image tag '{project}:local' would collide with the "
                         "project image. Rename the render (osprey build names each one "
@@ -3170,7 +3259,7 @@ def _check_one_render_project_path(
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}] has no "
                     "project_path set; image_source: local requires one to "
-                    "build this tier or app's image from"
+                    "build this login's image from"
                 ),
             )
         ]
@@ -3269,7 +3358,7 @@ def _check_one_render_project_path(
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}]."
                     f"project_path {project_path_raw!r} has no Dockerfile; "
-                    "local mode builds each tier or app's image from its own "
+                    "local mode builds each login's image from its own "
                     "project directory"
                 ),
             )
@@ -3373,7 +3462,7 @@ def _check_render_missing_project(
                 code="web_terminals.render_missing_project",
                 message=(
                     f"modules.web_terminals.renders[{render_name!r}] has no project; "
-                    "a tier or app whose image is built elsewhere states the project that "
+                    "a login whose image is built elsewhere states the project that "
                     "image was built from (its directory is /app/<project>)"
                 ),
             )
@@ -3585,6 +3674,53 @@ def _auth_context(
         return _auth_tls_context(web_terminals, base=base)
     except ValueError:
         return None
+
+
+def _check_open_mode_code_panel(
+    root: dict[str, Any], *, project_root: Path | None
+) -> list[Finding]:
+    """An OPEN deployment whose render shows a panel that runs a person's code.
+
+    The authoring-time voice of the second refusal in
+    :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`,
+    driven by the predicate that gate raises on
+    (:func:`~osprey.deployment.web_terminals.artifacts.open_mode_code_panels_by_render`),
+    for the reasons :func:`_check_open_mode_egress` gives. Imported at call
+    time, as there.
+
+    Args:
+        root: The whole parsed config.
+        project_root: The deployment repo whose ``build/`` holds the renders.
+            ``None`` falls back to the working directory.
+
+    Returns:
+        One finding naming every offender and the panels it shows, or none.
+    """
+    from osprey.deployment.web_terminals.artifacts import open_mode_code_panels_by_render
+
+    panels_by_render = open_mode_code_panels_by_render(root, project_root or Path("."))
+    if not panels_by_render:
+        return []
+    detail = "; ".join(
+        f"{render!r} shows {', '.join(repr(panel) for panel in panels)}"
+        for render, panels in sorted(panels_by_render.items())
+    )
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.open_mode_code_panel",
+            message=(
+                f"modules.web_terminals.auth.method is 'none' (open), so nginx vouches "
+                f"for every terminal it proxies — but {detail}, a panel that runs the "
+                f"code a person types. That code runs in the terminal's container on "
+                f"the host network, with none of the python executor's guards, so it "
+                f"reaches nginx over loopback and is served any login's terminal. Set "
+                f"auth.method to 'token', 'password' or 'oidc', or stop selecting the "
+                f"panel in those renders, render with `osprey build` and rebuild the "
+                f"images this deployment runs"
+            ),
+        )
+    ]
 
 
 def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) -> list[Finding]:
@@ -4698,9 +4834,10 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
 def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
     """A ``type: apps`` landing section is the retired spelling of ``type: shared``.
 
-    Read as ``type: shared`` for one release, with one warning naming the
-    rewrite; ``osprey init --revalidate`` makes it.
+    Read as ``type: shared`` until the roster window closes, with one warning
+    naming the rewrite; ``osprey init --revalidate`` makes it.
     """
+    from osprey.cli.build_profile_load import RETIRED_ROSTER_KEYS_REFUSED_FROM
     from osprey.deployment.web_terminals.render import RETIRED_SHARED_GROUP_TYPE
 
     groups = as_dict(web_terminals.get("landing")).get("groups")
@@ -4713,8 +4850,9 @@ def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.landing.groups[{i}] spells `type: "
                 f"{RETIRED_SHARED_GROUP_TYPE}`, which is read as `type: shared` (the shared "
-                "logins section); `type: apps` is deprecated and will be refused in the next "
-                "release. To rewrite it, run `osprey init --revalidate`"
+                "logins section); `type: apps` is deprecated and refused in "
+                f"{RETIRED_ROSTER_KEYS_REFUSED_FROM}. To rewrite it, run "
+                "`osprey init --revalidate`"
             ),
         )
         for i, entry in enumerate(groups)
@@ -5371,12 +5509,13 @@ def host_identity_advisories(config: Any, runtime_user: str | None) -> list[str]
     another account is said once. About the invoking account rather than the
     config, so it is asked where something is launched and nowhere else. Empty
     when no account name is known, when the config records no identity, and
-    when the account is the one the build recorded.
+    when the account is the one the build recorded, under its own name or the
+    identity a build derives from it.
     """
     if runtime_user is None:
         return []
     identity = host_identity(as_dict(config))
-    if identity is None or identity == runtime_user:
+    if identity is None or identity in (runtime_user, derived_host_identity(runtime_user)):
         return []
     return [
         f"deployment.host_identity is {identity!r} and this command runs as "

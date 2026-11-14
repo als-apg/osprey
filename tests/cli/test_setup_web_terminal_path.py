@@ -244,12 +244,12 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     # The spliced block names tiers and apps the repo does not have yet.
     # Recorded rather than asserted through `invoke`, so the test that owns the
     # claim is the one that reports it.
-    spliced = runner.invoke(cli, ["validate", "--repo", str(repo_root), "--drift=warn"])
+    spliced = runner.invoke(cli, ["validate", "--repo", str(repo_root)])
 
     tiers = invoke(runner, "scaffold", "tiers", "--repo", str(repo_root), "--from", SOURCE_PRESET)
     emitted = {"tiers": emitted_names(repo_root, "tiers"), "apps": emitted_names(repo_root, "apps")}
 
-    scaffolded = runner.invoke(cli, ["validate", "--repo", str(repo_root), "--drift=warn"])
+    scaffolded = runner.invoke(cli, ["validate", "--repo", str(repo_root)])
 
     drop_unserved_apps(repo_root)
     drop_unhostable_panels(repo_root)
@@ -268,7 +268,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         f"config.facility_knowledge.bundle_path={BUNDLE_PATH}",
     )
 
-    validate = invoke(runner, "validate", "--repo", str(repo_root), "--drift=warn")
+    validate = invoke(runner, "validate", "--repo", str(repo_root))
     build = invoke(runner, "build", "--repo", str(repo_root), "--skip-deps", "--skip-lifecycle")
 
     return {

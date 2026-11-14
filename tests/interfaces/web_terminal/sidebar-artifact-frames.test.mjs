@@ -7,7 +7,8 @@
  * these through a real tree; this file pins the module's edges: nothing is
  * followed while the panel is not served, a reconnect (not the first open)
  * re-fetches the summary and the focus, a delete clears the pick and the focus,
- * and a focus is followed only for the active transcript.
+ * a focus is followed only for the active transcript, and every update and
+ * delete reaches the artifact's own tile, shown or not.
  */
 
 import { test, expect, beforeEach, vi } from 'vitest';
@@ -56,6 +57,7 @@ const deps = () => {
     state: () => state,
     inActiveSession: () => true,
     sendChanged: vi.fn(),
+    tileChanged: vi.fn(),
     summarize: vi.fn(async () => {}),
     render: vi.fn(),
   };
@@ -104,6 +106,18 @@ test('an update and a delete of the shown artifact tell the viewer; a delete cle
   expect(model.setPick).toHaveBeenCalledWith(null);
   expect(state.focusId).toBeNull();
   expect(d.summarize).toHaveBeenCalledWith(true);
+});
+
+test('an update and a delete reach the artifact’s own tile, whether or not it is shown', () => {
+  const d = deps();
+  const frames = createArtifactFrames(d);
+  frames.onFrame({ type: 'artifact_updated', id: 'a2', status: 'done' });
+  expect(d.tileChanged).toHaveBeenCalledWith('a2', 'updated', { id: 'a2', status: 'done' });
+  expect(d.sendChanged).not.toHaveBeenCalled();
+  frames.onFrame({ type: 'artifact_deleted', id: 'a2' });
+  expect(d.tileChanged).toHaveBeenLastCalledWith('a2', 'deleted');
+  frames.onFrame({ type: 'artifact_updated', id: 'a1' });
+  expect(d.tileChanged).toHaveBeenLastCalledWith('a1', 'updated', { id: 'a1' });
 });
 
 test('a focus is followed only for the active transcript; a manual one takes the pick', async () => {

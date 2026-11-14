@@ -42,11 +42,13 @@ SHUTDOWN_KILLED_MESSAGE = (
     "next run."
 )
 
-# Write a draft's config, with the draft's TTL, only while its status is still
-# CREATED. KEYS[1]=the job's pickled status key, KEYS[2]=its config key,
-# KEYS[3]=its meta key. ARGV[1]=pickled CREATED, ARGV[2]=config JSON, ARGV[3]=ttl.
-# Byte equality on the pickle, as the status CAS in core.state does. Returns 1 on
-# write, 0 when the job left CREATED, -1 when its status is gone (expired).
+# Write a draft's config and start notice, with the draft's TTL, only while its
+# status is still CREATED. KEYS[1]=the job's pickled status key, KEYS[2]=its
+# config key, KEYS[3]=its meta key, KEYS[4]=its pickled start-notice key.
+# ARGV[1]=pickled CREATED, ARGV[2]=config JSON, ARGV[3]=ttl, ARGV[4]=pickled
+# notice, or "" to delete it. Byte equality on the pickle, as the status CAS in
+# core.state does. Returns 1 on write, 0 when the job left CREATED, -1 when its
+# status is gone (expired).
 _STORE_IF_CREATED_LUA = """
 local status = redis.call('GET', KEYS[1])
 if not status then
@@ -58,6 +60,11 @@ end
 redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
 redis.call('EXPIRE', KEYS[3], tonumber(ARGV[3]))
+if ARGV[4] == '' then
+    redis.call('DEL', KEYS[4])
+else
+    redis.call('SET', KEYS[4], ARGV[4], 'EX', tonumber(ARGV[3]))
+end
 return 1
 """
 
@@ -82,6 +89,7 @@ def persist_created_job(
     job_id: str,
     payload_json: str,
     make_writer: Callable[[str], JobStateWriter],
+    start_notice: str | None = None,
 ) -> None:
     """Persist a job's stored config and register it as CREATED (non-reserving).
 
@@ -91,10 +99,10 @@ def persist_created_job(
     """
     make_writer(job_id).set_status(JobStatus.CREATED)
     tracker.register_created_job(job_id)
-    store_created_config(job_id, payload_json)
+    store_created_config(job_id, payload_json, start_notice)
 
 
-def store_created_config(job_id: str, payload_json: str) -> None:
+def store_created_config(job_id: str, payload_json: str, start_notice: str | None = None) -> None:
     """Write a CREATED job's stored config and normalize its TTL, in one step.
 
     Shared by create and edit. A draft owns its meta, status and config keys;
@@ -104,10 +112,24 @@ def store_created_config(job_id: str, payload_json: str) -> None:
     status is still CREATED: 409 when a start or cancel landed while the draft
     was prepared, so a started job's config is never replaced; 404 when the
     draft expired.
+
+    *start_notice* describes this config, so it is written (or, when None,
+    cleared) together with it and shares its window. It stays out of the config
+    itself, whose hash is the revision a start names.
     """
     stored = _redis_client.get_redis_client(binary=False).register_script(_STORE_IF_CREATED_LUA)(
-        keys=[f"{state_prefix(job_id)}:status", config_key(job_id), meta_key(job_id)],
-        args=[serialize_obj(JobStatus.CREATED), payload_json, CREATED_STATE_TTL_SECONDS],
+        keys=[
+            f"{state_prefix(job_id)}:status",
+            config_key(job_id),
+            meta_key(job_id),
+            f"{state_prefix(job_id)}:start_notice",
+        ],
+        args=[
+            serialize_obj(JobStatus.CREATED),
+            payload_json,
+            CREATED_STATE_TTL_SECONDS,
+            serialize_obj(start_notice) if start_notice is not None else "",
+        ],
     )
     if stored == -1:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")

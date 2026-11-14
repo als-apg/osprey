@@ -275,7 +275,7 @@ body {
   flex: 0 0 auto;
 }
 
-.start-owner-warn {
+.start-warn {
   font-size: var(--text-md);
   color: var(--color-accent-secondary-light);
 }

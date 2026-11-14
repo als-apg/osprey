@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._browser import wait_for_page_ready
+
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, Page
 
@@ -76,6 +78,7 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
     router is driven through ``navigate()``, which is what repaints the screen.
     """
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {

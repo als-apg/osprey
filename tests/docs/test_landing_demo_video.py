@@ -132,7 +132,7 @@ def _open(site_page: Path, **context_args):
     browser = p.chromium.launch()
     context = browser.new_context(**context_args)
     tab = context.new_page()
-    tab.goto(site_page.as_uri())
+    tab.goto(site_page.as_uri())  # page-ready: the docs landing page, not an OSPREY page
     tab.wait_for_timeout(1200)
     return p, browser, tab
 

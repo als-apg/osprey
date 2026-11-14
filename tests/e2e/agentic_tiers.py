@@ -20,9 +20,6 @@ source.
   workflow goes through. Expected to pass; the board compares time and tokens.
 * Tier 2, benchmark: harder tasks a capable model may still miss. The board
   shows each test's first-attempt result per seed.
-
-The CI job names that say "Tier 0" to "Tier 3" number something else (the cost
-of a proof about a preset) and are not read from this marker.
 """
 
 from collections.abc import Iterable

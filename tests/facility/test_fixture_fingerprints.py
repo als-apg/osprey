@@ -28,8 +28,6 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("at")
-
 from tests.facility._mml_built import BUILT, TREES, BuiltModel, build_tree
 from tests.facility.test_cf_view_parity import GOLDEN_DIR
 

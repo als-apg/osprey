@@ -214,7 +214,8 @@ class IngestionScheduler:
         if last_run_time is None and require_initial:
             logger.info(
                 "No previous ingestion found for '%s' and require_initial_ingest=True. "
-                "Run 'osprey ariel ingest' first.",
+                "Run 'osprey ariel sync' (the configured source) or "
+                "'osprey ariel ingest --source <file|URL>' first.",
                 source_system,
             )
             return IngestionPollResult(

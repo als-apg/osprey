@@ -3837,6 +3837,8 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
     # The logbook is a knob change's business only if the narrative changed, and
     # it did not — purging ARIEL here would destroy history nobody asked to touch.
     assert forwarded["seed_logbook"] is False
+    # The deploy states its own time for a store open and hands it down here too.
+    assert forwarded["store_deadline_s"] == container_lifecycle._ARIEL_STORE_DEADLINE_S
 
 
 def _active_in_the_view(monkeypatch, names: list[str]) -> None:

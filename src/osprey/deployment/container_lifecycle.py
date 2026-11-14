@@ -5,6 +5,7 @@ Docker or Podman compose.
 """
 
 import contextlib
+import functools
 import hashlib
 import ipaddress
 import json
@@ -29,6 +30,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -120,7 +122,11 @@ from osprey.deployment.web_terminals.render_images import (
     render_build_session,
     verify_renders,
 )
-from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
+from osprey.deployment.web_terminals.roster import (
+    dispatch_tier_name,
+    resolve_cards,
+    single_user_alias_services,
+)
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 from osprey_connectors.config import config_anchored_at, load_project_config
@@ -252,17 +258,26 @@ def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any
 
 
 def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
-    """:data:`_SERVICE_TOKEN_VARS` merged with the projected panels' launch tokens.
+    """:data:`_SERVICE_TOKEN_VARS` merged with what the projected panels read.
 
     A projected panel that declares ``launch_token`` carries the variable's name
     as ``services.<key>.launch_token_env``, whatever its container runs; that
-    recorded name is minted as it stands.
+    recorded name is minted as it stands. One whose panel accepts the
+    deployment-wide terminal secret (:func:`single_user_alias_services`) reads
+    that secret with no default, so it is minted for it as it is for the
+    built-in panels.
     """
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
     merged = dict(_SERVICE_TOKEN_VARS)
+    alias = single_user_alias_services(config)
     for key, row in _projected_services(config).items():
         name = row.get("launch_token_env")
-        if name:
-            merged[key] = (str(name),)
+        names = (str(name),) if name else ()
+        if key in alias:
+            names = (*names, OPERATOR_SECRET_ENV)
+        if names:
+            merged[key] = names
     return merged
 
 
@@ -1187,7 +1202,7 @@ def _adopt_original_credentials(
     if absent:
         _append_env_block(
             env_path,
-            "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+            "Credentials adopted from pre-existing data volumes (osprey up --reuse-stores)",
             absent,
         )
 
@@ -1303,8 +1318,9 @@ def _refuse_invented_history(config: dict) -> None:
     raise RuntimeError(
         f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
-        f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
-        f"to a connector reading a store this stack writes, or serve the simulator in "
+        f"Fix profile.yml before deploying: set `archiver.type` under `config:` "
+        f"(`osprey set config.archiver.type=<type>`) to a connector reading a store "
+        f"this stack writes, or serve the simulator in "
         f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
         f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
@@ -2495,7 +2511,7 @@ def _build_referenced_renders(
 
     A worker running at a tier runs ``<p>-<tier>:local`` in local mode, and
     nothing in ``compose up`` builds that tag: so ``osprey up`` builds the whole
-    reference set (the roster's tiers and apps, plus the dispatch tier) in one
+    reference set (the roster's logins, plus the dispatch tier) in one
     step beside the project image, after checking each has a render. The web
     stack's own pass later finds those tags built
     (:func:`~osprey.deployment.web_terminals.render_images.render_build_session`).
@@ -2666,6 +2682,7 @@ def _project_image_build_cmd(
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, project_root))
+    cmd.extend(build_cache_args(runtime, PROJECT_KEY))
     with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
@@ -2791,12 +2808,15 @@ def _build_project_image(
         # below is what reports the finished image.
         _report_group("images")
         with (report := single_image_build_reporter(project_image)):
-            run_captured(
+            run_image_build(
                 cmd,
-                env=env,
-                spool_name="build-project-image",
-                repo_root=resolve_repo_root(config),
-                on_line=report,
+                functools.partial(
+                    run_captured,
+                    env=env,
+                    spool_name="build-project-image",
+                    repo_root=resolve_repo_root(config),
+                    on_line=report,
+                ),
             )
         _report_step(f"project image {project_image}")
     finally:
@@ -4841,7 +4861,13 @@ def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     # asked for, as a side effect of a deploy meant to rebuild only the store.
     anchor = persisted_scenario_anchor(config, project_dir)
     try:
-        result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
+        result = apply_scenarios(
+            project_dir,
+            names,
+            seed_logbook=False,
+            now=anchor,
+            store_deadline_s=_ARIEL_STORE_DEADLINE_S,
+        )
     except Exception as exc:
         # `nominal` leads the set and is implicit, so the recovery command names
         # the faults — which is what the operator activated and what `sim apply`
@@ -5203,6 +5229,12 @@ _ARIEL_STORE_SERVICE = "postgresql"
 _ARIEL_HEALTH_TIMEOUT_S = 90.0
 _ARIEL_HEALTH_POLL_S = 2.0
 
+# How long each of the deploy's opens of a store that has come up gives it to
+# answer: the schema step, the seed step and the scenario steps. Separate from
+# the start-up wait above, so a slow first start or slow migrations leave the
+# next step its whole time rather than what the wait left over.
+_ARIEL_STORE_DEADLINE_S = 30.0
+
 # The one command that finishes the job by hand, named in every warning below.
 # `quickstart` rather than `migrate`: it runs the migration AND reports what it
 # found, so an operator following the message once ends up where this staging
@@ -5280,17 +5312,21 @@ def _wait_for_ariel_store(ariel_config: dict, deadline: float) -> None:
             time.sleep(_ARIEL_HEALTH_POLL_S)
 
 
-def _migrate_ariel_store(ariel_config: dict) -> None:
+def _migrate_ariel_store(ariel_config: dict, store_deadline_s: float) -> None:
     """Create ARIEL's schema, idempotently.
 
     Wrapped rather than called inline so the deploy has one seam for "the schema
     now exists", and so the async boundary lives in exactly one place.
+
+    :param ariel_config: ARIEL config with its DSN already resolved.
+    :param store_deadline_s: Seconds the store gets to answer, the deploy's
+        own stated time for a store open (``_ARIEL_STORE_DEADLINE_S``).
     """
     import asyncio
 
     from osprey.services.ariel_search.cli_operations import run_migrate
 
-    asyncio.run(run_migrate(ariel_config))
+    asyncio.run(run_migrate(ariel_config, store_deadline_s=store_deadline_s))
 
 
 def _stage_ariel_store(
@@ -5361,7 +5397,7 @@ def _stage_ariel_store(
     ariel_config = _ariel_store_config(config, project_dir)
     try:
         _wait_for_ariel_store(ariel_config, time.monotonic() + _ARIEL_HEALTH_TIMEOUT_S)
-        _migrate_ariel_store(ariel_config)
+        _migrate_ariel_store(ariel_config, store_deadline_s=_ARIEL_STORE_DEADLINE_S)
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema could not be created, so its panel and MCP tools will "
@@ -5373,7 +5409,12 @@ def _stage_ariel_store(
     _report_step("ARIEL schema ready")
 
     try:
-        seeded = simulation_apply.seed_active_logbook(config, project_dir, ariel_config)
+        seeded = simulation_apply.seed_active_logbook(
+            config,
+            project_dir,
+            ariel_config,
+            store_deadline_s=_ARIEL_STORE_DEADLINE_S,
+        )
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema is in place but its logbook could not be seeded, so the "
@@ -5409,7 +5450,9 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
     from osprey.simulation.apply import activate_default_scenarios
 
     try:
-        active = activate_default_scenarios(config, project_dir)
+        active = activate_default_scenarios(
+            config, project_dir, store_deadline_s=_ARIEL_STORE_DEADLINE_S
+        )
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The default scenarios (simulation.default_scenarios) could not be activated, "
@@ -6977,12 +7020,15 @@ def _start_stack(
                 # (and its heartbeats) must go quiet the moment compose returns,
                 # before the closing step line below.
                 with (report := compose_build_step_reporter()):
-                    run_captured(
+                    run_image_build(
                         build_cmd,
-                        env=run_env,
-                        spool_name="compose-build",
-                        repo_root=repo_root,
-                        on_line=report,
+                        functools.partial(
+                            run_captured,
+                            env=run_env,
+                            spool_name="compose-build",
+                            repo_root=repo_root,
+                            on_line=report,
+                        ),
                     )
                 _report_step("service images built")
             # The images have read the bundle, and the `up` below carries
@@ -7559,10 +7605,10 @@ def _start_as_built(
     The whole start runs with this repo's render anchored as the process config.
     A start is not only a sequence of ``compose`` invocations — it synthesizes
     and seeds an archive in THIS process, and that work reads the config through
-    unqualified lookups. Compose hands every container ``CONFIG_FILE``; without
-    the anchor the host is the one participant in that contract left resolving
-    against a working directory that holds no ``config.yml`` at all, and its
-    lookups degrade to defaults without failing. See
+    unqualified lookups. A container is handed its config or starts in its
+    project directory; a start pointed at another repo stands in neither, and
+    without the anchor its lookups would resolve against the working directory
+    and degrade to defaults without failing. See
     :func:`~osprey_connectors.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):

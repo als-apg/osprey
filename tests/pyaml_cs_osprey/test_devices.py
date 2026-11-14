@@ -431,7 +431,7 @@ def test_a_write_only_device_refuses_the_read(runtime: _Runtime) -> None:
 # --- refusals in a batch ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("reason", ["WRITES_DISABLED", "LIMITS"])
+@pytest.mark.parametrize("reason", ["WRITES_DISABLED", "LIMITS", "BATCH_REFUSED"])
 @pytest.mark.usefixtures("in_run")
 def test_a_pre_send_refusal_of_a_batch_stays_refused(runtime: _Runtime, reason: str) -> None:
     runtime.write_error = ChannelWriteBlockedError(SETS[0], reason)
@@ -480,6 +480,39 @@ def test_a_refusal_in_the_middle_of_a_batch_names_the_channels_sent(reason: str)
     assert isinstance(info.value.__cause__, ChannelWriteBlockedError)
     assert connector._state[SETS[0]] == 10.0
     assert connector._state[SETS[2]] == 30.0
+
+
+class _UnservedAddressConnector(DictConnector):
+    """A connector that answers one address as not a channel when a write is checked."""
+
+    def __init__(self, unserved: str) -> None:
+        super().__init__(dict.fromkeys(SETS, 0.0))
+        self._unserved = unserved
+
+    def _write_precheck(self, channel_address: str, value: Any):
+        if channel_address != self._unserved:
+            return channel_address, None
+        return channel_address, ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason="CHANNEL_NOT_FOUND",
+            error_message=f"{channel_address} is not a channel of this facility",
+        )
+
+
+@pytest.mark.usefixtures("unvalidated")
+@pytest.mark.usefixtures("in_run")
+def test_a_batch_refused_at_its_checks_names_the_refused_channel_and_no_channel_sent() -> None:
+    connector = _UnservedAddressConnector(SETS[1])
+    with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
+        get.return_value = connector
+        with pytest.raises(OspreyWriteRefused) as info:
+            _list().set([10.0, 20.0, 30.0], confirm=False)
+    assert info.value.channel_address == SETS[1]
+    assert "not a channel" in str(info.value)
+    assert "also sent" not in str(info.value)
+    assert connector._state == dict.fromkeys(SETS, 0.0)
 
 
 # --- indexed members ---------------------------------------------------------

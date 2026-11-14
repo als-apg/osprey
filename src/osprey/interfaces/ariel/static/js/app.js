@@ -17,6 +17,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { capabilitiesApi } from './api.js';
@@ -192,8 +193,11 @@ async function init() {
   console.log('ARIEL Web Interface initialized');
 }
 
+// The page is ready once init() has settled, whatever it could draw
+// (index.html declares the mark pending until then).
+const start = () => void init().finally(() => markPageReady());
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', start);
 } else {
-  init();
+  start();
 }

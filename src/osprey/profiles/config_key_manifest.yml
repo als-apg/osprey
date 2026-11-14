@@ -1039,16 +1039,16 @@ keys:
   web.panels.events: {covered-by: web.panels, default: n/a}
   web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
   web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}
-  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: EVENTS}
+  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: Events}
   web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health}
   web.panels.bluesky: {covered-by: web.panels, default: n/a}
   web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
   web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
-  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
+  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: Bluesky}
   web.panels.optimizer: {rendered: false, covered-by: web.panels, default: n/a}
   web.panels.optimizer.url: {rendered: false, covered-by: web.panels.events.url, default: derived, default_note: "the optimizer-web sidecar's loopback URL, written by the optimizer-web injector"}
   web.panels.optimizer.path: {rendered: false, covered-by: web.panels.events.path, default: /optimizer/}
-  web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: OPTIMIZER}
+  web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: Optimizer}
   web.panels.optimizer.read_timeout_s: {rendered: false, covered-by: web.panels.<app-panel>.read_timeout_s, default: derived, default_note: "the optimizer client's 80 s budget plus a 10 s margin (OPTIMIZER_PANEL_READ_TIMEOUT_S), written by the optimizer-web injector; the host's setting, projected into attached renders (an explicit null included), which may not set their own"}
 
   # ── Projected from a deployment's applications (notes.application_families) ──
@@ -1086,10 +1086,23 @@ keys:
       (`notes.application_families`).
     default: no-fallback
     default_note: only a login showing an application with a panel has one
+  web.panels.<app-panel>.access:
+    rendered: false
+    evidence: 'panel\["access"\] = _panel_access\('
+    note: >-
+      Who on the login sees and opens the panel, written only for a login whose
+      `apps.<name>.access` narrows it below every user of the login, which needs
+      an auth method that forwards an identity; the guard's fixture deployment
+      has none.
+    default: no-fallback
+    default_note: absent, every user of the login sees the panel
   web.panels.<app-panel>.agent_routes: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.description: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.description; the guard's fixture application declares none"}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.help: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.help; the guard's fixture application declares none"}
+  web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.icon; the guard's fixture application declares none"}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
@@ -1238,6 +1251,13 @@ keys:
     evidence: 'resolve_tick_s\('
     note: seconds between the simulator's ticks; a value at or below 0 stops the build
     default: 1.0
+  simulation.fast_tick_s:
+    rendered: false
+    evidence: 'resolve_fast_tick_s\('
+    note: >-
+      seconds between the served composite's timed passes; no preset states it,
+      the resolver holds the default; a value at or below 0 stops the build
+    default: 0.1
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
     facility-fact: true
@@ -1269,7 +1289,7 @@ keys:
     evidence: 'RETIRED_WRITES_LEAF = "writes_enabled"'
     note: >-
       Retired spelling of the write posture, replaced by `control_system.writes`.
-      No preset, tier or app ships it. A profile that still states it is read
+      No preset or login ships it. A profile that still states it is read
       once, at the single parse point in `build_profile_document`, which turns
       a literal `true` into `allowed` and anything else into `never`, writes
       `control_system.writes` in its place and refuses a document that states
@@ -1587,9 +1607,9 @@ keys:
     evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
       Retired per-connector-type spelling of the write posture, replaced by
-      the target-blind `control_system.writes`. No preset, tier or app ships
-      it: the tiers state `control_system.writes`, and an app render is pinned
-      `never` by the composer. A profile that still states it is read once, at
+      the target-blind `control_system.writes`. No preset or login ships
+      it: the logins state `control_system.writes`, and a shared login's render
+      is pinned `never` by the composer. A profile that still states it is read once, at
       the single parse point in `build_profile_document`, which folds every
       retired leaf into one `control_system.writes` answer (`allowed` only when
       one of them is a literal `true`) and drops them. The evidence is the
@@ -1604,7 +1624,7 @@ keys:
     note: >-
       The same retired leaf reached through the epics block, read by the same
       single parse point and normalized into `control_system.writes` the same
-      way. No shipped preset, tier or app states it.
+      way. No shipped preset or login states it.
     default: derived
     default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.doocs.writes_enabled:
@@ -2034,7 +2054,8 @@ keys:
     note: >-
       Extra environment variable names the agent-code sandboxes pass through
       on top of their fixed allowlist; read per run by the python executor,
-      the visualization sandbox and plan validation
+      the visualization sandbox and plan validation, and at start by the
+      notebook sidecar for its server and kernels
       (`mcp_server/sandbox_env.configured_child_env_passthrough`). It cannot
       name one of osprey's own endpoint tokens or terminal names: such an
       entry is an error.
@@ -2206,7 +2227,7 @@ keys:
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
     note: >-
       Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
-      Anchored because FOURTEEN covered-by children terminate here — a weak regex
+      Anchored because TWENTY-FIVE covered-by children terminate here — a weak regex
       at this node would silently hollow out all of them.
     default: {}
   claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
@@ -2217,6 +2238,8 @@ keys:
   claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel, default: derived, default_note: the ariel server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.channel-finder: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.channel-finder.enabled: {covered-by: claude_code.servers.channel-finder, default: derived, default_note: the channel-finder server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.pv-directory: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.pv-directory.enabled: {covered-by: claude_code.servers.pv-directory, default: derived, default_note: the pv-directory server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.osprey_facility_knowledge: {evidence: 'osprey_facility_knowledge', default: n/a}
   claude_code.servers.osprey_facility_knowledge.enabled: {covered-by: claude_code.servers.osprey_facility_knowledge, default: derived, default_note: "the osprey_facility_knowledge server's FRAMEWORK_SERVERS default_enabled"}
   claude_code.servers.bluesky: {covered-by: claude_code.servers, default: n/a}
@@ -2430,6 +2453,151 @@ keys:
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
+  # The graph view's two settings, read through the graph View row's `reads`.
+  # No preset states them; a value outside the allowed set stops the render.
+  facility_graph.claims:
+    rendered: false
+    evidence: 'GRAPH_CLAIMS_KEY = "facility_graph\.claims"'
+    note: >-
+      Which relation claims the graph view writes as claim nodes: `all`,
+      `contested` or `none`.
+    default: all
+  facility_graph.basis:
+    rendered: false
+    evidence: 'GRAPH_BASIS_KEY = "facility_graph\.basis"'
+    note: >-
+      Which relations the graph view writes by basis: `all`, or `stated` to
+      drop inferred relations and inferred alias names.
+    default: all
+
+  # ── PV directory ────────────────────────────────────────────────────
+  # Read by services/pv_directory/resolve.py (the build's check and the
+  # predicates) and by service_targets in the connectors, which builds one
+  # backend spec per sub-block from its type and settings. A child profile
+  # turns the section off with `pv_directory: null`, which builds only over a
+  # parent that spells the section as one nested mapping.
+  pv_directory:
+    evidence: 'section = config\.get\(SECTION_KEY\)'
+    default: no-fallback
+    default_note: >-
+      absent or null, resolve_section answers None, every pv_directory_* predicate
+      is false and nothing of the section is rendered; a section without `type`
+      lists the build's simulator channels and IOC health PVs
+  pv_directory.type:
+    rendered: false
+    covered-by: pv_directory
+    default: no-fallback
+    default_note: >-
+      absent, the section is VA-only: the simulator's channels on `va` and
+      nothing on `live` or `standin`; with no simulator either, the build warns
+      and every section answers 'not available for this target'
+  pv_directory.settings: {rendered: false, covered-by: pv_directory, default: {}}
+  pv_directory.settings.url:
+    rendered: false
+    covered-by: pv_directory.settings
+    default: no-fallback
+    default_note: >-
+      the build refuses a `type` without it, naming this key; a VA-only section
+      reads no url
+  pv_directory.settings.timeout_s: {rendered: false, evidence: 'settings\.get\("timeout_s"\)', default: 6.0}
+  pv_directory.settings.auth:
+    rendered: false
+    covered-by: pv_directory.settings
+    note: >-
+      the login a proxy in front of the service asks for — a bearer token or a
+      user and password, each secret named by environment variable; unset
+      sends no login
+    default: null
+  pv_directory.settings.auth.token_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.auth.username: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.auth.password_env: {rendered: false, covered-by: pv_directory.settings.auth, default: null}
+  pv_directory.settings.tls: {rendered: false, covered-by: pv_directory.settings, default: null}
+  pv_directory.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.settings.tls, default: null}
+  pv_directory.description_property: {rendered: false, evidence: 'get\("description_property"\)', default: recordDesc}
+  pv_directory.caveats: {rendered: false, evidence: '_present\(caveats=block\.get\("caveats"\)\)', default: []}
+  pv_directory.display: {rendered: false, evidence: 'self\._section\.get\("display"\)', default: {}}
+  pv_directory.display.detail_properties:
+    rendered: false
+    evidence: 'self\._display\.get\("detail_properties"\)'
+    default: derived
+    default_note: every property the record carries, sorted by name
+  pv_directory.display.hidden_properties: {rendered: false, evidence: 'self\._display\.get\("hidden_properties"\)', default: []}
+  pv_directory.display.exact_properties: {rendered: false, evidence: 'display\.get\("exact_properties"\)', default: [pvStatus, recordType]}
+  pv_directory.display.filter_cap: {rendered: false, evidence: 'self\._display\.get\("filter_cap"\)', default: 5000}
+  pv_directory.display.ioc_health_suffixes: {rendered: false, evidence: 'self\._display\.get\("ioc_health_suffixes"\)', default: {heartbeat: HEARTBEAT, uptime: UPTIME}}
+  pv_directory.display.ioc_health_suffixes.heartbeat: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: HEARTBEAT}
+  pv_directory.display.ioc_health_suffixes.uptime: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: UPTIME}
+  pv_directory.display.ioc_health_suffixes.engineer: {rendered: false, covered-by: pv_directory.display.ioc_health_suffixes, default: null}
+  pv_directory.display.engineer_property: {rendered: false, evidence: 'self\._display\.get\("engineer_property"\)', default: Engineer}
+  pv_directory.alarm_log:
+    rendered: false
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no alarm history and pv_directory_alarm_log is false; the block
+      serves `live` and `standin` only
+  pv_directory.alarm_log.type:
+    rendered: false
+    covered-by: pv_directory.alarm_log
+    default: no-fallback
+    default_note: absent, the block serves no target; the built-in type is phoebus_alarm_logger
+  pv_directory.alarm_log.settings: {rendered: false, covered-by: pv_directory.alarm_log, default: {}}
+  pv_directory.alarm_log.settings.url:
+    rendered: false
+    covered-by: pv_directory.alarm_log.settings
+    default: no-fallback
+    default_note: the build refuses a `type` without it, naming this key
+  pv_directory.alarm_log.caveats: {rendered: false, covered-by: pv_directory.alarm_log, default: []}
+  pv_directory.alarm_state:
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no alarm feed and pv_directory_alarm_state is false; `type:
+      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic
+  pv_directory.alarm_state.type:
+    rendered: false
+    covered-by: pv_directory.alarm_state
+    default: no-fallback
+    default_note: >-
+      absent, `live` and `standin` have no alarm feed; the built-in type is
+      phoebus_alarm_server, which needs the alarm-state extra
+  pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
+  pv_directory.alarm_state.settings.bootstrap_servers:
+    rendered: false
+    evidence: 'settings\.get\("bootstrap_servers"\)'
+    default: no-fallback
+    default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
+  pv_directory.alarm_state.settings.topic:
+    rendered: false
+    evidence: 'settings\.get\("topic"\)'
+    default: no-fallback
+    default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
+  pv_directory.alarm_state.replay_file:
+    evidence: 'block\.get\("replay_file"\)'
+    default: no-fallback
+    default_note: >-
+      absent, nothing is replayed; `demo:<name>` names a packaged feed, any other
+      value a project-relative .ndjson path, checked at build
+  pv_directory.alarm_state.caveats: {rendered: false, covered-by: pv_directory.alarm_state, default: []}
+  pv_directory.put_log:
+    rendered: false
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no put history and pv_directory_put_log is false; the block
+      serves `live` and `standin` only
+  pv_directory.put_log.type:
+    rendered: false
+    covered-by: pv_directory.put_log
+    default: no-fallback
+    default_note: absent, the block serves no target; the built-in type is caputlog
+  pv_directory.put_log.settings: {rendered: false, covered-by: pv_directory.put_log, default: {}}
+  pv_directory.put_log.settings.url:
+    rendered: false
+    covered-by: pv_directory.put_log.settings
+    default: no-fallback
+    default_note: the build refuses a `type` without it, naming this key
+  pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
@@ -3438,14 +3606,14 @@ keys:
       keeps the default.
     default: 268435456
   web.panels.canopy.theme_file:
-    rendered: false
     evidence: '_panel_settings\(config\)\.get\("theme_file"\)'
     note: >-
       A colour theme for the per-user CANOPY panel, passed to both of its
       processes as CANOPY_THEME_FILE. A relative path resolves against the
       project root (the directory holding the rendered build); an absolute
-      path is used as written. Unset keeps CANOPY's own theme. Commented in
-      the demo preset.
+      path is used as written. Unset keeps CANOPY's own theme. The demo
+      preset sets it to the OSPREY theme its template ships
+      (data/canopy/theme/osprey.json).
     default: null
   web.panels.system-health.hidden:
     rendered: false
@@ -3455,6 +3623,28 @@ keys:
       panel" menu and the command palette open it) but is not a sidebar member
       until someone adds it. The same per-panel key works for every panel.
     default: false
+  web.panels.system-health.label:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "label"\)'
+    note: >-
+      Renames a built-in panel for this deployment: the sidebar row, the tile,
+      the "+ Add panel" menu, the health row and the profile card all show it
+      in place of the framework's wording. The same per-panel key works for
+      every built-in panel; a panel declared here has always been named by it.
+    default: Health
+  web.panels.system-health.icon:
+    rendered: false
+    evidence: '_authored_text\(panels_config, panel_id, "icon"\)'
+    note: >-
+      The design-system icon (a name interfaces/design_system/static/js/icons.js
+      draws) of the panel's sidebar row. The same per-panel key works for every
+      panel, built-in or declared here; the build refuses a name that is not
+      drawn. An application's panel sets it as panel.icon in its app.yml.
+    default: derived
+    default_note: the panel's own glyph; a panel declared in config wears the generic one
+  web.panels.ariel.label: {rendered: false, covered-by: web.panels.system-health.label, default: LOGBOOK}
+  web.panels.canopy.label: {rendered: false, covered-by: web.panels.system-health.label, default: CANOPY}
+  web.panels.canopy.icon: {rendered: false, covered-by: web.panels.system-health.icon, default: derived, default_note: "the panel's own glyph"}
   web.panels.my-grafana.rewrite_prefixes:
     rendered: false
     evidence: 'spec\.get\("rewrite_prefixes"\)'
@@ -3724,7 +3914,7 @@ keys:
     default: false
 
   # ── Multi-user web terminals ────────────────────────────────────────
-  # The roster, its tiers and apps, and the landing page. Preset-side throughout
+  # The roster, its logins, and the landing page. Preset-side throughout
   # (only demo ships a block), and read by
   # deployment/web_terminals/ rather than by anything in a container.
   deploy: {evidence: 'as_dict\(root\.get\("deploy"\)\)', default: {}}
@@ -4095,8 +4285,8 @@ deleted:
 - control_system.write_verification.default_tolerance_percent
   # Ledger 33
 - approval.tools.channel_limits
-  # The write switch's slider decides for a governed tool, so no preset, tier
-  # or app spells a per-tool policy for one.
+  # The write switch's slider decides for a governed tool, so no preset or
+  # login spells a per-tool policy for one.
 - approval.tools.channel_write
 - approval.tools.execute
   # Ledger 7 / 9 / 10 / 11 / 15
@@ -4686,7 +4876,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 434
+  expected_union_size: 440
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

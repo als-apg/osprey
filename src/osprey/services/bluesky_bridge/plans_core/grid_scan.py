@@ -46,6 +46,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannel,
     ReadableChannels,
     resolve_column,
+    resolve_regressor_column,
 )
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.grid_scan")
@@ -123,6 +124,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # cost the operator the panel's default view, never the run.
 #
 # Channel names are resolved to data columns through `plan_fields.resolve_column`
+# (or `resolve_regressor_column` where a row is keyed on its grid position)
 # against `rows[0]` alone: every row of a window carries every column (the shared
 # row adapter's contract), so one row settles the whole window's spelling.
 
@@ -136,12 +138,12 @@ _GRID_ABS_TOL = 1e-8
 """How far a recorded axis value may sit from a grid point and still be counted
 as that point, as a fraction of the axis span and as an absolute floor.
 
-Rows carry axis *readbacks*, not the commanded setpoints: the bridge's
-``ConnectorSettable`` waits for a device to settle within its deadband (1e-9)
-and the value recorded is whatever the device then reported. Keying heatmap
-cells on those floats directly would give a 10x10 scan up to 100 distinct
-"columns" that each hold one point, so cell indices are derived from the grid
-geometry instead and the readback only has to land near its own grid point."""
+Grid keys read an axis's demand column (``<name>_setpoint``) when the run
+records one, and it is exact. A device that reports a single column -- an
+aliased connector device, a mock settable -- records only what it reported
+after settling, so cell indices are derived from the grid geometry and the
+value only has to land near its own grid point; keying on the floats directly
+would give a 10x10 scan up to 100 one-point "columns"."""
 
 
 def _numeric(value: Any) -> float | None:
@@ -171,10 +173,10 @@ def _axis_step(axis: GridAxis) -> float:
 
 
 def _grid_index(axis: GridAxis, value: float) -> int | None:
-    """Which point of *axis* the readback *value* belongs to, or ``None``.
+    """Which point of *axis* the recorded *value* belongs to, or ``None``.
 
     Nearest grid point by ``round((value - start) / step)``, clamped into range
-    so a readback that overshot the last point still lands on it, then accepted
+    so a value that overshot the last point still lands on it, then accepted
     only if it really is within `_GRID_REL_TOL` / `_GRID_ABS_TOL` of that
     point's commanded position. A value between two grid points -- a device
     caught mid-move, a scan whose axis was disturbed -- is ``None``: better a
@@ -284,18 +286,20 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
 
     The inner (fast) axis runs along x and the outer (slow) axis along y, the
     orientation bluesky's own ``LiveGrid`` uses, so a snaked scan fills the
-    image row by row. Cells are keyed by grid *index* (see `_grid_index`), which
-    is what makes a snaked run and a monodirectional one produce the same
-    image: traversal order never reaches the cell key. A cell measured twice
-    keeps the later row, and a cell never measured stays ``None`` -- drawn
-    empty, not as a zero the run never read.
+    image row by row. Both axes are read from their demand column when the
+    run records one (a readback settles only to its deadband), and cells are
+    keyed by grid *index* (see `_grid_index`), which is what makes a snaked run
+    and a monodirectional one produce the same image: traversal order never
+    reaches the cell key. A cell measured twice keeps the later row, and a
+    cell never measured stays ``None`` -- drawn empty, not as a zero the run
+    never read.
     """
     if not rows:
         return []
 
     outer, inner = params.axes[0], params.axes[1]
-    outer_column = resolve_column(outer.setpoint, rows[0])
-    inner_column = resolve_column(inner.setpoint, rows[0])
+    outer_column = resolve_regressor_column(outer.setpoint, rows[0], "setpoint")
+    inner_column = resolve_regressor_column(inner.setpoint, rows[0], "setpoint")
     if outer_column is None or inner_column is None:
         return []
 
@@ -367,7 +371,9 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
     where the outer axes were parked for it. Lines are ordered by outer grid
     index (never by arrival), so the legend reads the same for a partial run as
     for the finished one, and capped at `_MAX_SERIES` with the excess counted
-    in an annotation rather than quietly missing.
+    in an annotation rather than quietly missing. Outer combinations are keyed
+    on each axis's demand column when the run records one; the fast axis's x
+    is the value the device reported, as on a 1-D sweep.
     """
     if not rows:
         return []
@@ -375,7 +381,7 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
     inner = params.axes[-1]
     outer_axes = params.axes[:-1]
     inner_column = resolve_column(inner.setpoint, rows[0])
-    resolved = [resolve_column(axis.setpoint, rows[0]) for axis in outer_axes]
+    resolved = [resolve_regressor_column(axis.setpoint, rows[0], "setpoint") for axis in outer_axes]
     if inner_column is None or any(column is None for column in resolved):
         return []
     outer_columns = [column for column in resolved if column is not None]

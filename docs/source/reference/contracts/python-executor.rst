@@ -102,16 +102,17 @@ is refused without asking.
      - Description
    * - ``kind``
      - *(required)*
-     - ``orm``, ``dispersion``, ``trm``, ``crm`` or ``chromaticity_monitor``.
-       A kind the model's measurement file does not list is refused, naming
-       the group or instrument the model lacks, or the kinds the file lists.
+     - A kind the model's rendered measurement block lists
+       (:doc:`facility-kinds`). Any other kind is refused, naming the group or
+       instrument the model lacks, or the kinds the file lists.
    * - ``model``
      - the one model
      - The model measured; may be omitted only when exactly one model has a
        pyAML view.
    * - ``correctors``
      - every corrector
-     - Corrector setpoint addresses, for ``orm`` only.
+     - Corrector setpoint addresses, for a kind that takes them; of the
+       shipped ones, ``orm`` alone.
    * - ``modulation``
      - ``"bipolar"``; ``"unipolar"`` with ``by`` ``"group"``
      - ``"bipolar"`` steps each setting to both sides of its present value,
@@ -169,7 +170,7 @@ answers ``execution_error`` with the saved measurement named in
 ``model_response_matrix``
 -------------------------
 
-Solves a served model's orbit response on the model's own deck, in a sandbox
+Solves a served model's response on the model's own deck, in a sandbox
 child stopped at the executor's timeout. It writes nothing and asks for no
 approval.
 
@@ -187,13 +188,33 @@ approval.
      - every corrector
      - Corrector setpoint addresses the model wires; omitted, every one,
        horizontal then vertical.
+   * - ``kind``
+     - ``"orbit"``
+     - ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``, the
+       first-turn response of the monitors' turn-buffer records. Any other
+       value is refused, naming the two; an engine that answers only the
+       orbit response refuses ``"trajectory"`` with its text.
 
 Each corrector steps by the measurement file's ``corrector_delta`` (radians),
 converted to the corrector's hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
-``rows`` and ``columns``, each named by address and device id, each column's
-``step``, the ``matrix`` and ``missing``. A corrector whose step has no solve
+``rows`` and ``columns``, each named by address and device id and placed by
+``position``, each column's ``step``, the ``matrix`` and ``missing``.
+
+``position`` is the lattice element index, a whole number. For ``"orbit"`` it
+counts from the deck's first element. For ``"trajectory"`` it counts from the
+injection element, in the order the bunch meets the elements on its first
+turn, so of two positions the lower is upstream. It is ``null`` when the
+model's engine states no positions. Rows are ordered by position, ``x`` before
+``y``; columns are in the order asked.
+
+For ``"orbit"`` the rows are the monitor readbacks. For ``"trajectory"`` they
+are the monitors' ``turn_x`` and ``turn_y`` records, the arrays a shot is read
+from, in metres; a monitor wiring neither has no row, and a ring wiring none
+is refused.
+
+A corrector whose step has no solve
 has no column; ``missing`` maps it to the engine's text. When no corrector
 solves, the call is refused as ``nothing_answered`` with ``details.missing``
 holding the same map (see :doc:`partial-answers`). When the engine refuses the

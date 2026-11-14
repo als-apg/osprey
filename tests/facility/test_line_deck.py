@@ -12,10 +12,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import at
 import numpy as np
 import pytest
-
-at = pytest.importorskip("at")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = REPO_ROOT / "scripts/facility_demo/generate.py"

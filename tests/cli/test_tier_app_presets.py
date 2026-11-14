@@ -308,9 +308,9 @@ _APP_FORBIDDEN_KEYS = frozenset(
     {"extends", "exclude", "services", "deployed_services", "provider", "data", "deploy_services"}
 )
 
-# The tool servers the flagship host runs. An app's render starts from the
-# registry defaults, not from the host's switches, so each app names every one
-# of these it does without.
+# The tool servers the flagship host runs. A shared login's render starts from
+# the registry defaults, not from the host's switches, so each login names every
+# one of these it does without.
 HOST_SERVERS = (
     "controls",
     "python",
@@ -321,12 +321,13 @@ HOST_SERVERS = (
     "graph",
     "bluesky",
     "health",
+    "pv-directory",
 )
-# Which host servers each app keeps; every other host server is switched off.
+# Which host servers each shared login keeps; every other host server is switched off.
 APP_SERVERS_ON = {
     "logbook": {"osprey_workspace", "ariel", "graph"},
     "knowledge": {"osprey_workspace", "osprey_facility_knowledge", "channel-finder", "graph"},
-    "channel-finder": {"osprey_workspace", "channel-finder"},
+    "channel-finder": {"osprey_workspace", "channel-finder", "pv-directory"},
 }
 
 
@@ -1550,7 +1551,7 @@ class TestDemoTiersAndApps:
         assert resolved.base_url == f"http://127.0.0.1:{QMD_DEFAULT_PORT}"
 
     def test_logbook_app_renders_the_graph_surface(self, built_layered_stack: Path) -> None:
-        """The logbook app answers from the logbook AND the facility knowledge
+        """The logbook login answers from the logbook AND the facility knowledge
         graph: it dials the host's store and keeps the graph server on.
 
         Asserted on the real render, because "on" is a pipeline claim: the
@@ -1564,7 +1565,7 @@ class TestDemoTiersAndApps:
         control-target picker, and every write switch off.
         """
         project = _render_dir(built_layered_stack, "logbook")
-        assert project.is_dir(), "the logbook app was never rendered"
+        assert project.is_dir(), "the logbook login was never rendered"
         assert "claude_code.servers.graph.enabled" not in _own_config("tiers", "logbook")
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
@@ -1591,7 +1592,7 @@ class TestDemoTiersAndApps:
     def test_knowledge_app_renders_the_knowledge_surface_and_nothing_else(
         self, built_layered_stack: Path
     ) -> None:
-        """The knowledge app is the graph, the graph channel finder and the
+        """The knowledge login is the graph, the graph channel finder and the
         knowledge bundle — and no control system, sandbox or logbook.
 
         Asserted on the real render: the servers in ``.mcp.json`` are the
@@ -1600,7 +1601,7 @@ class TestDemoTiersAndApps:
         panel is the default, and the one bundle-writing tool is denied.
         """
         project = _render_dir(built_layered_stack, "knowledge")
-        assert project.is_dir(), "the knowledge app was never rendered"
+        assert project.is_dir(), "the knowledge login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
         assert set(servers) == {
@@ -1654,15 +1655,15 @@ class TestDemoTiersAndApps:
     def test_channel_finder_app_renders_the_file_based_finder_and_no_graph(
         self, built_layered_stack: Path
     ) -> None:
-        """The channel-finder app is the hierarchical, file-based channel
-        finder and nothing else: no graph — the store is not dialled and the
-        server is not rendered — no logbook, no control system.
+        """The channel-finder login is the hierarchical, file-based channel
+        finder plus the PV directory it keeps: no graph — the store is not
+        dialled and the server is not rendered — no logbook, no control system.
         """
         project = _render_dir(built_layered_stack, "channel-finder")
-        assert project.is_dir(), "the channel-finder app was never rendered"
+        assert project.is_dir(), "the channel-finder login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
-        assert set(servers) == {"channel-finder", "osprey_workspace"}
+        assert set(servers) == {"channel-finder", "osprey_workspace", "pv-directory"}
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert config["channel_finder"]["pipeline_mode"] == "hierarchical"
         assert config["web"]["default_panel"] == "channel-finder"
@@ -1679,7 +1680,7 @@ class TestDemoTiersAndApps:
             if path.is_file()
             and "mcp__graph__" in path.read_text(encoding="utf-8", errors="ignore")
         )
-        assert hits == [], f"the channel-finder app dials no graph store but rendered {hits}"
+        assert hits == [], f"the channel-finder login dials no graph store but rendered {hits}"
 
 
 def _shipped_profile(key: str, layers: dict[str, BuildProfile]) -> BuildProfile:

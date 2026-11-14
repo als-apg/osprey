@@ -1,106 +1,106 @@
 {
   "videos": {
     "code-review": {
-      "release": "docs-media-v2026.9.0b4",
+      "release": "docs-media-v2026.11.0",
       "themes": {
         "dark": {
           "duration_s": 57.52,
           "mp4": {
             "name": "code-review-dark.mp4",
-            "sha256": "65271ccfbfa0e581702912fb20d89ad73713c69065bc8a09a724469be8189dc3"
+            "sha256": "014767f7f4aedd56ddc1772ffbeeef2acf3b3f81a0a8473df2c404495ea1e875"
           },
-          "osprey_version": "2026.9.0b3.post4887+g512ef509b.d20261102",
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
           "poster": {
             "name": "code-review-dark-poster.jpg",
-            "sha256": "7bf8436ef25962ac123529a8c941f553e097f76564517aaac8ef3509979d192e"
+            "sha256": "bf4abcbffa57d6dc81e1adec8a34c1034a492a88583898a6da8b9a712cd41f11"
           },
-          "real_session_s": 110.6,
-          "recorded_at": "2026-11-02T01:16:30.198174+00:00",
-          "speed": 2.83
+          "real_session_s": 129.1,
+          "recorded_at": "2026-11-11T16:14:51.732086+00:00",
+          "speed": 3.9
         },
         "light": {
           "duration_s": 57.52,
           "mp4": {
             "name": "code-review-light.mp4",
-            "sha256": "94f4afce5e5c8b35d17caa764aa799eb8632e9b2eef35c087bb3fb05fd5b4e80"
+            "sha256": "5704310323e8205a457216cd0b9e1d56588d74bc7e9076de91d788c602b710c3"
           },
-          "osprey_version": "2026.9.0b3.post4887+g512ef509b.d20261102",
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
           "poster": {
             "name": "code-review-light-poster.jpg",
-            "sha256": "76668f4aba9ed2771145ad7cbafbfe3625cab2d14bad8feb9985d41933818411"
+            "sha256": "871a50688e8967159225ef540161f85c8a758e863a7da0a06585b5a5d9bef8b3"
           },
-          "real_session_s": 136.0,
-          "recorded_at": "2026-11-02T01:42:35.948375+00:00",
-          "speed": 3.8
+          "real_session_s": 150.4,
+          "recorded_at": "2026-11-11T16:22:49.635832+00:00",
+          "speed": 4.54
         }
       }
     },
     "landing": {
-      "release": "docs-media-v2026.9.0b4",
+      "release": "docs-media-v2026.11.0",
       "themes": {
         "dark": {
-          "duration_s": 58.24,
+          "duration_s": 61.48,
           "mp4": {
             "name": "osprey-demo-dark.mp4",
-            "sha256": "5d1063c2d03bc3dbeda01f08b10697becf33c2ac926bd5953776715a676b53ec"
+            "sha256": "37e8503d5472314f70cfc0a418d0c27e2a2ce7903d51bdf0439910ec38d04e8e"
           },
-          "osprey_version": "2026.9.0b3.post514+gad84b9d40.d20260927",
+          "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111",
           "poster": {
             "name": "osprey-demo-dark-poster.jpg",
-            "sha256": "85b2c9c6210c788f64284e58408e9a409d30c5a887ff6ab4404c88e5faf7d033"
+            "sha256": "5929d332271334c504eebae458fc0121bc65b051dcf2e58ed14fc3289695226c"
           },
-          "real_session_s": 307.0,
-          "recorded_at": "2026-09-27T15:50:26.296136+00:00",
+          "real_session_s": 250.0,
+          "recorded_at": "2026-11-11T17:55:04.344361+00:00",
           "speed": 16.0
         },
         "light": {
-          "duration_s": 70.92,
+          "duration_s": 58.12,
           "mp4": {
             "name": "osprey-demo-light.mp4",
-            "sha256": "f47bd6581915b103daa61111a07dc19b5372535697d5cefbb45d7b5aabd1675d"
+            "sha256": "60a0fce83feeac9cee6ab7b2746a9767809ad85772b99785bef3534b2fe19f6e"
           },
-          "osprey_version": "2026.9.0b3.post514+gad84b9d40.d20260927",
+          "osprey_version": "2026.9.0b3.post6984+ge42fbe736.d20261111",
           "poster": {
             "name": "osprey-demo-light-poster.jpg",
-            "sha256": "a2620736304dfd9698dab229606868c3dfd7aa8d8ce59dc8dd8fef388ea926f0"
+            "sha256": "542172693bd5325af2c810efd4163b049a6067190037343588ec89af4e341bab"
           },
-          "real_session_s": 396.8,
-          "recorded_at": "2026-09-27T16:51:09.390259+00:00",
+          "real_session_s": 317.3,
+          "recorded_at": "2026-11-11T18:03:47.792433+00:00",
           "speed": 16.0
         }
       }
     },
     "watchdog": {
-      "release": "docs-media-v2026.9.0b4",
+      "release": "docs-media-v2026.11.0",
       "themes": {
         "dark": {
           "duration_s": 15.8,
           "mp4": {
             "name": "osprey-watchdog-dark.mp4",
-            "sha256": "c970275d4029ac0cbac60d5d9378b402cd0b9d0ed298e604780d5ef8ba32ebd6"
+            "sha256": "b7c260b420a99020b2becbebd93704ad879faec817e56b5ba7bb5b81c696f67d"
           },
-          "osprey_version": "2026.9.0b3.post4878+ge003f5ace",
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5",
           "poster": {
             "name": "osprey-watchdog-dark-poster.jpg",
-            "sha256": "c47909e7674e7085709db6f920b8c755f93826a90d029e8f16e2ce6b449f8f4a"
+            "sha256": "f649dfd3430abffa55b7653e5eefbd55055acc9d315bf89ba04249bcdc7c094e"
           },
           "real_session_s": 15.8,
-          "recorded_at": "2026-11-01T23:35:35.211070+00:00",
+          "recorded_at": "2026-11-11T16:04:21.421223+00:00",
           "speed": 1.0
         },
         "light": {
-          "duration_s": 19.76,
+          "duration_s": 15.84,
           "mp4": {
             "name": "osprey-watchdog-light.mp4",
-            "sha256": "2131107d799c39956fe8a797501f096f1d2009e47b72d352e48db5ffa4b91763"
+            "sha256": "6c34fde443dbcb5bae63145ae77a77e1c8e24e4257e71fe13660c8fd09b2d296"
           },
-          "osprey_version": "2026.9.0b3.post4878+ge003f5ace",
+          "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111",
           "poster": {
             "name": "osprey-watchdog-light-poster.jpg",
-            "sha256": "573db5bcd5304850c7d8b34e17ebb2705dd9c30e4d7f134ed641caa69b208516"
+            "sha256": "d23e814318f722f6e56506d5e47c8cae0aac78e43e3db69a33c8df801fe41513"
           },
-          "real_session_s": 19.7,
-          "recorded_at": "2026-11-01T23:42:53.609848+00:00",
+          "real_session_s": 15.8,
+          "recorded_at": "2026-11-11T16:09:58.605598+00:00",
           "speed": 1.0
         }
       }

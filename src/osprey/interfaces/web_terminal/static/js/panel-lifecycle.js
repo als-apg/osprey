@@ -27,6 +27,7 @@ import {
   PANELS,
   TERMINAL_RAIL_ID,
   TERMINAL_RAIL_LABEL,
+  customPanelEntry,
   panelIconName,
   titleCase,
 } from './panel-catalog.js';
@@ -286,13 +287,7 @@ export function addPanel(spec) {
     return;
   }
 
-  const normalized = {
-    id: spec.id,
-    label: titleCase(spec.label || spec.id.toUpperCase()),
-    configEndpoint: null,
-    healthEndpoint: spec.healthEndpoint || null,
-    path: spec.path || '/',
-  };
+  const normalized = customPanelEntry({ ...spec, healthEndpoint: spec.healthEndpoint || null });
   PANELS.push(normalized);
   // Keep the adapter's known-service set current (never orphan a runtime panel).
   setKnownServicePanels(PANELS.map((p) => p.id));

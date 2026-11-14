@@ -76,7 +76,7 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
     assert len(outputs) == len(_render_roots(built_demo.repo))
     # The Bluesky view rides only on a render that runs a Bluesky lane, and the
     # hierarchical channel index only on the one render that selects the
-    # hierarchical pipeline: the channel-finder app's.
+    # hierarchical pipeline: the channel-finder login's.
     hierarchical = [render.render_dir.name for render in outputs if CHANNEL_INDEX in render.files]
     assert hierarchical == [f"{REPO}-{CHANNEL_FINDER_APP}"] * 2
     for render in outputs:

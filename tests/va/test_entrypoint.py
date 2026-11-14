@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from osprey.services.virtual_accelerator import entrypoint
-from osprey_connectors.simulation import DEFAULT_TICK_S
+from osprey_connectors.simulation import DEFAULT_FAST_TICK_S, DEFAULT_TICK_S
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     SCHEMAS,
@@ -109,7 +109,12 @@ def served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _write_view(tmp_path)
     monkeypatch.setenv("VA_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("VA_INSTANCE", "virtual_accelerator")
-    for name in ("VA_STATE_DIR", "VA_POLL_INTERVAL_S", "VA_MODEL_WRITE_TOKEN"):
+    for name in (
+        "VA_STATE_DIR",
+        "VA_POLL_INTERVAL_S",
+        "VA_FAST_INTERVAL_S",
+        "VA_MODEL_WRITE_TOKEN",
+    ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
 
@@ -286,6 +291,46 @@ class TestTheTick:
 
         with pytest.raises(SystemExit, match="VA_POLL_INTERVAL_S"):
             entrypoint.main()
+
+
+class TestTheFastPeriod:
+    @pytest.mark.usefixtures("served")
+    def test_a_stated_fast_interval_is_the_runners_fast_period(
+        self, recorded: _Recorded, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("VA_FAST_INTERVAL_S", "0.05")
+
+        entrypoint.main()
+
+        assert recorded.runner["fast_interval_s"] == 0.05
+
+    @pytest.mark.parametrize("value", [None, ""])
+    @pytest.mark.usefixtures("served")
+    def test_an_unset_fast_interval_runs_at_the_default(
+        self, recorded: _Recorded, monkeypatch: pytest.MonkeyPatch, value: str | None
+    ) -> None:
+        if value is not None:
+            monkeypatch.setenv("VA_FAST_INTERVAL_S", value)
+
+        entrypoint.main()
+
+        assert recorded.runner["fast_interval_s"] == DEFAULT_FAST_TICK_S == 0.1
+
+    @pytest.mark.parametrize("value", ["0", "-1", "soon"])
+    @pytest.mark.usefixtures("served", "recorded")
+    def test_a_fast_interval_that_is_not_a_positive_number_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("VA_FAST_INTERVAL_S", value)
+
+        with pytest.raises(SystemExit, match="VA_FAST_INTERVAL_S"):
+            entrypoint.main()
+
+    @pytest.mark.usefixtures("served")
+    def test_the_served_composite_evolves(self, recorded: _Recorded) -> None:
+        entrypoint.main()
+
+        assert recorded.composite["evolve"] is True
 
 
 class TestTheStateAndTheToken:

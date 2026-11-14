@@ -102,7 +102,7 @@ async def ariel_app(
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.dump({"ariel": ARIEL_SECTION if section is None else section}))
 
-    async def create_service(config: Any) -> ARIELSearchService:
+    async def create_service(config: Any, *, store_deadline_s=None) -> ARIELSearchService:  # noqa: ARG001 - the signature it stands in for
         if store is None:
             raise RuntimeError(f'connection to server at "{STORE_HOST}" refused')
         return ARIELSearchService(config=config, pool=_PoolDouble(), repository=store)

@@ -1,0 +1,1 @@
+The shipped `panel` skill links all three design-system sheets (`tokens.css`, `base.css`, `primitives.css`), uses the shared `osprey-*` components, and names `osprey app check` as the judge of an application panel's styling; the `setup` skill's import step says that measurement kinds come from a registry a deployment can add to.

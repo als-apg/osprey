@@ -1,0 +1,28 @@
+# Its own lists, shared, read-only: the one login that runs the hand tool
+# server, with the skill that goes with it and the application's panel.
+name: Controls
+lists: own
+claude_md_template: CLAUDE.md.j2
+default_panel: system-health
+channel_finder_mode: in_context
+hooks:
+  - approval
+  - error-guidance
+rules:
+  - safety
+  - facility
+skills:
+  - skills/controls-diag
+agents:
+  - channel-finder
+output_styles:
+  - control-operator
+web_panels:
+  - system-health
+mcp_servers: {}
+apps:
+  controls-admin-like:
+    shown: true
+config:
+  control_system.writes: never
+  claude_code.servers.ariel.enabled: false

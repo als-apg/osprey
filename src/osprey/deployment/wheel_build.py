@@ -28,11 +28,11 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
@@ -46,6 +46,9 @@ from osprey.deployment.lock_constraints import (
 )
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey_connectors.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.apps.origin import AppOrigin
 
 logger = get_logger("deployment.compose")
 
@@ -283,6 +286,36 @@ def _describe_glob(member_root: Path) -> str | None:
         return None
 
 
+def _tag_fetch_hint(member_root: Path, glob: str | None) -> str:
+    """The command that fetches what *member_root*'s version needs, as one line, or ``""``.
+
+    A shallow clone (``git clone --depth 1``) reaches no tag even after
+    ``git fetch --tags``, so it is named apart from a full clone that only
+    lacks tags. Asked only on the refusal path; a git that cannot answer adds
+    nothing.
+    """
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(member_root), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    try:
+        shallow = git("rev-parse", "--is-shallow-repository")
+        if shallow.returncode != 0:
+            return ""
+        if shallow.stdout.strip() == "true":
+            return f"This checkout is shallow:  git -C {member_root} fetch --unshallow --tags\n"
+        if git("describe", "--tags", *(["--match", glob] if glob else [])).returncode != 0:
+            return f"This checkout reaches no tag:  git -C {member_root} fetch --tags\n"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
 def _require_members_satisfy_framework(
     framework_wheel: Path, member_wheels: dict[str, tuple[Path, Path]]
 ) -> None:
@@ -325,6 +358,7 @@ def _require_members_satisfy_framework(
             f"{requirement.name} takes its version from {source} reachable from "
             "the checkout; with none it builds as 0.0.postN.\n"
             "Fetch the tags:  git fetch --tags\n"
+            f"{_tag_fetch_hint(member_root, glob)}"
             "A fork or mirror must sync the osprey-connectors-v* tags as well as "
             "the framework's v* tags.",
         )
@@ -1116,36 +1150,88 @@ def refuse_named_twice(packages: Sequence[DeploymentPackage], requirements: Iter
         )
 
 
-def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
-    """Refuse a registered measurement kind the project image would not install.
+def refuse_unshipped_apps(
+    requirements: Iterable[str], installed: "Mapping[str, AppOrigin]"
+) -> None:
+    """Refuse a listed installed application the project image would not install.
 
-    Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
-    declaring it. That distribution has to be one the image installs: the
-    framework itself, or a distribution *requirements* names (an index
-    requirement, or a built deployment package by its name).
+    The application's code reaches the image only with its distribution: the
+    framework itself, or a distribution *requirements* names.
 
     Args:
         requirements: The dependency list the image installs, beside the framework.
+        installed: The installed applications the profile's ``apps:`` block lists,
+            by name (:func:`~osprey.apps.origin.listed_installed`).
 
     Raises:
-        BuildProfileError: Naming each kind whose package is not installed.
+        BuildProfileError: Naming each application and its distribution.
     """
-    from packaging.requirements import InvalidRequirement, Requirement
     from packaging.utils import canonicalize_name
 
     from osprey_connectors.errors import BuildProfileError
 
-    shipped = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
+    shipped = _shipped_distributions(requirements)
+    refused = [
+        f"{name!r} (package {origin.distribution})"
+        for name, origin in sorted(installed.items())
+        if canonicalize_name(origin.distribution or "") not in shipped
+    ]
+    if refused:
+        raise BuildProfileError(
+            f"application {', '.join(refused)}: the application's package is not among the "
+            "packages the project image installs.\n"
+            "        Add the package to the profile's dependencies, as an index requirement "
+            "or a local path."
+        )
+
+
+def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
+    """The canonical names of the distributions the project image installs."""
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
+
+    shipped: set[str] = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
     for raw in requirements:
         try:
             shipped.add(canonicalize_name(Requirement(raw).name))
         except InvalidRequirement:
             continue
+    return shipped
+
+
+def refuse_unshipped_kinds(
+    requirements: Iterable[str], *, listed: Mapping[str, str] | None = None
+) -> None:
+    """Refuse a registered measurement kind the project image would not install.
+
+    Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
+    declaring it. That distribution has to be one the image installs: the
+    framework itself, a distribution *requirements* names (an index
+    requirement, or a built deployment package by its name), or a listed
+    package whose project file declares that kind (*listed*), which stands for
+    the wheel a caller that builds nothing does not have.
+
+    Args:
+        requirements: The dependency list the image installs, beside the framework.
+        listed: ``{kind: distribution}`` as
+            :func:`osprey.facility.kinds.listed_kinds` reads it.
+
+    Raises:
+        BuildProfileError: Naming each kind whose package is not installed.
+    """
+    from packaging.utils import canonicalize_name
+
+    from osprey_connectors.errors import BuildProfileError
+
+    shipped = _shipped_distributions(requirements)
     refused = []
     for kind in entry_points(group=FACILITY_KINDS_GROUP):
         dist = getattr(kind, "dist", None)
         dist_name = getattr(dist, "name", None)
-        if dist_name is None or canonicalize_name(dist_name) not in shipped:
+        canonical = None if dist_name is None else canonicalize_name(dist_name)
+        if canonical is None or (
+            canonical not in shipped and (listed or {}).get(kind.name) != canonical
+        ):
             refused.append(f"{kind.name!r} (package {dist_name or 'unknown'})")
     if refused:
         raise BuildProfileError(

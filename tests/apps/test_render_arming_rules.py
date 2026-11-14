@@ -111,6 +111,32 @@ def test_a_hidden_application_is_not_armed() -> None:
     validate([_app()], logins={"operator": _login("allowed", shown=False)}, reserved=EMPTY)
 
 
+# --- no container --------------------------------------------------------------------------
+
+
+def _containerless(*, approval: bool = True) -> AppManifest:
+    raw = copy.deepcopy(DIAL)
+    del raw["containers"]
+    if not approval:
+        raw["tools"]["approval"] = []
+    return parse_manifest(raw, app="dial")
+
+
+def test_an_armed_application_with_write_tools_and_no_container_is_refused() -> None:
+    err = _refused([_containerless()], {"operator": _login("allowed")})
+    assert [v.rule for v in err.violations] == ["armed_drives_target"]
+
+
+def test_an_application_with_write_tools_and_no_container_passes_under_never() -> None:
+    validate([_containerless()], logins={"readonly": _login("never")}, reserved=EMPTY)
+
+
+def test_an_armed_read_only_application_with_no_container_passes() -> None:
+    validate(
+        [_containerless(approval=False)], logins={"operator": _login("allowed")}, reserved=EMPTY
+    )
+
+
 # --- shared audience --------------------------------------------------------------------------
 
 

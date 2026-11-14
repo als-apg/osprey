@@ -29,6 +29,7 @@ from osprey.agent_runner import (
 from osprey.agent_runner import launcher as agent_launcher
 from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.agent_runner.tool_policy import PermissionResultAllow, PermissionResultDeny
+from osprey.apps.projection import APP_NAME_ENV
 from osprey.services.watchdog.config import DEFAULT_MAX_COST_USD, WatchdogDefinition
 from osprey.services.watchdog.engines import agent as agent_module
 from osprey.services.watchdog.engines.agent import AgentEngine, _parse_answer
@@ -703,3 +704,206 @@ class TestReadonlyServerRefusal:
         assert refusal_text("readonly_run").split(";")[0] in str(refused.value)
         connector.write_channel.assert_not_called()
         connector.write_multiple_channels.assert_not_called()
+
+
+class _FakeGrants:
+    """A terminal's judge grants: which panel each application serves, and the tokens out."""
+
+    def __init__(self, panels_by_app: dict[str, str]) -> None:
+        self.panels_by_app = panels_by_app
+        self.minted: list[tuple[str, frozenset[str]]] = []
+        self.revoked: list[str] = []
+
+    def panels_serving(self, apps):
+        return frozenset(self.panels_by_app[app] for app in apps if app in self.panels_by_app)
+
+    def mint(self, panel_ids):
+        token = f"judge-token-{len(self.minted)}"
+        self.minted.append((token, frozenset(panel_ids)))
+        return token
+
+    def revoke(self, token):
+        self.revoked.append(token)
+
+    @property
+    def live(self) -> set[str]:
+        return {token for token, _ in self.minted} - set(self.revoked)
+
+
+@pytest.fixture
+def app_build(build_dir: Path) -> Path:
+    """The build with two applications' tool servers beside the rest, one named ``knowledge``."""
+    document = json.loads((build_dir / ".mcp.json").read_text())
+    document["mcpServers"]["knowledge"] = {
+        "command": "knowledge-app-mcp",
+        "env": {APP_NAME_ENV: "knowledge"},
+    }
+    document["mcpServers"]["orbit-bump"] = {
+        "command": "orbit-mcp",
+        "env": {APP_NAME_ENV: "orbit-bump"},
+    }
+    (build_dir / ".mcp.json").write_text(json.dumps(document))
+    return build_dir
+
+
+def _judge_with(grants, build, defn, stream, monkeypatch, **kw):
+    monkeypatch.setattr(agent_module, "stream_query", stream)
+    return asyncio.run(
+        AgentEngine(build, judge_grants=grants).judge(
+            defn,
+            SessionNodes(),
+            "p",
+            deadline=kw.pop("deadline", time.monotonic() + 3600),
+            record_session_id="rec",
+            submission_id="sub",
+        )
+    )
+
+
+_PANELS = {"knowledge": "knowledge-panel", "orbit-bump": "orbit"}
+
+
+def _app_definition(tmp_path: Path, **overrides) -> WatchdogDefinition:
+    """A judge whose ``tools`` name the orbit-bump application's tool server."""
+    return _definition(tmp_path, tools=(READ_TOOL, "mcp__orbit-bump__state"), **overrides)
+
+
+class TestJudgeReadCredential:
+    def test_the_base_servers_are_the_two_framework_ones(self, app_build, tmp_path, monkeypatch):
+        stream = _Scripted(_result())
+        _judge_with(_FakeGrants(_PANELS), app_build, _definition(tmp_path), stream, monkeypatch)
+        assert set(stream.kwargs["mcp_servers"]) == {"controls", "osprey_facility_knowledge"}
+
+    def test_a_declared_server_called_knowledge_joins_only_when_named(
+        self, app_build, tmp_path, monkeypatch
+    ):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(_result())
+        defn = _definition(tmp_path, tools=(READ_TOOL, "mcp__knowledge__search"))
+        _judge_with(grants, app_build, defn, stream, monkeypatch)
+        assert "knowledge" in stream.kwargs["mcp_servers"]
+        ((_token, panels),) = grants.minted
+        assert panels == frozenset({"knowledge-panel"})
+
+    def test_an_app_server_named_by_tools_gets_a_token_for_its_panel_only(
+        self, app_build, tmp_path, monkeypatch
+    ):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(_result())
+        _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
+        ((token, panels),) = grants.minted
+        assert panels == frozenset({"orbit"})
+        servers = stream.kwargs["mcp_servers"]
+        assert "knowledge" not in servers
+        assert servers["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == token
+        for name in ("controls", "osprey_facility_knowledge"):
+            assert servers[name]["env"]["OSPREY_PANEL_TOKEN"] == ""
+        assert stream.kwargs["env"]["OSPREY_PANEL_TOKEN"] == ""
+        assert grants.live == set()
+
+    def test_no_app_server_mints_nothing(self, build_dir, tmp_path, monkeypatch):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(_result())
+        _judge_with(grants, build_dir, _definition(tmp_path), stream, monkeypatch)
+        assert grants.minted == []
+        for config in stream.kwargs["mcp_servers"].values():
+            assert config["env"]["OSPREY_PANEL_TOKEN"] == ""
+
+    def test_an_app_with_no_panel_mints_nothing(self, app_build, tmp_path, monkeypatch):
+        grants = _FakeGrants({})
+        stream = _Scripted(_result())
+        _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
+        assert grants.minted == []
+        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+
+    def test_without_grants_an_app_server_stays_blank(self, app_build, tmp_path, monkeypatch):
+        stream = _Scripted(_result())
+        _judge(app_build, _app_definition(tmp_path), stream, monkeypatch)
+        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+
+    @pytest.mark.parametrize(
+        ("stream_args", "error"),
+        [
+            ({"events": (_result(),)}, None),
+            (
+                {"events": (_result(subtype="error_max_budget_usd", is_error=True),)},
+                "budget",
+            ),
+            ({"raises": AgentRunError("boom", error_type="unknown")}, "run_error"),
+        ],
+    )
+    def test_the_token_is_revoked_when_the_run_ends(
+        self, app_build, tmp_path, monkeypatch, stream_args, error
+    ):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(*stream_args.get("events", ()), raises=stream_args.get("raises"))
+        verdict = _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
+        assert verdict.error_type == error
+        assert len(grants.minted) == 1
+        assert grants.live == set()
+
+    def test_the_token_is_revoked_on_timeout(self, app_build, tmp_path, monkeypatch):
+        grants = _FakeGrants(_PANELS)
+        stream = _Scripted(hang=True)
+        defn = _app_definition(tmp_path, timeout_s=0.2)
+        verdict = _judge_with(grants, app_build, defn, stream, monkeypatch)
+        assert verdict.error_type == "timeout"
+        assert len(grants.minted) == 1
+        assert grants.live == set()
+
+    def test_the_token_is_revoked_when_a_run_will_not_unwind(
+        self, app_build, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(agent_module, "_TEARDOWN_GRACE_S", 0.1)
+        grants = _FakeGrants(_PANELS)
+
+        class Stubborn:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                while True:
+                    try:
+                        await asyncio.sleep(0.5)
+                        raise StopAsyncIteration
+                    except asyncio.CancelledError:
+                        continue
+
+            async def aclose(self):
+                return None
+
+        verdict = _judge_with(
+            grants,
+            app_build,
+            _app_definition(tmp_path, timeout_s=0.1),
+            lambda *a, **k: Stubborn(),
+            monkeypatch,
+        )
+        assert verdict.error_type == "timeout"
+        assert len(grants.minted) == 1
+        assert grants.live == set()
+
+    def test_the_token_is_revoked_on_cancellation(self, app_build, tmp_path, monkeypatch):
+        grants = _FakeGrants(_PANELS)
+        monkeypatch.setattr(agent_module, "stream_query", _Scripted(hang=True))
+
+        async def scenario():
+            task = asyncio.create_task(
+                AgentEngine(app_build, judge_grants=grants).judge(
+                    _app_definition(tmp_path),
+                    SessionNodes(),
+                    "p",
+                    deadline=time.monotonic() + 60,
+                    record_session_id="r",
+                    submission_id="s",
+                )
+            )
+            await asyncio.sleep(0.2)
+            assert grants.live
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(scenario())
+        assert len(grants.minted) == 1
+        assert grants.live == set()

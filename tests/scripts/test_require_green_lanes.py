@@ -23,7 +23,7 @@ TAG = "osprey-connectors-v2026.10.0"
 TAG_SHA = "a" * 40
 MERGE_SHA = "b" * 40
 OTHER_SHA = "c" * 40
-LANES = "test=Test Python\nconnectors-standalone=Connectors suite without the framework\n"
+LANES = "test=Test Python\nconnectors-standalone=Connectors Standalone Tests\n"
 
 
 class FakeGit:
@@ -53,9 +53,9 @@ def job(name: str, conclusion: str = "success") -> dict:
 
 
 GREEN_JOBS = [
-    job("Test Python 3.11 on ubuntu-latest (rest-a)"),
-    job("Test Python 3.11 on macos-latest (rest-a)"),
-    job("Connectors suite without the framework"),
+    job("Test Python — 3.11 on ubuntu-latest, rest-a"),
+    job("Test Python — 3.11 on macos-latest, rest-a"),
+    job("Connectors Standalone Tests"),
 ]
 
 
@@ -91,7 +91,7 @@ class TestParseLanes:
     def test_one_lane_per_line(self):
         assert gate.parse_lanes(LANES) == {
             "test": "Test Python",
-            "connectors-standalone": "Connectors suite without the framework",
+            "connectors-standalone": "Connectors Standalone Tests",
         }
 
     def test_a_prefix_may_hold_an_equals_sign_and_blank_lines_are_skipped(self):
@@ -110,17 +110,31 @@ class TestSameTreeCandidates:
 
 class TestMissingLanes:
     def test_every_matrix_cell_must_succeed(self):
-        jobs = [*GREEN_JOBS[:1], job("Test Python 3.12 on ubuntu-latest (rest-b)", "failure")]
+        jobs = [*GREEN_JOBS[:1], job("Test Python — 3.12 on ubuntu-latest, rest-b", "failure")]
         lanes = {"test": "Test Python"}
         assert gate.missing_lanes(jobs, lanes) == {"test": "failure, success"}
 
     def test_a_skipped_lane_did_not_run(self):
-        jobs = [job("Connectors suite without the framework", "skipped")]
-        lanes = {"connectors-standalone": "Connectors suite"}
+        jobs = [job("Connectors Standalone Tests", "skipped")]
+        lanes = {"connectors-standalone": "Connectors Standalone"}
         assert gate.missing_lanes(jobs, lanes) == {"connectors-standalone": "skipped"}
 
     def test_an_absent_lane_is_named(self):
         assert gate.missing_lanes([], {"lint": "Lint"}) == {"lint": "no such job in the run"}
+
+    def test_lanes_sharing_a_matrix_job_are_judged_cell_by_cell(self):
+        jobs = [job("Stack — Host Record", "success"), job("Stack — Deploy", "failure")]
+        lanes = {"host-record": "Stack — Host Record", "deploy": "Stack — Deploy"}
+        assert gate.missing_lanes(jobs, lanes) == {"deploy": "failure"}
+
+    def test_a_skipped_matrix_job_satisfies_none_of_its_cell_lanes(self):
+        """GitHub renders a skipped matrix job once, its name template unexpanded."""
+        jobs = [job("Stack — ${{ matrix.name }}", "skipped")]
+        lanes = {"host-record": "Stack — Host Record", "deploy": "Stack — Deploy"}
+        assert gate.missing_lanes(jobs, lanes) == {
+            "host-record": "no such job in the run",
+            "deploy": "no such job in the run",
+        }
 
 
 class TestMain:

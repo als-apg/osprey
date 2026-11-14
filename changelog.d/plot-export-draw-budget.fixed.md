@@ -1,0 +1,1 @@
+Exporting a saved Plotly artifact to an image is held to one sixty-second deadline: the plot gets ten seconds to draw, counted from the page's load, and the load gets the rest. A slow load is refused as "did not load", no longer as a plot that did not draw, and a page whose resources never answer no longer holds the export forever.

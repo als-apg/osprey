@@ -141,9 +141,10 @@ def _panel_labels(
     The union across the host profile and the layers, in declaration
     order — panel sets are per-render (the write tier adds its own), and the
     card summarizes the deployment. Labels come from the same sources the web
-    terminal reads: :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS`
-    for built-ins, ``web.panels.<id>.label`` for URL-backed custom panels, and
-    the id itself, uppercased, when neither says.
+    terminal reads: ``web.panels.<id>.label`` where a layer writes one (the
+    name of a URL-backed custom panel, or the deployment's own name for a
+    built-in), :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS` for a
+    built-in nobody renamed, and the id itself, uppercased, when neither says.
     """
     from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
@@ -157,14 +158,14 @@ def _panel_labels(
                 ids.append(panel_id)
 
     return [
-        BUILTIN_PANEL_LABELS.get(panel_id)
-        or _custom_panel_label(profile, layer_deltas, panel_id)
+        _authored_panel_label(profile, layer_deltas, panel_id)
+        or BUILTIN_PANEL_LABELS.get(panel_id)
         or panel_id.upper()
         for panel_id in ids
     ]
 
 
-def _custom_panel_label(
+def _authored_panel_label(
     profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], panel_id: str
 ) -> str | None:
     """The ``web.panels.<id>.label`` any layer of this deployment declares."""
@@ -369,11 +370,12 @@ def _web_terminal_group(
 def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The rendered ``config.yml`` facts the registry's two gates read, for one render.
 
-    ``delta`` is a tier or app file laid over the host, as the build lays it:
+    ``delta`` is a login file laid over the host, as the build lays it:
     its flat dotted ``config:`` bag folded over the host's, deeper key winning,
     and its ``web_panels`` added to the host's selection. Only the subtrees the
     gates read are assembled — ``services`` (the graph store), ``deployment``
-    (the port base that store's defaults resolve against) and ``web.panels``.
+    (the port base that store's defaults resolve against), ``web.panels`` and
+    ``pv_directory``, which a layer spelling ``null`` removes.
 
     The panel blocks are projected the way the build projects them
     (:func:`~osprey.cli.build_profile_panels.panel_selection_overrides`): a
@@ -402,6 +404,10 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
             _merge_subtree(section, effective_config_subtree(layer, subtree))
         rendered[subtree[0]] = section
 
+    section = _pv_directory_section(layers)
+    if section is not None:
+        rendered["pv_directory"] = section
+
     web = rendered["web"]
     panels = web.get("panels")
     blocks: dict[str, Any] = dict(panels) if isinstance(panels, Mapping) else {}
@@ -414,14 +420,36 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
     return rendered
 
 
+def _pv_directory_section(layers: Sequence[Mapping[str, Any]]) -> Any:
+    """The ``pv_directory`` section the layers render, or ``None`` when none does.
+
+    A later layer's mapping folds over the earlier ones, deeper key winning; a
+    later ``null`` removes the section.
+    """
+    from .build_profile_archiver import _expand_dotted
+    from .build_profile_emit import _merge_subtree
+
+    section: Any = None
+    for layer in layers:
+        tree = _expand_dotted(dict(layer))
+        if "pv_directory" not in tree:
+            continue
+        value = tree["pv_directory"]
+        if isinstance(value, Mapping) and isinstance(section, dict):
+            _merge_subtree(section, value)
+        else:
+            section = dict(value) if isinstance(value, Mapping) else value
+    return section
+
+
 def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dict[str, Any]:
     """The context :func:`~osprey.registry.mcp.resolve_servers` gates on, for one render.
 
     The config-derived gates are the render's own predicates, imported rather
     than restated, so the card and the render cannot disagree about whether a
-    render ships the ``graph`` or the ``event_dispatcher`` server, or a server
+    render ships the ``graph`` or the ``event_dispatcher`` server, a server
     derived from a sidecar panel (listed when that render's ``web.panels``
-    block for the panel is enabled).
+    block for the panel is enabled), or the ``pv_directory`` tools.
     """
     from osprey.deployment.web_terminals.roster import (
         config_declares_panel,
@@ -429,12 +457,17 @@ def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dic
     )
 
     from .profile_conventions import library_selection
-    from .templates.claude_code import _graphdb_configured, panel_declared_context
+    from .templates.claude_code import (
+        _graphdb_configured,
+        _pv_directory_context,
+        panel_declared_context,
+    )
 
     ctx: dict[str, Any] = {
         **panel_declared_context(lambda panel_id: config_declares_panel(rendered, panel_id)),
         "graphdb_configured": _graphdb_configured(dict(rendered)),
         "event_dispatcher_wired": config_needs_dispatcher_token(rendered),
+        **_pv_directory_context(rendered),
     }
     if profile.channel_finder_mode and "channel-finder" in library_selection(
         "agents", profile.agents
@@ -454,7 +487,7 @@ def _enabled_mcp_servers(
     context the render builds (:func:`_registry_context`), plus the profile's
     own ``mcp_servers:`` declarations.
 
-    Resolved once for the host and once per tier or app render, and listed as
+    Resolved once for the host and once per login render, and listed as
     the union in first-seen order: the deployment summary the panels row
     gives, so a server only the write-armed tiers ship (the event dispatcher,
     gated on the EVENTS panel those tiers add) is on the card.

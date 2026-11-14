@@ -37,6 +37,20 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
+from tests.services.auth_sidecar.mock_idp import MockIdP
+from tests.services.auth_sidecar.test_oidc_flow import (
+    ENTRY_PATH as OIDC_ENTRY_PATH,
+)
+from tests.services.auth_sidecar.test_oidc_flow import (
+    PENDING_FLOW_SESSION_KEY,
+    _browser,
+    _env,
+    _reset_idp,  # noqa: F401 - the autouse fixture, re-exported to this module
+    _return_to_sidecar,
+    _session_from,
+    _state_payload,
+    _visit_identity_provider,
+)
 
 SECRET = "session-secret-value"
 LIFETIME = 3600
@@ -578,20 +592,6 @@ class TestNext:
 
 # --- reader entries from the card-less OIDC callback --------------------------------
 
-from tests.services.auth_sidecar.mock_idp import MockIdP  # noqa: E402
-from tests.services.auth_sidecar.test_oidc_flow import (  # noqa: E402
-    ENTRY_PATH as OIDC_ENTRY_PATH,
-)
-from tests.services.auth_sidecar.test_oidc_flow import (  # noqa: E402
-    PENDING_FLOW_SESSION_KEY,
-    _browser,
-    _env,
-    _reset_idp,  # noqa: F401 - the autouse fixture, re-exported to this module
-    _return_to_sidecar,
-    _session_from,
-    _state_payload,
-    _visit_identity_provider,
-)
 
 EXT_SUBJECT = "idp|ext"
 

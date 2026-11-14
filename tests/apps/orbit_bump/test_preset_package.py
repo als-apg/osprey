@@ -11,7 +11,7 @@ from click.testing import CliRunner
 from orbit_bump import APP_NAME
 
 from osprey.apps.rules import deployment_packages
-from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME
+from osprey.cli.build_profile_updates import APP_PROVENANCE_FILENAME
 from osprey.cli.init_cmd import init
 from osprey.profiles import presets
 from tests._builds import BuiltProject, init_project

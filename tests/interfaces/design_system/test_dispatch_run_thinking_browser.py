@@ -39,6 +39,7 @@ from osprey.history.app import create_app
 from osprey.interfaces._serving import run_app_server
 from osprey_connectors.dotenv import parse_dotenv_file
 from tests.agent_record.test_identities import _config
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.design_system.test_dispatch_run_crosslinks import HISTORY_LINK_LABEL
 
 if TYPE_CHECKING:
@@ -258,6 +259,7 @@ def signed_in() -> Iterator[type[_SignedIn]]:
 def _open_run(page: Page, base_url: str) -> None:
     """Load the dashboard, install the state as a first poll answer would, route to the run."""
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
+    wait_for_page_ready(page)
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {
@@ -289,6 +291,7 @@ def _follow_history_link(browser: Browser, base_url: str) -> Page:
     with context.expect_page() as opened:
         link.click()
     history = opened.value
+    wait_for_page_ready(history)
     history.wait_for_load_state("domcontentloaded")
     assert f"/history/session/{SESSION}" in history.url, history.url
     person = SIGN_INS[_SignedIn.entry]["person"]

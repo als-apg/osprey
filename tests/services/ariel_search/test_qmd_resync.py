@@ -527,10 +527,16 @@ class TestWatchWiring:
             async def __aexit__(self, *exc: object) -> bool:
                 return False
 
-        async def _create(_config: Any):
+        async def _create(_config: Any, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return _Service()
 
-        async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+        async def _resync(
+            config_dict: dict,  # noqa: ARG001 - the signature it stands in for
+            progress: Any = None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            config: Any = None,  # noqa: ARG001 - the signature it stands in for
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             order.append("resync")
             return None
 
@@ -565,7 +571,14 @@ class TestQmdResyncCommand:
     def test_runs_the_pass_and_reports_counts(self, monkeypatch) -> None:
         seen: list[dict] = []
 
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
+        async def _fake(
+            config_dict,  # noqa: ARG001 - the signature it stands in for
+            rebuild=False,
+            page_size=0,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             seen.append({"rebuild": rebuild})
             return ops.QmdResyncResult(
                 scanned=3,
@@ -594,7 +607,14 @@ class TestQmdResyncCommand:
     def test_rebuild_flag_reaches_the_pass(self, monkeypatch) -> None:
         seen: list[bool] = []
 
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
+        async def _fake(
+            config_dict,  # noqa: ARG001 - the signature it stands in for
+            rebuild=False,
+            page_size=0,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             seen.append(rebuild)
             return ops.QmdResyncResult(
                 scanned=0,
@@ -617,7 +637,14 @@ class TestQmdResyncCommand:
         assert re.search(r"Removed before rebuild\s+7", result.output), result.output
 
     def test_disabled_module_reports_rather_than_failing(self, monkeypatch) -> None:
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
+        async def _fake(
+            config_dict,  # noqa: ARG001 - the signature it stands in for
+            rebuild=False,  # noqa: ARG001 - the signature it stands in for
+            page_size=0,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             return None
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
@@ -629,7 +656,14 @@ class TestQmdResyncCommand:
         assert "not enabled" in result.output
 
     def test_misconfiguration_exits_with_the_config_key(self, monkeypatch) -> None:
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
+        async def _fake(
+            config_dict,  # noqa: ARG001 - the signature it stands in for
+            rebuild=False,  # noqa: ARG001 - the signature it stands in for
+            page_size=0,  # noqa: ARG001 - the signature it stands in for
+            progress=None,  # noqa: ARG001 - the signature it stands in for
+            *,
+            store_deadline_s=None,  # noqa: ARG001 - the signature it stands in for
+        ):
             raise ValueError("enhancement_modules.qmd_export.mirror_path is required")
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
@@ -648,7 +682,7 @@ class TestPipelinePreStep:
     def _observed(self, monkeypatch) -> list[str]:
         calls: list[str] = []
 
-        async def _fake_resync(config_dict, progress=None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+        async def _fake_resync(config_dict, progress=None, *, store_deadline_s=None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
             calls.append("resync")
             return None
 

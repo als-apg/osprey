@@ -130,6 +130,8 @@ def build_optimization_response(
         logs=state.get_logs(),
         result_summary=result_summary,
         write_authorization=state.get_write_authorization(),
+        # Describes a draft: a started or finished job no longer carries it.
+        start_notice=state.get_start_notice() if opt_status == JobStatus.CREATED else None,
     )
 
     if detail == "full":

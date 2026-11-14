@@ -121,8 +121,8 @@ DRAWER_JS = """
 }
 """
 
-CARD = "#operator-container .op-card-reason"
-ALLOW = "#operator-container .op-btn-primary"
+CARD = video_chat.CARD
+ALLOW = video_chat.ALLOW
 VERDICT = "Code review: pass"
 
 REVIEW_BUDGET_MS = 420_000

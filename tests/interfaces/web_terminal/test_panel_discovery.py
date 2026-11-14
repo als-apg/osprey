@@ -39,13 +39,15 @@ from osprey.interfaces.web_terminal.routes.panels import router
 
 from .conftest import bare_route_app
 
-# A minimal but fully compliant entry HTML: links the token stylesheet and the
+# A minimal but fully compliant entry HTML: links the design-system sheets and the
 # shared font stylesheet, loads the pre-paint boot script, and uses only
 # var(--…) tokens (no raw hex).
 _VALID_HTML = """<!DOCTYPE html>
 <html lang="en"><head>
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <title>Demo</title>
 <style>body { background: var(--bg-primary); color: var(--text-primary); }</style>

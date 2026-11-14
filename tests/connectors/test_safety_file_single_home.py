@@ -55,6 +55,10 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/cli/app_cmd.py", "_rename"): (
         "renames a freshly copied entry to the new application's name, never over an existing file"
     ),
+    ("src/osprey/cli/build_cmd.py", "_carry_host_identity_dirs"): (
+        "renames an existing directory to its own name in another case, where the "
+        "filesystem holds the two as one"
+    ),
     ("src/osprey/cli/build_cmd.py", "_clear_leftover"): "sets an existing build entry aside",
     ("src/osprey/cli/build_cmd.py", "_repair_interrupted_swap"): (
         "completes an interrupted directory swap"
@@ -84,6 +88,9 @@ ALLOWED: dict[tuple[str, str], str] = {
     ),
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
+    ),
+    ("src/osprey/facility/layers/relations/__init__.py", "_replace"): (
+        "swaps a staged layer directory into place, setting the previous one aside"
     ),
     ("src/osprey/integrations/canopy/push/verbs.py", "_promote_stage"): (
         "renames a checked stage directory into place"

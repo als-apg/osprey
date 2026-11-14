@@ -1,0 +1,816 @@
+# The chain's setpoints, then its readings.
+- {id: INJ:SHOT:REQ, role: setpoint}
+- {id: INJ:GUN:CHARGE:SP, role: setpoint}
+- {id: INJ:TRANSFER:EFF:SP, role: setpoint}
+- {id: INJ:RING:EFF:SP, role: setpoint}
+- {id: INJ:RING:CURRENT:SP, role: setpoint}
+- {id: INJ:SHOT:COUNT}
+- {id: INJ:TRANSFER:COUNT}
+- {id: INJ:TRANSFER:CHARGE}
+- {id: INJ:TRANSFER:EFF}
+- {id: INJ:RING:CHARGE}
+- {id: INJ:RING:SHOT:COUNT}
+- {id: INJ:RING:EFF}
+- {id: INJ:RING:CURRENT}
+- {id: INJ:RING:CURRENT:FAST}
+- {id: INJ:SHOT:BUSY}
+# The ring's turn-by-turn settings, then its turn-by-turn readings; each turn
+# array holds trigger_sample + turns = 260 samples.
+- {id: SR:RF:SWITCH, role: setpoint}
+- {id: SR:DIAG:TBT:PILOT, role: setpoint}
+- {id: SR:DIAG:TBT:STORED:01, role: setpoint}
+- {id: SR:DIAG:TBT:STORED:02, role: setpoint}
+- {id: SR:DIAG:BPM:01:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:02:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:03:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:04:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:05:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:06:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:07:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:08:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:09:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:10:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:11:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:12:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:13:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:14:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:15:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:16:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:17:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:18:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:19:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:20:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:21:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:22:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:23:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:24:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:25:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:26:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:27:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:28:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:29:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:30:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:31:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:32:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:33:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:34:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:35:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:36:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:37:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:38:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:39:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:40:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:41:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:42:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:43:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:44:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:45:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:46:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:47:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:48:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:49:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:50:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:51:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:52:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:53:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:54:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:55:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:56:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:57:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:58:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:59:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:60:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:61:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:62:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:63:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:64:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:65:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:66:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:67:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:68:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:69:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:70:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:71:ARM, role: setpoint}
+- {id: SR:DIAG:BPM:72:ARM, role: setpoint}
+- {id: SR:DIAG:TBT:TURNS}
+- {id: SR:DIAG:BPM:01:ARMED}
+- {id: SR:DIAG:BPM:01:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:01:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:01:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:02:ARMED}
+- {id: SR:DIAG:BPM:02:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:02:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:02:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:03:ARMED}
+- {id: SR:DIAG:BPM:03:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:03:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:03:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:04:ARMED}
+- {id: SR:DIAG:BPM:04:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:04:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:04:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:05:ARMED}
+- {id: SR:DIAG:BPM:05:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:05:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:05:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:06:ARMED}
+- {id: SR:DIAG:BPM:06:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:06:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:06:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:07:ARMED}
+- {id: SR:DIAG:BPM:07:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:07:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:07:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:08:ARMED}
+- {id: SR:DIAG:BPM:08:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:08:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:08:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:09:ARMED}
+- {id: SR:DIAG:BPM:09:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:09:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:09:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:10:ARMED}
+- {id: SR:DIAG:BPM:10:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:10:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:10:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:11:ARMED}
+- {id: SR:DIAG:BPM:11:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:11:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:11:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:12:ARMED}
+- {id: SR:DIAG:BPM:12:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:12:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:12:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:13:ARMED}
+- {id: SR:DIAG:BPM:13:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:13:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:13:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:14:ARMED}
+- {id: SR:DIAG:BPM:14:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:14:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:14:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:15:ARMED}
+- {id: SR:DIAG:BPM:15:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:15:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:15:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:16:ARMED}
+- {id: SR:DIAG:BPM:16:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:16:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:16:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:17:ARMED}
+- {id: SR:DIAG:BPM:17:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:17:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:17:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:18:ARMED}
+- {id: SR:DIAG:BPM:18:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:18:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:18:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:19:ARMED}
+- {id: SR:DIAG:BPM:19:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:19:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:19:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:20:ARMED}
+- {id: SR:DIAG:BPM:20:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:20:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:20:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:21:ARMED}
+- {id: SR:DIAG:BPM:21:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:21:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:21:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:22:ARMED}
+- {id: SR:DIAG:BPM:22:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:22:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:22:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:23:ARMED}
+- {id: SR:DIAG:BPM:23:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:23:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:23:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:24:ARMED}
+- {id: SR:DIAG:BPM:24:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:24:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:24:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:25:ARMED}
+- {id: SR:DIAG:BPM:25:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:25:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:25:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:26:ARMED}
+- {id: SR:DIAG:BPM:26:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:26:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:26:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:27:ARMED}
+- {id: SR:DIAG:BPM:27:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:27:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:27:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:28:ARMED}
+- {id: SR:DIAG:BPM:28:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:28:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:28:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:29:ARMED}
+- {id: SR:DIAG:BPM:29:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:29:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:29:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:30:ARMED}
+- {id: SR:DIAG:BPM:30:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:30:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:30:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:31:ARMED}
+- {id: SR:DIAG:BPM:31:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:31:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:31:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:32:ARMED}
+- {id: SR:DIAG:BPM:32:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:32:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:32:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:33:ARMED}
+- {id: SR:DIAG:BPM:33:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:33:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:33:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:34:ARMED}
+- {id: SR:DIAG:BPM:34:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:34:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:34:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:35:ARMED}
+- {id: SR:DIAG:BPM:35:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:35:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:35:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:36:ARMED}
+- {id: SR:DIAG:BPM:36:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:36:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:36:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:37:ARMED}
+- {id: SR:DIAG:BPM:37:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:37:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:37:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:38:ARMED}
+- {id: SR:DIAG:BPM:38:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:38:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:38:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:39:ARMED}
+- {id: SR:DIAG:BPM:39:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:39:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:39:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:40:ARMED}
+- {id: SR:DIAG:BPM:40:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:40:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:40:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:41:ARMED}
+- {id: SR:DIAG:BPM:41:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:41:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:41:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:42:ARMED}
+- {id: SR:DIAG:BPM:42:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:42:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:42:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:43:ARMED}
+- {id: SR:DIAG:BPM:43:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:43:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:43:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:44:ARMED}
+- {id: SR:DIAG:BPM:44:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:44:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:44:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:45:ARMED}
+- {id: SR:DIAG:BPM:45:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:45:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:45:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:46:ARMED}
+- {id: SR:DIAG:BPM:46:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:46:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:46:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:47:ARMED}
+- {id: SR:DIAG:BPM:47:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:47:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:47:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:48:ARMED}
+- {id: SR:DIAG:BPM:48:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:48:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:48:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:49:ARMED}
+- {id: SR:DIAG:BPM:49:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:49:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:49:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:50:ARMED}
+- {id: SR:DIAG:BPM:50:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:50:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:50:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:51:ARMED}
+- {id: SR:DIAG:BPM:51:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:51:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:51:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:52:ARMED}
+- {id: SR:DIAG:BPM:52:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:52:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:52:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:53:ARMED}
+- {id: SR:DIAG:BPM:53:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:53:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:53:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:54:ARMED}
+- {id: SR:DIAG:BPM:54:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:54:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:54:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:55:ARMED}
+- {id: SR:DIAG:BPM:55:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:55:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:55:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:56:ARMED}
+- {id: SR:DIAG:BPM:56:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:56:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:56:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:57:ARMED}
+- {id: SR:DIAG:BPM:57:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:57:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:57:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:58:ARMED}
+- {id: SR:DIAG:BPM:58:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:58:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:58:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:59:ARMED}
+- {id: SR:DIAG:BPM:59:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:59:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:59:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:60:ARMED}
+- {id: SR:DIAG:BPM:60:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:60:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:60:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:61:ARMED}
+- {id: SR:DIAG:BPM:61:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:61:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:61:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:62:ARMED}
+- {id: SR:DIAG:BPM:62:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:62:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:62:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:63:ARMED}
+- {id: SR:DIAG:BPM:63:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:63:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:63:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:64:ARMED}
+- {id: SR:DIAG:BPM:64:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:64:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:64:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:65:ARMED}
+- {id: SR:DIAG:BPM:65:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:65:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:65:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:66:ARMED}
+- {id: SR:DIAG:BPM:66:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:66:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:66:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:67:ARMED}
+- {id: SR:DIAG:BPM:67:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:67:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:67:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:68:ARMED}
+- {id: SR:DIAG:BPM:68:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:68:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:68:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:69:ARMED}
+- {id: SR:DIAG:BPM:69:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:69:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:69:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:70:ARMED}
+- {id: SR:DIAG:BPM:70:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:70:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:70:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:71:ARMED}
+- {id: SR:DIAG:BPM:71:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:71:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:71:TBT:SUM, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:72:ARMED}
+- {id: SR:DIAG:BPM:72:TBT:X, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:72:TBT:Y, value_type: waveform, shape: [260]}
+- {id: SR:DIAG:BPM:72:TBT:SUM, value_type: waveform, shape: [260]}
+# The ring's orbit monitors and correctors, as in the example facility.
+- {id: SR:DIAG:BPM:01:POSITION:X}
+- {id: SR:DIAG:BPM:01:POSITION:Y}
+- {id: SR:DIAG:BPM:02:POSITION:X}
+- {id: SR:DIAG:BPM:02:POSITION:Y}
+- {id: SR:DIAG:BPM:03:POSITION:X}
+- {id: SR:DIAG:BPM:03:POSITION:Y}
+- {id: SR:DIAG:BPM:04:POSITION:X}
+- {id: SR:DIAG:BPM:04:POSITION:Y}
+- {id: SR:DIAG:BPM:05:POSITION:X}
+- {id: SR:DIAG:BPM:05:POSITION:Y}
+- {id: SR:DIAG:BPM:06:POSITION:X}
+- {id: SR:DIAG:BPM:06:POSITION:Y}
+- {id: SR:DIAG:BPM:07:POSITION:X}
+- {id: SR:DIAG:BPM:07:POSITION:Y}
+- {id: SR:DIAG:BPM:08:POSITION:X}
+- {id: SR:DIAG:BPM:08:POSITION:Y}
+- {id: SR:DIAG:BPM:09:POSITION:X}
+- {id: SR:DIAG:BPM:09:POSITION:Y}
+- {id: SR:DIAG:BPM:10:POSITION:X}
+- {id: SR:DIAG:BPM:10:POSITION:Y}
+- {id: SR:DIAG:BPM:11:POSITION:X}
+- {id: SR:DIAG:BPM:11:POSITION:Y}
+- {id: SR:DIAG:BPM:12:POSITION:X}
+- {id: SR:DIAG:BPM:12:POSITION:Y}
+- {id: SR:DIAG:BPM:13:POSITION:X}
+- {id: SR:DIAG:BPM:13:POSITION:Y}
+- {id: SR:DIAG:BPM:14:POSITION:X}
+- {id: SR:DIAG:BPM:14:POSITION:Y}
+- {id: SR:DIAG:BPM:15:POSITION:X}
+- {id: SR:DIAG:BPM:15:POSITION:Y}
+- {id: SR:DIAG:BPM:16:POSITION:X}
+- {id: SR:DIAG:BPM:16:POSITION:Y}
+- {id: SR:DIAG:BPM:17:POSITION:X}
+- {id: SR:DIAG:BPM:17:POSITION:Y}
+- {id: SR:DIAG:BPM:18:POSITION:X}
+- {id: SR:DIAG:BPM:18:POSITION:Y}
+- {id: SR:DIAG:BPM:19:POSITION:X}
+- {id: SR:DIAG:BPM:19:POSITION:Y}
+- {id: SR:DIAG:BPM:20:POSITION:X}
+- {id: SR:DIAG:BPM:20:POSITION:Y}
+- {id: SR:DIAG:BPM:21:POSITION:X}
+- {id: SR:DIAG:BPM:21:POSITION:Y}
+- {id: SR:DIAG:BPM:22:POSITION:X}
+- {id: SR:DIAG:BPM:22:POSITION:Y}
+- {id: SR:DIAG:BPM:23:POSITION:X}
+- {id: SR:DIAG:BPM:23:POSITION:Y}
+- {id: SR:DIAG:BPM:24:POSITION:X}
+- {id: SR:DIAG:BPM:24:POSITION:Y}
+- {id: SR:DIAG:BPM:25:POSITION:X}
+- {id: SR:DIAG:BPM:25:POSITION:Y}
+- {id: SR:DIAG:BPM:26:POSITION:X}
+- {id: SR:DIAG:BPM:26:POSITION:Y}
+- {id: SR:DIAG:BPM:27:POSITION:X}
+- {id: SR:DIAG:BPM:27:POSITION:Y}
+- {id: SR:DIAG:BPM:28:POSITION:X}
+- {id: SR:DIAG:BPM:28:POSITION:Y}
+- {id: SR:DIAG:BPM:29:POSITION:X}
+- {id: SR:DIAG:BPM:29:POSITION:Y}
+- {id: SR:DIAG:BPM:30:POSITION:X}
+- {id: SR:DIAG:BPM:30:POSITION:Y}
+- {id: SR:DIAG:BPM:31:POSITION:X}
+- {id: SR:DIAG:BPM:31:POSITION:Y}
+- {id: SR:DIAG:BPM:32:POSITION:X}
+- {id: SR:DIAG:BPM:32:POSITION:Y}
+- {id: SR:DIAG:BPM:33:POSITION:X}
+- {id: SR:DIAG:BPM:33:POSITION:Y}
+- {id: SR:DIAG:BPM:34:POSITION:X}
+- {id: SR:DIAG:BPM:34:POSITION:Y}
+- {id: SR:DIAG:BPM:35:POSITION:X}
+- {id: SR:DIAG:BPM:35:POSITION:Y}
+- {id: SR:DIAG:BPM:36:POSITION:X}
+- {id: SR:DIAG:BPM:36:POSITION:Y}
+- {id: SR:DIAG:BPM:37:POSITION:X}
+- {id: SR:DIAG:BPM:37:POSITION:Y}
+- {id: SR:DIAG:BPM:38:POSITION:X}
+- {id: SR:DIAG:BPM:38:POSITION:Y}
+- {id: SR:DIAG:BPM:39:POSITION:X}
+- {id: SR:DIAG:BPM:39:POSITION:Y}
+- {id: SR:DIAG:BPM:40:POSITION:X}
+- {id: SR:DIAG:BPM:40:POSITION:Y}
+- {id: SR:DIAG:BPM:41:POSITION:X}
+- {id: SR:DIAG:BPM:41:POSITION:Y}
+- {id: SR:DIAG:BPM:42:POSITION:X}
+- {id: SR:DIAG:BPM:42:POSITION:Y}
+- {id: SR:DIAG:BPM:43:POSITION:X}
+- {id: SR:DIAG:BPM:43:POSITION:Y}
+- {id: SR:DIAG:BPM:44:POSITION:X}
+- {id: SR:DIAG:BPM:44:POSITION:Y}
+- {id: SR:DIAG:BPM:45:POSITION:X}
+- {id: SR:DIAG:BPM:45:POSITION:Y}
+- {id: SR:DIAG:BPM:46:POSITION:X}
+- {id: SR:DIAG:BPM:46:POSITION:Y}
+- {id: SR:DIAG:BPM:47:POSITION:X}
+- {id: SR:DIAG:BPM:47:POSITION:Y}
+- {id: SR:DIAG:BPM:48:POSITION:X}
+- {id: SR:DIAG:BPM:48:POSITION:Y}
+- {id: SR:DIAG:BPM:49:POSITION:X}
+- {id: SR:DIAG:BPM:49:POSITION:Y}
+- {id: SR:DIAG:BPM:50:POSITION:X}
+- {id: SR:DIAG:BPM:50:POSITION:Y}
+- {id: SR:DIAG:BPM:51:POSITION:X}
+- {id: SR:DIAG:BPM:51:POSITION:Y}
+- {id: SR:DIAG:BPM:52:POSITION:X}
+- {id: SR:DIAG:BPM:52:POSITION:Y}
+- {id: SR:DIAG:BPM:53:POSITION:X}
+- {id: SR:DIAG:BPM:53:POSITION:Y}
+- {id: SR:DIAG:BPM:54:POSITION:X}
+- {id: SR:DIAG:BPM:54:POSITION:Y}
+- {id: SR:DIAG:BPM:55:POSITION:X}
+- {id: SR:DIAG:BPM:55:POSITION:Y}
+- {id: SR:DIAG:BPM:56:POSITION:X}
+- {id: SR:DIAG:BPM:56:POSITION:Y}
+- {id: SR:DIAG:BPM:57:POSITION:X}
+- {id: SR:DIAG:BPM:57:POSITION:Y}
+- {id: SR:DIAG:BPM:58:POSITION:X}
+- {id: SR:DIAG:BPM:58:POSITION:Y}
+- {id: SR:DIAG:BPM:59:POSITION:X}
+- {id: SR:DIAG:BPM:59:POSITION:Y}
+- {id: SR:DIAG:BPM:60:POSITION:X}
+- {id: SR:DIAG:BPM:60:POSITION:Y}
+- {id: SR:DIAG:BPM:61:POSITION:X}
+- {id: SR:DIAG:BPM:61:POSITION:Y}
+- {id: SR:DIAG:BPM:62:POSITION:X}
+- {id: SR:DIAG:BPM:62:POSITION:Y}
+- {id: SR:DIAG:BPM:63:POSITION:X}
+- {id: SR:DIAG:BPM:63:POSITION:Y}
+- {id: SR:DIAG:BPM:64:POSITION:X}
+- {id: SR:DIAG:BPM:64:POSITION:Y}
+- {id: SR:DIAG:BPM:65:POSITION:X}
+- {id: SR:DIAG:BPM:65:POSITION:Y}
+- {id: SR:DIAG:BPM:66:POSITION:X}
+- {id: SR:DIAG:BPM:66:POSITION:Y}
+- {id: SR:DIAG:BPM:67:POSITION:X}
+- {id: SR:DIAG:BPM:67:POSITION:Y}
+- {id: SR:DIAG:BPM:68:POSITION:X}
+- {id: SR:DIAG:BPM:68:POSITION:Y}
+- {id: SR:DIAG:BPM:69:POSITION:X}
+- {id: SR:DIAG:BPM:69:POSITION:Y}
+- {id: SR:DIAG:BPM:70:POSITION:X}
+- {id: SR:DIAG:BPM:70:POSITION:Y}
+- {id: SR:DIAG:BPM:71:POSITION:X}
+- {id: SR:DIAG:BPM:71:POSITION:Y}
+- {id: SR:DIAG:BPM:72:POSITION:X}
+- {id: SR:DIAG:BPM:72:POSITION:Y}
+- {id: SR:MAG:HCM:01:CURRENT:RB}
+- {id: SR:MAG:HCM:01:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:01:CURRENT:RB}
+- {id: SR:MAG:HCM:02:CURRENT:RB}
+- {id: SR:MAG:HCM:02:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:02:CURRENT:RB}
+- {id: SR:MAG:HCM:03:CURRENT:RB}
+- {id: SR:MAG:HCM:03:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:03:CURRENT:RB}
+- {id: SR:MAG:HCM:04:CURRENT:RB}
+- {id: SR:MAG:HCM:04:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:04:CURRENT:RB}
+- {id: SR:MAG:HCM:05:CURRENT:RB}
+- {id: SR:MAG:HCM:05:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:05:CURRENT:RB}
+- {id: SR:MAG:HCM:06:CURRENT:RB}
+- {id: SR:MAG:HCM:06:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:06:CURRENT:RB}
+- {id: SR:MAG:HCM:07:CURRENT:RB}
+- {id: SR:MAG:HCM:07:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:07:CURRENT:RB}
+- {id: SR:MAG:HCM:08:CURRENT:RB}
+- {id: SR:MAG:HCM:08:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:08:CURRENT:RB}
+- {id: SR:MAG:HCM:09:CURRENT:RB}
+- {id: SR:MAG:HCM:09:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:09:CURRENT:RB}
+- {id: SR:MAG:HCM:10:CURRENT:RB}
+- {id: SR:MAG:HCM:10:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:10:CURRENT:RB}
+- {id: SR:MAG:HCM:11:CURRENT:RB}
+- {id: SR:MAG:HCM:11:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:11:CURRENT:RB}
+- {id: SR:MAG:HCM:12:CURRENT:RB}
+- {id: SR:MAG:HCM:12:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:12:CURRENT:RB}
+- {id: SR:MAG:HCM:13:CURRENT:RB}
+- {id: SR:MAG:HCM:13:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:13:CURRENT:RB}
+- {id: SR:MAG:HCM:14:CURRENT:RB}
+- {id: SR:MAG:HCM:14:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:14:CURRENT:RB}
+- {id: SR:MAG:HCM:15:CURRENT:RB}
+- {id: SR:MAG:HCM:15:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:15:CURRENT:RB}
+- {id: SR:MAG:HCM:16:CURRENT:RB}
+- {id: SR:MAG:HCM:16:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:16:CURRENT:RB}
+- {id: SR:MAG:HCM:17:CURRENT:RB}
+- {id: SR:MAG:HCM:17:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:17:CURRENT:RB}
+- {id: SR:MAG:HCM:18:CURRENT:RB}
+- {id: SR:MAG:HCM:18:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:18:CURRENT:RB}
+- {id: SR:MAG:HCM:19:CURRENT:RB}
+- {id: SR:MAG:HCM:19:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:19:CURRENT:RB}
+- {id: SR:MAG:HCM:20:CURRENT:RB}
+- {id: SR:MAG:HCM:20:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:20:CURRENT:RB}
+- {id: SR:MAG:HCM:21:CURRENT:RB}
+- {id: SR:MAG:HCM:21:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:21:CURRENT:RB}
+- {id: SR:MAG:HCM:22:CURRENT:RB}
+- {id: SR:MAG:HCM:22:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:22:CURRENT:RB}
+- {id: SR:MAG:HCM:23:CURRENT:RB}
+- {id: SR:MAG:HCM:23:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:23:CURRENT:RB}
+- {id: SR:MAG:HCM:24:CURRENT:RB}
+- {id: SR:MAG:HCM:24:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:24:CURRENT:RB}
+- {id: SR:MAG:HCM:25:CURRENT:RB}
+- {id: SR:MAG:HCM:25:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:25:CURRENT:RB}
+- {id: SR:MAG:HCM:26:CURRENT:RB}
+- {id: SR:MAG:HCM:26:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:26:CURRENT:RB}
+- {id: SR:MAG:HCM:27:CURRENT:RB}
+- {id: SR:MAG:HCM:27:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:27:CURRENT:RB}
+- {id: SR:MAG:HCM:28:CURRENT:RB}
+- {id: SR:MAG:HCM:28:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:28:CURRENT:RB}
+- {id: SR:MAG:HCM:29:CURRENT:RB}
+- {id: SR:MAG:HCM:29:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:29:CURRENT:RB}
+- {id: SR:MAG:HCM:30:CURRENT:RB}
+- {id: SR:MAG:HCM:30:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:30:CURRENT:RB}
+- {id: SR:MAG:HCM:31:CURRENT:RB}
+- {id: SR:MAG:HCM:31:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:31:CURRENT:RB}
+- {id: SR:MAG:HCM:32:CURRENT:RB}
+- {id: SR:MAG:HCM:32:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:32:CURRENT:RB}
+- {id: SR:MAG:HCM:33:CURRENT:RB}
+- {id: SR:MAG:HCM:33:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:33:CURRENT:RB}
+- {id: SR:MAG:HCM:34:CURRENT:RB}
+- {id: SR:MAG:HCM:34:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:34:CURRENT:RB}
+- {id: SR:MAG:HCM:35:CURRENT:RB}
+- {id: SR:MAG:HCM:35:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:35:CURRENT:RB}
+- {id: SR:MAG:HCM:36:CURRENT:RB}
+- {id: SR:MAG:HCM:36:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:36:CURRENT:RB}
+- {id: SR:MAG:HCM:37:CURRENT:RB}
+- {id: SR:MAG:HCM:37:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:37:CURRENT:RB}
+- {id: SR:MAG:HCM:38:CURRENT:RB}
+- {id: SR:MAG:HCM:38:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:38:CURRENT:RB}
+- {id: SR:MAG:HCM:39:CURRENT:RB}
+- {id: SR:MAG:HCM:39:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:39:CURRENT:RB}
+- {id: SR:MAG:HCM:40:CURRENT:RB}
+- {id: SR:MAG:HCM:40:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:40:CURRENT:RB}
+- {id: SR:MAG:HCM:41:CURRENT:RB}
+- {id: SR:MAG:HCM:41:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:41:CURRENT:RB}
+- {id: SR:MAG:HCM:42:CURRENT:RB}
+- {id: SR:MAG:HCM:42:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:42:CURRENT:RB}
+- {id: SR:MAG:HCM:43:CURRENT:RB}
+- {id: SR:MAG:HCM:43:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:43:CURRENT:RB}
+- {id: SR:MAG:HCM:44:CURRENT:RB}
+- {id: SR:MAG:HCM:44:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:44:CURRENT:RB}
+- {id: SR:MAG:HCM:45:CURRENT:RB}
+- {id: SR:MAG:HCM:45:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:45:CURRENT:RB}
+- {id: SR:MAG:HCM:46:CURRENT:RB}
+- {id: SR:MAG:HCM:46:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:46:CURRENT:RB}
+- {id: SR:MAG:HCM:47:CURRENT:RB}
+- {id: SR:MAG:HCM:47:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:47:CURRENT:RB}
+- {id: SR:MAG:HCM:48:CURRENT:RB}
+- {id: SR:MAG:HCM:48:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:48:CURRENT:RB}
+- {id: SR:MAG:HCM:49:CURRENT:RB}
+- {id: SR:MAG:HCM:49:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:49:CURRENT:RB}
+- {id: SR:MAG:HCM:50:CURRENT:RB}
+- {id: SR:MAG:HCM:50:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:50:CURRENT:RB}
+- {id: SR:MAG:HCM:51:CURRENT:RB}
+- {id: SR:MAG:HCM:51:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:51:CURRENT:RB}
+- {id: SR:MAG:HCM:52:CURRENT:RB}
+- {id: SR:MAG:HCM:52:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:52:CURRENT:RB}
+- {id: SR:MAG:HCM:53:CURRENT:RB}
+- {id: SR:MAG:HCM:53:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:53:CURRENT:RB}
+- {id: SR:MAG:HCM:54:CURRENT:RB}
+- {id: SR:MAG:HCM:54:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:54:CURRENT:RB}
+- {id: SR:MAG:HCM:55:CURRENT:RB}
+- {id: SR:MAG:HCM:55:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:55:CURRENT:RB}
+- {id: SR:MAG:HCM:56:CURRENT:RB}
+- {id: SR:MAG:HCM:56:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:56:CURRENT:RB}
+- {id: SR:MAG:HCM:57:CURRENT:RB}
+- {id: SR:MAG:HCM:57:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:57:CURRENT:RB}
+- {id: SR:MAG:HCM:58:CURRENT:RB}
+- {id: SR:MAG:HCM:58:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:58:CURRENT:RB}
+- {id: SR:MAG:HCM:59:CURRENT:RB}
+- {id: SR:MAG:HCM:59:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:59:CURRENT:RB}
+- {id: SR:MAG:HCM:60:CURRENT:RB}
+- {id: SR:MAG:HCM:60:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:60:CURRENT:RB}
+- {id: SR:MAG:HCM:61:CURRENT:RB}
+- {id: SR:MAG:HCM:61:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:61:CURRENT:RB}
+- {id: SR:MAG:HCM:62:CURRENT:RB}
+- {id: SR:MAG:HCM:62:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:62:CURRENT:RB}
+- {id: SR:MAG:HCM:63:CURRENT:RB}
+- {id: SR:MAG:HCM:63:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:63:CURRENT:RB}
+- {id: SR:MAG:HCM:64:CURRENT:RB}
+- {id: SR:MAG:HCM:64:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:64:CURRENT:RB}
+- {id: SR:MAG:HCM:65:CURRENT:RB}
+- {id: SR:MAG:HCM:65:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:65:CURRENT:RB}
+- {id: SR:MAG:HCM:66:CURRENT:RB}
+- {id: SR:MAG:HCM:66:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:66:CURRENT:RB}
+- {id: SR:MAG:HCM:67:CURRENT:RB}
+- {id: SR:MAG:HCM:67:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:67:CURRENT:RB}
+- {id: SR:MAG:HCM:68:CURRENT:RB}
+- {id: SR:MAG:HCM:68:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:68:CURRENT:RB}
+- {id: SR:MAG:HCM:69:CURRENT:RB}
+- {id: SR:MAG:HCM:69:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:69:CURRENT:RB}
+- {id: SR:MAG:HCM:70:CURRENT:RB}
+- {id: SR:MAG:HCM:70:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:70:CURRENT:RB}
+- {id: SR:MAG:HCM:71:CURRENT:RB}
+- {id: SR:MAG:HCM:71:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:71:CURRENT:RB}
+- {id: SR:MAG:HCM:72:CURRENT:RB}
+- {id: SR:MAG:HCM:72:CURRENT:SP, role: setpoint, pair: SR:MAG:HCM:72:CURRENT:RB}
+- {id: SR:MAG:VCM:01:CURRENT:RB}
+- {id: SR:MAG:VCM:01:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:01:CURRENT:RB}
+- {id: SR:MAG:VCM:02:CURRENT:RB}
+- {id: SR:MAG:VCM:02:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:02:CURRENT:RB}
+- {id: SR:MAG:VCM:03:CURRENT:RB}
+- {id: SR:MAG:VCM:03:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:03:CURRENT:RB}
+- {id: SR:MAG:VCM:04:CURRENT:RB}
+- {id: SR:MAG:VCM:04:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:04:CURRENT:RB}
+- {id: SR:MAG:VCM:05:CURRENT:RB}
+- {id: SR:MAG:VCM:05:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:05:CURRENT:RB}
+- {id: SR:MAG:VCM:06:CURRENT:RB}
+- {id: SR:MAG:VCM:06:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:06:CURRENT:RB}
+- {id: SR:MAG:VCM:07:CURRENT:RB}
+- {id: SR:MAG:VCM:07:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:07:CURRENT:RB}
+- {id: SR:MAG:VCM:08:CURRENT:RB}
+- {id: SR:MAG:VCM:08:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:08:CURRENT:RB}
+- {id: SR:MAG:VCM:09:CURRENT:RB}
+- {id: SR:MAG:VCM:09:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:09:CURRENT:RB}
+- {id: SR:MAG:VCM:10:CURRENT:RB}
+- {id: SR:MAG:VCM:10:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:10:CURRENT:RB}
+- {id: SR:MAG:VCM:11:CURRENT:RB}
+- {id: SR:MAG:VCM:11:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:11:CURRENT:RB}
+- {id: SR:MAG:VCM:12:CURRENT:RB}
+- {id: SR:MAG:VCM:12:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:12:CURRENT:RB}
+- {id: SR:MAG:VCM:13:CURRENT:RB}
+- {id: SR:MAG:VCM:13:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:13:CURRENT:RB}
+- {id: SR:MAG:VCM:14:CURRENT:RB}
+- {id: SR:MAG:VCM:14:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:14:CURRENT:RB}
+- {id: SR:MAG:VCM:15:CURRENT:RB}
+- {id: SR:MAG:VCM:15:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:15:CURRENT:RB}
+- {id: SR:MAG:VCM:16:CURRENT:RB}
+- {id: SR:MAG:VCM:16:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:16:CURRENT:RB}
+- {id: SR:MAG:VCM:17:CURRENT:RB}
+- {id: SR:MAG:VCM:17:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:17:CURRENT:RB}
+- {id: SR:MAG:VCM:18:CURRENT:RB}
+- {id: SR:MAG:VCM:18:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:18:CURRENT:RB}
+- {id: SR:MAG:VCM:19:CURRENT:RB}
+- {id: SR:MAG:VCM:19:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:19:CURRENT:RB}
+- {id: SR:MAG:VCM:20:CURRENT:RB}
+- {id: SR:MAG:VCM:20:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:20:CURRENT:RB}
+- {id: SR:MAG:VCM:21:CURRENT:RB}
+- {id: SR:MAG:VCM:21:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:21:CURRENT:RB}
+- {id: SR:MAG:VCM:22:CURRENT:RB}
+- {id: SR:MAG:VCM:22:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:22:CURRENT:RB}
+- {id: SR:MAG:VCM:23:CURRENT:RB}
+- {id: SR:MAG:VCM:23:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:23:CURRENT:RB}
+- {id: SR:MAG:VCM:24:CURRENT:RB}
+- {id: SR:MAG:VCM:24:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:24:CURRENT:RB}
+- {id: SR:MAG:VCM:25:CURRENT:RB}
+- {id: SR:MAG:VCM:25:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:25:CURRENT:RB}
+- {id: SR:MAG:VCM:26:CURRENT:RB}
+- {id: SR:MAG:VCM:26:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:26:CURRENT:RB}
+- {id: SR:MAG:VCM:27:CURRENT:RB}
+- {id: SR:MAG:VCM:27:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:27:CURRENT:RB}
+- {id: SR:MAG:VCM:28:CURRENT:RB}
+- {id: SR:MAG:VCM:28:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:28:CURRENT:RB}
+- {id: SR:MAG:VCM:29:CURRENT:RB}
+- {id: SR:MAG:VCM:29:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:29:CURRENT:RB}
+- {id: SR:MAG:VCM:30:CURRENT:RB}
+- {id: SR:MAG:VCM:30:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:30:CURRENT:RB}
+- {id: SR:MAG:VCM:31:CURRENT:RB}
+- {id: SR:MAG:VCM:31:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:31:CURRENT:RB}
+- {id: SR:MAG:VCM:32:CURRENT:RB}
+- {id: SR:MAG:VCM:32:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:32:CURRENT:RB}
+- {id: SR:MAG:VCM:33:CURRENT:RB}
+- {id: SR:MAG:VCM:33:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:33:CURRENT:RB}
+- {id: SR:MAG:VCM:34:CURRENT:RB}
+- {id: SR:MAG:VCM:34:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:34:CURRENT:RB}
+- {id: SR:MAG:VCM:35:CURRENT:RB}
+- {id: SR:MAG:VCM:35:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:35:CURRENT:RB}
+- {id: SR:MAG:VCM:36:CURRENT:RB}
+- {id: SR:MAG:VCM:36:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:36:CURRENT:RB}
+- {id: SR:MAG:VCM:37:CURRENT:RB}
+- {id: SR:MAG:VCM:37:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:37:CURRENT:RB}
+- {id: SR:MAG:VCM:38:CURRENT:RB}
+- {id: SR:MAG:VCM:38:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:38:CURRENT:RB}
+- {id: SR:MAG:VCM:39:CURRENT:RB}
+- {id: SR:MAG:VCM:39:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:39:CURRENT:RB}
+- {id: SR:MAG:VCM:40:CURRENT:RB}
+- {id: SR:MAG:VCM:40:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:40:CURRENT:RB}
+- {id: SR:MAG:VCM:41:CURRENT:RB}
+- {id: SR:MAG:VCM:41:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:41:CURRENT:RB}
+- {id: SR:MAG:VCM:42:CURRENT:RB}
+- {id: SR:MAG:VCM:42:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:42:CURRENT:RB}
+- {id: SR:MAG:VCM:43:CURRENT:RB}
+- {id: SR:MAG:VCM:43:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:43:CURRENT:RB}
+- {id: SR:MAG:VCM:44:CURRENT:RB}
+- {id: SR:MAG:VCM:44:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:44:CURRENT:RB}
+- {id: SR:MAG:VCM:45:CURRENT:RB}
+- {id: SR:MAG:VCM:45:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:45:CURRENT:RB}
+- {id: SR:MAG:VCM:46:CURRENT:RB}
+- {id: SR:MAG:VCM:46:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:46:CURRENT:RB}
+- {id: SR:MAG:VCM:47:CURRENT:RB}
+- {id: SR:MAG:VCM:47:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:47:CURRENT:RB}
+- {id: SR:MAG:VCM:48:CURRENT:RB}
+- {id: SR:MAG:VCM:48:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:48:CURRENT:RB}
+- {id: SR:MAG:VCM:49:CURRENT:RB}
+- {id: SR:MAG:VCM:49:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:49:CURRENT:RB}
+- {id: SR:MAG:VCM:50:CURRENT:RB}
+- {id: SR:MAG:VCM:50:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:50:CURRENT:RB}
+- {id: SR:MAG:VCM:51:CURRENT:RB}
+- {id: SR:MAG:VCM:51:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:51:CURRENT:RB}
+- {id: SR:MAG:VCM:52:CURRENT:RB}
+- {id: SR:MAG:VCM:52:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:52:CURRENT:RB}
+- {id: SR:MAG:VCM:53:CURRENT:RB}
+- {id: SR:MAG:VCM:53:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:53:CURRENT:RB}
+- {id: SR:MAG:VCM:54:CURRENT:RB}
+- {id: SR:MAG:VCM:54:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:54:CURRENT:RB}
+- {id: SR:MAG:VCM:55:CURRENT:RB}
+- {id: SR:MAG:VCM:55:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:55:CURRENT:RB}
+- {id: SR:MAG:VCM:56:CURRENT:RB}
+- {id: SR:MAG:VCM:56:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:56:CURRENT:RB}
+- {id: SR:MAG:VCM:57:CURRENT:RB}
+- {id: SR:MAG:VCM:57:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:57:CURRENT:RB}
+- {id: SR:MAG:VCM:58:CURRENT:RB}
+- {id: SR:MAG:VCM:58:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:58:CURRENT:RB}
+- {id: SR:MAG:VCM:59:CURRENT:RB}
+- {id: SR:MAG:VCM:59:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:59:CURRENT:RB}
+- {id: SR:MAG:VCM:60:CURRENT:RB}
+- {id: SR:MAG:VCM:60:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:60:CURRENT:RB}
+- {id: SR:MAG:VCM:61:CURRENT:RB}
+- {id: SR:MAG:VCM:61:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:61:CURRENT:RB}
+- {id: SR:MAG:VCM:62:CURRENT:RB}
+- {id: SR:MAG:VCM:62:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:62:CURRENT:RB}
+- {id: SR:MAG:VCM:63:CURRENT:RB}
+- {id: SR:MAG:VCM:63:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:63:CURRENT:RB}
+- {id: SR:MAG:VCM:64:CURRENT:RB}
+- {id: SR:MAG:VCM:64:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:64:CURRENT:RB}
+- {id: SR:MAG:VCM:65:CURRENT:RB}
+- {id: SR:MAG:VCM:65:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:65:CURRENT:RB}
+- {id: SR:MAG:VCM:66:CURRENT:RB}
+- {id: SR:MAG:VCM:66:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:66:CURRENT:RB}
+- {id: SR:MAG:VCM:67:CURRENT:RB}
+- {id: SR:MAG:VCM:67:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:67:CURRENT:RB}
+- {id: SR:MAG:VCM:68:CURRENT:RB}
+- {id: SR:MAG:VCM:68:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:68:CURRENT:RB}
+- {id: SR:MAG:VCM:69:CURRENT:RB}
+- {id: SR:MAG:VCM:69:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:69:CURRENT:RB}
+- {id: SR:MAG:VCM:70:CURRENT:RB}
+- {id: SR:MAG:VCM:70:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:70:CURRENT:RB}
+- {id: SR:MAG:VCM:71:CURRENT:RB}
+- {id: SR:MAG:VCM:71:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:71:CURRENT:RB}
+- {id: SR:MAG:VCM:72:CURRENT:RB}
+- {id: SR:MAG:VCM:72:CURRENT:SP, role: setpoint, pair: SR:MAG:VCM:72:CURRENT:RB}

@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
+from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._panel_host import PanelHost, open_panel_host
 
 if TYPE_CHECKING:
@@ -792,6 +793,7 @@ def test_req2_click_and_keyboard_selection_record_the_hash(
     wait_for_hash(page, canonical(sel="E2"))
 
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
     expect(row(page, "E2")).to_have_attribute("aria-selected", "true")
     page.close()
@@ -813,6 +815,7 @@ def test_req2_reload_restores_query_mode_selection_and_attachment(
     assert searches[-1].json()["mode"] == "semantic"
 
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(page.search_box()).to_have_value("beam")
     expect(page.locator("#ariel-mode-chip")).to_have_attribute("data-mode", "semantic")
     expect(page.locator("#image-lightbox")).to_be_visible()
@@ -1049,6 +1052,7 @@ def test_req6_pane_sizes_survive_reload(ariel_url: str, chromium_browser: Browse
     assert any("ariel-rail-embedded" in k for k in _storage_keys(page, "ariel-rail-"))
 
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
     expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
     assert abs(width(page, "#ariel-rail") - rail_w) <= 2
@@ -1151,6 +1155,7 @@ def test_mailbox_mine_asks_for_the_name_then_scopes_the_list(
 
     # The name is remembered: a reload on box=mine lists alice's entries directly.
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(row(page, "E4")).to_be_visible()
     expect(field_).to_be_hidden()
     page.close()
@@ -1186,6 +1191,7 @@ def test_mailbox_saved_search_saves_runs_and_removes(
 
     # Survives a reload (browser storage), then removal drops it and returns to All.
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(saved).to_be_visible()
     page.click('#ariel-rail [data-remove-saved="Beam"]')
     expect(saved).to_have_count(0)
@@ -1646,6 +1652,7 @@ def test_facet_filter_survives_reload(ariel_url: str, chromium_browser: Browser)
 
     backend.requests.clear()
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(_rows(page)).to_have_count(2)
     expect(_facet(page, "author", "alice")).to_have_attribute("aria-pressed", "true")
     wait_for_call(
@@ -1793,6 +1800,7 @@ def test_badge_strip_is_on_by_default_and_its_menu_entry_persists(
     expect(cells).to_have_count(0)
 
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(row(page, "E1")).to_be_visible()
     expect(cells).to_have_count(0)
     expect(toggle).to_have_attribute("aria-checked", "false")
@@ -1998,6 +2006,7 @@ def test_compose_draft_address_opens_the_draft_and_never_submits_it(
     wait_for_hash(page, canonical(compose="draft:D1"))
 
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(page.locator("#entry-subject")).to_have_value("Drafted by the agent")
     wait_for_hash(page, canonical(compose="draft:D1"))
     page.wait_for_timeout(500)
@@ -2213,6 +2222,7 @@ def test_compose_autosave_survives_reload_and_close_never_credentials(
 
     # Reload: a new entry is not in the address, so the sheet reopens by hand.
     page.reload(wait_until="load")
+    wait_for_page_ready(page)
     expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
     expect(_sheet(page)).to_be_hidden()
     compose(page)

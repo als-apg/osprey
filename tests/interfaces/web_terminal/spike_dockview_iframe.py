@@ -244,7 +244,7 @@ def main() -> int:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
                 page = browser.new_page(viewport={"width": 1400, "height": 800})
-                page.goto(url)
+                page.goto(url)  # page-ready: the spike's own fixture page, not an OSPREY page
                 page.wait_for_selector(".dv-tab", timeout=5000)
                 # Wait for the iframe's first load, then plant mutable state.
                 page.wait_for_function(

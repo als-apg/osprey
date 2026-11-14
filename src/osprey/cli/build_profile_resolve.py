@@ -537,7 +537,7 @@ def resolve_build_document(
     (:mod:`osprey.cli.variant_selection`): inheritance layers over the
     deployment's ``profile.yml``, merged through :func:`~osprey.cli.build_profile_merge._deep_merge` before its
     ``extends:`` is resolved, so string lists union and ``exclude:`` subtracts,
-    as in any other layer. For a tier or app file they lay over the root it
+    as in any other layer. For a login file they lay over the root it
     merges over, not over the file itself. ``set_pairs``
     are edits, applied by :func:`apply_cli_edits` AFTER resolution: each
     replaces the value at the key it names.

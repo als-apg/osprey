@@ -30,7 +30,7 @@ import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from osprey.services.watchdog.config import (
     ENGINE_AGENT,
@@ -42,6 +42,9 @@ from osprey.services.watchdog.verdict import ErrorType, Verdict, record_verdict
 from osprey_connectors.posture_store import state_dir
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.session_hold import open_flag
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey.services.watchdog.engines.agent import JudgeCredentials
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +261,8 @@ class WatchdogRunner:
     :param may_hold: Asked when a flagged verdict would open a flag; ``False``
         records the verdict and opens none. A run already in flight when an admin
         turns the watchdog off therefore ends without holding.
+    :param judge_grants: The terminal's judge read tokens, handed to the agent
+        engine so a run reaches its applications' read routes.
     """
 
     def __init__(
@@ -272,6 +277,7 @@ class WatchdogRunner:
         build_dir: Path | None = None,
         bound: RunBound | None = None,
         may_hold: Callable[[], bool] = lambda: True,
+        judge_grants: JudgeCredentials | None = None,
     ) -> None:
         self._definitions = tuple(d for d in definitions if d.enabled)
         self._recorder = recorder
@@ -284,6 +290,7 @@ class WatchdogRunner:
         self._build_dir = build_dir
         self._bound: RunBound = bound or InProcessBound()
         self._may_hold = may_hold
+        self._judge_grants = judge_grants
         self._tasks: set[asyncio.Task[Any]] = set()
         self._cancellable: set[asyncio.Task[Any]] = set()
         self._closing = False
@@ -485,7 +492,7 @@ class WatchdogRunner:
         if name == ENGINE_AGENT and self._build_dir is not None:
             from osprey.services.watchdog.engines.agent import AgentEngine
 
-            return AgentEngine(self._build_dir)
+            return AgentEngine(self._build_dir, judge_grants=self._judge_grants)
         raise RuntimeError(f"no {name} engine available")
 
     async def _finish(self, defn: WatchdogDefinition, ids: _Submission, verdict: Verdict) -> None:

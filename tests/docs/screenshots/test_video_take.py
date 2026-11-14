@@ -45,6 +45,8 @@ from docs.screenshots.videos import video_named
 
 SECRET = "s3cret/+=token"
 LANDING_LAYOUT = video_named("landing").layout
+# The engine's terminal path, which no registered video may name.
+TERMINAL_LAYOUT = Layout(surface="terminal", active=None, tiles=("artifacts",))
 CHAT_LAYOUT = Layout(surface="chat", active="okf", tiles=("okf",))
 
 # ---------------------------------------------------------------------------
@@ -66,12 +68,16 @@ class FakeWebSocket:
 
 
 class FakeLocator:
-    def __init__(self, log: list, selector: str) -> None:
+    def __init__(self, log: list, selector: str, world=None) -> None:
         self.log = log
         self.selector = selector
+        self.world = world
 
     @property
     def first(self) -> FakeLocator:
+        return self
+
+    def filter(self, **kwargs) -> FakeLocator:
         return self
 
     def bounding_box(self) -> dict:
@@ -79,6 +85,8 @@ class FakeLocator:
 
     def click(self, **kwargs) -> None:
         self.log.append(("click", self.selector))
+        if self.world is not None:
+            self.world.on_click(self.selector)
 
     def fill(self, text: str) -> None:
         self.log.append(("fill", text))
@@ -187,7 +195,14 @@ class FakePage:
         if script == video_chat.POINTER_JS:
             return "chat-uuid"
         if script == video_chat.TEXT_JS:
+            if self.world is not None and self.world.screen is not None:
+                return self.world.screen
             return self.scenario.get("chat", "one")
+        if script == video_chat.FOCUS_JS:
+            self.log.append(("focused?",))
+            return self.world.focus if self.world is not None else True
+        if script == video_beats._SHOWN_JS:
+            return self.world is not None and self.world.shown(*arg)
         if script == video_chat.SCROLL_END_JS:
             self.log.append(("scroll-end",))
             return None
@@ -207,7 +222,7 @@ class FakePage:
             self.world.advance(ms)
 
     def locator(self, selector: str) -> FakeLocator:
-        return FakeLocator(self.log, selector)
+        return FakeLocator(self.log, selector, self.world)
 
 
 class FakeCDP:
@@ -318,7 +333,7 @@ def _index(log: list, name: str) -> int:
 
 def test_bootstrap_runs_the_fr2_sequence_in_order(env) -> None:
     browser = FakeBrowser(env.log)
-    start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     order = [
         "restart",
         "new_context",
@@ -337,7 +352,7 @@ def test_bootstrap_runs_the_fr2_sequence_in_order(env) -> None:
 
 
 def test_bootstrap_restart_posts_with_secret_header(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     (request,) = env.requests
     assert request.full_url == "http://127.0.0.1:9999/api/terminal/restart"
     assert request.get_method() == "POST"
@@ -354,14 +369,14 @@ def test_bootstrap_restart_failure_names_the_step(env, monkeypatch) -> None:
     monkeypatch.setattr(video_take.urllib.request, "urlopen", boom)
     browser = FakeBrowser(env.log)
     with pytest.raises(ProbeFailed) as exc:
-        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+        start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     assert exc.value.step == "restart"
     assert browser.contexts == []
 
 
 def test_bootstrap_fresh_1920x1080_context_with_overlay(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "light", LANDING_LAYOUT)
+    take = start_take(browser, env.stack, "light", TERMINAL_LAYOUT)
     (ctx,) = browser.contexts
     assert ctx.viewport == {"width": 1920, "height": 1080}
     assert ctx.init_scripts == [OVERLAY_JS, capture.TERMINAL_SURFACE_INIT]
@@ -371,8 +386,8 @@ def test_bootstrap_fresh_1920x1080_context_with_overlay(env) -> None:
 
 def test_bootstrap_closes_the_previous_context(env) -> None:
     browser = FakeBrowser(env.log)
-    first = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
-    second = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    first = start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
+    second = start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     assert browser.contexts[0].closed
     assert not browser.contexts[1].closed
     assert first.closed and env.stack.current is second
@@ -386,7 +401,7 @@ def test_bootstrap_closes_the_previous_context(env) -> None:
 
 def test_bootstrap_loads_once_with_token_theme_and_the_default_rail(env) -> None:
     # The preset's own layout, with its vertical left rail.
-    start_take(FakeBrowser(env.log), env.stack, "light", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "light", TERMINAL_LAYOUT)
     gotos = [e for e in env.log if e[0] == "goto"]
     assert len(gotos) == 1
     assert not [e for e in env.log if e[0] == "reload"]
@@ -399,14 +414,14 @@ def test_bootstrap_loads_once_with_token_theme_and_the_default_rail(env) -> None
 
 
 def test_bootstrap_records_the_terminal_session_id(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     assert take.session_id == "sess-123"
 
 
 def test_bootstrap_missing_session_info_fails_the_take(env) -> None:
     browser = FakeBrowser(env.log, {"session_info": False})
     with pytest.raises(ProbeFailed) as exc:
-        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+        start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     assert exc.value.step == "session-info"
     # The half-built take stays current so the next start_take closes it.
     assert env.stack.current is not None
@@ -416,7 +431,7 @@ def test_bootstrap_missing_session_info_fails_the_take(env) -> None:
 
 
 def test_bootstrap_waits_for_settled_layout_then_widens(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     settle = next(e for e in env.log if e[0] == "settle")
     widen = next(e for e in env.log if e[0] == "widen")
     assert settle[1] > 0
@@ -430,7 +445,7 @@ def test_bootstrap_waits_for_settled_layout_then_widens(env) -> None:
 @pytest.mark.parametrize("scenario", [{"settled": False}, {"widened": False}])
 def test_bootstrap_layout_failure_names_the_step(env, scenario) -> None:
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", LANDING_LAYOUT)
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", TERMINAL_LAYOUT)
     assert exc.value.step == "layout"
     assert not [e for e in env.log if e[0] == "click"]
 
@@ -439,7 +454,7 @@ def test_bootstrap_clicks_terminal_then_awaits_repl(env) -> None:
     browser = FakeBrowser(env.log, {"xterm": "Quick safety check\nYes, I trust this folder"})
     with pytest.raises(ProbeFailed) as exc:
         # The fake never reaches the REPL marker, so the probe runs out its budget.
-        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+        start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     assert exc.value.step == "repl-ready"
     assert ("click", "#terminal-container") in env.log
     assert [e for e in env.log if e[0] == "press"] == [("press", "Enter")]
@@ -447,7 +462,7 @@ def test_bootstrap_clicks_terminal_then_awaits_repl(env) -> None:
 
 
 def test_bootstrap_snapshots_artifacts_before_the_screencast(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     assert take.before_ids == {"a1", "a2"}
     assert ("artifact_ids", 4242, SECRET) in env.log
     start = next(e for e in env.log if e[:2] == ("cdp", "Page.startScreencast"))
@@ -463,7 +478,7 @@ def test_a_frame_after_the_screencast_stopped_is_dropped(env) -> None:
     from playwright.sync_api import Error as PlaywrightError
 
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    take = start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     take.close()
     cdp = browser.contexts[0].cdp
 
@@ -484,7 +499,7 @@ def test_a_frame_after_the_screencast_stopped_is_dropped(env) -> None:
 
 def test_bootstrap_screencast_frames_reach_the_sink_and_are_acked(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    take = start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     cdp = browser.contexts[0].cdp
     cdp.emit(
         "Page.screencastFrame",
@@ -504,7 +519,7 @@ def test_bootstrap_screencast_frames_reach_the_sink_and_are_acked(env) -> None:
 
 def test_bootstrap_close_stops_screencast_and_is_idempotent(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    take = start_take(browser, env.stack, "dark", TERMINAL_LAYOUT)
     take.close()
     take.close()
     stops = [e for e in env.log if e[:2] == ("cdp", "Page.stopScreencast")]
@@ -724,9 +739,9 @@ class World:
 
     Each take plan is a dict; keys (all optional):
     ``plot`` ("3d" | "2d"), ``plot_error``, ``ask_during_plot``, ``asks`` (list
-    of (tool, detail, tool_use_id)), ``post_error``, ``draft_after_enters``
-    (approval Enters needed before the draft appears; 0 = never),
-    ``tool_result`` ("entry" | "block"), ``late_ask``, ``drag_deg``,
+    of (tool, detail, tool_use_id)), ``post_error``, ``no_card_to_allow`` (the
+    ask is logged but the chat never shows its card), ``no_draft`` (allowing
+    the call saves no draft), ``drag_deg``,
     ``arrivals`` (``(id, artifact_type, seconds_after_prompt)`` cards that
     land in the sidebar list before the plot), ``no_card`` / ``no_preview`` (ids
     whose row never shows / whose preview never renders),
@@ -770,7 +785,7 @@ class World:
         self.detach_on_open = False
         self.log: list = []
         self.asked = False
-        self.approval_enters = 0
+        self.allowed = 0
 
     @property
     def plan(self) -> dict:
@@ -920,7 +935,7 @@ class World:
         if text == video_landing.PROMPT_PLOT:
             self.take += 1
             self.pending = []
-            self.turn, self.draft, self.asked, self.approval_enters = "running", False, False, 0
+            self.turn, self.draft, self.asked, self.allowed = "running", False, False, 0
             self.azimuth = 0.0
             self.detach_pending = bool(self.plan.get("detach_once"))
             self.boxless_pending = bool(self.plan.get("boxless_once"))
@@ -963,26 +978,19 @@ class World:
             self.later(3, lambda: self.write_asks(*self.plan.get("asks", [ENTRY_CREATE])))
 
     def on_press(self, key: str) -> None:
-        if key != "Enter" or not self.asked:
+        pass
+
+    def shown(self, selector: str, text: str | None) -> bool:
+        """Whether the chat shows the approval card's Allow button."""
+        if selector != video_chat.ALLOW or text not in (None, "Allow"):
+            return False
+        return self.asked and not self.allowed and not self.plan.get("no_card_to_allow")
+
+    def on_click(self, selector: str) -> None:
+        if selector != video_chat.ALLOW or not self.shown(selector, "Allow"):
             return
-        self.approval_enters += 1
-        kind = self.plan.get("tool_result")
-        if kind and self.approval_enters == 1:
-            if kind == "entry":
-                entry = {"type": "tool_result", "tool_use_id": "tu-create"}
-            else:
-                entry = {
-                    "type": "user",
-                    "message": {
-                        "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "tu-create"}],
-                    },
-                }
-            with self.transcript.open("a") as fh:
-                fh.write(json.dumps(entry) + "\n")
-        if self.plan.get("late_ask") and self.approval_enters == 1:
-            self.later(1, lambda: self.write_asks(("mcp__ariel__entry_create", None, "tu-2")))
-        if self.approval_enters == self.plan.get("draft_after_enters", 1):
+        self.allowed += 1
+        if not self.plan.get("no_draft"):
             self.later(1, self._set(draft=True))
 
     def camera(self) -> float:
@@ -1072,6 +1080,10 @@ def _enters(log: list) -> int:
     return sum(1 for e in log if e == ("press", "Enter"))
 
 
+def _allows(log: list) -> int:
+    return sum(1 for e in log if e == ("click", video_chat.ALLOW))
+
+
 def test_record_take_runs_the_fr1_beats_in_order(world_env) -> None:
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
@@ -1087,8 +1099,12 @@ def test_record_take_runs_the_fr1_beats_in_order(world_env) -> None:
         video_landing.PROMPT_POST,
     ]
     assert all(e[2] and e[2] > 0 for e in typed)
-    # Three prompt submissions plus exactly one approval.
-    assert _enters(world_env.log) == 4
+    # Three prompt submissions; the approval is one click on the card's Allow.
+    assert _enters(world_env.log) == 3
+    assert _allows(world_env.log) == 1
+    assert _index(world_env.log, "reveal-attachment") > world_env.log.index(
+        ("click", video_chat.ALLOW)
+    )
     steps = {s.name: s for s in timeline.steps}
     assert steps["approval-hold"].duration == pytest.approx(video_landing.APPROVAL_HOLD_MS / 1000)
     assert steps["close"].duration == pytest.approx(video_landing.CLOSE_HOLD_MS / 1000)
@@ -1108,7 +1124,7 @@ def test_record_take_reads_the_session_transcript_from_its_config_dir(world_env,
     record_take(take, timeline, LANDING)
     assert world_env.lookups["transcript_lookup"] == (
         world_env.stack.build_dir,
-        "sess-123",
+        "chat-uuid",
         tmp_path / "session-config",
     )
 
@@ -1121,7 +1137,7 @@ def test_record_take_authenticates_to_the_artifact_server(world_env) -> None:
 
 
 def test_bootstrap_snapshots_artifacts_with_the_operator_secret(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     assert ("artifact_ids", 4242, SECRET) in env.log
 
 
@@ -1196,7 +1212,7 @@ def test_record_take_a_card_that_never_opens_fails_fast(world_env, plan, budget_
         record_take(take, timeline, LANDING)
     assert exc.value.step == "open-artifact"
     assert "title of arch-0" in exc.value.detail
-    assert "preview: empty" in exc.value.detail and "? for shortcuts" in exc.value.detail
+    assert "preview: empty" in exc.value.detail and "last lines:\none" in exc.value.detail
     last = timeline.steps[-1]
     assert last.name == "open-artifact"
     assert last.duration <= getattr(video_landing, budget_ms) / 1000 + 1
@@ -1306,14 +1322,14 @@ def test_record_take_a_silent_correlation_wait_fails_at_the_stall_threshold(worl
     ids=["3d-only", "both", "none"],
 )
 def test_record_take_the_entry_must_attach_only_the_correlation_plot(world_env, attach, detail):
-    # Checked before the approving Enter, so a wrong entry is never created.
+    # Checked before the Allow click, so a wrong entry is never created.
     world = world_env.make_world({"attach": attach})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
         record_take(take, timeline, LANDING)
     assert exc.value.step == "post"
     assert detail in exc.value.detail
-    assert _enters(world_env.log) == 3
+    assert _enters(world_env.log) == 3 and _allows(world_env.log) == 0
 
 
 def test_record_take_the_closing_hold_shows_the_attachment(world_env) -> None:
@@ -1476,7 +1492,7 @@ def test_record_take_a_silent_agent_fails_at_the_stall_threshold(world_env) -> N
         record_take(take, timeline, LANDING)
     assert exc.value.step == "plot"
     assert "no progress" in exc.value.detail
-    assert "? for shortcuts" in exc.value.detail
+    assert "last lines:\none" in exc.value.detail
     duration = timeline.steps[-1].duration
     assert video_take.STALL_S <= duration < video_take.STALL_S + 2
 
@@ -1522,52 +1538,36 @@ def test_record_take_2d_plot_fails_the_plot_step(world_env) -> None:
     [[ENTRY_PUBLISH], [SELECTIVE], [UNNAMED], [ENTRY_CREATE, ENTRY_PUBLISH]],
     ids=["entry_publish", "selective", "unnamed", "entry_create+publish"],
 )
-def test_record_take_foreign_ask_fails_without_keypress(world_env, asks) -> None:
+def test_record_take_foreign_ask_fails_without_an_allow(world_env, asks) -> None:
     world = world_env.make_world({"asks": asks})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
         record_take(take, timeline, LANDING)
     assert exc.value.step == "approve"
     # Only the three prompt submissions: nothing was approved.
-    assert _enters(world_env.log) == 3
+    assert _enters(world_env.log) == 3 and _allows(world_env.log) == 0
     assert "approve" not in [s.name for s in timeline.steps]
 
 
-def test_record_take_retries_enter_once_when_first_was_swallowed(world_env) -> None:
-    world = world_env.make_world({"draft_after_enters": 2})
+def test_record_take_waits_for_the_card_before_the_approval_hold(world_env) -> None:
+    world = world_env.make_world({"no_card_to_allow": True})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline, LANDING)
-    assert _enters(world_env.log) == 5
-    assert timeline.steps[-1].name == "close"
-    draft = next(s for s in timeline.steps if s.name == "draft")
-    assert draft.duration >= video_landing.DRAFT_RETRY_AFTER_MS / 1000
+    with pytest.raises(ProbeFailed) as exc:
+        record_take(take, timeline, LANDING)
+    assert exc.value.step == "post"
+    assert "no approval card to allow" in exc.value.detail
+    assert "approval-hold" not in [s.name for s in timeline.steps]
+    assert _allows(world_env.log) == 0
 
 
-def test_record_take_never_retries_more_than_once(world_env) -> None:
-    world = world_env.make_world({"draft_after_enters": 0})
+def test_record_take_allows_once_and_never_answers_with_a_keypress(world_env) -> None:
+    world = world_env.make_world({"no_draft": True})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
         record_take(take, timeline, LANDING)
     assert exc.value.step == "draft"
-    assert _enters(world_env.log) == 5
-
-
-@pytest.mark.parametrize(
-    "plan",
-    [
-        {"draft_after_enters": 0, "tool_result": "entry"},
-        {"draft_after_enters": 0, "tool_result": "block"},
-        {"draft_after_enters": 0, "late_ask": True},
-    ],
-    ids=["tool_result-entry", "tool_result-block", "newer-ask"],
-)
-def test_record_take_no_retry_enter_when_unsafe(world_env, plan) -> None:
-    world = world_env.make_world(plan)
-    take, timeline = _run_take(world_env, world)
-    with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline, LANDING)
-    assert exc.value.step == "draft"
-    assert _enters(world_env.log) == 4
+    assert _allows(world_env.log) == 1
+    assert _enters(world_env.log) == 3
 
 
 def test_record_theme_records_one_take(world_env) -> None:
@@ -1694,6 +1694,7 @@ def test_the_gateway_billing_notice_is_already_acknowledged(monkeypatch, tmp_pat
 
     state = json.loads((config_dir / ".claude.json").read_text())
     assert state["autoModeClassifierBillingNoticeAcknowledgedAt"] == 1_790_000_000_500
+    assert state["hasSeenAutoDefaultNotice"] is True
     assert state["hasCompletedOnboarding"] is True
 
 
@@ -1724,10 +1725,10 @@ def test_missing_local_bundles_skip_with_the_fetch_command(monkeypatch, tmp_path
 
 
 def test_bootstrap_applies_the_layout_before_the_console_takes_focus(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     layout = _index(env.log, "layout")
     applied = env.log[layout]
-    assert applied[1]["active"] == "artifacts" and applied[1]["tiles"] == ["artifacts"]
+    assert applied[1]["active"] is None and applied[1]["tiles"] == ["artifacts"]
     assert _index(env.log, "widen") < layout < _index(env.log, "click")
 
 
@@ -1785,7 +1786,7 @@ def _screencast_at(log: list) -> int:
 
 
 def test_the_screencast_starts_after_a_settle(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     settle = env.log.index(("wait", video_take.SETTLE_MS))
     assert settle < _screencast_at(env.log)
 
@@ -1793,7 +1794,7 @@ def test_the_screencast_starts_after_a_settle(env) -> None:
 def test_a_tile_that_never_renders_fails_at_tiles_before_recording(env, monkeypatch) -> None:
     monkeypatch.setattr(video_layout, "tile_text", lambda _page, _panel: "")
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+        start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     assert exc.value.step == "tiles" and "'artifacts'" in exc.value.detail
     assert not [e for e in env.log if e[:2] == ("cdp", "Page.startScreencast")]
 
@@ -1801,7 +1802,7 @@ def test_a_tile_that_never_renders_fails_at_tiles_before_recording(env, monkeypa
 def test_a_tile_still_changing_is_not_yet_rendered(env, monkeypatch) -> None:
     texts = iter(["", "a", "ab", "abc", "abc", "abc", "abc"])
     monkeypatch.setattr(video_layout, "tile_text", lambda _page, _panel: next(texts))
-    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT)
     assert next(texts, None) is None
 
 
@@ -1850,7 +1851,7 @@ def test_a_history_that_never_ends_stalls_at_the_history_step(env) -> None:
 
 def test_the_terminal_refuses_a_history(env) -> None:
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT, history=("p",))
+        start_take(FakeBrowser(env.log), env.stack, "dark", TERMINAL_LAYOUT, history=("p",))
     assert exc.value.step == "history"
     assert not env.requests
 

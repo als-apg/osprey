@@ -2534,7 +2534,7 @@ describe('bundle wiring', () => {
   test('the manifest names the panel id the registry registers', () => {
     const manifest = JSON.parse(readFileSync(`${BUNDLE}manifest.json`, 'utf-8'));
     expect(manifest.id).toBe('bluesky');
-    expect(manifest.label).toBe('BLUESKY');
+    expect(manifest.label).toBe('Bluesky');
     expect(manifest.entry).toBe('index.html');
   });
 

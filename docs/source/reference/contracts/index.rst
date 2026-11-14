@@ -74,6 +74,15 @@ guides are the better starting point.
       What the facility graph stores, how its names are spelled, and what each
       of the four ``graph`` MCP tools returns.
 
+   .. grid-item-card:: Facility Kinds Contract
+      :link: facility-kinds
+      :link-type: doc
+      :shadow: md
+
+      What a package declares to register a measurement kind, what the build
+      judges and writes for it, and the signal roles, engine record words and
+      scenario stops a kind leans on.
+
    .. grid-item-card:: Bridge Dispatch Payload
       :link: bridge-dispatch
       :link-type: doc
@@ -127,6 +136,7 @@ guides are the better starting point.
    ariel
    channel-finder
    facility-graph
+   facility-kinds
    guarded-run
    audit-trail
    watchdog

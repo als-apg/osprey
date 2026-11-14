@@ -201,7 +201,9 @@ config:
   hooks.debug: false
 
   # ── Agent servers and subagents ────────────────────────────────────────────
-  # Only the controls server is on: channel reads, writes and archiver queries.
+  # The controls server (channel reads, writes, archiver queries) is on, beside
+  # Python, the workspace and facility knowledge, which are on by default; the
+  # two below stay off.
   claude_code.servers.controls.enabled: true
   # The logbook server stays off until there is a logbook to back it; the
   # demo preset shows it on.

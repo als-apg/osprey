@@ -1,9 +1,11 @@
-"""MCP tool: model_response_matrix — a served model's orbit response, read-only.
+"""MCP tool: model_response_matrix — a served model's response, read-only.
 
-``model_response_matrix(model=None, correctors=None)`` solves the orbit
+``model_response_matrix(model=None, correctors=None, kind="orbit")`` solves the
 response of a served model's wired monitors to its corrector setpoints on the
-model's own deck, through its engine plug-in's ``response_matrix()``. Nothing
-is written to the machine or to the deck.
+model's own deck, through its engine plug-in's ``response_matrix()``: the
+orbit readbacks' response, or with ``kind="trajectory"`` the first-turn
+response of the monitors' turn-buffer records. Nothing is written to the machine or to
+the deck.
 
 Everything is read from the render the server runs against (the directory of
 the rendered ``config.yml``): the simulator view's ``decks/<model>.json``, the
@@ -31,12 +33,14 @@ from typing import Any, NoReturn
 from osprey.mcp_server.errors import MISSING_KEY, make_error, refuse_nothing_answered
 from osprey.simulation import model_request as _request
 from osprey.simulation.model_request import (
+    DEFAULT_KIND,
     RESULT_TAG,
     STEP_KEY,
     ModelRequest,
     ModelRequestRefused,
     child_payload,
     child_script,
+    line_positions,
     result_line,
 )
 
@@ -72,7 +76,9 @@ def _refuse(message: str, suggestion: str) -> NoReturn:
     make_error("validation_error", message, [suggestion])
 
 
-def resolve_model_request(model: object, correctors: object, *, render_root: Path) -> ModelRequest:
+def resolve_model_request(
+    model: object, correctors: object, *, render_root: Path, kind: object = DEFAULT_KIND
+) -> ModelRequest:
     """Resolve a ``model_response_matrix`` call against the render it runs in.
 
     Args:
@@ -80,34 +86,46 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
         correctors: Corrector setpoint addresses the model wires, or ``None`` for
             every one, horizontal then vertical, in wiring order.
         render_root: The directory holding the rendered ``config.yml``.
+        kind: The response asked for, ``orbit`` or ``trajectory``.
 
     Returns:
         The resolved request.
 
     Raises:
         fastmcp.exceptions.ToolError: A ``validation_error`` envelope naming
-            the argument, the model or the file at fault.
+            the kind, the argument, the model or the file at fault.
     """
     try:
-        return _request.resolve_model_request(model, correctors, render_root=render_root)
+        return _request.resolve_model_request(model, correctors, render_root=render_root, kind=kind)
     except ModelRequestRefused as refused:
         _refuse(refused.message, refused.suggestion)
 
 
 def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
     view = request.view
+    row_positions, column_positions = line_positions(line)
+    rows: list[str] = line["rows"]
+    columns: list[str] = line["columns"]
     return {
         "model": request.model,
         "corrector_delta": request.corrector_delta,
         "unit": _UNIT,
-        "rows": [{"address": row, "device": _device(view, row)} for row in line["rows"]],
+        "rows": [
+            {
+                "address": row,
+                "device": _device(view, row),
+                "position": None if row_positions is None else row_positions[place],
+            }
+            for place, row in enumerate(rows)
+        ],
         "columns": [
             {
                 "address": address,
                 "device": request.devices.get(address),
                 "step": request.steps[address],
+                "position": None if column_positions is None else column_positions[place],
             }
-            for address in line["columns"]
+            for place, address in enumerate(columns)
         ],
         "matrix": line["matrix"],
         MISSING_KEY: line[MISSING_KEY],
@@ -115,9 +133,9 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def model_response_matrix(
-    model: str | None = None, correctors: list[str] | None = None
+    model: str | None = None, correctors: list[str] | None = None, kind: str = DEFAULT_KIND
 ) -> str:
-    """Solve a served model's orbit response to its correctors, on the model alone.
+    """Solve a served model's response to its correctors, on the model alone.
 
     Read-only: nothing is written to the machine or to the deck. Each corrector
     is stepped about the value the deck holds by the model's measurement-file
@@ -129,13 +147,22 @@ async def model_response_matrix(
             model.
         correctors: Corrector setpoint addresses; omit for every corrector the
             model wires, horizontal then vertical.
+        kind: ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``,
+            the first-turn response of the monitors' turn-buffer records. Any
+            other value is refused, naming the two; an engine that answers
+            only the orbit response refuses ``"trajectory"`` with its text.
 
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
-        device}`` per monitor readback), ``columns`` (``{address, device,
-        step}`` per solved corrector, ``step`` in its hardware unit),
-        ``matrix`` (one list per row) and ``missing`` (each corrector whose
-        step has no solve, mapped to the engine's text). When no corrector
+        device, position}`` per monitor readback; for ``"trajectory"`` per
+        monitor turn-buffer record, the ``turn_x`` and ``turn_y`` arrays, in
+        metres), ``columns`` (``{address, device, step, position}`` per
+        solved corrector, ``step`` in its hardware unit), ``matrix`` (one
+        list per row) and ``missing`` (each corrector whose step has no
+        solve, mapped to the engine's text). ``position`` is the lattice
+        element index: from the deck's first element for ``"orbit"``, from
+        the injection element in the order the bunch meets the elements for
+        ``"trajectory"``; ``null`` when the engine states none. When no corrector
         solves, the call is refused as ``nothing_answered`` with
         ``details.missing`` holding the same map (docs: Reference → Contracts →
         Partial Answers).
@@ -152,7 +179,7 @@ async def model_response_matrix(
     config_dir = resolve_config_dir()
     if config_dir is None:
         _refuse("no rendered config.yml to read the model from", "Run `osprey build`.")
-    request = resolve_model_request(model, correctors, render_root=Path(config_dir))
+    request = resolve_model_request(model, correctors, render_root=Path(config_dir), kind=kind)
 
     result = await executor.execute_code(
         code=_child_script(request),

@@ -51,7 +51,10 @@ from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED, RE
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
-from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
+from osprey.services.auth_sidecar.identity_headers import (
+    CASE_INSENSITIVE_CLAIMS,
+    canonical_identity,
+)
 from osprey_connectors import yaml_loader
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
@@ -321,6 +324,24 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     """
     panel = as_dict(as_dict(as_dict(config).get("web")).get("panels")).get(panel_id)
     return panel_spec_enabled(panel)
+
+
+def config_code_panels(config: Any) -> tuple[str, ...]:
+    """The panels ``config`` shows that run code a person types, in registry order.
+
+    The sidecar panels whose registry entry says so
+    (:attr:`~osprey.profiles.sidecar_panels.SidecarPanel.runs_code`) and that
+    ``config`` declares (:func:`config_declares_panel`). A panel switched off
+    starts no process and counts for nothing.
+
+    :param config: A parsed project config.
+    :return: The panel ids; empty when the project shows no such panel.
+    """
+    return tuple(
+        panel_id
+        for panel_id, panel in SIDECAR_PANELS.items()
+        if panel.runs_code and config_declares_panel(config, panel_id)
+    )
 
 
 def config_needs_dispatcher_token(config: Any) -> bool:
@@ -1024,12 +1045,17 @@ class PanelRosterGrant:
         grant — the container each per-user terminal proxies that panel's tab
         into with the operator secret ITS container holds.
     :ivar single_user_alias: Whether, on a deployment with no web-terminal
-        roster, the deployment-wide secret is accepted under the build
-        account's name.
+        roster, the deployment-wide secret is accepted under the single-user
+        operator's name (``deployment.host_identity``).
+    :ivar loopback_only: Whether the service publishes on loopback whatever
+        ``deployment.bind_address`` says, as an application container does.
+        ``False`` for a service that publishes on the deployment's interface:
+        its alias then holds only while that interface is loopback.
     """
 
     service: str
     single_user_alias: bool = False
+    loopback_only: bool = False
 
 
 class PanelCredential(TypedDict):
@@ -1059,7 +1085,7 @@ class PanelGrant(TypedDict):
 #: The rows no application projects: panel id → the service holding its grant.
 BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
     BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web"),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
 }
 
 
@@ -1089,8 +1115,12 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
                 f"services.{key}.roster_grant: panel {panel_id!r} already has its grant "
                 f"on service {table[panel_id].service!r}"
             )
+        # An application container never publishes off loopback
+        # (compose_generator._refuse_fragment_document refuses it).
         table[panel_id] = PanelRosterGrant(
-            service=str(key), single_user_alias=row.get("single_user_alias") is True
+            service=str(key),
+            single_user_alias=row.get("single_user_alias") is True,
+            loopback_only=True,
         )
     return table
 
@@ -1177,6 +1207,37 @@ def _panel_roster_grants(
     return grants
 
 
+def has_web_terminal_roster(config: Any) -> bool:
+    """Whether the deployment runs per-user web terminals: the multi-user shape.
+
+    The other shape is single-user: one ``osprey web`` on the host, whose
+    operator is ``deployment.host_identity``. Switched-off per-user terminals
+    hold no secret, so only the one terminal is left; a roster of shared cards
+    alone is a roster, each card holding its own secret.
+
+    :param config: The parsed deploy config.
+    """
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
+
+
+def single_user_alias_services(config: Any) -> frozenset[str]:
+    """The services whose panel may accept the deployment-wide terminal secret.
+
+    The rows of :func:`panel_roster_grant_table` with ``single_user_alias``, on
+    a deployment with no roster: the candidates :func:`service_panel_grant`
+    grants the alias to. Its further conditions (bind address, a nameable
+    operator) only ever narrow this set.
+
+    :param config: The parsed deploy config.
+    """
+    if has_web_terminal_roster(config):
+        return frozenset()
+    return frozenset(
+        row.service for row in panel_roster_grant_table(config).values() if row.single_user_alias
+    )
+
+
 def service_panel_grant(
     config: Any,
     project_root: Any,
@@ -1191,9 +1252,18 @@ def service_panel_grant(
     holder: one credential per entitled roster user, roster order, each read
     from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
     deployment with no roster, a row with ``single_user_alias`` instead accepts
-    the deployment-wide secret under the build account's name: one required
-    credential, the account's variable read from ``OSPREY_TERMINAL_SECRET``.
-    No credentials for every other service.
+    the deployment-wide secret under the single-user operator's name: one
+    required credential, the account's variable read from
+    ``OSPREY_TERMINAL_SECRET``. No credentials for every other service.
+
+    The alias rests on one equivalence: on a single-user host the deployment
+    secret is already the console's credential — ``osprey web`` admits it as the
+    console account and approves that account's writes — so naming the operator
+    at the panel's service gives its holder nothing the terminal does not. That
+    holds only where the terminal is the one door: ``osprey web`` listens on
+    loopback, so a service that publishes on a network interface would hand the
+    operator's name to a holder off this machine who cannot reach the terminal
+    at all. Such a service is granted no alias and names nobody, as before.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
@@ -1201,22 +1271,19 @@ def service_panel_grant(
     :param service_key: The service being rendered (``services.<k>``).
     :param layer_root: Where a build in flight has rendered its renders;
         see :func:`_render_configs`.
-    :param build_account: Names the account running the build, or ``None``
-        when it cannot be one; asked only for an alias row with no roster.
+    :param build_account: Names the single-user operator, or ``None`` when it
+        cannot be one; asked only for an alias row with no roster, on loopback.
         Without it no alias is granted.
     :return: ``{"credentials": [{var, source, owner, required}, ...]}``.
     """
+    from osprey.deployment.qmd_service import is_loopback_bind, resolve_bind_address
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
     for panel_id, row in panel_roster_grant_table(config).items():
         if row.service != service_key:
             continue
-        web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
-        # Switched-off per-user terminals hold no secret: only the one terminal is left.
-        # A roster of shared cards alone is a roster: each card holds its own secret.
-        has_roster = web_terminals.get("enabled") is not False and roster_entries(web_terminals)
-        if not row.single_user_alias or has_roster:
+        if not row.single_user_alias or has_web_terminal_roster(config):
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
                 "credentials": [
@@ -1224,6 +1291,8 @@ def service_panel_grant(
                     for name, var in grants
                 ]
             }
+        if not row.loopback_only and not is_loopback_bind(resolve_bind_address(config)):
+            break
         account = build_account() if build_account is not None else None
         if not account:
             break
@@ -1714,6 +1783,9 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
     reader looking for an entry called None. Its position is what identifies
     it instead, and ``index`` is the position the roster itself declares.
 
+    A login's ``apps.<name>`` entry (``kind`` :data:`APP_ENTRY_KIND` with a
+    ``login`` key) is named by its login, application and key instead.
+
     Args:
         entry: A roster entry, authored rather than normalized: neither key is
             known to be present or of the right type.
@@ -1723,6 +1795,9 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
         way so the message stands on its own.
     """
     name = entry.get("name")
+    login = entry.get("login")
+    if entry.get("kind") == APP_ENTRY_KIND and isinstance(login, str) and login:
+        return f"login {login!r} apps.{name}.access"
     if isinstance(name, str) and name and entry.get("kind") == APP_ENTRY_KIND:
         return f"modules.web_terminals.shared app {name!r}"
     if isinstance(name, str) and name:
@@ -2291,6 +2366,122 @@ def expand_tier_principals(
     }
     kept = {member for member in principals if not member.startswith(TIER_PRINCIPAL_PREFIX)}
     return frozenset(kept | members)
+
+
+def expand_login_principals(
+    principals: frozenset[str],
+    cards: Iterable[Mapping[str, Any]],
+    *,
+    login: str,
+    method: str | None,
+    claim: str | None = None,
+) -> frozenset[str]:
+    """Spell a login's ``apps.<name>.access`` set out to the identities it admits.
+
+    The terminal compares the identity the sidecar forwards and knows no roster,
+    no tier and no claim, so every member that names people by their place in
+    the roster is spelled out here, at build, as one ``user:<identity>`` per
+    person: ``self`` is each person whose card runs *login*, ``roster`` every
+    person, ``tier:`` as :func:`expand_tier_principals` spells it. A person's
+    identity is what the sidecar forwards for them: under ``oidc`` the
+    ``oidc_subject`` in its
+    :func:`~osprey.services.auth_sidecar.identity_headers.canonical_identity`
+    spelling (authored ``user:`` members take the same spelling), under
+    ``password`` the roster name; under any other method nobody is forwarded,
+    so those members admit nobody. ``domain:`` members pass through.
+
+    Args:
+        principals: A resolved principal set.
+        cards: :func:`resolve_cards`' output.
+        login: The login whose ``apps:`` entry carries the set.
+        method: The deployment's parsed ``auth.method``.
+        claim: The ID-token claim the deployment maps on (``None``: ``sub``).
+
+    Returns:
+        A set of ``user:`` and ``domain:`` members only.
+    """
+    cards = list(cards)
+    people = [card for card in cards if not is_app_entry(card)]
+    tiers = frozenset(m for m in principals if m.startswith(TIER_PRINCIPAL_PREFIX))
+
+    def spelled(member: str) -> str:
+        if method != "oidc" or not member.startswith("user:"):
+            return member
+        return "user:" + canonical_identity(member[len("user:") :], claim=claim)
+
+    def identities(selected: Iterable[Mapping[str, Any]]) -> set[str]:
+        key = {"oidc": "oidc_subject", "password": "name"}.get(method or "")
+        if key is None:
+            return set()
+        return {
+            spelled(f"user:{card[key]}")
+            for card in selected
+            if isinstance(card.get(key), str) and card[key]
+        }
+
+    out = {spelled(m) for m in principals if m.startswith(("user:", "domain:"))}
+    if "self" in principals:
+        out |= identities(card for card in people if card.get("render") == login)
+    if "roster" in principals:
+        out |= identities(people)
+    if method == "oidc":
+        out |= {spelled(m) for m in expand_tier_principals(tiers, cards)}
+    elif tiers:
+        tier_names = {m[len(TIER_PRINCIPAL_PREFIX) :] for m in tiers}
+        out |= identities(card for card in people if card.get("render") in tier_names)
+    return frozenset(out)
+
+
+def app_access_refusal(
+    resolved: frozenset[str], *, login: str, app: str, method: str | None
+) -> tuple[str, str] | None:
+    """Why a login's resolved ``apps.<name>.access`` set admits no browser caller.
+
+    The one predicate the build refuses on and lint reports: a set no forwarded
+    identity can match would hide the panel from every person while the build
+    looked fine. Under a method other than ``oidc`` or ``password`` the sidecar
+    forwards no identity at all; under ``password`` a forwarded identity is a
+    roster name, which never carries a domain; otherwise a set that spelled out
+    to no member names nobody.
+
+    Args:
+        resolved: :func:`expand_login_principals`' output.
+        login: The login whose entry carries the set.
+        app: The application.
+        method: The deployment's parsed ``auth.method`` (``None``: web
+            terminals are off or name no method).
+
+    Returns:
+        ``(code, message)`` — ``access_principal_without_idp`` when the method
+        forwards no identity the set could match, ``tier_principal_admits_nobody``
+        when the set names nobody — or ``None`` when somebody can match.
+    """
+    where = f"login {login!r} apps.{app}.access"
+    if method not in ("oidc", "password"):
+        return (
+            "access_principal_without_idp",
+            f"{where} admits no browser caller: auth.method is {method!r}, which forwards "
+            "no identity to compare it with. Set auth.method to oidc or password, or drop "
+            "the key so every user of the login opens the panel",
+        )
+    kinds = ("user:", "domain:") if method == "oidc" else ("user:",)
+    matchable = {m for m in resolved if m.startswith(kinds)}
+    if not matchable:
+        if method == "password" and resolved:
+            return (
+                "access_principal_without_idp",
+                f"{where} admits no browser caller: under auth.method 'password' the "
+                "forwarded identity is a roster name, which no domain: member holds. Name "
+                "the people (self, roster, tier:, user:), or set auth.method: oidc",
+            )
+        return (
+            "tier_principal_admits_nobody",
+            f"{where} admits no browser caller: it names no person the sidecar forwards "
+            f"under auth.method {method!r} (a tier nobody runs, or nobody with "
+            f"{'an oidc_subject' if method == 'oidc' else 'a roster card'}). Name somebody, "
+            "or drop the key so every user of the login opens the panel",
+        )
+    return None
 
 
 def app_card_refusal(name: str) -> str:

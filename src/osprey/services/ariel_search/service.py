@@ -1581,6 +1581,7 @@ async def create_ariel_service(
     config: ARIELConfig,
     *,
     serves_sql_tool: bool = False,
+    store_deadline_s: float | None = None,
 ) -> ARIELSearchService:
     """Create and initialize an ARIEL search service.
 
@@ -1593,9 +1594,15 @@ async def create_ariel_service(
             through, and it alone reports when there is none. Every other
             build -- ingestion, enhancement, the web app -- opens the
             ingestion pool only.
+        store_deadline_s: Seconds the caller gives the store to answer, held
+            by each pool's open. ``None`` means the caller states none.
 
     Returns:
         Initialized ARIELSearchService
+
+    Raises:
+        StoreSilentError: If the store does not answer within
+            *store_deadline_s*; no pool is left open.
 
     Usage:
         async with create_ariel_service(config) as service:
@@ -1605,11 +1612,17 @@ async def create_ariel_service(
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.ingestion.facility_references import load_facility_records
 
-    pool = await create_connection_pool(config.database)
-    repository = ARIELRepository(pool, config, facility_records=load_facility_records())
-    readonly_pool, readonly_pool_error = (
-        await _open_readonly_pool(config) if serves_sql_tool else (None, None)
-    )
+    pool = await create_connection_pool(config.database, deadline_s=store_deadline_s)
+    try:
+        repository = ARIELRepository(pool, config, facility_records=load_facility_records())
+        readonly_pool, readonly_pool_error = (
+            await _open_readonly_pool(config, store_deadline_s=store_deadline_s)
+            if serves_sql_tool
+            else (None, None)
+        )
+    except BaseException:
+        await pool.close()
+        raise
 
     return ARIELSearchService(
         config=config,
@@ -1622,6 +1635,8 @@ async def create_ariel_service(
 
 async def _open_readonly_pool(
     config: ARIELConfig,
+    *,
+    store_deadline_s: float | None = None,
 ) -> tuple[AsyncConnectionPool | None, str | None]:
     """Open the SELECT-only pool the agent's raw-SQL path queries through.
 
@@ -1636,12 +1651,21 @@ async def _open_readonly_pool(
     tool unavailable, with the reason recorded for it to report. Neither stops
     the service: every other tool is safe on the ingestion pool.
 
+    A store that does not answer is not a refused login: it is the store the
+    ingestion pool just reached, and its silence ends the service's open.
+
+    Args:
+        config: The ARIEL configuration.
+        store_deadline_s: The service's deadline; this pool reaches the same
+            store, so it shares it.
+
     Returns:
         The pool and ``None``, or ``None`` and why the resolved login could not
         be opened (``None`` too when there is no login to open).
     """
     from osprey.services.ariel_search.config import READONLY_URI_KEY
     from osprey.services.ariel_search.database.connection import create_connection_pool
+    from osprey.services.ariel_search.exceptions import StoreSilentError
 
     readonly_uri = config.database.readonly_uri
     if readonly_uri is None:
@@ -1651,7 +1675,12 @@ async def _open_readonly_pool(
         )
         return None, None
     try:
-        return await create_connection_pool(config.database, uri=readonly_uri, max_size=3), None
+        pool = await create_connection_pool(
+            config.database, uri=readonly_uri, max_size=3, deadline_s=store_deadline_s
+        )
+        return pool, None
+    except StoreSilentError:
+        raise
     except Exception as exc:  # any failure to open leaves the tool without a pool
         reason = f"{type(exc).__name__}: {exc}"
     logger.warning(

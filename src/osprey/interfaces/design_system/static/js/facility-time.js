@@ -195,6 +195,36 @@ export function facilityWallClock(value) {
   );
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The time of day of *date* in the resolved zone, in ms since its midnight.
+ * @param {Date} date
+ * @returns {number}
+ */
+function timeOfDay(date) {
+  const [hours, minutes, seconds] = facilityWallClock(date).slice(11).split(':').map(Number);
+  return Math.round(((hours * 60 + minutes) * 60 + seconds) * 1000);
+}
+
+/**
+ * The instant the calendar day of *value* starts in the resolved zone, as
+ * epoch ms: where "today" begins on the facility clock, for a comparison with
+ * other instants. Exact on a day the zone changes its offset too.
+ * @param {Date|string|number|null|undefined} value  A Date, an ISO string or epoch ms.
+ * @returns {number} Epoch ms, or `NaN` for empty or unparsable input.
+ */
+export function facilityDayStart(value) {
+  const date = toDate(value);
+  if (!date) return Number.NaN;
+  let start = date.getTime() - timeOfDay(date);
+  // A zone that changed its offset since midnight leaves that first reading
+  // off by the change: the clock reads 01:00 or 23:00 there, not 00:00.
+  const off = timeOfDay(new Date(start));
+  if (off) start += off > DAY_MS / 2 ? DAY_MS - off : -off;
+  return start;
+}
+
 /**
  * Whether the viewer's own zone shows the same wall time as the resolved zone
  * at *value*. Aliases and distinct zones at the same offset count as the same
