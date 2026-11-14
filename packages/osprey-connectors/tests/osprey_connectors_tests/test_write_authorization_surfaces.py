@@ -14,7 +14,6 @@ import json
 import os
 import time
 import uuid
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors._model import evolve
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefused,
@@ -99,7 +99,7 @@ def make_grant(**fields: Any) -> Grant:
         "holder": ME,
         "target": TARGET,
         "switch_epoch": epoch(),
-        "channels": {"A:SP": ChannelRange(0.0, 10.0)},
+        "channels": {"A:SP": ChannelRange(min=0.0, max=10.0)},
         "steps": 3,
         "issued_at_ns": now,
         "expires_at_ns": FAR_FUTURE_NS,
@@ -161,7 +161,7 @@ class TestStopRevokes:
 
     def test_a_named_stop_names_its_machines_only(self):
         on_va = make_grant()
-        on_live = make_grant(target="live", channels={"L:SP": ChannelRange(0, 1)})
+        on_live = make_grant(target="live", channels={"L:SP": ChannelRange(min=0, max=1)})
         _issue_grant(on_va)
         _issue_grant(on_live)
         control_context.set_switch(["live"], "off", by="alice")
@@ -199,7 +199,7 @@ class TestStopRevokes:
         self, monkeypatch, failure: Exception
     ):
         on_va = make_grant()
-        on_live = make_grant(target="live", channels={"L:SP": ChannelRange(0, 1)})
+        on_live = make_grant(target="live", channels={"L:SP": ChannelRange(min=0, max=1)})
         _issue_grant(on_va)
         _issue_grant(on_live)
         control_context.set_switch([TARGET], "asked", epoch=epoch())
@@ -254,7 +254,7 @@ class TestRequestFormat:
         payload = request_payload()
         request = _parse_request(json.dumps(payload))
         assert request.to_payload() == payload
-        assert request.channels["A:SP"] == ChannelRange(0.0, 10.0)
+        assert request.channels["A:SP"] == ChannelRange(min=0.0, max=10.0)
         assert request.completion == "restore"
 
     @pytest.mark.parametrize(
@@ -277,7 +277,7 @@ class TestRequestFormat:
     )
     def test_anything_else_is_unreadable(self, change: dict[str, Any]):
         with pytest.raises(ValueError):
-            _parse_request(request_payload(**change))
+            _parse_request(json.dumps(request_payload(**change)))
 
     @pytest.mark.parametrize(
         "change",
@@ -308,7 +308,9 @@ class TestRequestFormat:
         with pytest.raises(ValueError):
             _parse_request('{"schema": 1, "schema": 1}')
         with pytest.raises(ValueError):
-            _parse_request(request_payload(channels={"A:SP": {"min": 0, "max": float("inf")}}))
+            _parse_request(
+                json.dumps(request_payload(channels={"A:SP": {"min": 0, "max": float("inf")}}))
+            )
 
     def test_the_holder_writes_into_its_ledger_directory(self, tmp_path, monkeypatch):
         ledgers = tmp_path / "ledger"
@@ -332,7 +334,7 @@ class TestRequestFormat:
     def test_a_listing_reports_what_it_cannot_read_and_skips_other_names(self, tmp_path):
         directory = tmp_path / "requests"
         directory.mkdir()
-        good = _parse_request(request_payload())
+        good = _parse_request(json.dumps(request_payload()))
         (directory / f"{good.id}.json").write_text(json.dumps(good.to_payload()))
         broken = directory / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
@@ -359,7 +361,7 @@ class TestRequestFormat:
 class TestApproval:
     def test_a_request_past_a_ceiling_is_never_approved(self):
         """The approval's write applies the ceilings, so a budget past :data:`MAX_STEPS` refuses."""
-        request = replace(ask(), steps=wa.MAX_STEPS + 1)
+        request = evolve(ask(), steps=wa.MAX_STEPS + 1)
         with pytest.raises(ValueError):
             approve_request(request, surface="cli")
         assert approved_grant(request.id) is None
@@ -410,7 +412,7 @@ class TestApproval:
         assert refused.value.reason == "auth_expired"
 
     def test_another_owners_request_needs_its_record(self):
-        request = _parse_request(request_payload(owner="bob"))
+        request = _parse_request(json.dumps(request_payload(owner="bob")))
         with pytest.raises(AuthorizationRefused) as refused:
             approve_request(request, surface="cli")
         assert refused.value.reason == "owner_foreign"
@@ -475,7 +477,7 @@ class TestOverlap:
     @pytest.mark.parametrize(
         "fields",
         [
-            {"holder": "bluesky", "channels": {"Z:SP": ChannelRange(0, 1)}},
+            {"holder": "bluesky", "channels": {"Z:SP": ChannelRange(min=0, max=1)}},
             {"holder": "bluesky", "target": "live"},
             {"holder": "bluesky", "revoked": Revocation(at_ns=1, by="bob")},
             {"holder": ME},
@@ -603,7 +605,9 @@ class TestPruneAndShow:
         control_context.invalidate_cache()
         record = control_context.read_record()
         ledgers = [own_dir()]
-        assert wa.grant_standing(grant, record, ledgers) == wa.GrantStanding(grant, True, 0, None)
+        assert wa.grant_standing(grant, record, ledgers) == wa.GrantStanding(
+            grant=grant, in_force=True, used=0, ledger=None
+        )
         start_lease(grant.id)
         assert wa.grant_standing(grant, record, ledgers).in_force
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed

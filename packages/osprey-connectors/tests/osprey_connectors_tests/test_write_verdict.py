@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, write_verdict
@@ -657,5 +658,5 @@ def test_never_emits_the_lock_reasons(root):
 
 def test_verdict_is_frozen():
     verdict = WriteVerdict(allowed=True, reason=None, target="live", kind="real")
-    with pytest.raises(AttributeError):
+    with pytest.raises(ValidationError, match="frozen"):
         verdict.allowed = False  # type: ignore[misc]

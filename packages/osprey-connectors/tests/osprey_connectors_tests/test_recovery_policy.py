@@ -13,6 +13,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 from osprey_connectors.recovery import (
     Recovery,
@@ -334,24 +335,24 @@ def test_tickets_are_monotonic():
 
 def test_an_unknown_action_word_fails_at_construction():
     with pytest.raises(ValueError):
-        Recovery("child_rebooted", "Something happened.")
+        Recovery(action="child_rebooted", text="Something happened.")
 
 
 def test_an_empty_sentence_fails_at_construction():
     with pytest.raises(ValueError):
-        Recovery(RecoveryAction.CHILD_KEPT, "")
+        Recovery(action=RecoveryAction.CHILD_KEPT, text="")
 
 
 def test_a_record_coerces_its_action_word_and_renders_as_a_dict():
-    record = Recovery("child_kept", "Kept.")
+    record = Recovery(action="child_kept", text="Kept.")
 
     assert record.action is RecoveryAction.CHILD_KEPT
-    assert record.as_dict() == {"action": "child_kept", "text": "Kept."}
+    assert record.as_dict() == RecoveryRecord(action="child_kept", text="Kept.")
 
 
 def test_every_sentence_names_only_what_the_policy_knows():
     for (action, timing, _failure), text in recovery._SENTENCES.items():
-        Recovery(action, text)
+        Recovery(action=action, text=text)
         assert "{" not in text
         if action is RecoveryAction.RESPAWN_REFUSED:
             assert timing is Timing.EAGER

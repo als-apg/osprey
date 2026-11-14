@@ -62,6 +62,9 @@ from enum import Enum, StrEnum
 from functools import partial
 from typing import Protocol
 
+from pydantic import field_validator
+
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
@@ -112,21 +115,34 @@ class RecoveryAction(StrEnum):
     RESPAWN_REFUSED = "respawn_refused"
 
 
-@dataclass(frozen=True)
-class Recovery:
-    """One thing a supervisor did about a failure, in one sentence."""
+class Recovery(FrozenModel):
+    """One thing a supervisor did about a failure, in one sentence.
+
+    ``action`` takes the member or its word, and holds the member.
+    """
 
     action: RecoveryAction
     text: str
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "action", RecoveryAction(self.action))
-        if not self.text:
-            raise ValueError("a recovery record states what was done; its text is empty")
-
     def as_dict(self) -> RecoveryRecord:
         """The record as a failure's ``recovery`` carries it."""
-        return {"action": str(self.action), "text": self.text}
+        return RecoveryRecord(action=str(self.action), text=self.text)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _member(cls, action: object) -> RecoveryAction:
+        """The member *action* is, or whose word it is, as ``RecoveryAction(action)`` finds it."""
+        member = next((member for member in RecoveryAction if member == action), None)
+        if member is None:
+            raise ValueError(f"{action!r} is not a valid RecoveryAction")
+        return member
+
+    @field_validator("text")
+    @classmethod
+    def _stated(cls, text: str) -> str:
+        if not text:
+            raise ValueError("a recovery record states what was done; its text is empty")
+        return text
 
 
 class Supervised(Protocol):
@@ -358,4 +374,4 @@ class RecoveryPolicy:
         return self._record(action, failure)
 
     def _record(self, action: RecoveryAction, failure: _Failure) -> Recovery:
-        return Recovery(action, _SENTENCES[(action, self._timing, failure)])
+        return Recovery(action=action, text=_SENTENCES[(action, self._timing, failure)])

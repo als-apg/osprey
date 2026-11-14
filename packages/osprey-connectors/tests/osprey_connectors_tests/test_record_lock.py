@@ -268,13 +268,13 @@ _CHILD = """
         with cc._record_lock(path):
             current, _status = cc._read(path)
             if mode == "stop":
-                new = replace(
+                new = evolve(
                     current,
                     switch={},
                     switch_epoch=max(current.switch_epoch + 1, time.time_ns()),
                 )
             else:
-                new = replace(current, switch={**current.switch, "va": "asked"})
+                new = evolve(current, switch={**current.switch, "va": "asked"})
             mark("locked")
             time.sleep(hold)
             cc._write_record_unlocked(new, path)
@@ -286,7 +286,7 @@ _CHILD = """
         wait(wait_for)
         if mode == "terminus":
             updated = cc.terminus(
-                replace(seen, owner=me),
+                evolve(seen, owner=me),
                 request_id="req-1",
                 target=seen.target,
                 requested_at=0,
@@ -298,7 +298,7 @@ _CHILD = """
             )
             print(json.dumps({"confirmed": cc.write_terminus(updated, "req-1")}))
         else:
-            cc.write_record(replace(seen, owner=me, generation=seen.generation + 1))
+            cc.write_record(evolve(seen, owner=me, generation=seen.generation + 1))
             print(json.dumps({"confirmed": True}))
 """
 

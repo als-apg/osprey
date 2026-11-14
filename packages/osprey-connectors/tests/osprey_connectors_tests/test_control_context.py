@@ -13,13 +13,13 @@ import json
 import os
 import stat
 import threading
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors._model import evolve
 from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
 
@@ -141,7 +141,7 @@ def test_write_then_read_round_trips():
     stored = control_context.read_record()
     # A first write stamps the epoch (rule 3); every caller-set field round-trips,
     # and the posture field is the mirror of the (empty) switch.
-    assert stored == replace(
+    assert stored == evolve(
         record, switch_epoch=stored.switch_epoch, posture=control_context._posture_mirror({})
     )
     assert isinstance(stored.switch_epoch, int) and stored.switch_epoch > 0
@@ -328,8 +328,6 @@ def test_write_raises_when_the_record_has_nowhere_to_live():
 
 @pytest.mark.usefixtures("data_root")
 def test_refusal_terminus_moves_nothing_else():
-    import dataclasses
-
     applied = control_context.ControlContext(
         target="va",
         generation=7,
@@ -337,7 +335,7 @@ def test_refusal_terminus_moves_nothing_else():
         last_switch={"request_id": "r-1", "status": "applied", "generation": 7},
     )
     control_context.write_record(applied)
-    refusal = dataclasses.replace(
+    refusal = evolve(
         applied,
         last_switch={
             "request_id": "r-2",
@@ -1425,7 +1423,7 @@ def test_a_naive_bound_is_unconverged_as_utc():
     assert control_context.converged(record, reports, None) is False
 
 
-@pytest.mark.parametrize("block", [None, "applying", {"status": "applying"}, {"generation": 7}])
+@pytest.mark.parametrize("block", [None, {"status": "applying"}, {"generation": 7}])
 def test_a_block_naming_no_applying_generation_leaves_everyone_converged(block):
     record = _context()
     reports = [_report(4321, session="sess-other", last_switch=block)]
@@ -1796,7 +1794,7 @@ def test_the_switch_fields_round_trip_through_the_payload():
     )
     payload = record.to_payload()
     assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
-    mirrored = replace(record, posture=control_context._posture_mirror(record.switch))
+    mirrored = evolve(record, posture=control_context._posture_mirror(record.switch))
     assert control_context.parse_record(payload) == mirrored
     assert control_context.parse_record(json.dumps(payload)) == mirrored
 

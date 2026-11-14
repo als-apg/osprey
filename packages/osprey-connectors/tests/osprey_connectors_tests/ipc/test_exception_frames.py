@@ -25,6 +25,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
@@ -255,7 +256,7 @@ def test_an_unreachable_channel_round_trips_as_itself():
 def test_connector_unavailable_round_trips():
     # The recovery is not a wire field: the parent's supervisor decides it.
     original = ConnectorUnavailableError(
-        "PVA client context is gone", recovery=({"action": "child_replaced", "text": "x"},)
+        "PVA client context is gone", recovery=(RecoveryRecord(action="child_replaced", text="x"),)
     )
     rebuilt = _round_trip(original)
 

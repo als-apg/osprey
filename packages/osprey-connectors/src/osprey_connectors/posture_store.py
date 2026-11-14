@@ -134,13 +134,13 @@ import os
 import stat
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
 
 from typing_extensions import override
 
 from osprey_connectors import session_hold
+from osprey_connectors._model import FrozenModel, evolve
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
@@ -1107,8 +1107,7 @@ def write_ceiling(
 _SESSION_KEY_ENV_VAR: Final = "OSPREY_SESSION_ID"
 
 
-@dataclass(frozen=True)
-class WriteVerdict:
+class WriteVerdict(FrozenModel):
     """Whether one write may go ahead, and the one reason when it may not.
 
     Attributes:
@@ -1126,7 +1125,8 @@ class WriteVerdict:
             ceiling — and ``None`` on every refusal and from
             :func:`backstop_verdict`.
         detail: Words the refusal adds after its phrase, such as what raised a
-            session's hold. Not part of the decision, so verdicts compare without it.
+            session's hold. Not part of the decision, so verdicts compare and
+            hash without it.
         authorization: The id of the program's write authorization the verdict
             was decided by (:mod:`~osprey_connectors.write_authorization`), or
             ``None`` for a verdict no authorization took part in. An authorized
@@ -1138,8 +1138,29 @@ class WriteVerdict:
     target: str | None
     kind: Literal["real", "rehearsal", "simulator"] | None
     position: Literal["asked", "allowed"] | None = None
-    detail: str | None = field(default=None, compare=False)
+    detail: str | None = None
     authorization: str | None = None
+
+    def _decision(self) -> tuple[object, ...]:
+        """Every field but ``detail``: what two verdicts compare and hash by."""
+        return (
+            self.allowed,
+            self.reason,
+            self.target,
+            self.kind,
+            self.position,
+            self.authorization,
+        )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self) or not isinstance(other, WriteVerdict):
+            return NotImplemented
+        return self._decision() == other._decision()
+
+    @override
+    def __hash__(self) -> int:
+        return hash(self._decision())
 
 
 def write_verdict(
@@ -1397,7 +1418,7 @@ def _with_hold(
     held = session_hold_refusal(session_keys=session_keys)
     if held is None:
         return verdict
-    return replace(held, target=verdict.target, kind=verdict.kind)
+    return evolve(held, target=verdict.target, kind=verdict.kind)
 
 
 def _write_refusal(
