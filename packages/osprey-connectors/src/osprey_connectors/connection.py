@@ -38,11 +38,13 @@ import ssl
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from typing_extensions import override
+
+from osprey_connectors._model import FrozenModel
 
 __all__ = [
     "ConnectionSettings",
@@ -86,8 +88,7 @@ _MOVED_KEYS = {
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
-@dataclass(frozen=True)
-class Login:
+class Login(FrozenModel):
     """A login named by a connection block. It holds variable names, never a secret."""
 
     kind: LoginKind
@@ -107,13 +108,12 @@ class Login:
         return (name,) if name else ()
 
 
-@dataclass(frozen=True)
-class Credential:
+class Credential(FrozenModel):
     """A login resolved from the environment. Its repr never shows the secret."""
 
     kind: LoginKind
     username: str | None
-    secret: str = field(repr=False)
+    secret: str = Field(repr=False)
 
     def authorization_header(self) -> str:
         """The ``Authorization`` value: a bearer token, or HTTP Basic sent up front."""
@@ -123,8 +123,7 @@ class Credential:
         return "Basic " + base64.b64encode(pair).decode("ascii")
 
 
-@dataclass(frozen=True)
-class ConnectionSettings:
+class ConnectionSettings(FrozenModel):
     """An outbound connection block, read and checked. It never holds a secret."""
 
     where: str

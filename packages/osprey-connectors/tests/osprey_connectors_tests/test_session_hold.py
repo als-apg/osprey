@@ -523,3 +523,49 @@ def test_a_dangling_link_at_the_session_is_not_an_absent_record(root):
 def test_has_no_record_refuses_an_unsafe_key(root):
     with pytest.raises(ValueError):
         session_hold.has_no_record("../x", root=root)
+
+
+def test_a_rewrite_keeps_every_key_it_read_byte_for_byte(root):
+    """Keys a flag carries beyond the nine, and keys this version does not know, survive."""
+    flags = [
+        {
+            "flag_id": "f1",
+            "opened_at": "2026-01-01T00:00:00Z",
+            "prompt_excerpt": "e",
+            "prompt_ref": "p1",
+            "reason": "r",
+            "source": "watchdog:a",
+            "started": [],
+            "state": "open",
+            "stop_unconfirmed": False,
+            "custom": {"from": "a later version", "n": [1, 2.5, None]},
+        },
+        {
+            "answer": 7,
+            "answered_at": "2026-01-01T00:01:00Z",
+            "flag_id": "f2",
+            "opened_at": "2026-01-01T00:00:00Z",
+            "operator": "op",
+            "prompt_excerpt": "e",
+            "prompt_ref": "p2",
+            "reason": "r",
+            "source": "watchdog:a",
+            "started": [],
+            "state": "closed",
+            "stop_unconfirmed": False,
+        },
+    ]
+    path = _record_path(root)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"schema": 1, "session_key": KEY, "flags": flags}))
+
+    assert session_hold.mark_stop_unconfirmed(
+        KEY, ["f1"], operator="op2", started=("cmd",), root=root
+    ) == ("f1",)
+
+    stamp = _payload(root)["flags"][0]["stop_marked_at"]
+    flags[0].update(
+        stop_unconfirmed=True, started=["cmd"], stop_operator="op2", stop_marked_at=stamp
+    )
+    expected = {"schema": 1, "session_key": KEY, "flags": flags}
+    assert path.read_bytes() == (json.dumps(expected, indent=2, sort_keys=True) + "\n").encode()

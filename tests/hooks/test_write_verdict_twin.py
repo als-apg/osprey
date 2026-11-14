@@ -317,7 +317,11 @@ def test_parse_switch_matches_the_package(value):
 @pytest.mark.parametrize("value", [v for v in _SWITCH_VALUES if isinstance(v, dict)], ids=repr)
 @pytest.mark.parametrize("target", ["live", "va", "standin", "future-target"])
 def test_switch_position_matches_the_package(value, target):
-    record = control_context.ControlContext(target="live", generation=1, switch=value)
+    # The package reads a switch map only through its parser, which keeps the
+    # string leaves; a record cannot be built holding any other.
+    record = control_context.parse_record(
+        {"schema": 1, "target": "live", "generation": 1, "switch": value}
+    )
 
     assert reader.switch_position({"switch": value}, target) == control_context.switch_position(
         record, target
@@ -492,7 +496,11 @@ def test_restated_store_names_match_the_package():
     assert reader.HOLD_RECORD_READ_LIMIT == session_hold._RECORD_READ_LIMIT
     assert reader.HOLD_SESSION_ENV_VAR == posture_store._SESSION_KEY_ENV_VAR
     assert reader._HOLD_SAFE_KEY == session_hold._SAFE_KEY.pattern
-    assert reader._HOLD_STR_FIELDS == session_hold._STR_FIELDS
+    assert reader._HOLD_STR_FIELDS == tuple(
+        name
+        for name, field in session_hold._FlagEntry.model_fields.items()
+        if field.annotation is str
+    )
 
 
 def test_tier_words_match_the_package():

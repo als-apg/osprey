@@ -2213,7 +2213,7 @@ class TestNoChildRefusal:
         assert "va" in str(refusal)
         # A dead child is never quietly restarted on the way to a read: the read
         # is refused, and the restart is named in its record.
-        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
+        assert [record.action for record in refusal.recovery] == ["child_replaced"]
         assert manager.has_child() is True
         assert len(manager.spawned) == 2
 

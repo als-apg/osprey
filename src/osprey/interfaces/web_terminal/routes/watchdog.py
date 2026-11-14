@@ -34,7 +34,7 @@ import logging
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -239,7 +239,7 @@ async def get_flags(
     flags = await asyncio.to_thread(open_flags, key, root=root)
     return {
         "enabled": True,
-        "flags": [{**asdict(flag), "watchdog": flag.source} for flag in flags],
+        "flags": [{**flag.model_dump(), "watchdog": flag.source} for flag in flags],
     }
 
 

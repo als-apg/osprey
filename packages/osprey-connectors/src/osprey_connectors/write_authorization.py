@@ -138,11 +138,21 @@ import stat
 import time
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, NoReturn, TypedDict, TypeGuard
+from typing import Final, Literal, NoReturn, Self, TypeVar
+
+from pydantic import (
+    Field,
+    ValidationError,
+    ValidationInfo,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors._model import FrozenModel, evolve
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
@@ -222,12 +232,8 @@ _MAX_LEASE_S: Final = 600.0
 #: it against its own.
 _LEASE_SKEW_GRACE_NS: Final = 60 * 1_000_000_000
 
-#: Who recorded an approval: the web terminal's chip, the CLI, or the switch
-#: itself standing at ``allowed`` (a self-issued grant).
-_SURFACES: Final = ("chip", "cli", "write_switch")
-_Surface = Literal["chip", "cli", "write_switch"]
-
-#: The surface of a self-issued grant.
+#: The surface of a self-issued grant: the switch itself standing at
+#: ``allowed``. A person approves from the web terminal's chip or the CLI.
 SELF_ISSUE_SURFACE: Final = "write_switch"
 
 _GRANT_SUFFIX: Final = ".json"
@@ -264,63 +270,88 @@ def _now_ns() -> int:
 
 
 # -- the formats --------------------------------------------------------------
+#
+# Each file holds one of the records below as a JSON object, with ``schema``
+# beside its fields: :meth:`Grant.to_payload` and the others write it, and
+# :func:`_parse_stored` reads it back. A record built in this process checks
+# only the types of its fields; the reader's rules (module rule 2: names that
+# are names, ids, counts, finite bounds, an order between two stamps) are its
+# validators too, and they run when a record is read from a file
+# (:data:`_FROM_FILE`). Every writer here reads back what it is about to write
+# (:func:`_issue_grant`, :func:`write_request`), so a record breaking them is
+# refused before it lands, at the point it always was.
+
+#: The validation context a record is read from a file under: it turns the
+#: reader's rules on.
+_FROM_FILE: Final = object()
 
 
-class _RangePayload(TypedDict):
-    min: float
-    max: float
+def _from_file(info: ValidationInfo[object]) -> bool:
+    """Whether the record is being read from a file, where the reader's rules apply."""
+    return info.context is _FROM_FILE
 
 
-class _ApproverPayload(TypedDict):
-    identity: str
-    surface: _Surface
-    at_ns: int
+def _named(value: str, info: ValidationInfo[object]) -> str:
+    """*value* read from a file must be a name: not blank, no space around it."""
+    if _from_file(info) and (not value.strip() or value != value.strip()):
+        raise ValueError("is not a name")
+    return value
 
 
-class _RevocationPayload(TypedDict):
-    at_ns: int
-    by: str
+def _at_least(value: int, minimum: int, info: ValidationInfo[object]) -> int:
+    if _from_file(info) and value < minimum:
+        raise ValueError(f"is not an integer of at least {minimum}")
+    return value
 
 
-class _GrantPayload(TypedDict):
-    """A grant file's JSON object: exactly :data:`_GRANT_KEYS`."""
+def _number(
+    value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
+) -> float:
+    """A number field's value: a float when read from a file, and as given when built here.
 
-    schema: int
-    id: str
-    owner: str
-    holder: str
-    target: str
-    switch_epoch: int
-    channels: dict[str, _RangePayload]
-    steps: int
-    issued_at_ns: int
-    expires_at_ns: int
-    lease_s: float
-    approver: _ApproverPayload
-    label: str
-    revoked: _RevocationPayload | None
-
-
-class _StepPayload(TypedDict):
-    n: int
-    at_ns: int
-    channels: list[str]
+    Read from a file, an integer is made a float, as the reader always made it,
+    so a rewrite of that file writes ``1.0`` for a ``1``. Built in this
+    process, an ``int`` or a ``float`` is kept as it was given, so a writer
+    handed ``60`` writes ``60``, as before; a ``bool``, and anything else JSON
+    would not write as a number (a numpy integer among them), is refused.
+    """
+    if _from_file(info):
+        number: float = handler(value)
+        return number
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("is not a number")
+    return value
 
 
-class _LedgerPayload(TypedDict):
-    """A ledger file's JSON object: exactly :data:`_LEDGER_KEYS`."""
-
-    schema: int
-    authorization: str
-    holder_pid: int | None
-    holder_start: str | None
-    pid_ns: str | None
-    lease_until_ns: int
-    steps: list[_StepPayload]
+def _positive_finite(value: float, info: ValidationInfo[object]) -> float:
+    """*value* read from a file must be a finite number above zero."""
+    if _from_file(info):
+        if not math.isfinite(value):
+            raise ValueError("is not finite")
+        if value <= 0:
+            raise ValueError("is not positive")
+    return value
 
 
-@dataclass(frozen=True)
-class ChannelRange:
+def _hex_id(value: str, info: ValidationInfo[object]) -> str:
+    if _from_file(info) and _ID.fullmatch(value) is None:
+        raise ValueError("is not a 32-digit lowercase hex string")
+    return value
+
+
+def _channel_map(
+    value: Mapping[str, ChannelRange], info: ValidationInfo[object]
+) -> Mapping[str, ChannelRange]:
+    """A file's ``channels`` must name at least one channel, by a non-blank address."""
+    if _from_file(info):
+        if not value:
+            raise ValueError("names no channel")
+        if any(not address.strip() for address in value):
+            raise ValueError("a channel address is empty")
+    return value
+
+
+class ChannelRange(FrozenModel):
     """The closed range of values one channel may be written with."""
 
     min: float
@@ -333,27 +364,61 @@ class ChannelRange:
         number = float(value)
         return math.isfinite(number) and self.min <= number <= self.max
 
+    @field_validator("min", "max", mode="wrap")
+    @classmethod
+    def _bound(
+        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
+    ) -> float:
+        return _number(value, handler, info)
 
-@dataclass(frozen=True)
-class Approver:
+    @model_validator(mode="after")
+    def _readable(self, info: ValidationInfo[object]) -> Self:
+        """Read from a file, both bounds are finite and ``min`` is not above ``max``."""
+        if _from_file(info):
+            if not (math.isfinite(self.min) and math.isfinite(self.max)):
+                raise ValueError("a bound is not finite")
+            if self.min > self.max:
+                raise ValueError("min is above max")
+        return self
+
+
+class Approver(FrozenModel):
     """Who recorded the approval, from which surface, and when."""
 
     identity: str
     surface: Literal["chip", "cli", "write_switch"]
     at_ns: int
 
+    @field_validator("identity")
+    @classmethod
+    def _identity(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _named(value, info)
 
-@dataclass(frozen=True)
-class Revocation:
+    @field_validator("at_ns")
+    @classmethod
+    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
+
+
+class Revocation(FrozenModel):
     """A stop that ended a grant: when, and whose gesture."""
 
     at_ns: int
     by: str
 
+    @field_validator("at_ns")
+    @classmethod
+    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
 
-@dataclass(frozen=True)
-class Grant:
-    """One authorization, as its file states it. Treat as immutable.
+    @field_validator("by")
+    @classmethod
+    def _by(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _named(value, info)
+
+
+class Grant(FrozenModel):
+    """One authorization, as its file states it.
 
     Attributes:
         id: ``uuid4().hex``; the file is ``<id>.json``.
@@ -388,52 +453,80 @@ class Grant:
 
     def to_payload(self) -> Mapping[str, object]:
         """This grant as the JSON object its file holds."""
-        payload: _GrantPayload = {
-            "schema": _SCHEMA_VERSION,
-            "id": self.id,
-            "owner": self.owner,
-            "holder": self.holder,
-            "target": self.target,
-            "switch_epoch": self.switch_epoch,
-            "channels": {
-                address: {"min": bound.min, "max": bound.max}
-                for address, bound in self.channels.items()
-            },
-            "steps": self.steps,
-            "issued_at_ns": self.issued_at_ns,
-            "expires_at_ns": self.expires_at_ns,
-            "lease_s": self.lease_s,
-            "approver": {
-                "identity": self.approver.identity,
-                "surface": self.approver.surface,
-                "at_ns": self.approver.at_ns,
-            },
-            "label": self.label,
-            "revoked": (
-                None
-                if self.revoked is None
-                else {"at_ns": self.revoked.at_ns, "by": self.revoked.by}
-            ),
-        }
-        return payload
+        return {"schema": _SCHEMA_VERSION, **self.model_dump()}
 
     def live_at(self, now_ns: int) -> bool:
         """Not revoked and not expired at *now_ns*. The lease is the ledger's."""
         return self.revoked is None and now_ns < self.expires_at_ns
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _hex_id(value, info)
 
-@dataclass(frozen=True)
-class LedgerStep:
+    @field_validator("owner", "holder", "target")
+    @classmethod
+    def _names(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _named(value, info)
+
+    @field_validator("switch_epoch", "issued_at_ns", "expires_at_ns")
+    @classmethod
+    def _stamps(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
+
+    @field_validator("steps")
+    @classmethod
+    def _steps(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 1, info)
+
+    @field_validator("channels")
+    @classmethod
+    def _channels(
+        cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
+    ) -> Mapping[str, ChannelRange]:
+        return _channel_map(value, info)
+
+    @field_validator("lease_s", mode="wrap")
+    @classmethod
+    def _lease(
+        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
+    ) -> float:
+        return _positive_finite(_number(value, handler, info), info)
+
+    @model_validator(mode="after")
+    def _expiry(self, info: ValidationInfo[object]) -> Self:
+        if _from_file(info) and self.expires_at_ns <= self.issued_at_ns:
+            raise ValueError("the grant expires before it was issued")
+        return self
+
+
+class LedgerStep(FrozenModel):
     """One write call spent: its number, when, and the channels it named."""
 
     n: int
     at_ns: int
-    channels: tuple[str, ...]
+    channels: tuple[str, ...] = Field(strict=False)
+
+    @field_validator("n")
+    @classmethod
+    def _number(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 1, info)
+
+    @field_validator("at_ns")
+    @classmethod
+    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
+
+    @field_validator("channels")
+    @classmethod
+    def _channels(cls, value: tuple[str, ...], info: ValidationInfo[object]) -> tuple[str, ...]:
+        if _from_file(info) and (not value or not all(value)):
+            raise ValueError("is not a non-empty list of names")
+        return value
 
 
-@dataclass(frozen=True)
-class Ledger:
-    """The holder's consumption of one authorization. Treat as immutable.
+class Ledger(FrozenModel):
+    """The holder's consumption of one authorization.
 
     Attributes:
         authorization: The grant's id.
@@ -452,23 +545,34 @@ class Ledger:
     holder_start: str | None
     pid_ns: str | None
     lease_until_ns: int
-    steps: tuple[LedgerStep, ...] = field(default_factory=tuple)
+    steps: tuple[LedgerStep, ...] = Field(default=(), strict=False)
 
     def to_payload(self) -> Mapping[str, object]:
         """This ledger as the JSON object its file holds."""
-        payload: _LedgerPayload = {
-            "schema": _SCHEMA_VERSION,
-            "authorization": self.authorization,
-            "holder_pid": self.holder_pid,
-            "holder_start": self.holder_start,
-            "pid_ns": self.pid_ns,
-            "lease_until_ns": self.lease_until_ns,
-            "steps": [
-                {"n": step.n, "at_ns": step.at_ns, "channels": list(step.channels)}
-                for step in self.steps
-            ],
-        }
-        return payload
+        return {"schema": _SCHEMA_VERSION, **self.model_dump(mode="json")}
+
+    @field_validator("authorization")
+    @classmethod
+    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _hex_id(value, info)
+
+    @field_validator("holder_pid")
+    @classmethod
+    def _pid(cls, value: int | None, info: ValidationInfo[object]) -> int | None:
+        return None if value is None else _at_least(value, 1, info)
+
+    @field_validator("lease_until_ns")
+    @classmethod
+    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
+
+    @model_validator(mode="after")
+    def _numbered(self, info: ValidationInfo[object]) -> Self:
+        if _from_file(info):
+            for index, step in enumerate(self.steps, start=1):
+                if step.n != index:
+                    raise ValueError(f"step {index} is numbered {step.n}")
+        return self
 
 
 class AuthorizationRefused(Exception):
@@ -507,33 +611,42 @@ def _load_json(raw: str | bytes | bytearray) -> object:
     return json.loads(raw, parse_constant=_reject_constant, object_pairs_hook=_no_repeated_keys)
 
 
-def _exact_keys(payload: object, keys: frozenset[str], what: str) -> dict[str, object]:
+def _first_error(exc: ValidationError) -> str:
+    """The first thing *exc* found wrong: the field it is at, and why."""
+    error = exc.errors(include_url=False)[0]
+    where = ".".join(str(part) for part in error["loc"])
+    return f"{where}: {error['msg']}" if where else error["msg"]
+
+
+_Stored = TypeVar("_Stored", bound=FrozenModel)
+
+
+def _parse_stored(model: type[_Stored], raw: str | bytes | bytearray, what: str) -> _Stored:
+    """A file's record out of its JSON text: exactly the record's fields, and the schema.
+
+    The text is JSON with no ``NaN``/``Infinity`` and no repeated key. Its
+    object holds ``schema``, exactly :data:`_SCHEMA_VERSION`, and every field
+    of *model*, a field with a default included, and nothing else; each field
+    is of its type and meets the reader's rules (:data:`_FROM_FILE`).
+
+    Raises:
+        ValueError: The text is not such a record. The message names *what*,
+            the field and the reason.
+    """
+    payload = _load_json(raw)
     if not isinstance(payload, dict):
         raise ValueError(f"{what} is not an object")
-    if set(payload) != keys:
-        raise ValueError(f"{what} has keys {sorted(payload)}, not {sorted(keys)}")
-    return payload
-
-
-def _name(value: object, what: str) -> str:
-    if not isinstance(value, str) or not value.strip() or value != value.strip():
-        raise ValueError(f"{what} is not a name")
-    return value
-
-
-def _integer(value: object, what: str, minimum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ValueError(f"{what} is not an integer of at least {minimum}")
-    return int(value)
-
-
-def _finite(value: object, what: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(f"{what} is not a number")
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError(f"{what} is not finite")
-    return number
+    fields = dict(payload)
+    if fields.pop("schema", None) is not _SCHEMA_VERSION:
+        raise ValueError(f"{what}'s schema is not {_SCHEMA_VERSION}")
+    try:
+        record = model.model_validate(fields, context=_FROM_FILE)
+    except ValidationError as exc:
+        raise ValueError(f"{what} is unreadable at {_first_error(exc)}") from None
+    unset = sorted(model.model_fields.keys() - record.model_fields_set)
+    if unset:
+        raise ValueError(f"{what} has no {', '.join(unset)}")
+    return record
 
 
 def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float) -> None:
@@ -560,165 +673,31 @@ def _authorization_id(value: object) -> str:
     return value
 
 
-def _is_surface(value: object) -> TypeGuard[_Surface]:
-    return value in _SURFACES
+def _parse_grant(raw: str | bytes | bytearray) -> Grant:
+    """A grant out of its file's JSON text (:func:`_parse_stored`).
 
-
-_GRANT_KEYS: Final = frozenset(
-    {
-        "schema",
-        "id",
-        "owner",
-        "holder",
-        "target",
-        "switch_epoch",
-        "channels",
-        "steps",
-        "issued_at_ns",
-        "expires_at_ns",
-        "lease_s",
-        "approver",
-        "label",
-        "revoked",
-    }
-)
-_RANGE_KEYS: Final = frozenset({"min", "max"})
-_APPROVER_KEYS: Final = frozenset({"identity", "surface", "at_ns"})
-_REVOKED_KEYS: Final = frozenset({"at_ns", "by"})
-_LEDGER_KEYS: Final = frozenset(
-    {"schema", "authorization", "holder_pid", "holder_start", "pid_ns", "lease_until_ns", "steps"}
-)
-_STEP_KEYS: Final = frozenset({"n", "at_ns", "channels"})
-
-
-def _parse_channels(value: object) -> dict[str, ChannelRange]:
-    if not isinstance(value, dict) or not value:
-        raise ValueError("channels is not a non-empty object")
-    channels: dict[str, ChannelRange] = {}
-    for address, bound in value.items():
-        if not isinstance(address, str) or not address.strip():
-            raise ValueError("a channel address is empty")
-        entry = _exact_keys(bound, _RANGE_KEYS, f"the range of {address!r}")
-        low = _finite(entry["min"], f"the min of {address!r}")
-        high = _finite(entry["max"], f"the max of {address!r}")
-        if low > high:
-            raise ValueError(f"the range of {address!r} has min above max")
-        channels[address] = ChannelRange(min=low, max=high)
-    return channels
-
-
-def _parse_grant(raw: object) -> Grant:
-    """A grant out of its JSON text, bytes or decoded object.
-
-    Every field must be present with its type, and nothing else may be: an
-    unknown schema, a missing or extra field, a repeated key, a bound that is
-    not a finite number, a range with ``min`` above ``max``, a ``steps`` below
-    one, an expiry not after the issue, an unknown surface — each is a grant
-    this version cannot honour. The ceilings are a writer's check
+    An unknown schema, a missing or extra field, a repeated key, a bound that
+    is not a finite number, a range with ``min`` above ``max``, a ``steps``
+    below one, an expiry not after the issue, an unknown surface — each is a
+    grant this version cannot honour. The ceilings are a writer's check
     (:func:`_within_ceilings`), not a reader's.
 
     Raises:
-        ValueError: The payload is not a grant this version can read.
+        ValueError: The text is not a grant this version can read.
     """
-    payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
-    payload = _exact_keys(payload, _GRANT_KEYS, "the grant")
-    if payload["schema"] is not _SCHEMA_VERSION:
-        raise ValueError(f"the grant's schema is not {_SCHEMA_VERSION}")
-    approver = _exact_keys(payload["approver"], _APPROVER_KEYS, "the approver")
-    surface = approver["surface"]
-    if not _is_surface(surface):
-        raise ValueError(f"the approver's surface {surface!r} is not one of {_SURFACES}")
-    revoked_raw = payload["revoked"]
-    revoked = None
-    if revoked_raw is not None:
-        entry = _exact_keys(revoked_raw, _REVOKED_KEYS, "the revocation")
-        revoked = Revocation(
-            at_ns=_integer(entry["at_ns"], "revoked.at_ns", 0), by=_name(entry["by"], "revoked.by")
-        )
-    issued = _integer(payload["issued_at_ns"], "issued_at_ns", 0)
-    expires = _integer(payload["expires_at_ns"], "expires_at_ns", 0)
-    if expires <= issued:
-        raise ValueError("the grant expires before it was issued")
-    lease_s = _finite(payload["lease_s"], "lease_s")
-    if lease_s <= 0:
-        raise ValueError("lease_s is not positive")
-    steps = _integer(payload["steps"], "steps", 1)
-    label = payload["label"]
-    if not isinstance(label, str):
-        raise ValueError("label is not a string")
-    return Grant(
-        id=_authorization_id(payload["id"]),
-        owner=_name(payload["owner"], "owner"),
-        holder=_name(payload["holder"], "holder"),
-        target=_name(payload["target"], "target"),
-        switch_epoch=_integer(payload["switch_epoch"], "switch_epoch", 0),
-        channels=_parse_channels(payload["channels"]),
-        steps=steps,
-        issued_at_ns=issued,
-        expires_at_ns=expires,
-        lease_s=lease_s,
-        approver=Approver(
-            identity=_name(approver["identity"], "approver.identity"),
-            surface=surface,
-            at_ns=_integer(approver["at_ns"], "approver.at_ns", 0),
-        ),
-        label=label,
-        revoked=revoked,
-    )
+    return _parse_stored(Grant, raw, "the grant")
 
 
-def _is_name_list(value: object) -> TypeGuard[list[str]]:
-    """Whether *value* is a non-empty list of non-empty strings."""
-    return isinstance(value, list) and bool(value) and all(isinstance(c, str) and c for c in value)
-
-
-def _optional_str(value: object, what: str) -> str | None:
-    if value is not None and not isinstance(value, str):
-        raise ValueError(f"{what} is neither a string nor null")
-    return value
-
-
-def _parse_ledger(raw: object) -> Ledger:
-    """A ledger out of its JSON text, bytes or decoded object.
+def _parse_ledger(raw: str | bytes | bytearray) -> Ledger:
+    """A ledger out of its file's JSON text (:func:`_parse_stored`).
 
     The same strictness as :func:`_parse_grant`; the steps must be numbered
     1, 2, … in order, each naming at least one channel.
 
     Raises:
-        ValueError: The payload is not a ledger this version can read.
+        ValueError: The text is not a ledger this version can read.
     """
-    payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
-    payload = _exact_keys(payload, _LEDGER_KEYS, "the ledger")
-    if payload["schema"] is not _SCHEMA_VERSION:
-        raise ValueError(f"the ledger's schema is not {_SCHEMA_VERSION}")
-    raw_pid = payload["holder_pid"]
-    holder_pid = None if raw_pid is None else _integer(raw_pid, "holder_pid", 1)
-    entries = payload["steps"]
-    if not isinstance(entries, list):
-        raise ValueError("steps is not a list")
-    steps = []
-    for index, raw_step in enumerate(entries, start=1):
-        entry = _exact_keys(raw_step, _STEP_KEYS, f"step {index}")
-        if _integer(entry["n"], f"step {index}'s n", 1) != index:
-            raise ValueError(f"step {index} is numbered {entry['n']}")
-        channels = entry["channels"]
-        if not _is_name_list(channels):
-            raise ValueError(f"step {index}'s channels is not a non-empty list of names")
-        steps.append(
-            LedgerStep(
-                n=index,
-                at_ns=_integer(entry["at_ns"], f"step {index}'s at_ns", 0),
-                channels=tuple(channels),
-            )
-        )
-    return Ledger(
-        authorization=_authorization_id(payload["authorization"]),
-        holder_pid=holder_pid,
-        holder_start=_optional_str(payload["holder_start"], "holder_start"),
-        pid_ns=_optional_str(payload["pid_ns"], "pid_ns"),
-        lease_until_ns=_integer(payload["lease_until_ns"], "lease_until_ns", 0),
-        steps=tuple(steps),
-    )
+    return _parse_stored(Ledger, raw, "the ledger")
 
 
 # -- where the files are ------------------------------------------------------
@@ -1142,7 +1121,7 @@ def _judge(
         )
         if not switch.allowed or switch.position != "allowed":
             ended = refuse("auth_revoked", "The switch is no longer at allowed.")
-            return replace(ended, ends=True)
+            return _Judgement(ended.verdict, ends=True)
 
     pairs = [] if operations is _ANY_WRITE else _operations(operations)
     if pairs is None or (not pairs and operations is not _ANY_WRITE):
@@ -1343,7 +1322,7 @@ def _lapse(place: _Place, authorization: str) -> None:
     """End the lease now, for good. The caller holds the ledger's lock."""
     status, ledger = _read_ledger_at(place, authorization)
     if status == "ok" and ledger is not None and ledger.lease_until_ns > 0:
-        lapsed = replace(ledger, lease_until_ns=0)
+        lapsed = evolve(ledger, lease_until_ns=0)
         _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", lapsed.to_payload())
 
 
@@ -1395,7 +1374,7 @@ def _spend(
             step = LedgerStep(n=len(ledger.steps) + 1, at_ns=now, channels=channels)
             _write_json(
                 place.path / f"{authorization_id}{_LEDGER_SUFFIX}",
-                replace(ledger, steps=(*ledger.steps, step)).to_payload(),
+                evolve(ledger, steps=(*ledger.steps, step)).to_payload(),
             )
             return judged.verdict
     except Exception:  # an unrecorded step is never an allowed write
@@ -1447,7 +1426,7 @@ def authorized_execution_verdict(
         section, posture_store._write_verdict(section, target, owner, False, seen), session_keys
     )
     if not base.allowed and base.reason != "switch_off":
-        return replace(base, authorization=authorization)
+        return evolve(base, authorization=authorization)
     basis = _Basis(seen=seen, switch=base)
     if spend:
         return _spend(section, target, operations, authorization, owner, basis)
@@ -1479,7 +1458,7 @@ def authorized_write_verdict(
     seen = posture_store._RecordSeen()
     base = posture_store._write_verdict(section, target, owner, False, seen)
     if not base.allowed and base.reason != "switch_off":
-        return replace(base, authorization=authorization)
+        return evolve(base, authorization=authorization)
     return _verdict(
         section, target, _ANY_WRITE, authorization, owner, _Basis(seen=seen, switch=base)
     )
@@ -1571,7 +1550,7 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bo
             if not _lease_live(ledger, now):
                 return False
             grant = _live_grant(owner, authorization, now)
-            renewed = replace(ledger, lease_until_ns=now + int(grant.lease_s * 1e9))
+            renewed = evolve(ledger, lease_until_ns=now + int(grant.lease_s * 1e9))
             _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", renewed.to_payload())
             return True
     except Exception:  # a renewal that cannot be made is a lease left to lapse
@@ -1806,7 +1785,7 @@ def revoke_grants(
                 continue
             if wanted is not None and grant.id not in wanted:
                 continue
-            stopped = replace(grant, revoked=Revocation(at_ns=now, by=by))
+            stopped = evolve(grant, revoked=Revocation(at_ns=now, by=by))
             _write_json(target_dir / f"{grant.id}{_GRANT_SUFFIX}", stopped.to_payload())
             marked.append(grant.id)
     return tuple(marked)
@@ -1877,21 +1856,27 @@ def self_issue(
     epoch = epoch_at_allowed()
     now = _now_ns()
     holder = acting_identity()
+    ranges = _channel_ranges(channels)
+    approver = Approver(identity=holder, surface=SELF_ISSUE_SURFACE, at_ns=now)
+    authorization = uuid.uuid4().hex
+    # The ledger directory before the grant is built: a grant its fields refuse
+    # is refused after a missing ledger directory is, as when the issue's
+    # read-back was the first to judge it.
+    place = _checked_ledger_place(authorization, create=True)
     grant = Grant(
-        id=uuid.uuid4().hex,
+        id=authorization,
         owner=resolved,
         holder=holder,
         target=target,
         switch_epoch=epoch,
-        channels=_channel_ranges(channels),
+        channels=ranges,
         steps=steps,
         issued_at_ns=now,
         expires_at_ns=expires_at_ns,
         lease_s=lease_s,
-        approver=Approver(identity=holder, surface=SELF_ISSUE_SURFACE, at_ns=now),
+        approver=approver,
         label=label,
     )
-    place = _checked_ledger_place(grant.id, create=True)
     path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
     try:
         if epoch_at_allowed() != epoch:
@@ -2027,8 +2012,7 @@ def _ledgers_of(authorization: str, ledger_dirs: Iterable[Path]) -> Iterator[Led
             yield ledger
 
 
-@dataclass(frozen=True)
-class GrantStanding:
+class GrantStanding(FrozenModel):
     """One grant as a listing shows it: whether it stands, and what its holder spent.
 
     Attributes:
@@ -2065,11 +2049,11 @@ def grant_standing(
     in_force = _grant_in_force(grant, record, now_ns=now)
     for ledger in _ledgers_of(grant.id, ledger_dirs):
         if ledger is None:
-            return GrantStanding(grant, in_force, None, None)
+            return GrantStanding(grant=grant, in_force=in_force, used=None, ledger=None)
         used = len(ledger.steps)
         ended = now >= ledger.lease_until_ns or used >= grant.steps
-        return GrantStanding(grant, in_force and not ended, used, ledger)
-    return GrantStanding(grant, in_force, 0, None)
+        return GrantStanding(grant=grant, in_force=in_force and not ended, used=used, ledger=ledger)
+    return GrantStanding(grant=grant, in_force=in_force, used=0, ledger=None)
 
 
 def listed_grants(
@@ -2136,57 +2120,12 @@ REQUESTS_DIR_ENV_VAR: Final = "OSPREY_WRITE_REQUESTS_DIR"
 #: The directory under a holder's ledger directory its requests are written to.
 REQUESTS_DIR_NAME: Final = "requests"
 
-#: What a run does once its evaluations are done, each a write the budget pays
-#: for: nothing, the best point found, or the values it started from.
-_COMPLETIONS: Final = ("none", "apply_best", "restore")
-_Completion = Literal["none", "apply_best", "restore"]
-
-
-def _is_completion(value: object) -> TypeGuard[_Completion]:
-    return value in _COMPLETIONS
-
-
 #: A request is a few hundred bytes plus one line per channel.
 _REQUEST_READ_LIMIT: Final = 1024 * 1024
 
-_REQUEST_KEYS: Final = frozenset(
-    {
-        "schema",
-        "id",
-        "owner",
-        "holder",
-        "target",
-        "channels",
-        "steps",
-        "requested_at_ns",
-        "expires_at_ns",
-        "lease_s",
-        "label",
-        "completion",
-    }
-)
 
-
-class _RequestPayload(TypedDict):
-    """A request file's JSON object: exactly :data:`_REQUEST_KEYS`."""
-
-    schema: int
-    id: str
-    owner: str
-    holder: str
-    target: str
-    channels: dict[str, _RangePayload]
-    steps: int
-    requested_at_ns: int
-    expires_at_ns: int
-    lease_s: float
-    label: str
-    completion: _Completion
-
-
-@dataclass(frozen=True)
-class WriteRequest:
-    """A holder asking for an authorization: what a person approves. Treat as immutable.
+class WriteRequest(FrozenModel):
+    """A holder asking for an authorization: what a person approves.
 
     The holder writes it into ``<ledger dir>/requests/<id>.json``; an approval
     issues the grant under the same id, so the holder knows which
@@ -2204,7 +2143,9 @@ class WriteRequest:
         expires_at_ns: When the authorization is to end whatever happens.
         lease_s: How long one renewal of the holder's lease lasts.
         label: The run, free text.
-        completion: Which completion the run will perform (:data:`_COMPLETIONS`).
+        completion: What the run does once its evaluations are done, each a
+            write the budget pays for: nothing, the best point found, or the
+            values it started from.
     """
 
     id: str
@@ -2221,24 +2162,7 @@ class WriteRequest:
 
     def to_payload(self) -> Mapping[str, object]:
         """This request as the JSON object its file holds."""
-        payload: _RequestPayload = {
-            "schema": _SCHEMA_VERSION,
-            "id": self.id,
-            "owner": self.owner,
-            "holder": self.holder,
-            "target": self.target,
-            "channels": {
-                address: {"min": bound.min, "max": bound.max}
-                for address, bound in self.channels.items()
-            },
-            "steps": self.steps,
-            "requested_at_ns": self.requested_at_ns,
-            "expires_at_ns": self.expires_at_ns,
-            "lease_s": self.lease_s,
-            "label": self.label,
-            "completion": self.completion,
-        }
-        return payload
+        return {"schema": _SCHEMA_VERSION, **self.model_dump()}
 
     def grant(self, *, switch_epoch: int, approver: Approver, issued_at_ns: int) -> Grant:
         """The grant approving this request exactly as asked, under its id."""
@@ -2257,9 +2181,49 @@ class WriteRequest:
             label=self.label,
         )
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _hex_id(value, info)
 
-def _parse_request(raw: object) -> WriteRequest:
-    """A request out of its JSON text, bytes or decoded object.
+    @field_validator("owner", "holder", "target")
+    @classmethod
+    def _names(cls, value: str, info: ValidationInfo[object]) -> str:
+        return _named(value, info)
+
+    @field_validator("requested_at_ns", "expires_at_ns")
+    @classmethod
+    def _stamps(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 0, info)
+
+    @field_validator("steps")
+    @classmethod
+    def _steps(cls, value: int, info: ValidationInfo[object]) -> int:
+        return _at_least(value, 1, info)
+
+    @field_validator("channels")
+    @classmethod
+    def _channels(
+        cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
+    ) -> Mapping[str, ChannelRange]:
+        return _channel_map(value, info)
+
+    @field_validator("lease_s", mode="wrap")
+    @classmethod
+    def _lease(
+        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
+    ) -> float:
+        return _positive_finite(_number(value, handler, info), info)
+
+    @model_validator(mode="after")
+    def _expiry(self, info: ValidationInfo[object]) -> Self:
+        if _from_file(info) and self.expires_at_ns <= self.requested_at_ns:
+            raise ValueError("the request expires before it was made")
+        return self
+
+
+def _parse_request(raw: str | bytes | bytearray) -> WriteRequest:
+    """A request out of its file's JSON text (:func:`_parse_stored`).
 
     The grant's strictness (:func:`_parse_grant`): every field present with its
     type and nothing else, no repeated key, every bound a finite number with
@@ -2268,39 +2232,9 @@ def _parse_request(raw: object) -> WriteRequest:
     checked when a request is written (:func:`write_request`), not read.
 
     Raises:
-        ValueError: The payload is not a request this version can read.
+        ValueError: The text is not a request this version can read.
     """
-    payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
-    payload = _exact_keys(payload, _REQUEST_KEYS, "the request")
-    if payload["schema"] is not _SCHEMA_VERSION:
-        raise ValueError(f"the request's schema is not {_SCHEMA_VERSION}")
-    requested = _integer(payload["requested_at_ns"], "requested_at_ns", 0)
-    expires = _integer(payload["expires_at_ns"], "expires_at_ns", 0)
-    if expires <= requested:
-        raise ValueError("the request expires before it was made")
-    lease_s = _finite(payload["lease_s"], "lease_s")
-    if lease_s <= 0:
-        raise ValueError("lease_s is not positive")
-    steps = _integer(payload["steps"], "steps", 1)
-    label = payload["label"]
-    if not isinstance(label, str):
-        raise ValueError("label is not a string")
-    completion = payload["completion"]
-    if not _is_completion(completion):
-        raise ValueError(f"completion {completion!r} is not one of {_COMPLETIONS}")
-    return WriteRequest(
-        id=_authorization_id(payload["id"]),
-        owner=_name(payload["owner"], "owner"),
-        holder=_name(payload["holder"], "holder"),
-        target=_name(payload["target"], "target"),
-        channels=_parse_channels(payload["channels"]),
-        steps=steps,
-        requested_at_ns=requested,
-        expires_at_ns=expires,
-        lease_s=lease_s,
-        label=label,
-        completion=completion,
-    )
+    return _parse_stored(WriteRequest, raw, "the request")
 
 
 def requests_dir() -> Path | None:

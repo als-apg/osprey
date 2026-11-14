@@ -76,7 +76,7 @@ import inspect
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -87,14 +87,12 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     baseline_target,
     switch_capable,
 )
-from osprey.mcp_server.control_system.connector_host_manager import (
-    RecoveryRecord as Recovery,
-)
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
+from osprey_connectors.errors import RecoveryRecord as Recovery
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
@@ -200,7 +198,9 @@ def claim_control_context(
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, owner=owner)
             if record is None
-            else replace(control_context.claimed(record, baseline), owner=owner)
+            else control_context.ControlContext.model_validate(
+                {**dict(control_context.claimed(record, baseline)), "owner": owner}
+            )
         )
         control_context.write_record(claimed)
 
@@ -562,7 +562,7 @@ class ControlSystemContext:
             if (
                 not task.done()
                 or (record := task.result()) is None
-                or record.get("action") != RecoveryAction.CHILD_KEPT
+                or record.action != RecoveryAction.CHILD_KEPT
             ):
                 return await asyncio.shield(task)
         task = asyncio.ensure_future(self._guarded(act, name, incarnation))
@@ -589,17 +589,17 @@ class ControlSystemContext:
         """
         replaced = await self.invalidate_connector(name, incarnation=incarnation)
         if not self._served_from_a_child(name):
-            return {
-                "action": RecoveryAction.CONNECTOR_DROPPED,
-                "text": f"The {name.replace('_', ' ')} connector was dropped; "
+            return Recovery(
+                action=RecoveryAction.CONNECTOR_DROPPED,
+                text=f"The {name.replace('_', ' ')} connector was dropped; "
                 "the next call builds a new one.",
-            }
+            )
         if replaced:
-            return {
-                "action": RecoveryAction.CHILD_REPLACED,
-                "text": "The connector-host child that served this call has been replaced; "
+            return Recovery(
+                action=RecoveryAction.CHILD_REPLACED,
+                text="The connector-host child that served this call has been replaced; "
                 "the call was not retried.",
-            }
+            )
         return self._respawn_refused()
 
     async def _answer_unresponsive(self, name: str, proxy: Any) -> Recovery:
@@ -614,16 +614,16 @@ class ControlSystemContext:
         except Exception:
             if not await self.invalidate_connector(name, incarnation=proxy):
                 return self._respawn_refused()
-            return {
-                "action": RecoveryAction.CHILD_REPLACED,
-                "text": "The connector-host child did not answer a ping and has been replaced; "
+            return Recovery(
+                action=RecoveryAction.CHILD_REPLACED,
+                text="The connector-host child did not answer a ping and has been replaced; "
                 "the call was not retried.",
-            }
-        return {
-            "action": RecoveryAction.CHILD_KEPT,
-            "text": "The connector-host child still answers a ping, so it was kept; the call "
+            )
+        return Recovery(
+            action=RecoveryAction.CHILD_KEPT,
+            text="The connector-host child still answers a ping, so it was kept; the call "
             "may yet complete in it and was not retried.",
-        }
+        )
 
     def _respawn_refused(self) -> Recovery:
         """The record of a replacement the manager refused, saying what still serves."""
@@ -631,10 +631,10 @@ class ControlSystemContext:
             still = "the previous child still serves this target."
         else:
             still = "no child is serving; control-system calls are refused until one is running."
-        return {
-            "action": RecoveryAction.RESPAWN_REFUSED,
-            "text": f"Replacing the connector-host child was refused; {still}",
-        }
+        return Recovery(
+            action=RecoveryAction.RESPAWN_REFUSED,
+            text=f"Replacing the connector-host child was refused; {still}",
+        )
 
     @overload
     async def _get_connector(

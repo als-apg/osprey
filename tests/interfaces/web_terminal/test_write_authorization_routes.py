@@ -156,7 +156,7 @@ def put_request(directory: Path, **fields: Any) -> wa.WriteRequest:
         "completion": "apply_best",
     }
     payload.update(fields)
-    request = wa._parse_request(payload)
+    request = wa._parse_request(json.dumps(payload))
     (directory / f"{request.id}.json").write_text(json.dumps(payload), encoding="utf-8")
     return request
 
@@ -432,7 +432,7 @@ class TestSelfIssued:
             holder="tuning-scripts",
             target=TARGET,
             switch_epoch=epoch,
-            channels={"SR:B": ChannelRange(0.0, 1.0)},
+            channels={"SR:B": ChannelRange(min=0.0, max=1.0)},
             steps=50,
             issued_at_ns=now,
             expires_at_ns=FAR_FUTURE_NS,

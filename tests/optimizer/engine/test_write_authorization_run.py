@@ -288,8 +288,8 @@ def test_the_channels_asked_for_are_the_setpoints_at_the_runs_window(
     deployment.run(deployment.config(on_complete="hold"))
     grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
     assert dict(grant.channels) == {
-        A: wa.ChannelRange(-2.0, 2.0),
-        B: wa.ChannelRange(-2.0, 2.0),
+        A: wa.ChannelRange(min=-2.0, max=2.0),
+        B: wa.ChannelRange(min=-2.0, max=2.0),
     }
     # hold writes nothing on completion: the budget is the evaluations alone.
     assert grant.steps == EVALUATIONS
@@ -662,7 +662,10 @@ def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values
     assert grant.owner == OWNER and grant.holder == HOLDER
     assert grant.approver.surface == wa.SELF_ISSUE_SURFACE
     assert grant.steps == 1
-    assert dict(grant.channels) == {A: wa.ChannelRange(1.5, 1.5), B: wa.ChannelRange(-1.0, -1.0)}
+    assert dict(grant.channels) == {
+        A: wa.ChannelRange(min=1.5, max=1.5),
+        B: wa.ChannelRange(min=-1.0, max=-1.0),
+    }
     assert deployment.spent(grant.id) == 1
     assert grant.revoked is not None
 
@@ -714,7 +717,7 @@ def test_evaluate_is_one_step_of_its_own_authorization(deployment: Deployment, a
     assert response.status_code == 200, response.text
     assert response.json()["observables"]["knob_a"]["value"] == pytest.approx(0.5)
     grant = _only_grant(deployment.ledger)
-    assert dict(grant.channels) == {A: wa.ChannelRange(0.5, 0.5)}
+    assert dict(grant.channels) == {A: wa.ChannelRange(min=0.5, max=0.5)}
     assert deployment.spent(grant.id) == 1
 
 
@@ -765,7 +768,7 @@ def test_a_manual_restore_is_its_own_one_step_authorization_at_the_start_values(
     grants, _ = wa.list_grants(deployment.ledger)
     [grant] = [g for g in grants if g.id != first.id]
     assert dict(grant.channels) == {
-        name: wa.ChannelRange(value, value) for name, value in start.items()
+        name: wa.ChannelRange(min=value, max=value) for name, value in start.items()
     }
     assert grant.steps == 1
     assert deployment.spent(grant.id) == 1

@@ -21,7 +21,6 @@ import sys
 import textwrap
 import time
 import uuid
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +28,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, refusals, session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors._model import evolve
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefused,
@@ -61,7 +61,7 @@ NEVER = {"type": "epics", "writes": "never"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
 OPS = [("A:SP", 5.0)]
-CHANNELS = {"A:SP": ChannelRange(0.0, 10.0), "B:SP": ChannelRange(-1.0, 1.0)}
+CHANNELS = {"A:SP": ChannelRange(min=0.0, max=10.0), "B:SP": ChannelRange(min=-1.0, max=1.0)}
 
 #: Far enough ahead that nothing in a test reaches it.
 FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
@@ -301,6 +301,42 @@ class TestFormats:
         grant = make_grant(revoked=Revocation(at_ns=5, by="bob"))
         assert _parse_grant(json.dumps(grant.to_payload())) == grant
 
+    @pytest.mark.parametrize(
+        ("parse", "text"),
+        [
+            (
+                _parse_grant,
+                '{"approver": {"at_ns": 100, "identity": "alice", "surface": "chip"}, '
+                '"channels": {"A:SP": {"max": 10.0, "min": 0.0}, "B:SP": {"max": 1.5, "min": -1.0}}, '
+                '"expires_at_ns": 200, "holder": "optimizer", "id": "' + "ab" * 16 + '", '
+                '"issued_at_ns": 100, "label": "run 7", "lease_s": 30.0, "owner": "alice", '
+                '"revoked": {"at_ns": 150, "by": "bob"}, "schema": 1, "steps": 4, '
+                '"switch_epoch": 5, "target": "va"}',
+            ),
+            (
+                _parse_ledger,
+                '{"authorization": "' + "ab" * 16 + '", "holder_pid": 42, "holder_start": "917", '
+                '"lease_until_ns": 300, "pid_ns": null, "schema": 1, '
+                '"steps": [{"at_ns": 10, "channels": ["A:SP"], "n": 1}, '
+                '{"at_ns": 11, "channels": ["A:SP", "B:SP"], "n": 2}]}',
+            ),
+            (
+                wa._parse_request,
+                '{"channels": {"A:SP": {"max": 10.0, "min": 0.0}}, "completion": "apply_best", '
+                '"expires_at_ns": 200, "holder": "optimizer", "id": "' + "ab" * 16 + '", '
+                '"label": "", "lease_s": 45.5, "owner": "alice", "requested_at_ns": 100, '
+                '"schema": 1, "steps": 41, "target": "va"}',
+            ),
+        ],
+        ids=["grant", "ledger", "request"],
+    )
+    def test_a_file_reads_and_writes_back_byte_for_byte(self, tmp_path, parse, text):
+        """A file as the writer lays it down reads into its record and writes the same bytes."""
+        on_disk = (json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n").encode()
+        path = tmp_path / "rewritten.json"
+        wa._write_json(path, parse(on_disk.decode()).to_payload())
+        assert path.read_bytes() == on_disk
+
     def test_a_ledger_round_trips(self):
         entry = Ledger(
             authorization="a" * 32,
@@ -358,12 +394,12 @@ class TestFormats:
         with pytest.raises(ValueError):
             _parse_grant(json.dumps(payload))
 
-    @pytest.mark.parametrize("missing", sorted(wa._GRANT_KEYS))
+    @pytest.mark.parametrize("missing", sorted(["schema", *Grant.model_fields]))
     def test_a_grant_missing_any_field_is_refused(self, missing: str):
         payload = make_grant().to_payload()
         del payload[missing]
         with pytest.raises(ValueError):
-            _parse_grant(payload)
+            _parse_grant(json.dumps(payload))
 
     @pytest.mark.parametrize(
         "text",
@@ -406,7 +442,7 @@ class TestFormats:
             expires_at_ns=ISSUED_NS + DAY_NS,
             lease_s=wa._MAX_LEASE_S,
         )
-        grant = replace(at_ceilings, **change)
+        grant = evolve(at_ceilings, **change)
         assert _parse_grant(json.dumps(grant.to_payload())) == grant
         if refused:
             with pytest.raises(ValueError, match="ceiling|more than"):
@@ -451,7 +487,7 @@ class TestFormats:
             _parse_ledger(json.dumps(payload))
 
     def test_a_channel_range_holds_finite_reals_only(self):
-        bound = ChannelRange(0.0, 1.0)
+        bound = ChannelRange(min=0.0, max=1.0)
         assert bound.holds(0) and bound.holds(1.0) and bound.holds(0.5)
         for value in (math.nan, math.inf, -math.inf, True, None, "0.5", 1.0000001, -1e-9):
             assert not bound.holds(value), value
@@ -1068,7 +1104,7 @@ class TestStops:
 
     def test_revocation_names_its_machines_and_is_kept(self):
         on_va = approve()
-        on_live = approve(target="live", channels={"L:SP": ChannelRange(0, 1)})
+        on_live = approve(target="live", channels={"L:SP": ChannelRange(min=0, max=1)})
         assert revoke_grants(by="alice", targets=["live"]) == (on_live.id,)
         assert verdict(on_va.id).allowed
         assert revoke_grants(by="bob") == (on_va.id,)
@@ -1210,7 +1246,7 @@ class TestOverlap:
         ("fields", "overlaps"),
         [
             ({"holder": "other"}, True),
-            ({"holder": "other", "channels": {"Z:SP": ChannelRange(0, 1)}}, False),
+            ({"holder": "other", "channels": {"Z:SP": ChannelRange(min=0, max=1)}}, False),
             ({}, False),  # the same holder
             ({"holder": "other", "target": "live"}, False),
             ({"holder": "other", "revoked": Revocation(at_ns=1, by="bob")}, False),
@@ -1220,7 +1256,7 @@ class TestOverlap:
     )
     def test_what_overlaps(self, fields: dict[str, Any], overlaps: bool):
         existing = make_grant(**fields)
-        candidate = make_grant(channels={"A:SP": ChannelRange(0, 1)})
+        candidate = make_grant(channels={"A:SP": ChannelRange(min=0, max=1)})
         assert (_auth_overlap(candidate, [existing]) is existing) is overlaps
 
     def test_an_overlapping_approval_writes_nothing(self):
@@ -1262,7 +1298,7 @@ class TestOverlap:
         """
         now = time.time_ns()
         existing = make_grant(holder="optimizer")
-        candidate = make_grant(holder="bluesky", channels={"A:SP": ChannelRange(0, 1)})
+        candidate = make_grant(holder="bluesky", channels={"A:SP": ChannelRange(min=0, max=1)})
         dirs = [tmp_path / "absent"]
         for n, lease in enumerate(leases):
             directory = tmp_path / f"ledgers-{n}"
@@ -1302,7 +1338,7 @@ class TestOverlap:
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused):
             _issue_grant(candidate)
-        lapsed = replace(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
+        lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
         ledger_path(held.id).write_text(json.dumps(lapsed.to_payload()))
         _issue_grant(candidate)
         assert grant_path(candidate.id).exists()
@@ -1350,7 +1386,7 @@ class TestOverlap:
                 owner=ME,
                 holder="bluesky",
                 target=TARGET,
-                channels={"A:SP": ChannelRange(0.0, 1.0)},
+                channels={"A:SP": ChannelRange(min=0.0, max=1.0)},
                 steps=3,
                 requested_at_ns=time.time_ns(),
                 expires_at_ns=FAR_FUTURE_NS,
@@ -1363,7 +1399,7 @@ class TestOverlap:
         with pytest.raises(AuthorizationRefused) as refused:
             approve_candidate()
         assert refused.value.reason == "auth_overlap"
-        lapsed = replace(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
+        lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
         (elsewhere / f"{held.id}.ledger.json").write_text(json.dumps(lapsed.to_payload()))
         assert grant_path(approve_candidate()).exists()
 
