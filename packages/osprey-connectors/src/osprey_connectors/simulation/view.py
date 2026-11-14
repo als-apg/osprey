@@ -203,10 +203,10 @@ class Channel:
     unit: str | None
     description: str | None
     writable: bool
-    value_range: tuple[Any, ...] | None
+    value_range: tuple[float, float] | None
     owner: str
     on: Mapping[str, str] | None
-    options: tuple[Any, ...] | None
+    options: tuple[str, ...] | None
     shape: tuple[int, ...] | None
     precision: int | None
 

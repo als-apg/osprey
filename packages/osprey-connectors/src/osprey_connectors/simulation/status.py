@@ -11,7 +11,10 @@ reached through the connector when asked.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystemConnector
 
 __all__ = [
     "STATUS_NO_DECK",
@@ -71,7 +74,7 @@ def model_status(connector: object, model: str) -> str:
     return status
 
 
-async def read_model_status(connector: Any, address: str) -> str:
+async def read_model_status(connector: ControlSystemConnector, address: str) -> str:
     """A served physics model's status, read from its status channel.
 
     Args:
