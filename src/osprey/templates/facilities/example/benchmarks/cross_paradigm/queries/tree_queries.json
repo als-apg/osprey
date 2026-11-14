@@ -129,7 +129,7 @@
     "category": "aggregate"
   },
   {
-    "user_query": "What are the vacuum gauge pressure readings in sector 2?",
+    "user_query": "What are the pressure readings of storage ring vacuum gauges 3 and 4?",
     "targeted_pv": [
       "SR:VAC:GAUGE:SR03:PRESSURE:RB",
       "SR:VAC:GAUGE:SR04:PRESSURE:RB"
@@ -443,7 +443,7 @@
     "category": "range"
   },
   {
-    "user_query": "Show the current, pressure, and voltage signals for the sector 4 ion pump",
+    "user_query": "Show the current, pressure, and voltage signals for storage ring ion pump 4",
     "targeted_pv": [
       "SR:VAC:ION-PUMP:04:CURRENT:RB",
       "SR:VAC:ION-PUMP:04:PRESSURE:RB",
@@ -453,7 +453,7 @@
     "category": "sector-based"
   },
   {
-    "user_query": "Show the ion pump pressures for sectors 1 through 3",
+    "user_query": "Show the pressures of storage ring ion pumps 1 through 3",
     "targeted_pv": [
       "SR:VAC:ION-PUMP:01:PRESSURE:RB",
       "SR:VAC:ION-PUMP:02:PRESSURE:RB",
@@ -462,7 +462,7 @@
     "category": "sector-based"
   },
   {
-    "user_query": "What are the vacuum gauge readings in sector 2?",
+    "user_query": "What are the readings of storage ring vacuum gauges 3 and 4?",
     "targeted_pv": [
       "SR:VAC:GAUGE:SR03:PRESSURE:RB",
       "SR:VAC:GAUGE:SR04:PRESSURE:RB"
@@ -484,7 +484,7 @@
     "category": "semantic"
   },
   {
-    "user_query": "Sector three vacuum pressure.",
+    "user_query": "Vacuum pressure at storage ring gauges five and six.",
     "targeted_pv": [
       "SR:VAC:GAUGE:SR05:PRESSURE:RB",
       "SR:VAC:GAUGE:SR06:PRESSURE:RB"

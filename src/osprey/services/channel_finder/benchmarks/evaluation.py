@@ -252,7 +252,10 @@ def llm_judge_coverage(
         "'BPM:01 through BPM:96'). Channels mentioned only during "
         "exploration do NOT count.\n"
         "2. extra_recommended: channels the agent recommends in its final "
-        "answer that are NOT in the expected list (literal PV strings).\n\n"
+        "answer that are NOT in the expected list (literal PV strings). A "
+        "channel the answer names only to say it was left out, is not part "
+        "of the answer, or answers a different question is NOT recommended: "
+        "leave it out of this field.\n\n"
         f"Expected channels (indexed):\n{expected_numbered}\n\n"
         f"Agent response:\n{response_text}"
     )
