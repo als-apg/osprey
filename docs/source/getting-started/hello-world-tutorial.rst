@@ -409,7 +409,7 @@ environment:
 On the first day the archive is still empty, and DuckDB reports that no file
 matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
 record and its archive hold. The demo preset adds a history page in the browser,
-described in :doc:`/how-to/health-and-monitoring/read-the-record`.
+described in :ref:`multi-user-history-page`.
 
 The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: ``osprey init`` once, then edit →

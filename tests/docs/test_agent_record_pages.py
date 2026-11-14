@@ -122,18 +122,18 @@ def test_agent_record_page_names_the_host_commands() -> None:
 
 
 def test_archive_holds_only_what_the_archive_service_copies() -> None:
-    table = _section(_AGENT_RECORD, "Where the record lives")
+    table = _section(_AGENT_RECORD, "The archive")
     assert "transcripts" in table
     assert set(SOURCE_TABLE) == {"terminal_agent_data", "dispatch", "bluesky"}, (
         "the archive service's kinds moved: revisit the table on agent-record.rst"
     )
-    permissions = _section(_AGENT_RECORD, "Permissions")
+    permissions = table
     assert "copies transcripts" not in permissions, "the archive service copies no transcripts"
     assert f"``{ARCHIVE_DIR_RELPATH}/``" in permissions
 
 
 def test_pre_upgrade_files_are_on_disk_unarchived_and_purge_only() -> None:
-    section = _section(_AGENT_RECORD, "Audit files from before the record")
+    section = _section(_AGENT_RECORD, "The archive")
     assert f"``{PRE_UPGRADE_AUDIT_RELPATH}/``" in section
     assert "not archived" in section
     assert "osprey reset --purge-audit" in section
