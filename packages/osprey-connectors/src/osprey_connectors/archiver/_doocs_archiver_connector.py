@@ -8,12 +8,12 @@ Date: 2026-07-01
 """
 
 import asyncio
+from collections.abc import Sequence
 from datetime import datetime
-from operator import itemgetter
-from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, TypedDict
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
@@ -26,6 +26,41 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_archiver_connector")
+
+
+class _HistoryReply(Protocol):
+    """What ``doocs4py.get`` answers for a ``.HIST`` address."""
+
+    @property
+    def value(self) -> Sequence[Sequence[float]]:
+        """The archived entries, each ``(time, _, _, value)``, oldest first."""
+        ...
+
+
+class _Doocs4pyTypes(Protocol):
+    """The ``doocs4py.types`` the connector builds a history request from."""
+
+    def TTII(self, start: float, stop: float, mode: int, flags: int, /) -> object: ...
+
+
+class _Doocs4py(Protocol):
+    """The surface of :mod:`doocs4py` the connector calls; doocs4py ships no types."""
+
+    __version__: str
+    types: _Doocs4pyTypes
+
+    def names(self, pattern: str) -> Sequence[Sequence[str]]: ...
+
+    def Address(self, address: str) -> object: ...
+
+    def get(self, address: object, request: object, /) -> _HistoryReply: ...
+
+
+class _History(TypedDict):
+    """One property's history: parallel arrays of UNIX timestamps and values."""
+
+    time: npt.NDArray[np.float64]
+    data: npt.NDArray[np.float64]
 
 
 class DOOCSArchiverConnector(ArchiverConnector):
@@ -54,7 +89,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
     def __init__(self) -> None:
         self._connected = False
         self._avg_window: float | None = None
-        self._doocs4py: ModuleType | None = None
+        self._doocs4py: _Doocs4py | None = None
         self._timeout: float = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
@@ -85,16 +120,15 @@ class DOOCSArchiverConnector(ArchiverConnector):
         try:
             import doocs4py
 
-            self._doocs4py = doocs4py
-            logger.debug(
-                f"DOOCS archiver connector: doocs4py version {self._doocs4py.__version__} loaded"
-            )
+            library: _Doocs4py = doocs4py
+            self._doocs4py = library
+            logger.debug(f"DOOCS archiver connector: doocs4py version {library.__version__} loaded")
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
         # Test connection using a doocs4py.names call, listing all FACILITYs
         try:
-            facilities = [f[1] for f in self._doocs4py.names("*")]
+            facilities = [f[1] for f in library.names("*")]
             logger.debug(
                 "DOOCS archiver connector: ENS connection successful."
                 f"Available FACILITIEs: {len(facilities)}"
@@ -161,7 +195,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         def fetch_all() -> dict[str, pd.Series]:
-            data = {}
+            data: dict[str, pd.Series] = {}
             for add in channels:
                 hist_data_dict = self._read_history(
                     add,
@@ -171,9 +205,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 )
                 if hist_data_dict is None:
                     raise RuntimeError(f"DOOCS archiver connector: Cannot read history for {add}")
-                timestamps = pd.to_datetime(hist_data_dict.get("time", []), unit="s", utc=True)
-                values: np.ndarray | list[float] = hist_data_dict.get("data", [])
-                data[add] = pd.Series(values, index=timestamps, name=add)
+                timestamps = pd.to_datetime(hist_data_dict["time"], unit="s", utc=True)
+                data[add] = pd.Series(hist_data_dict["data"], index=timestamps, name=add)
             return data
 
         try:
@@ -233,7 +266,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         start_time: float,
         end_time: float,
         avg_window: float | None = None,
-    ) -> dict[str, np.ndarray] | None:
+    ) -> _History | None:
         """Read history data from DOOCS using doocs4py. Timestamps are in UNIX format.
 
         Parameters
@@ -265,8 +298,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 address = address + ".HIST"
             hist_address = doocs4py.Address(address)
 
-            current_stop = stop_ts
-            all_data = []
+            current_stop: float = stop_ts
+            all_data: list[Sequence[float]] = []
 
             while True:
                 ttii = doocs4py.types.TTII(start_ts, current_stop, 256, 0)  # 256 means Archiver
@@ -294,8 +327,12 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 return None
 
             n_entries = len(all_data)
-            raw_time = np.fromiter(map(itemgetter(0), all_data), dtype=float, count=n_entries)
-            raw_data = np.fromiter(map(itemgetter(3), all_data), dtype=float, count=n_entries)
+            raw_time = np.fromiter(
+                (entry[0] for entry in all_data), dtype=np.float64, count=n_entries
+            )
+            raw_data = np.fromiter(
+                (entry[3] for entry in all_data), dtype=np.float64, count=n_entries
+            )
 
             # Remove duplicates and ensure monotonically increasing time.
             # np.unique returns sorted unique values, which the routines below require.
@@ -305,7 +342,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # Optional centered moving average over the real samples. The
             # time-based window handles irregular spacing and keeps the real
             # timestamps, returning exactly one value per input sample.
-            out_data = (
+            out_data: npt.NDArray[np.float64] = (
                 pd.Series(raw_data, index=pd.to_datetime(raw_time, unit="s"))
                 .rolling(pd.Timedelta(seconds=avg_window), center=True)
                 .mean()
