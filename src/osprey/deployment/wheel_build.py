@@ -286,6 +286,36 @@ def _describe_glob(member_root: Path) -> str | None:
         return None
 
 
+def _tag_fetch_hint(member_root: Path, glob: str | None) -> str:
+    """The command that fetches what *member_root*'s version needs, as one line, or ``""``.
+
+    A shallow clone (``git clone --depth 1``) reaches no tag even after
+    ``git fetch --tags``, so it is named apart from a full clone that only
+    lacks tags. Asked only on the refusal path; a git that cannot answer adds
+    nothing.
+    """
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(member_root), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    try:
+        shallow = git("rev-parse", "--is-shallow-repository")
+        if shallow.returncode != 0:
+            return ""
+        if shallow.stdout.strip() == "true":
+            return f"This checkout is shallow:  git -C {member_root} fetch --unshallow --tags\n"
+        if git("describe", "--tags", *(["--match", glob] if glob else [])).returncode != 0:
+            return f"This checkout reaches no tag:  git -C {member_root} fetch --tags\n"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
 def _require_members_satisfy_framework(
     framework_wheel: Path, member_wheels: dict[str, tuple[Path, Path]]
 ) -> None:
@@ -328,6 +358,7 @@ def _require_members_satisfy_framework(
             f"{requirement.name} takes its version from {source} reachable from "
             "the checkout; with none it builds as 0.0.postN.\n"
             "Fetch the tags:  git fetch --tags\n"
+            f"{_tag_fetch_hint(member_root, glob)}"
             "A fork or mirror must sync the osprey-connectors-v* tags as well as "
             "the framework's v* tags.",
         )

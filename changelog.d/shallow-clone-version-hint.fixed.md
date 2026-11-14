@@ -1,0 +1,1 @@
+`osprey build --dev` refusing a member wheel built as `0.0.postN` now names the command that fixes the checkout: `git -C <checkout> fetch --unshallow --tags` for a shallow clone, `git -C <checkout> fetch --tags` for a full clone that reaches no tag.
