@@ -261,7 +261,8 @@ def detect_control_system_operations(
         try:
             from osprey_connectors.config import get_config_value
 
-            control_system_type = get_config_value("control_system.type", "unknown")
+            configured_type = get_config_value("control_system.type", "unknown")
+            control_system_type = configured_type if isinstance(configured_type, str) else "unknown"
         except Exception:
             control_system_type = "unknown"
 

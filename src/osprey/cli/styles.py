@@ -162,15 +162,23 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
     if theme_name == "custom":
         custom_colors = get_config_value("cli.custom_theme", {}, config_path)
         if custom_colors:
+            if not isinstance(custom_colors, dict):
+                logger.warning(
+                    "cli.custom_theme must be a mapping, got "
+                    f"{type(custom_colors).__name__}, using default"
+                )
+                return VULCAN_THEME
             try:
                 # Validate hex colors before creating theme
+                colors: dict[str, str] = {}
                 for key, value in custom_colors.items():
                     if not isinstance(value, str) or not value.startswith("#"):
                         logger.warning(f"Invalid color format for {key}: {value}, using default")
                         return VULCAN_THEME
+                    colors[str(key)] = value
 
                 # Create custom theme from config
-                return ColorTheme(**custom_colors)
+                return ColorTheme(**colors)
             except Exception as e:
                 logger.warning(f"Failed to create custom theme: {e}, using default")
                 return VULCAN_THEME
@@ -179,7 +187,7 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
             theme_name = "default"
 
     # Load predefined theme
-    registered = THEME_REGISTRY.get(theme_name)
+    registered = THEME_REGISTRY.get(theme_name) if isinstance(theme_name, str) else None
     if registered is None:
         logger.warning(f"Unknown theme '{theme_name}', using default")
         return VULCAN_THEME

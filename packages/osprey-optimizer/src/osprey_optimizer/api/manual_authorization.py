@@ -25,7 +25,7 @@ import logging
 import math
 import time
 from collections.abc import Callable, Mapping
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from fastapi import HTTPException, status
 
@@ -128,7 +128,7 @@ def _refused(
     )
 
 
-def _control_system_section() -> Any:
+def _control_system_section() -> object:
     from osprey_connectors.config import get_config_value
 
     return get_config_value("control_system", None)
