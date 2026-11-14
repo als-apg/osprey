@@ -23,8 +23,9 @@ A ``topoff_lifetime`` seed ``{of}`` names a channel whose seed is ``topoff``
 and holds that seed's ``lifetime_h`` as a constant: the lifetime readback that
 produces the decay.
 
-The module imports only the standard library, so the envelope rule and the
-facility build share it with the texture model. :data:`SHAPE_VERSION` is a
+The module imports only the standard library and the package's
+standard-library-only :mod:`~osprey_connectors.simulation.values`, so the
+envelope rule and the facility build share it with the texture model. :data:`SHAPE_VERSION` is a
 digest of the shape constants; the archive seed fingerprint consumes it, so a
 change to the shape re-seeds the stored history.
 """
@@ -34,7 +35,8 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Callable, Mapping
-from typing import Any
+
+from osprey_connectors.simulation.values import _real
 
 __all__ = [
     "SHAPE_VERSION",
@@ -64,7 +66,7 @@ _SHAPE_CONSTANT_NAMES: tuple[str, ...] = ("_SECONDS_PER_HOUR", "_DECAY_FORM", "_
 
 def _shape_version() -> str:
     """Digest of the current shape constants (see :data:`_SHAPE_CONSTANT_NAMES`)."""
-    module = globals()
+    module: Mapping[str, object] = globals()
     text = ";".join(f"{name.lstrip('_')}={module[name]!r}" for name in _SHAPE_CONSTANT_NAMES)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -73,7 +75,7 @@ def _shape_version() -> str:
 SHAPE_VERSION = _shape_version()
 
 
-def topoff_record(seed: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+def topoff_record(seed: Mapping[str, object] | None) -> Mapping[str, object] | None:
     """The ``topoff`` record of a seed, or None when it has none."""
     if not seed:
         return None
@@ -81,18 +83,18 @@ def topoff_record(seed: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     return record if isinstance(record, Mapping) else None
 
 
-def tau_period(record: Mapping[str, Any]) -> tuple[float, float]:
+def tau_period(record: Mapping[str, object]) -> tuple[float, float]:
     """``(tau, period_s)`` of a ``topoff`` record, both in seconds."""
-    return float(record["lifetime_h"]) * _SECONDS_PER_HOUR, float(record["period_s"])
+    return _real(record["lifetime_h"]) * _SECONDS_PER_HOUR, _real(record["period_s"])
 
 
-def period_mean(record: Mapping[str, Any]) -> float:
+def period_mean(record: Mapping[str, object]) -> float:
     """The mean ``m`` of the unit sawtooth over one period."""
     tau, period = tau_period(record)
     return (tau / period) * -math.expm1(-period / tau)
 
 
-def tooth_depth(record: Mapping[str, Any]) -> float:
+def tooth_depth(record: Mapping[str, object]) -> float:
     """How far the sawtooth carries a reading from its held level ``ceiling * m``.
 
     Returns:
@@ -101,12 +103,12 @@ def tooth_depth(record: Mapping[str, Any]) -> float:
     """
     tau, period = tau_period(record)
     mean = period_mean(record)
-    return abs(float(record["ceiling"])) * max(1.0 - mean, mean - math.exp(-period / tau))
+    return abs(_real(record["ceiling"])) * max(1.0 - mean, mean - math.exp(-period / tau))
 
 
 def held_value(
-    seed: Mapping[str, Any] | None,
-    lookup: Callable[[str], Mapping[str, Any] | None] | None = None,
+    seed: Mapping[str, object] | None,
+    lookup: Callable[[str], Mapping[str, object] | None] | None = None,
 ) -> float | None:
     """The value a ``topoff`` or ``topoff_lifetime`` seed holds.
 
@@ -123,11 +125,12 @@ def held_value(
     """
     record = topoff_record(seed)
     if record is not None:
-        return float(record["ceiling"]) * period_mean(record)
+        return _real(record["ceiling"]) * period_mean(record)
     lifetime = (seed or {}).get(_LIFETIME_KEY)
     if not isinstance(lifetime, Mapping) or lookup is None:
         return None
-    source = topoff_record(lookup(str(lifetime.get("of"))))
+    named: Mapping[str, object] = lifetime
+    source = topoff_record(lookup(str(named.get("of"))))
     if source is None:
         return None
-    return float(source["lifetime_h"])
+    return _real(source["lifetime_h"])

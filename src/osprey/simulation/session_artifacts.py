@@ -34,7 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, SupportsFloat, SupportsIndex
+from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
@@ -209,7 +209,7 @@ def render_artifact(
     turn: ResolvedTurn,
     *,
     archive: ArchiveComposite | None = None,
-    events: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    events: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
     anchor_s: float | None = None,
     tz: ZoneInfo | None = None,
     where: str | None = None,
@@ -255,7 +255,7 @@ def render_artifact(
 def plot_series(
     archive: ArchiveComposite,
     turn: ResolvedTurn,
-    events: Mapping[str, Sequence[Mapping[str, Any]]],
+    events: Mapping[str, Sequence[Mapping[str, object]]],
     anchor_s: float,
     tz: ZoneInfo,
 ) -> PlotSeries:
@@ -369,7 +369,7 @@ def _stated_window(turn: ResolvedTurn, tz: ZoneInfo) -> tuple[float, float] | No
     return None
 
 
-def _stated_instant(spelling: Any, at: datetime, tz: ZoneInfo) -> float:
+def _stated_instant(spelling: object, at: datetime, tz: ZoneInfo) -> float:
     """One ``archiver_read`` time, read as the tool reads it, at the turn's instant *at*."""
     text = str(spelling or "now").strip().lower()
     if text == "now":
@@ -390,7 +390,7 @@ def _stated_instant(spelling: Any, at: datetime, tz: ZoneInfo) -> float:
 
 
 def _event_instants(
-    events: Mapping[str, Sequence[Mapping[str, Any]]],
+    events: Mapping[str, Sequence[Mapping[str, object]]],
     channels: Sequence[str],
     anchor_s: float,
     tz: ZoneInfo,
@@ -399,7 +399,7 @@ def _event_instants(
     from osprey_connectors.simulation.series import anchored_instant
 
     return [
-        anchored_instant(dict(event), anchor_s, tz)
+        anchored_instant(event, anchor_s, tz)
         for address in channels
         for event in events.get(address, ())
         if "at_offset" in event or "at_when" in event
@@ -410,7 +410,7 @@ def _render_plot(
     spec: ArtifactSpec,
     turn: ResolvedTurn,
     archive: ArchiveComposite,
-    events: Mapping[str, Sequence[Mapping[str, Any]]],
+    events: Mapping[str, Sequence[Mapping[str, object]]],
     anchor_s: float,
     tz: ZoneInfo,
     where: str,
@@ -482,7 +482,7 @@ def _render_note(spec: ArtifactSpec, turn: ResolvedTurn, where: str) -> Artifact
 
 def _render_data(spec: ArtifactSpec, turn: ResolvedTurn, where: str) -> ArtifactPayload:
     step = _producing_step(turn, spec, _DATA_TOOLS)
-    value: Any = None
+    value: object = None
     if step is not None:
         if step.name == "artifact_register":
             content = step.input.get("content")
