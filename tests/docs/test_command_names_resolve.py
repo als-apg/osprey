@@ -124,6 +124,13 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
     ("contributing/development-setup.rst", "tests/path/to/test_file.py"): (
         "a placeholder path in the 'run one test file' example"
     ),
+    **{
+        ("how-to/web-terminal/canopy.rst", name): (
+            "an input of the Canopy repository's scripts/build-payload.sh, which the "
+            "page runs; nothing in OSPREY reads it"
+        )
+        for name in ("PYDM", "PYDM_SHA", "RT_SHA", "SDK_SHA", "TRACE_REF", "CANOPY_SHA")
+    },
 }
 
 
