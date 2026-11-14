@@ -9,9 +9,10 @@ from various archiver systems (EPICS Archiver Appliance, Tango HDB++, LabVIEW, e
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 import pandas as pd
+
+from osprey_connectors._contract_types import ContractAny
 
 
 @dataclass
@@ -73,8 +74,9 @@ class ArchiverConnector(ABC):
         >>>     await connector.disconnect()
     """
 
+    # The config block is the archiver extension contract: each backend reads its own keys.
     @abstractmethod
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Establish connection to archiver.
 
