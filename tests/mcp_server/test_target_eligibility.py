@@ -842,14 +842,18 @@ def test_addr_list_mode_is_derived_from_use_name_server_false() -> None:
     derivation = _derive(_config(), LIVE)
 
     assert derivation.connector_type == EPICS_TYPE
-    assert derivation.endpoints["read_only"] == Endpoint("gw.example.org", 5064, "addr_list")
+    assert derivation.endpoints["read_only"] == Endpoint(
+        host="gw.example.org", port=5064, mode="addr_list"
+    )
 
 
 def test_name_server_mode_is_derived_from_use_name_server_true() -> None:
     derivation = _derive(_config(), VA)
 
     assert derivation.connector_type == VA_TYPE
-    assert derivation.endpoints["read_only"] == Endpoint("localhost", 5074, "name_server")
+    assert derivation.endpoints["read_only"] == Endpoint(
+        host="localhost", port=5074, mode="name_server"
+    )
 
 
 def test_read_only_and_write_access_carry_their_own_differing_ports() -> None:
@@ -952,7 +956,7 @@ def test_a_pva_row_appears_only_with_both_globs_and_a_gateway() -> None:
     derivation = _derive(config, LIVE)
 
     assert derivation.endpoints["pva"] == Endpoint(
-        "pva.example.org", DEFAULT_PVA_PORT, "name_server"
+        host="pva.example.org", port=DEFAULT_PVA_PORT, mode="name_server"
     )
 
 
@@ -974,7 +978,7 @@ def test_a_pva_addr_list_row_without_a_port_carries_none() -> None:
     derivation = _derive(config, LIVE)
 
     assert derivation.endpoints["pva"] == Endpoint(
-        "cam1.example.org cam2.example.org", None, "addr_list"
+        host="cam1.example.org cam2.example.org", port=None, mode="addr_list"
     )
 
 
@@ -1863,19 +1867,23 @@ def _simulator_config(port: int = 5064) -> dict[str, Any]:
 def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_port() -> None:
     """The twin of the stand-in judge, for the ``va`` target's derived endpoint."""
     assert te.endpoint_is_virtual_accelerator(
-        _simulator_config(), Endpoint("localhost", 5064, "name_server")
+        _simulator_config(), Endpoint(host="localhost", port=5064, mode="name_server")
     )
     assert te.endpoint_is_virtual_accelerator(
-        _simulator_config(), Endpoint("127.0.0.1", "5064", "name_server")
+        _simulator_config(), Endpoint(host="127.0.0.1", port="5064", mode="name_server")
     )
 
 
 @pytest.mark.parametrize(
     "endpoint",
     [
-        pytest.param(Endpoint("va.example.org", 5064, "name_server"), id="off-the-host"),
-        pytest.param(Endpoint("localhost", 5074, "name_server"), id="another-port"),
-        pytest.param(Endpoint("localhost", "not-a-port", "name_server"), id="unreadable-port"),
+        pytest.param(
+            Endpoint(host="va.example.org", port=5064, mode="name_server"), id="off-the-host"
+        ),
+        pytest.param(Endpoint(host="localhost", port=5074, mode="name_server"), id="another-port"),
+        pytest.param(
+            Endpoint(host="localhost", port="not-a-port", mode="name_server"), id="unreadable-port"
+        ),
         pytest.param(None, id="no-endpoint"),
     ],
 )
@@ -1884,7 +1892,9 @@ def test_anything_else_is_a_real_machine_until_proven_otherwise(endpoint: Any) -
 
 
 def test_a_deployment_that_built_no_simulator_vouches_for_no_endpoint() -> None:
-    assert not te.endpoint_is_virtual_accelerator({}, Endpoint("localhost", 5064, "name_server"))
+    assert not te.endpoint_is_virtual_accelerator(
+        {}, Endpoint(host="localhost", port=5064, mode="name_server")
+    )
 
 
 # ---------------------------------------------------------------------------

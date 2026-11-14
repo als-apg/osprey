@@ -27,9 +27,9 @@ Nothing here imports a control-system client library.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import SupportsIndex, SupportsInt
 
+from osprey_connectors._model import FrozenModel
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._gateway_role import (
     ROLE_READ_ONLY,
@@ -101,11 +101,13 @@ GATEWAYS_MISSING = "missing"
 GATEWAYS_ROWS = "rows"
 
 
-@dataclass(frozen=True)
-class Endpoint:
+class Endpoint(FrozenModel):
     """Where one gateway role points, and how the child will say so to EPICS."""
 
-    host: str
+    #: The ``address`` the gateway block carries, as written: a string in any
+    #: config that names a host, but whatever the config holds, so a block
+    #: whose address is no host still derives a row the verifiers refuse.
+    host: object
     #: The ``port`` the gateway block carries, as written (or the default the
     #: derivation filled in): usually an ``int``, but whatever the config holds.
     port: object
@@ -115,8 +117,7 @@ class Endpoint:
         return {"host": self.host, "port": self.port, "mode": self.mode}
 
 
-@dataclass(frozen=True)
-class TargetDerivation:
+class TargetDerivation(FrozenModel):
     """What a connector-host child *will* do for a target, derived from config.
 
     ``endpoints`` carries one row per configured role: ``read_only`` and
@@ -156,8 +157,7 @@ class TargetDerivation:
         return self.endpoints.get(self.selected_role)
 
 
-@dataclass(frozen=True)
-class Verification:
+class Verification(FrozenModel):
     """Whether the child came up where the derivation said it would."""
 
     ok: bool
@@ -411,8 +411,7 @@ def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
 NEVER_LIVE_TYPES = frozenset({VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
 
 
-@dataclass(frozen=True)
-class LiveCollision:
+class LiveCollision(FrozenModel):
     """A live gateway that a never-live target's selected endpoint lands on.
 
     ``selected`` and ``live`` name the same endpoint, each as its own block
@@ -483,11 +482,11 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
 
     if not report.get("_epics_configured"):
         return Verification(
-            False,
-            "_epics_configured",
-            True,
-            report.get("_epics_configured"),
-            "The child reports it never configured an EPICS gateway, so its "
+            ok=False,
+            field="_epics_configured",
+            expected=True,
+            got=report.get("_epics_configured"),
+            detail="The child reports it never configured an EPICS gateway, so its "
             "environment is whatever the process already carried rather than this "
             "target's.",
         )
@@ -496,22 +495,22 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
     got_role = report.get("selected_role")
     if got_role != expected_role:
         return Verification(
-            False,
-            "selected_role",
-            expected_role,
-            got_role,
-            f"The child selected the {got_role!r} gateway where target "
+            ok=False,
+            field="selected_role",
+            expected=expected_role,
+            got=got_role,
+            detail=f"The child selected the {got_role!r} gateway where target "
             f"{derivation.target!r} derives {expected_role!r}.",
         )
 
     endpoint = derivation.selected_endpoint()
     if endpoint is None:
         return Verification(
-            False,
-            "endpoints",
-            f"a derived {expected_role!r} endpoint",
-            None,
-            f"Target {derivation.target!r} has no derived {expected_role!r} endpoint "
+            ok=False,
+            field="endpoints",
+            expected=f"a derived {expected_role!r} endpoint",
+            got=None,
+            detail=f"Target {derivation.target!r} has no derived {expected_role!r} endpoint "
             "to compare the child against; it should never have been switched to.",
         )
 
@@ -519,28 +518,28 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
         got = report.get(field_name)
         if got != expected:
             return Verification(
-                False,
-                field_name,
-                expected,
-                got,
-                f"The child's {field_name} is {got!r} where target "
+                ok=False,
+                field=field_name,
+                expected=expected,
+                got=got,
+                detail=f"The child's {field_name} is {got!r} where target "
                 f"{derivation.target!r} derives {expected!r} for its "
                 f"{expected_role!r} gateway.",
             )
 
     if not _ports_equal(endpoint.port, report.get("port")):
         return Verification(
-            False,
-            "port",
-            endpoint.port,
-            report.get("port"),
-            f"The child's port is {report.get('port')!r} where target "
+            ok=False,
+            field="port",
+            expected=endpoint.port,
+            got=report.get("port"),
+            detail=f"The child's port is {report.get('port')!r} where target "
             f"{derivation.target!r} derives {endpoint.port!r} for its "
             f"{expected_role!r} gateway.",
         )
 
     return Verification(
-        True,
+        ok=True,
         detail=(
             f"The child is on target {derivation.target!r} via its {expected_role!r} "
             f"gateway at {endpoint.host}:{endpoint.port} ({endpoint.mode})."
@@ -566,32 +565,32 @@ def _verify_posture(
     got_type = report.get("connector_type")
     if got_type != derivation.connector_type:
         return Verification(
-            False,
-            "connector_type",
-            derivation.connector_type,
-            got_type,
-            f"The child reports connector type {got_type!r} where target "
+            ok=False,
+            field="connector_type",
+            expected=derivation.connector_type,
+            got=got_type,
+            detail=f"The child reports connector type {got_type!r} where target "
             f"{derivation.target!r} derives {derivation.connector_type!r}.",
         )
     got_transport = report.get("transport")
     if got_transport != derivation.transport:
         return Verification(
-            False,
-            "transport",
-            derivation.transport,
-            got_transport,
-            f"The child for target {derivation.target!r} reports transport "
+            ok=False,
+            field="transport",
+            expected=derivation.transport,
+            got=got_transport,
+            detail=f"The child for target {derivation.target!r} reports transport "
             f"{got_transport!r} where {derivation.transport!r} was derived.",
         )
     if readonly_run:
         got_readonly = report.get("readonly_run")
         if got_readonly is not True:
             return Verification(
-                False,
-                "readonly_run",
-                True,
-                got_readonly,
-                f"The child for target {derivation.target!r} was asked to run readonly "
+                ok=False,
+                field="readonly_run",
+                expected=True,
+                got=got_readonly,
+                detail=f"The child for target {derivation.target!r} was asked to run readonly "
                 "but reports it is not in a readonly run.",
             )
         return None
@@ -600,11 +599,11 @@ def _verify_posture(
     got_writes = report.get("writes_enabled")
     if (got_writes is True) != writes_enabled:
         return Verification(
-            False,
-            "writes_enabled",
-            writes_enabled,
-            got_writes,
-            f"The child for target {derivation.target!r} reports writes "
+            ok=False,
+            field="writes_enabled",
+            expected=writes_enabled,
+            got=got_writes,
+            detail=f"The child for target {derivation.target!r} reports writes "
             f"{'armed' if got_writes is True else 'off'} where this process derives them "
             f"{'armed' if writes_enabled else 'off'}.",
         )
@@ -668,24 +667,24 @@ def verify_host_report(
 
     if report.get("_epics_configured") or report.get("mode") or report.get("host"):
         return Verification(
-            False,
-            "_epics_configured",
-            False,
-            report.get("_epics_configured"),
-            f"Target {derivation.target!r} derives no gateway on this deployment, but the "
+            ok=False,
+            field="_epics_configured",
+            expected=False,
+            got=report.get("_epics_configured"),
+            detail=f"Target {derivation.target!r} derives no gateway on this deployment, but the "
             f"child reports it configured {report.get('mode')!r} routing to "
             f"{report.get('host')!r} — an endpoint this config never described.",
         )
     if derivation.declares_no_endpoints:
         return Verification(
-            True,
+            ok=True,
             detail=(
                 f"Target {derivation.target!r} declares no endpoints (`gateways: []`), "
                 "so there is no gateway to check the child against, and it configured none."
             ),
         )
     return Verification(
-        True,
+        ok=True,
         detail=(
             f"Target {derivation.target!r} derives no gateway (connector type "
             f"{derivation.connector_type!r}) and the child configured none."

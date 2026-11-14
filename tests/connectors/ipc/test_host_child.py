@@ -557,6 +557,79 @@ def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     assert isinstance(follow_up.value, ChannelValue)
 
 
+def _raw_request(request_id, method, kwargs_node):
+    """A well-delimited request frame whose ``kwargs`` node is written as given."""
+    return frames._pack(
+        {"kind": "request", "request_id": request_id, "method": method, "kwargs": kwargs_node}, []
+    )
+
+
+def _send_raw(child, payload):
+    child.proc.stdin.write(payload)
+    child.proc.stdin.flush()
+
+
+#: A request payload the codec cannot decode, and one whose record refuses its fields.
+UNDECODABLE_KWARGS = [
+    pytest.param({frames._TAG: "Bogus", "fields": {}}, id="unknown-value-tag"),
+    pytest.param(
+        {
+            frames._TAG: "dict",
+            # A record the child always has loaded: the codec's own imports define it.
+            "items": [["body", {frames._TAG: "ExceptionFrameBody", "fields": {"class_tag": 7}}]],
+        },
+        id="record-its-class-refuses",
+    ),
+    pytest.param({frames._TAG: "ndarray", "blob": 3}, id="blob-index-out-of-range"),
+]
+
+
+@pytest.mark.parametrize("kwargs_node", UNDECODABLE_KWARGS)
+def test_a_request_that_does_not_decode_is_refused_without_killing_the_child(
+    ready_child, kwargs_node
+):
+    _send_raw(ready_child, _raw_request("req-undecodable", "read_channel", kwargs_node))
+
+    frame = ready_child.next_frame()
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-undecodable"
+    assert isinstance(frame.exception, ConnectorInternalError)
+
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+
+
+def test_a_frame_that_names_no_request_is_skipped_and_the_child_keeps_serving(ready_child):
+    header = b"{not json"
+    body = frames._HEADER_STRUCT.pack(len(header)) + header
+    _send_raw(ready_child, frames.MAGIC + frames._HEADER_STRUCT.pack(len(body)) + body)
+
+    ready_child.quiet()
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+    assert "does not decode" in ready_child.stderr()
+
+
+def test_frames_behind_an_undecodable_one_in_the_same_write_are_served(ready_child):
+    good = frames.encode_request("req-good", "ping", {})
+    _send_raw(ready_child, _raw_request("req-bad", "ping", {frames._TAG: "Bogus"}) + good)
+
+    replies = {frame.request_id: frame for frame in (ready_child.next_frame() for _ in range(2))}
+    assert isinstance(replies["req-bad"], frames.ErrorFrame)
+    assert replies["req-good"] == frames.ResultFrame(
+        request_id="req-good", value=ready_child.proc.pid
+    )
+
+
+def test_an_init_frame_that_does_not_decode_fails_the_launch(child):
+    _send_raw(child, _raw_request("req-init", host.INIT_METHOD, {frames._TAG: "Bogus"}))
+
+    frame = child.next_frame()
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-init"
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
+
+
 # --------------------------------------------------------------- lifecycle
 
 
@@ -865,7 +938,7 @@ def test_a_gateways_entry_that_is_not_a_mapping_reports_no_role(monkeypatch):
 
     report = host._post_connect_report(object(), "epics", "live", section)
 
-    assert (report["selected_role"], report["mode"], report["host"], report["port"]) == (
+    assert (report.selected_role, report.mode, report.host, report.port) == (
         None,
         "name_server",
         "localhost",
@@ -983,9 +1056,9 @@ def test_the_report_arms_the_target_whose_switch_is_on(mixed_deployment):
         _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
 
-    assert report["target"] == "va"
-    assert report["connector_type"] == "virtual_accelerator"
-    assert report["writes_enabled"] is True
+    assert report.target == "va"
+    assert report.connector_type == "virtual_accelerator"
+    assert report.writes_enabled is True
 
 
 def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
@@ -995,9 +1068,9 @@ def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
         _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
 
-    assert report["target"] == "live"
-    assert report["connector_type"] == "epics"
-    assert report["writes_enabled"] is False
+    assert report.target == "live"
+    assert report.connector_type == "epics"
+    assert report.writes_enabled is False
 
 
 def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deployment, monkeypatch):
@@ -1017,9 +1090,9 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
     # half, reported where the run mode collapses the verdict. What the readonly
     # run collapses is the selection itself — an armed target still went
     # through the read gateway.
-    assert report["writes_enabled"] is True
-    assert report["readonly_run"] is True
-    assert report["selected_role"] == "read_only"
+    assert report.writes_enabled is True
+    assert report.readonly_run is True
+    assert report.selected_role == "read_only"
 
 
 # ------------------------------- the posture the selection was made with
@@ -1155,7 +1228,7 @@ def _verify(config, report, writes_enabled):
     from osprey_connectors.ipc._verification import derive_endpoints, verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
-    return derivation, verify_child_report(derivation, report)
+    return derivation, verify_child_report(derivation, report.as_wire())
 
 
 @pytest.mark.usefixtures("switched_off_va")
@@ -1184,14 +1257,14 @@ def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     # it down, and the report is the connector's own answer rather than a
     # second reading of the config.
     assert connector._writes_enabled is False
-    assert report["selected_role"] == "read_only"
+    assert report.selected_role == "read_only"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "read_only"
     assert verification.ok, verification.detail
 
-    assert report["writes_enabled"] is False
-    assert report["readonly_run"] is False
+    assert report.writes_enabled is False
+    assert report.readonly_run is False
 
 
 def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
@@ -1211,8 +1284,8 @@ def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
     )
 
     assert connector._writes_enabled is True
-    assert report["writes_enabled"] is True
-    assert report["selected_role"] == "write_access"
+    assert report.writes_enabled is True
+    assert report.selected_role == "write_access"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "write_access"
@@ -1238,9 +1311,9 @@ async def test_a_switched_off_target_reports_the_posture_its_writes_are_refused_
         connector, "virtual_accelerator", "va", config["control_system"]
     )
 
-    assert report["writes_enabled"] is False
-    assert report["readonly_run"] is False
-    assert report["selected_role"] == "read_only"
+    assert report.writes_enabled is False
+    assert report.readonly_run is False
+    assert report.selected_role == "read_only"
 
     # Same instance, same rule: the deployment arms this target, so the refusal
     # can only be the switch the report is now reporting.
