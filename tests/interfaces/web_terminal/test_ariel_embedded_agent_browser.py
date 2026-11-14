@@ -63,13 +63,6 @@ import yaml
 from playwright.sync_api import Frame, FrameLocator, Page, expect
 
 from osprey.interfaces._serving import run_app_server
-from tests._container_support import (
-    is_docker_available,
-    require_container_runtime,
-    start_or_fail,
-    stop_quietly,
-)
-from tests._session_database import answers
 from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
@@ -77,7 +70,7 @@ from tests.interfaces.web_terminal._chat_server import (
     live_chat_server,
 )
 
-# xdist_group("docker"): the module's Postgres container, on the worker that
+# xdist_group("docker"): the session's Postgres container, on the worker that
 # starts every other container, so the sweep does not load the runtime from two
 # workers at once.
 pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.xdist_group("docker")]
@@ -160,43 +153,9 @@ _IFRAME_AT_ITS_SRC = """
 
 
 # ---------------------------------------------------------------------------
-# Postgres (testcontainers), one container per module, one database per test
+# Postgres: the session's own container (``pgvector_container_url``, from
+# ``tests/conftest.py``), one database per test
 # ---------------------------------------------------------------------------
-
-
-def _skip_or_fail(reason: str) -> None:
-    """Skip for want of Postgres, or fail when the gate demands a database."""
-    if os.environ.get("ARIEL_TEST_REQUIRE_DB") == "1":
-        pytest.fail(f"{reason} (ARIEL_TEST_REQUIRE_DB=1)")
-    pytest.skip(reason)
-
-
-@pytest.fixture(scope="module")
-def ariel_postgres_url() -> Iterator[str]:
-    """The admin DSN of a pgvector Postgres owned by this module."""
-    if not is_docker_available():
-        _skip_or_fail("docker daemon is not reachable")
-    try:
-        from testcontainers.postgres import PostgresContainer
-    except ImportError:
-        _skip_or_fail("testcontainers[postgres] not installed")
-    require_container_runtime()
-    container, _port = start_or_fail(
-        lambda: PostgresContainer(
-            image="ankane/pgvector:latest",
-            username="ariel",
-            password="ariel",
-            dbname="ariel_embedded",
-        ),
-        "postgres (embedded ARIEL browser tests)",
-        5432,
-    )
-    try:
-        url = container.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
-        require_container_runtime(lambda: answers(url), "postgres", container=container)
-        yield url
-    finally:
-        stop_quietly(container)
 
 
 def _fresh_database(admin_url: str, name: str) -> str:
@@ -479,7 +438,7 @@ def _ariel_stack(
 
 
 @pytest.fixture
-def stack_factory(tmp_path, chromium_browser, ariel_postgres_url, monkeypatch):
+def stack_factory(tmp_path, chromium_browser, pgvector_container_url, monkeypatch):
     """Build the stack opened at a given ARIEL hash; torn down after the test."""
     with contextlib.ExitStack() as exits:
 
@@ -488,7 +447,7 @@ def stack_factory(tmp_path, chromium_browser, ariel_postgres_url, monkeypatch):
                 _ariel_stack(
                     tmp_path,
                     chromium_browser,
-                    ariel_postgres_url,
+                    pgvector_container_url,
                     monkeypatch,
                     initial_hash=initial_hash,
                 )
