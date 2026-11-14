@@ -78,7 +78,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import Any, Literal, overload
 
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
@@ -86,6 +86,9 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     SwitchError,
     baseline_target,
     switch_capable,
+)
+from osprey.mcp_server.control_system.connector_host_manager import (
+    RecoveryRecord as Recovery,
 )
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
@@ -95,10 +98,6 @@ from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableErr
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
-
-if TYPE_CHECKING:
-    # One thing the supervisor did about a failure: {"action": <word>, "text": <sentence>}.
-    from osprey_connectors.errors import RecoveryRecord as Recovery
 
 __all__ = [
     "ConnectorEntry",
