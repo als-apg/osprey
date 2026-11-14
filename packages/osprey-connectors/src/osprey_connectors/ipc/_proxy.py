@@ -84,8 +84,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Mapping, Sequence
-from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any, Protocol, TypeVar
 
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -111,6 +111,22 @@ _READ_CHUNK = 65536
 
 
 _T = TypeVar("_T")
+
+
+class _Reader(Protocol):
+    """The read half of the pipe, as the proxy uses it (see :class:`ConnectorHostProxy`)."""
+
+    async def read(self, n: int = -1, /) -> bytes: ...
+
+
+class _Writer(Protocol):
+    """The write half of the pipe, as the proxy uses it; ``wait_closed`` is optional."""
+
+    def write(self, data: bytes, /) -> object: ...
+
+    async def drain(self) -> None: ...
+
+    def close(self) -> object: ...
 
 
 def _unexpected(reply: object, method: str) -> frames.FrameDecodeError:
@@ -197,8 +213,10 @@ class ConnectorHostProxy:
         timeout_grace_s: float = 1.0,
         deadline_s: float | None = None,
     ) -> None:
-        self._reader = reader
-        self._writer = writer
+        # The parameters stay duck-typed (see the class docstring); the proxy's
+        # own use of them is the shape these protocols name.
+        self._reader: _Reader = reader
+        self._writer: _Writer = writer
         self._timeout_grace_s = timeout_grace_s
         self._deadline_s = deadline_s
         self._pending: dict[str, asyncio.Future[object]] = {}
@@ -553,7 +571,9 @@ class ConnectorHostProxy:
                 await task
         with contextlib.suppress(Exception):
             self._writer.close()
-        wait_closed = getattr(self._writer, "wait_closed", None)
+        wait_closed: Callable[[], Awaitable[object]] | None = getattr(
+            self._writer, "wait_closed", None
+        )
         if wait_closed is not None:
             with contextlib.suppress(Exception):
                 await wait_closed()

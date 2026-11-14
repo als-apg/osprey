@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, SupportsIndex, SupportsInt
+from typing import SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._gateway_role import (
@@ -106,7 +106,9 @@ class Endpoint:
     """Where one gateway role points, and how the child will say so to EPICS."""
 
     host: str
-    port: Any
+    #: The ``port`` the gateway block carries, as written (or the default the
+    #: derivation filled in): usually an ``int``, but whatever the config holds.
+    port: object
     mode: str
 
     def as_dict(self) -> dict[str, object]:
@@ -174,7 +176,7 @@ class Verification:
         }
 
 
-def config_section(config: object, name: str) -> dict[str, Any]:
+def config_section(config: object, name: str) -> dict[str, object]:
     """One top-level section of a rendered config, or an empty mapping.
 
     Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
@@ -186,7 +188,7 @@ def config_section(config: object, name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def subsection(section: dict[str, Any], name: str) -> dict[str, Any]:
+def subsection(section: Mapping[str, object], name: str) -> dict[str, object]:
     """One nested section of *section*, or an empty mapping when it is absent or not one."""
     value = section.get(name)
     return value if isinstance(value, dict) else {}

@@ -156,6 +156,7 @@ from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
+    from osprey_connectors.errors import RecoveryRecord
 
 logger = logging.getLogger("osprey.mcp_server.control_system.connector_host_manager")
 
@@ -291,7 +292,7 @@ class NoConnectorHostError(ConnectorUnavailableError):
         generation: int,
         detail: str | None = None,
         *,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         self.target = target
         self.generation = generation
@@ -1083,7 +1084,7 @@ class ConnectorHostManager:
             recovery = await self._start_one_if_none_is_live()
             raise NoConnectorHostError(self._target, self._generation, recovery=(recovery,))
 
-    async def _start_one_if_none_is_live(self) -> dict[str, str]:
+    async def _start_one_if_none_is_live(self) -> RecoveryRecord:
         """Start a child on the target of record when none is live; say what happened.
 
         Called under the lock. The previous child is gone, so there is nothing
