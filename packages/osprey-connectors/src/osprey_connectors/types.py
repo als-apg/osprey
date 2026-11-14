@@ -303,7 +303,10 @@ INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 #: The target each self-standing machine's type is the baseline of. A type
 #: absent from this table describes the facility's own machine, hence ``live``.
-_BASELINE_TARGETS = {VIRTUAL_ACCELERATOR: TARGET_VA, LIVE_STANDIN: TARGET_STANDIN}
+_BASELINE_TARGETS: dict[str, ControlTarget] = {
+    VIRTUAL_ACCELERATOR: TARGET_VA,
+    LIVE_STANDIN: TARGET_STANDIN,
+}
 
 
 def _resolve_type(section: object, fallback: str) -> str:
@@ -614,7 +617,7 @@ def resolve_target(section: object, target: object) -> str:
     )
 
 
-def baseline_target(section: object) -> str:
+def baseline_target(section: object) -> ControlTarget:
     """The target a deployment's own ``control_system:`` section selects.
 
     ``va`` for the simulator, in whichever venue its leaf names (a section
@@ -711,7 +714,7 @@ def target_configured(section: object, target: object) -> bool:
     return isinstance(block, dict) and bool(block)
 
 
-def configured_targets(section: object) -> list[str]:
+def configured_targets(section: object) -> list[ControlTarget]:
     """The targets a session on this deployment can actually be pointed at.
 
     In :data:`CONTROL_TARGETS` order, which is the order every render, roster
@@ -870,7 +873,7 @@ def _published_targets(directory: str) -> dict[str, object]:
 
 
 def published_machine_kind(
-    target: object, *, state_dir: object = None
+    target: object, *, state_dir: str | os.PathLike[str] | None = None
 ) -> Literal["real", "rehearsal", "simulator"]:
     """The kind of machine *target* is, as this deployment's controls server publishes it.
 

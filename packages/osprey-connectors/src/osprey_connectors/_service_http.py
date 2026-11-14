@@ -44,7 +44,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Protocol
+from email.message import Message
+from typing import IO, NoReturn, Protocol
 
 from osprey_connectors.connection import (
     ConnectionSettings,
@@ -106,7 +107,14 @@ class _RefuseRedirects(urllib.request.BaseHandler):
 
     handler_order = urllib.request.HTTPRedirectHandler.handler_order - 1
 
-    def _refuse(self, req, fp, code, msg, headers):
+    def _refuse(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes] | None,
+        code: int,
+        msg: str,
+        headers: Message,
+    ) -> NoReturn:
         raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
 
     http_error_301 = http_error_302 = http_error_303 = _refuse

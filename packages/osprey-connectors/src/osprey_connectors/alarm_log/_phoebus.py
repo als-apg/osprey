@@ -204,7 +204,7 @@ def _config_body(row: Mapping[str, object]) -> Mapping[str, object] | None:
     if not isinstance(text, str | bytes | bytearray):
         return None
     try:
-        body = json.loads(text)
+        body: object = json.loads(text)
     except (ValueError, RecursionError):
         return None
     return body if isinstance(body, Mapping) else None

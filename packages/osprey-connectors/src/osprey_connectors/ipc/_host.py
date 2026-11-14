@@ -201,7 +201,7 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any, SupportsFloat, TypedDict
+from typing import TYPE_CHECKING, SupportsFloat, TypedDict
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
@@ -209,6 +209,8 @@ from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping
+
     from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
 __all__ = [
@@ -478,7 +480,7 @@ def _writes_enabled_input() -> bool:
     from osprey_connectors.types import tier_allows
 
     try:
-        section = get_config_value("control_system", {})
+        section: object = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return tier_allows(section)
@@ -593,14 +595,37 @@ class _PostConnectReport(TypedDict):
     pid: int
 
 
+def _init_block(value: object, where: str) -> Mapping[str, object]:
+    """A nested block of the init payload's section: empty when unset, refused when no mapping.
+
+    Raises:
+        ValueError: *value* is set but is not a mapping.
+    """
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"connector host init: {where} must be a mapping, not a {type(value).__name__}"
+        )
+    return value
+
+
 def _post_connect_report(
     connector: ControlSystemConnector,
     connector_type: str,
     target: str,
-    section: dict[str, Any],
+    section: Mapping[str, object],
 ) -> _PostConnectReport:
-    """Describe what ``connect()`` configured, for the parent to verify."""
-    connector_block = (section.get("connector") or {}).get(connector_type) or {}
+    """Describe what ``connect()`` configured, for the parent to verify.
+
+    Raises:
+        ValueError: The section's ``connector`` block, or its block for
+            *connector_type*, is set but is not a mapping.
+    """
+    connectors = _init_block(section.get("connector"), "control_system.connector")
+    connector_block = _init_block(
+        connectors.get(connector_type), f"control_system.connector.{connector_type}"
+    )
     gateways = connector_block.get("gateways") or {}
     if not isinstance(gateways, dict):
         gateways = {}
@@ -838,8 +863,12 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
-async def _invoke(connector: ControlSystemConnector, method: str, kwargs: object) -> object:
-    """Run one request against the connector."""
+async def _invoke(connector: ControlSystemConnector, method: object, kwargs: object) -> object:
+    """Run one request against the connector.
+
+    *method* and *kwargs* are the request frame's, unvalidated: a bad one is
+    refused here, in that request's error frame.
+    """
     if method == "ping":
         return os.getpid()
     if not isinstance(kwargs, dict):
@@ -848,8 +877,9 @@ async def _invoke(connector: ControlSystemConnector, method: str, kwargs: object
         )
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
-    if method in PROXY_METHODS:
-        return await getattr(connector, method)(**kwargs)
+    if isinstance(method, str) and method in PROXY_METHODS:
+        served: Callable[..., Awaitable[object]] = getattr(connector, method)
+        return await served(**kwargs)
     raise ValueError(
         f"connector host does not serve {method!r}; it serves "
         f"{', '.join((*PROXY_METHODS, 'spawn_probe', 'ping'))}"
@@ -921,13 +951,13 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         return EXIT_OK
     marks.mark("init")
     if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
-        request_id = getattr(init, "request_id", "init")
+        got = init.method if isinstance(init, frames.RequestFrame) else type(init).__name__
         await writer.send(
             _error_frame(
-                request_id,
+                init.request_id,
                 ConnectionError(
                     f"connector host expected a {INIT_METHOD!r} request as its first frame, "
-                    f"got {getattr(init, 'method', type(init).__name__)!r}"
+                    f"got {got!r}"
                 ),
             )
         )

@@ -78,7 +78,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
@@ -95,6 +95,10 @@ from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableErr
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
+
+if TYPE_CHECKING:
+    # One thing the supervisor did about a failure: {"action": <word>, "text": <sentence>}.
+    from osprey_connectors.errors import RecoveryRecord as Recovery
 
 __all__ = [
     "ConnectorEntry",
@@ -266,10 +270,6 @@ class MCPServerConfig:
 # ---------------------------------------------------------------------------
 # The supervised handle
 # ---------------------------------------------------------------------------
-
-#: One thing the supervisor did about a failure: ``{"action": <word>, "text": <sentence>}``.
-Recovery = dict[str, str]
-
 
 #: The contract each key's connector states, which a handle reads when none serves.
 _CONTRACTS: dict[str, type] = {
@@ -560,7 +560,11 @@ class ControlSystemContext:
         held = self._recoveries.get(name)
         if held is not None and held[0] is incarnation:
             task = held[1]
-            if not task.done() or (task.result() or {}).get("action") != RecoveryAction.CHILD_KEPT:
+            if (
+                not task.done()
+                or (record := task.result()) is None
+                or record.get("action") != RecoveryAction.CHILD_KEPT
+            ):
                 return await asyncio.shield(task)
         task = asyncio.ensure_future(self._guarded(act, name, incarnation))
         self._recoveries[name] = (incarnation, task)
