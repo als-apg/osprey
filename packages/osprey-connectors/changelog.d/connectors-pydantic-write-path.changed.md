@@ -15,7 +15,7 @@ The write path's records are pydantic models: `ChannelRange`, `Approver`,
   `record.text`, not `record["action"]`. `Recovery.as_dict()` returns one, and
   `dict(record)` or `record.model_dump()` is the `{"action", "text"}` mapping.
 - `dataclasses.replace`, `asdict` and `fields` no longer apply. Build a changed
-  copy with `type(record).model_validate({**dict(record), "field": value})`, take
+  copy with `osprey_connectors.model.evolve(record, **changes)`, take
   the mapping with `record.model_dump()`, and list the fields with
   `Model.model_fields`.
 - Assigning to a field of one of these frozen records raises

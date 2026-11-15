@@ -13,5 +13,5 @@ limit pair on assignment too, and a `ChannelWriteResult` refuses an assignment
 that breaks its outcome rules, which a dataclass let through. Assigning to a
 `LimitsPosture` raises `ValidationError` instead of `FrozenInstanceError`.
 `dataclasses.fields`, `asdict` and `replace` no longer apply: use
-`Model.model_fields`, `model.model_dump()`, and the constructor. A limit read
+`Model.model_fields`, `model.model_dump()` and `osprey_connectors.model.evolve(record, **changes)`. A limit read
 from the limits database keeps the `int` or `float` it was written as.

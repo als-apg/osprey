@@ -10,6 +10,6 @@ The read-only service records are frozen pydantic models, validated when built: 
   list of strings, each `DirectoryQuery.server`/`channel_type` entry a string, and `Source` and
   `BackendSpec` only the `kind` and `target` values their types name. An unknown keyword raises
   `ValidationError` rather than `TypeError`.
-- `dataclasses.replace`, `asdict` and `fields` no longer apply: write `Model.model_validate({**dict(record), ...})`,
+- `dataclasses.replace`, `asdict` and `fields` no longer apply: write `osprey_connectors.model.evolve(record, **changes)`,
   `record.model_dump()` and `Model.model_fields`. `AlarmStates.counts` is a property, not a field;
   `model_dump()` still carries it.
