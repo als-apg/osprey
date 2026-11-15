@@ -22,6 +22,7 @@ re-seeds the stored history.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 
 import numpy as np
 
@@ -100,7 +101,7 @@ _MS_PER_S = 1000.0
 
 def _shape_version() -> str:
     """Digest of the current shape constants (see :data:`_SHAPE_CONSTANT_NAMES`)."""
-    module = globals()
+    module: Mapping[str, object] = globals()
     text = ";".join(f"{name.lstrip('_')}={module[name]!r}" for name in _SHAPE_CONSTANT_NAMES)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 

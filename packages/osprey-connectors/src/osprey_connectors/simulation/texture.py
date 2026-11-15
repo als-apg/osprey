@@ -72,13 +72,17 @@ from osprey_connectors.simulation.envelope import declares_motion
 from osprey_connectors.simulation.view import SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation._records import (
+    from osprey_connectors.simulation.records import (
         ChannelRecord,
         GateRecord,
         LinearTerm,
         ModelEntry,
+        NoiseRecord,
         PulseRecord,
+        ResolvedCoupling,
         SeedRecord,
+        SeedsDocument,
+        VariablesDocument,
     )
 
 __all__ = [
@@ -101,17 +105,17 @@ _SCENARIO_ABSOLUTE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
 
 
-def channel_value_type(channel: Mapping[str, Any]) -> str:
+def channel_value_type(channel: ChannelRecord) -> str:
     """A channel record's ``value_type``, ``float`` when it states none."""
     return channel.get("value_type") or values.DEFAULT_VALUE_TYPE
 
 
-def is_float_channel(channel: Mapping[str, Any]) -> bool:
+def is_float_channel(channel: ChannelRecord) -> bool:
     """Whether a channel record holds a ``float``."""
     return channel_value_type(channel) == "float"
 
 
-def _bounds(channel: Mapping[str, Any]) -> tuple[float | None, float | None] | None:
+def _bounds(channel: ChannelRecord) -> tuple[float | None, float | None] | None:
     """The view's ``value_range`` as ``(low, high)``; ``None`` when both sides are null."""
     bounds: Sequence[float | None] | None = channel.get("value_range")
     if bounds is None:
@@ -122,7 +126,7 @@ def _bounds(channel: Mapping[str, Any]) -> tuple[float | None, float | None] | N
     return low, high
 
 
-def _int_range(channel: Mapping[str, Any]) -> tuple[int, int] | None:
+def _int_range(channel: ChannelRecord) -> tuple[int, int] | None:
     """An ``int`` variable's range from the view's ``value_range``; a null side is unbounded."""
     bounds = _bounds(channel)
     if bounds is None:
@@ -134,7 +138,7 @@ def _int_range(channel: Mapping[str, Any]) -> tuple[int, int] | None:
     )
 
 
-def _float_range(channel: Mapping[str, Any]) -> tuple[float, float] | None:
+def _float_range(channel: ChannelRecord) -> tuple[float, float] | None:
     """A scalar variable's range from the view's ``value_range``; a null side is unbounded."""
     bounds = _bounds(channel)
     if bounds is None:
@@ -172,7 +176,7 @@ def _gate_inputs(inputs: Mapping[str, object] | None) -> list[tuple[str, object]
     return pairs
 
 
-def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
+def channel_variable(channel: ChannelRecord, nominal: Any) -> Variable:
     """The LUME variable of one channel of the view's ``variables.json``.
 
     A setpoint the view marks writable is settable; every other channel is
@@ -238,21 +242,19 @@ class TextureModel(LUMEModel):
 
     def __init__(
         self,
-        variables: Mapping[str, Any],
-        seeds: Mapping[str, Any],
+        variables: VariablesDocument,
+        seeds: SeedsDocument,
         *,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._clock = clock
-        seeded: Mapping[str, SeedRecord] = seeds.get("seeds") or {}
         self._seeds: dict[str, SeedRecord] = {
-            str(address): seed for address, seed in seeded.items()
+            str(address): seed for address, seed in (seeds.get("seeds") or {}).items()
         }
-        channels: Sequence[ChannelRecord] = variables.get("channels", [])
         self._channels: dict[str, ChannelRecord] = {
-            str(channel["address"]): channel for channel in channels
+            str(channel["address"]): channel for channel in variables.get("channels", [])
         }
-        models: Sequence[ModelEntry] = variables.get("models", [])
+        models = variables.get("models", [])
         unserved_defaults = self._unserved_wiring_defaults(models)
         unserved = {str(model["name"]) for model in models if not model.get("served")}
 
@@ -279,8 +281,8 @@ class TextureModel(LUMEModel):
             address: channel_variable(self._channels[address], start[address]) for address in owned
         }
         self._held: dict[str, values.StoredValue] = {}
-        self._couple: dict[str, list[Mapping[str, Any]]] = {}
-        self._noise: dict[str, Mapping[str, Any]] = {}
+        self._couple: dict[str, list[ResolvedCoupling]] = {}
+        self._noise: dict[str, NoiseRecord] = {}
         self._still: frozenset[str] = frozenset()
         self._active: dict[str, object] = {}
         self.reset()
@@ -441,8 +443,8 @@ class TextureModel(LUMEModel):
 
     def set_motion(
         self,
-        couple: Mapping[str, Sequence[Mapping[str, Any]]],
-        noise: Mapping[str, Mapping[str, Any]],
+        couple: Mapping[str, Sequence[ResolvedCoupling]],
+        noise: Mapping[str, NoiseRecord],
         *,
         still: frozenset[str] = frozenset(),
     ) -> None:
@@ -459,7 +461,7 @@ class TextureModel(LUMEModel):
             still: Addresses served without motion.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
-        self._noise = {str(address): dict(entry) for address, entry in noise.items()}
+        self._noise = {str(address): {**entry} for address, entry in noise.items()}
         self._still = frozenset(str(address) for address in still)
 
     def motion(self, address: str, t_s: object, base: object = 0.0) -> np.ndarray:
@@ -499,7 +501,8 @@ class TextureModel(LUMEModel):
             total = total + self._coupling(address, coupling, flat)
         record = topoff.topoff_record(seed)
         if record is not None:
-            total = total + self._tooth(record, flat, base)
+            tau, period = topoff.tau_period(record)
+            total = total + self._tooth(tau, period, topoff.period_mean(record), flat, base)
         term, value, subkey = self._noise_term(address)
         if value:
             normals = series.keyed_normals(key + subkey, np.rint(flat * _MS_PER_S).astype(np.int64))
@@ -548,16 +551,21 @@ class TextureModel(LUMEModel):
         return term, float(replacement.get(term) or 0.0), subkey
 
     @staticmethod
-    def _tooth(record: Mapping[str, Any], times: np.ndarray, base: object) -> np.ndarray:
-        """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``."""
-        tau, period = topoff.tau_period(record)
+    def _tooth(
+        tau: float, period: float, mean: float, times: np.ndarray, base: object
+    ) -> np.ndarray:
+        """The top-off tooth ``base * (s(t) / m - 1)`` on the level ``base``.
+
+        ``tau`` and ``period`` are a ``topoff`` record's, in seconds, and
+        ``mean`` its sawtooth's mean ``m``.
+        """
         unit = np.exp(-np.mod(times, period) / tau)
         level = np.asarray(base, dtype=np.float64).reshape(-1)
-        tooth: np.ndarray = level * (unit / topoff.period_mean(record) - 1.0)
+        tooth: np.ndarray = level * (unit / mean - 1.0)
         return tooth
 
     @staticmethod
-    def _coupling(address: str, coupling: Mapping[str, Any], times: np.ndarray) -> np.ndarray:
+    def _coupling(address: str, coupling: ResolvedCoupling, times: np.ndarray) -> np.ndarray:
         """``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling."""
         driver = str(coupling["driver"])
         drive = coupling["drive"]

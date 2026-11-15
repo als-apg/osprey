@@ -29,9 +29,18 @@ view's reader and the texture model share one rule.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final
 
 from osprey_connectors.simulation import topoff
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import (
+        CouplingTerm,
+        DriveRecord,
+        NoiseRecord,
+        ResolvedCoupling,
+        SeedRecord,
+    )
 
 __all__ = [
     "active_envelopes",
@@ -42,8 +51,8 @@ __all__ = [
 #: Gaussian headroom on a noise sigma: a per-draw miss rate near 1e-9.
 _MOTION_SIGMAS = 6.0
 
-_ABSOLUTE = "absolute"
-_RELATIVE = "relative"
+_ABSOLUTE: Final = "absolute"
+_RELATIVE: Final = "relative"
 
 
 def _number(value: object) -> float | None:
@@ -53,7 +62,7 @@ def _number(value: object) -> float | None:
     return float(value)
 
 
-def _noise_sigma(noise: Mapping[str, Any] | None, nominal: object = None) -> float:
+def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -80,14 +89,14 @@ def _noise_sigma(noise: Mapping[str, Any] | None, nominal: object = None) -> flo
     return relative * abs(base)
 
 
-def _term(noise: Mapping[str, Any] | None) -> float:
+def _term(noise: NoiseRecord | None) -> float:
     """The noise record's one term, signed as stated; 0.0 for no record."""
     if not noise:
         return 0.0
     return float(noise.get(_ABSOLUTE) or noise.get(_RELATIVE) or 0.0)
 
 
-def declares_motion(seed: Mapping[str, Any] | None) -> bool:
+def declares_motion(seed: SeedRecord | None) -> bool:
     """Whether a seed states motion: a non-zero noise term, ``drift``, or ``topoff``."""
     if not seed:
         return False
@@ -97,10 +106,10 @@ def declares_motion(seed: Mapping[str, Any] | None) -> bool:
 
 
 def motion_envelope(
-    seed: Mapping[str, Any] | None,
+    seed: SeedRecord | None,
     *,
-    noise: Mapping[str, Any] | None = None,
-    couplings: Iterable[Mapping[str, Any]] = (),
+    noise: NoiseRecord | None = None,
+    couplings: Iterable[ResolvedCoupling] = (),
     still: bool = False,
 ) -> float:
     """The band a channel's motion keeps its value within around the held value.
@@ -122,15 +131,15 @@ def motion_envelope(
     if still:
         return 0.0
     seed = seed or {}
-    drift = seed.get("drift") or {}
-    envelope = abs(float(drift.get("amplitude") or 0.0))
+    drift = seed.get("drift")
+    envelope = abs(float(drift.get("amplitude") or 0.0)) if drift else 0.0
     for coupling in couplings:
-        wander = coupling.get("gain_wander") or {}
-        drive = coupling.get("drive") or {}
+        wander = coupling.get("gain_wander")
+        drive = coupling.get("drive")
         envelope += (
             abs(float(coupling.get("gain") or 0.0))
-            * (1.0 + abs(float(wander.get("amplitude") or 0.0)))
-            * abs(float(drive.get("amplitude") or 0.0))
+            * (1.0 + (abs(float(wander.get("amplitude") or 0.0)) if wander else 0.0))
+            * (abs(float(drive.get("amplitude") or 0.0)) if drive else 0.0)
         )
     shape = topoff.topoff_record(seed)
     if shape is not None:
@@ -142,7 +151,7 @@ def motion_envelope(
 
 
 def active_envelopes(
-    seeds: Mapping[str, Mapping[str, Any]],
+    seeds: Mapping[str, SeedRecord],
     scenarios: Mapping[str, Mapping[str, Any]],
     active: Sequence[str],
 ) -> dict[str, float]:
@@ -156,16 +165,21 @@ def active_envelopes(
 
     Args:
         seeds: Seeds by address.
-        scenarios: Scenario records by name.
+        scenarios: Scenario records by name, the simulator view's or the
+            facility file's; only ``still``, ``drivers``, ``couple`` and
+            ``noise`` are read.
         active: The active scenario names, in order; a name ``scenarios``
             lacks adds nothing.
 
     Returns:
         The envelope by address, sorted.
     """
-    drivers: dict[str, Mapping[str, Any]] = {}
-    couple: dict[str, list[Mapping[str, Any]]] = {}
-    noise: dict[str, Mapping[str, Any]] = {}
+    # The view copies a scenario's ``drivers``, ``couple`` and ``noise`` blocks
+    # from the facility file verbatim, so either source states them as its
+    # schema does; its ``still`` and ``faults`` the view resolves first.
+    drivers: dict[str, DriveRecord] = {}
+    couple: dict[str, list[CouplingTerm]] = {}
+    noise: dict[str, NoiseRecord] = {}
     still: set[str] = set()
     for name in active:
         scenario = scenarios.get(name) or {}
@@ -175,12 +189,13 @@ def active_envelopes(
             couple.setdefault(str(address), []).extend(terms)
         for address, record in (scenario.get("noise") or {}).items():
             noise[str(address)] = record
-    resolved: dict[str, list[Mapping[str, Any]]] = {}
+    resolved: dict[str, list[ResolvedCoupling]] = {}
     for address, terms in couple.items():
         for term in terms:
             drive = drivers.get(str(term["driver"]))
             if drive is not None:
-                resolved.setdefault(address, []).append({**term, "drive": drive})
+                coupling: ResolvedCoupling = {**term, "drive": drive}
+                resolved.setdefault(address, []).append(coupling)
     addresses = {str(address) for address in seeds} | set(couple) | set(noise)
     return {
         address: motion_envelope(

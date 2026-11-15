@@ -82,6 +82,7 @@ from osprey_connectors.simulation.view import (
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import CurrentValueReader
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.records import ChannelRecord
 
 logger = get_logger("va_in_process_connector")
 
@@ -213,25 +214,6 @@ def active_set_sha256(active: Sequence[str]) -> str:
 _JOURNAL_FILE_MODE = 0o600
 
 
-class _ChannelRecord(TypedDict, total=False):
-    """One channel entry of the view's ``variables.json``, as the view hands it over.
-
-    Read-only: :meth:`SimulatorView.document` freezes the file, so the record is
-    a mapping proxy and its sequences are tuples. Only the keys this connector
-    reads are named.
-    """
-
-    address: str
-    role: str
-    value_type: str
-    unit: str | None
-    description: str | None
-    writable: bool
-    value_range: tuple[float | None, float | None] | None
-    options: tuple[str, ...]
-    shape: tuple[int, ...]
-
-
 class _JournalDocument(TypedDict):
     """A session-writes journal: what :func:`_is_journal` admits."""
 
@@ -330,7 +312,7 @@ class VAInProcessConnector(ControlSystemConnector):
     def __init__(self) -> None:
         self._connected = False
         self._composite: Composite | None = None
-        self._records: dict[str, _ChannelRecord] = {}
+        self._records: dict[str, ChannelRecord] = {}
         self._served: frozenset[str] = frozenset()
         self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], object]]] = {}
         self._last_held: dict[str, object] = {}
@@ -637,19 +619,19 @@ class VAInProcessConnector(ControlSystemConnector):
 
     def _metadata(self, address: str, composite: Composite) -> ChannelMetadata:
         """Metadata from the channel record, alarm from the composite's severity."""
-        record = self._records.get(address, {})
+        record = self._records.get(address)
         variable = composite.supported_variables[address]
-        unit = getattr(variable, "unit", None) or record.get("unit") or ""
+        unit = getattr(variable, "unit", None) or (record and record.get("unit")) or ""
         severity = composite.output_severity([address])
         labels: list[str] | None = None
-        if record.get("value_type") in LABELLED_TYPES:
+        if record is not None and record.get("value_type") in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             labels = values.channel_labels(record)
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),
-            description=record.get("description"),
+            description=None if record is None else record.get("description"),
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,
             enum_labels=labels,

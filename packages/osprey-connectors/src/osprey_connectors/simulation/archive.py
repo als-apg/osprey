@@ -62,7 +62,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -80,15 +80,21 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
-from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation._records import ChannelRecord, ScenarioRecord
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.records import (
+        ArchiverEvent,
+        ChannelRecord,
+        PulseRecord,
+        ScenarioRecord,
+        TopoffRecord,
+    )
 
 logger = get_logger("archive")
 
@@ -325,16 +331,16 @@ class ArchiveComposite:
 
     def __init__(
         self,
-        channels: Mapping[str, Mapping[str, Any]],
+        channels: Mapping[str, ChannelRecord],
         held: Mapping[str, object],
-        events: Mapping[str, Sequence[Mapping[str, Any]]],
+        events: Mapping[str, Sequence[ArchiverEvent]],
         composite: Composite,
         *,
         anchor_s: float,
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
-        pulses: Mapping[str, Mapping[str, object]] | None = None,
-        topoffs: Mapping[str, Mapping[str, Any]] | None = None,
+        pulses: Mapping[str, PulseRecord] | None = None,
+        topoffs: Mapping[str, TopoffRecord] | None = None,
     ) -> None:
         self._channels = dict(channels)
         self._topoffs = dict(topoffs or {})
@@ -356,7 +362,7 @@ class ArchiveComposite:
         self._anchor_s = anchor_s
         self._tz = tz
 
-    def topoff_record(self, address: str) -> Mapping[str, Any] | None:
+    def topoff_record(self, address: str) -> TopoffRecord | None:
         """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
         return self._topoffs.get(address)
 
@@ -541,9 +547,9 @@ class ArchiveComposite:
 
     def _stepped(
         self,
-        channel: Mapping[str, Any],
+        channel: ChannelRecord,
         held: object,
-        events: Sequence[Mapping[str, Any]],
+        events: Sequence[ArchiverEvent],
         times: np.ndarray,
     ) -> list[object]:
         """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
@@ -561,7 +567,7 @@ class ArchiveComposite:
         return stored
 
     @staticmethod
-    def _wire(channel: Mapping[str, Any], value: object) -> object:
+    def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
         value_type = channel.get("value_type")
         if value_type in channel_values.LABELLED_TYPES:
@@ -571,8 +577,8 @@ class ArchiveComposite:
 
 
 def scenario_events(
-    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
-) -> dict[str, list[dict[str, Any]]]:
+    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str]
+) -> dict[str, list[ArchiverEvent]]:
     """The archiver events a scenario set writes, by channel.
 
     Args:
@@ -584,10 +590,13 @@ def scenario_events(
         Each channel's events in set order; a channel an ``archiver`` entry
         names with no events maps to an empty list.
     """
-    events: dict[str, list[dict[str, Any]]] = {}
+    events: dict[str, list[ArchiverEvent]] = {}
     for name in names:
-        for entry in scenarios.get(name, {}).get("archiver") or []:
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+        scenario = scenarios.get(name)
+        if scenario is None:
+            continue
+        for entry in scenario.get("archiver") or ():
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or ())
     return events
 
 
@@ -629,12 +638,12 @@ def build(
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
     scenarios: dict[str, ScenarioRecord] = {
-        str(scenario["name"]): scenario for scenario in view._scenarios()
+        str(scenario["name"]): scenario for scenario in view.scenarios()
     }
     records: dict[str, ChannelRecord] = {
-        str(channel["address"]): channel for channel in view._channel_entries()
+        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
     }
-    seeds = view._seeds()
+    seeds = view.document(SEEDS_FILE)["seeds"]
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
