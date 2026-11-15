@@ -30,7 +30,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     RefusalReason,
 )
-from osprey_connectors.ipc import Endpoint, TargetDerivation
+from osprey_connectors.ipc import Endpoint
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
 
@@ -422,46 +422,17 @@ def _header_of(payload: bytes) -> dict:
     return json.loads(body[4 : 4 + header_len])
 
 
-def test_a_package_model_crosses_as_its_tag_and_its_fields_in_order():
-    endpoint = Endpoint(host="gw.example.org", port=5064, mode="name_server")
+def test_a_record_crosses_as_its_tag_and_its_fields_in_order():
+    metadata = ChannelMetadata(units="mA", precision=3)
 
-    payload = frames.encode_result("req-m", endpoint)
+    payload = frames.encode_result("req-m", metadata)
 
-    # The layout a connector dataclass has always crossed in, so a dataclass
-    # and the model that replaces it put the same bytes on the wire.
-    assert _header_of(payload)["value"] == {
-        _TAG: "Endpoint",
-        "fields": {"host": "gw.example.org", "port": 5064, "mode": "name_server"},
-    }
+    node = _header_of(payload)["value"]
+    assert node[_TAG] == "ChannelMetadata"
+    assert list(node["fields"]) == list(ChannelMetadata.model_fields)
     frame = _round_trip(payload)
-    assert type(frame.value) is Endpoint
-    assert frame.value == endpoint
-
-
-def test_a_nested_package_model_rebuilds_from_its_own_node():
-    endpoint = Endpoint(host="gw.example.org", port="5064", mode="addr_list")
-    derivation = TargetDerivation(
-        target="live",
-        connector_type="epics",
-        endpoints={"read_only": endpoint},
-        selected_role="read_only",
-        transport="ca",
-    )
-
-    frame = _round_trip(frames.encode_result("req-n", derivation))
-
-    assert frame.value == derivation
-    assert type(frame.value.endpoints["read_only"]) is Endpoint
-
-
-def test_a_model_field_the_wire_flattens_is_restored_by_its_declared_type():
-    """A tuple crosses as a JSON list; the model's own field type makes it a tuple again."""
-    detail = exceptions._Detail(fields=("reason", "outcome"), message_kwarg="message")
-
-    frame = _round_trip(frames.encode_result("req-t", detail))
-
-    assert frame.value == detail
-    assert frame.value.fields == ("reason", "outcome")
+    assert type(frame.value) is ChannelMetadata
+    assert frame.value == metadata
 
 
 def test_a_model_defined_outside_the_package_is_refused_at_encode_time():
@@ -472,37 +443,44 @@ def test_a_model_defined_outside_the_package_is_refused_at_encode_time():
         frames.encode_result("req-o", Outsider(name="x"))
 
 
-def test_a_subclass_of_a_package_model_is_refused_at_encode_time():
-    """Only the class the far side rebuilds crosses, as for the connector dataclasses."""
+def test_another_package_model_is_refused_at_encode_time():
+    """Only a connector's three result records cross, not every model the package defines."""
+    with pytest.raises(frames.FrameEncodeError, match="'Endpoint'"):
+        frames.encode_result("req-e", Endpoint(host="h", port=1, mode="addr_list"))
 
-    class MyEndpoint(Endpoint):
+
+def test_a_frame_naming_another_package_model_is_refused():
+    """A frame cannot make the far side build a record no call returns."""
+    reader = frames.FrameReader()
+    naming = _doctored(
+        _result(),
+        _set("value", {_TAG: "Endpoint", "fields": {"host": "h", "port": 1, "mode": "addr_list"}}),
+    )
+
+    with pytest.raises(frames.FrameDecodeError, match="unknown value tag 'Endpoint'"):
+        reader.feed(naming)
+
+
+def test_a_subclass_of_a_record_is_refused_at_encode_time():
+    """Only the class the far side rebuilds crosses."""
+
+    class MyMetadata(ChannelMetadata):
         pass
 
-    with pytest.raises(frames.FrameEncodeError, match="'MyEndpoint'"):
-        frames.encode_result("req-s", MyEndpoint(host="h", port=1, mode="addr_list"))
-
-
-def test_a_tag_two_package_models_share_names_neither(monkeypatch):
-    monkeypatch.setattr(frames, "_MODELS", {})
-    monkeypatch.setattr(frames, "_package_models", lambda: {"Endpoint": None})
-    endpoint = Endpoint(host="h", port=1, mode="addr_list")
-
-    with pytest.raises(frames.FrameEncodeError, match="'Endpoint'"):
-        frames.encode_result("req-a", endpoint)
+    with pytest.raises(frames.FrameEncodeError, match="'MyMetadata'"):
+        frames.encode_result("req-s", MyMetadata(units="mA"))
 
 
 def test_a_model_reply_its_class_refuses_fails_only_that_call():
     reader = frames.FrameReader()
-    refused = _doctored(
-        _result(), _set("value", {_TAG: "Endpoint", "fields": {"host": "h", "mode": 7}})
-    )
+    refused = _doctored(_result(), _set("value", {_TAG: "ChannelMetadata", "fields": {"units": 7}}))
     follow_up = frames.encode_result("req-next", 2)
 
     frame, next_frame = reader.feed(refused + follow_up)
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-bad"
-    assert frame.class_tag == "Endpoint"
+    assert frame.class_tag == "ChannelMetadata"
     assert type(frame.exception) is ConnectorInternalError
     assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
 
@@ -919,39 +897,3 @@ def test_encoding_a_frame_over_the_size_limit_is_refused(monkeypatch):
 
     with pytest.raises(frames.FrameEncodeError, match=r"frame of \d+ bytes exceeds the 64 limit"):
         frames.encode_result("req-big", "x" * 100)
-
-
-def test_no_two_package_models_share_a_name():
-    """Every module loaded, each model name is one class, so a cached name has no twin.
-
-    The codec keeps the name table it walked: a name it has found once is not
-    looked up again, which is sound only while no module loaded later can
-    define a second model of the same name.
-    """
-    import importlib
-    import pkgutil
-
-    import osprey_connectors
-
-    for module in pkgutil.walk_packages(osprey_connectors.__path__, "osprey_connectors."):
-        try:
-            importlib.import_module(module.name)
-        except ImportError:  # an optional dependency this environment lacks
-            continue
-    shared = sorted(name for name, cls in frames._package_models().items() if cls is None)
-    assert shared == []
-
-
-def test_a_known_model_is_found_without_walking_again(monkeypatch):
-    frames.encode_result("req-warm", Endpoint(host="h", port=1, mode="addr_list"))
-    walks: list[None] = []
-    real = frames._package_models
-
-    def counting() -> dict[str, type | None]:
-        walks.append(None)
-        return real()
-
-    monkeypatch.setattr(frames, "_package_models", counting)
-    frames.encode_result("req-again", Endpoint(host="h", port=2, mode="addr_list"))
-
-    assert walks == []
