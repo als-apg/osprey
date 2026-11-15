@@ -2816,7 +2816,7 @@ _WARNED_ADDRESSES = 10
 
 
 def tolerance_warnings(
-    document: Mapping[str, Any], lanes: Sequence[tuple[str, bool, float]]
+    records: FacilityRecords, lanes: Sequence[tuple[str, bool, float]]
 ) -> list[str]:
     """What a render's Bluesky lanes should know about the declared tolerances.
 
@@ -2825,17 +2825,22 @@ def tolerance_warnings(
     time out while it is active; and, per lane that does not serve the
     simulator, the count of float setpoints that declare no ``tolerance`` and
     so settle within the lane's floor, the first line followed by up to
-    :data:`_WARNED_ADDRESSES` of their addresses, one per line.
+    :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
+    ``still`` counts as the simulator view writes it
+    (:func:`~osprey.facility.views.simulator.resolved_still`), so a reading
+    it stills, by ``all``, address or selection, moves nothing.
 
     Args:
-        document: The facility file.
+        records: The facility file's records.
         lanes: Each lane as ``(service key, serves the simulator, floor)``.
 
     Returns:
         The warnings, scenario lines first.
     """
+    from osprey.facility.views.simulator import resolved_still
     from osprey_connectors.simulation.envelope import active_envelopes
 
+    document = records.document
     channels = _by_key(document.get("channels"), "id")
     seeds = {
         address: channel["simulation"]
@@ -2843,7 +2848,11 @@ def tolerance_warnings(
         if isinstance(channel.get("simulation"), Mapping)
     }
     scenarios = {
-        str(scenario["name"]): scenario
+        str(scenario["name"]): (
+            scenario
+            if scenario.get("still") is None
+            else {**scenario, "still": resolved_still(records, scenario)}
+        )
         for scenario in document.get("scenarios") or []
         if isinstance(scenario, Mapping) and "name" in scenario
     }
