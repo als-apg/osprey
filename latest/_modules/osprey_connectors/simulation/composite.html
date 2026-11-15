@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 15, 2026"/>
   </head>
   
   
@@ -592,7 +592,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">SIMULATOR_LOG_DIR_RELPATH</span><span class="p">,</span> <span class="n">repo_root_for_config</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation._records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">ChannelRecord</span><span class="p">,</span>
         <span class="n">CouplingTerm</span><span class="p">,</span>
         <span class="n">DriveRecord</span><span class="p">,</span>
@@ -860,10 +860,10 @@
 
         <span class="n">variables</span> <span class="o">=</span> <span class="n">view</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_scenarios</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ScenarioRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">_scenarios</span><span class="p">()</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">scenarios</span><span class="p">()</span>
         <span class="p">}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">_channel_entries</span><span class="p">()</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">variables</span><span class="p">[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
         <span class="p">}</span>
         <span class="n">models</span> <span class="o">=</span> <span class="p">{</span><span class="n">model</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">model</span> <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">physics_models</span><span class="p">()}</span>
         <span class="n">physics</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">models</span><span class="p">)</span>
@@ -1718,7 +1718,7 @@
 
 <div class="viewcode-block" id="Composite.set">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.set">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Write channels: physics children first, producers before consumers, the texture last.</span>
 
 <span class="sd">        Args:</span>
@@ -1737,7 +1737,7 @@
 
 <div class="viewcode-block" id="Composite.restore">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.restore">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">restore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">restore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Put channels back as :meth:`set` writes them, without a client write.</span>
 
 <span class="sd">        For a rollback or a replay: the children&#39;s models take the values, and</span>

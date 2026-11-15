@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 15, 2026"/>
   </head>
   
   
@@ -445,13 +445,17 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">time</span> <span class="k">as</span> <span class="n">dtime</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">SupportsIndex</span><span class="p">,</span> <span class="n">SupportsInt</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.relative_time</span><span class="w"> </span><span class="kn">import</span> <span class="n">RelativeTimestamp</span><span class="p">,</span> <span class="n">resolve_relative_timestamp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.values</span><span class="w"> </span><span class="kn">import</span> <span class="n">_real</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArchiverEvent</span><span class="p">,</span> <span class="n">TopoffRecord</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;anchored_instant&quot;</span><span class="p">,</span>
@@ -748,7 +752,9 @@
 
 <div class="viewcode-block" id="anchored_instant">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.anchored_instant">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">anchored_instant</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">anchored_instant</span><span class="p">(</span>
+    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch seconds of an event placed relative to the activation anchor.</span>
 
 <span class="sd">    ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook&#39;s own</span>
@@ -764,21 +770,54 @@
 
 <span class="sd">    Returns:</span>
 <span class="sd">        The event&#39;s instant in epoch seconds.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        TypeError: ``at_when`` is not a mapping.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="s2">&quot;at_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_offset&quot;</span><span class="p">])</span>
-    <span class="n">when</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_when&quot;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_offset&quot;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">_calendar_instant</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_when&quot;</span><span class="p">],</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_calendar_instant</span><span class="p">(</span><span class="n">when</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch seconds of a ``{days_ago, time}`` placement, counted back from the anchor in ``tz``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        TypeError: ``when`` is not a mapping, or its ``days_ago`` is not a</span>
+<span class="sd">            number ``int`` takes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">when</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;a </span><span class="se">{{</span><span class="s2">days_ago, time</span><span class="se">}}</span><span class="s2"> placement is a mapping, not </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">when</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">placement</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="n">when</span>
     <span class="n">zone</span> <span class="o">=</span> <span class="n">tz</span> <span class="k">if</span> <span class="n">tz</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ZoneInfo</span><span class="p">(</span><span class="s2">&quot;UTC&quot;</span><span class="p">)</span>
     <span class="n">spec</span> <span class="o">=</span> <span class="n">RelativeTimestamp</span><span class="p">(</span>
-        <span class="n">days_ago</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">when</span><span class="p">[</span><span class="s2">&quot;days_ago&quot;</span><span class="p">]),</span> <span class="n">time</span><span class="o">=</span><span class="n">dtime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">when</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]))</span>
+        <span class="n">days_ago</span><span class="o">=</span><span class="n">_whole</span><span class="p">(</span><span class="n">placement</span><span class="p">[</span><span class="s2">&quot;days_ago&quot;</span><span class="p">]),</span>
+        <span class="n">time</span><span class="o">=</span><span class="n">dtime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">placement</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">])),</span>
     <span class="p">)</span>
-    <span class="k">return</span> <span class="n">resolve_relative_timestamp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">anchor</span><span class="p">,</span> <span class="n">zone</span><span class="p">))</span><span class="o">.</span><span class="n">timestamp</span><span class="p">()</span></div>
+    <span class="k">return</span> <span class="n">resolve_relative_timestamp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">anchor</span><span class="p">,</span> <span class="n">zone</span><span class="p">))</span><span class="o">.</span><span class="n">timestamp</span><span class="p">()</span>
 
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_whole</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``int(value)`` of a field the type checker sees only as ``object``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        TypeError: ``value`` is not a string, a bytes object or a number,</span>
+<span class="sd">            worded as ``int`` words it.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="nb">bytearray</span> <span class="o">|</span> <span class="n">SupportsInt</span> <span class="o">|</span> <span class="n">SupportsIndex</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+        <span class="s2">&quot;int() argument must be a string, a bytes-like object or a real number, &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;not </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">!r}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
 
 
 <div class="viewcode-block" id="step_end">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.step_end">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">step_end</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">step_end</span><span class="p">(</span>
+    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.</span>
 
 <span class="sd">    ``until`` is a window fraction (paired with ``at``), ``until_offset`` is</span>
@@ -794,11 +833,11 @@
 <span class="sd">        The end position, or ``None`` when the step states no end.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="s2">&quot;until_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">anchor</span> <span class="o">+</span> <span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">])</span>
     <span class="k">if</span> <span class="s2">&quot;until_when&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">anchored_instant</span><span class="p">({</span><span class="s2">&quot;at_when&quot;</span><span class="p">:</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_when&quot;</span><span class="p">]},</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_calendar_instant</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_when&quot;</span><span class="p">],</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span>
     <span class="k">if</span> <span class="s2">&quot;until&quot;</span> <span class="ow">in</span> <span class="n">event</span><span class="p">:</span>
-        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
     <span class="k">return</span> <span class="kc">None</span></div>
 
 
@@ -806,7 +845,7 @@
 <div class="viewcode-block" id="event_positions">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.event_positions">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">event_positions</span><span class="p">(</span>
-    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span>
     <span class="n">t_frac</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
     <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
     <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
@@ -831,7 +870,7 @@
         <span class="k">if</span> <span class="n">t_abs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Skipping time-of-day event: timestamps not convertible to epoch seconds&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">[]</span>
-        <span class="k">return</span> <span class="p">[(</span><span class="n">t_abs</span><span class="p">,</span> <span class="n">at</span><span class="p">)</span> <span class="k">for</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">daily_occurrences</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_time&quot;</span><span class="p">]),</span> <span class="n">t_abs</span><span class="p">,</span> <span class="n">tz</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">t_abs</span><span class="p">,</span> <span class="n">at</span><span class="p">)</span> <span class="k">for</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">daily_occurrences</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at_time&quot;</span><span class="p">],</span> <span class="n">t_abs</span><span class="p">,</span> <span class="n">tz</span><span class="p">)]</span>
     <span class="k">return</span> <span class="p">[(</span><span class="n">t_frac</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;at&quot;</span><span class="p">]))]</span></div>
 
 
@@ -867,7 +906,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A ``burst``&#39;s excursion at ``dt`` seconds after its instant.</span>
 
 <span class="sd">    Zero before the instant, ``amplitude`` at it, then a fast exponential</span>
@@ -883,19 +922,19 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        The excursion, same shape as ``dt``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">amplitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">])</span>
-    <span class="n">share</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_share&quot;</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
-    <span class="n">tail</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_decay_s&quot;</span><span class="p">,</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">]))</span>
+    <span class="n">amplitude</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">]</span>
+    <span class="n">share</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_share&quot;</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">tail</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_decay_s&quot;</span><span class="p">,</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">])</span>
     <span class="n">after</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
-    <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">share</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">]))</span> <span class="o">+</span> <span class="n">share</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="n">tail</span><span class="p">)</span>
+    <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">share</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">])</span> <span class="o">+</span> <span class="n">share</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="n">tail</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">dt</span> <span class="o">&gt;=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">shape</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_loss_deficit</span><span class="p">(</span>
-    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span>
     <span class="n">at</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="n">x</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
-    <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">topoff</span><span class="p">:</span> <span class="s2">&quot;TopoffRecord | None&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;How far a ``loss`` holds a channel below its level at each instant of ``x``.</span>
 
@@ -916,11 +955,11 @@
 <span class="sd">        The deficit, ``amount`` right after ``at`` and 0 before it and once</span>
 <span class="sd">        refilled.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">amount</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span>
+    <span class="n">amount</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">]</span>
     <span class="n">deficit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">,</span> <span class="n">amount</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">topoff</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">deficit</span>
-    <span class="n">period</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span>
+    <span class="n">period</span> <span class="o">=</span> <span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">]</span>
     <span class="n">shot</span> <span class="o">=</span> <span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">*</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">]))</span>
     <span class="n">refill</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">at</span> <span class="o">/</span> <span class="n">period</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">period</span>
     <span class="n">shots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">refill</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="n">x</span> <span class="o">-</span> <span class="n">refill</span><span class="p">)</span> <span class="o">*</span> <span class="n">_REFILL_RATE_HZ</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
@@ -929,7 +968,9 @@
 
 <div class="viewcode-block" id="loss_refill_bound">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.loss_refill_bound">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">loss_refill_bound</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">loss_refill_bound</span><span class="p">(</span>
+    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Seconds after its instant by which a ``loss`` is surely refilled; None if never.</span>
 
 <span class="sd">    One top-off period to the first refill, wherever in the period the loss</span>
@@ -937,9 +978,9 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">topoff</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="n">shot</span> <span class="o">=</span> <span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">*</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">]))</span>
-    <span class="n">shots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">shot</span><span class="p">)</span> <span class="k">if</span> <span class="n">shot</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
-    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">shots</span><span class="p">)</span> <span class="o">/</span> <span class="n">_REFILL_RATE_HZ</span></div>
+    <span class="n">shot</span> <span class="o">=</span> <span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">*</span> <span class="nb">abs</span><span class="p">(</span><span class="n">_real</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">]))</span>
+    <span class="n">shots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">shot</span><span class="p">)</span> <span class="k">if</span> <span class="n">shot</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+    <span class="k">return</span> <span class="n">_real</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">shots</span><span class="p">)</span> <span class="o">/</span> <span class="n">_REFILL_RATE_HZ</span></div>
 
 
 
@@ -947,12 +988,12 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.apply_events">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">apply_events</span><span class="p">(</span>
     <span class="n">series</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
-    <span class="n">events</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">events</span><span class="p">:</span> <span class="s2">&quot;Sequence[ArchiverEvent]&quot;</span><span class="p">,</span>
     <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
     <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">topoff</span><span class="p">:</span> <span class="s2">&quot;TopoffRecord | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).</span>
 
@@ -967,20 +1008,17 @@
     <span class="n">t_frac</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
     <span class="n">series</span> <span class="o">=</span> <span class="n">series</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
     <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events</span><span class="p">:</span>
+        <span class="c1"># A ``to`` is a number on the float channels whose series these events move.</span>
         <span class="n">shape</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;shape&quot;</span><span class="p">]</span>
         <span class="n">offset_anchored</span> <span class="o">=</span> <span class="s2">&quot;at_offset&quot;</span> <span class="ow">in</span> <span class="n">event</span>
         <span class="k">for</span> <span class="n">x</span><span class="p">,</span> <span class="n">at</span> <span class="ow">in</span> <span class="n">event_positions</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">t_frac</span><span class="p">,</span> <span class="n">t_abs</span><span class="p">,</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;step&quot;</span><span class="p">:</span>
                 <span class="n">end</span> <span class="o">=</span> <span class="n">step_end</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">anchor</span><span class="p">,</span> <span class="n">tz</span><span class="p">)</span>
                 <span class="n">inside</span> <span class="o">=</span> <span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span> <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">)</span>
-                <span class="n">series</span><span class="p">[</span><span class="n">inside</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
+                <span class="n">series</span><span class="p">[</span><span class="n">inside</span><span class="p">]</span> <span class="o">=</span> <span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
             <span class="k">elif</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;ramp&quot;</span><span class="p">:</span>
-                <span class="n">until</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">anchor</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">])</span>
-                    <span class="k">if</span> <span class="n">offset_anchored</span>
-                    <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
-                <span class="p">)</span>
-                <span class="n">to</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
+                <span class="n">until</span> <span class="o">=</span> <span class="n">anchor</span> <span class="o">+</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;until_offset&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">offset_anchored</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;until&quot;</span><span class="p">])</span>
+                <span class="n">to</span> <span class="o">=</span> <span class="n">_real</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
                 <span class="k">if</span> <span class="n">until</span> <span class="o">&lt;=</span> <span class="n">at</span><span class="p">:</span>
                     <span class="n">series</span><span class="p">[</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">]</span> <span class="o">=</span> <span class="n">to</span>
                     <span class="k">continue</span>
@@ -994,8 +1032,8 @@
             <span class="k">elif</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;loss&quot;</span><span class="p">:</span>
                 <span class="n">series</span> <span class="o">=</span> <span class="n">series</span> <span class="o">-</span> <span class="n">_loss_deficit</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">at</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">topoff</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>  <span class="c1"># spike (gaussian bump; width as window fraction, or seconds when anchored)</span>
-                <span class="n">amplitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">])</span>
-                <span class="n">width</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;width&quot;</span><span class="p">])</span>
+                <span class="n">amplitude</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">]</span>
+                <span class="n">width</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;width&quot;</span><span class="p">]</span>
                 <span class="n">series</span> <span class="o">=</span> <span class="n">series</span> <span class="o">+</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="p">((</span><span class="n">x</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">width</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
     <span class="k">return</span> <span class="n">series</span></div>
 

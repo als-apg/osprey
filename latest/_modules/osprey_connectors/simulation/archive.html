@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 15, 2026"/>
   </head>
   
   
@@ -495,7 +495,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -513,15 +513,21 @@
     <span class="n">ACTIVE_SCENARIOS_FILENAME</span><span class="p">,</span>
     <span class="n">resolve_active_scenarios</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="n">SimulatorView</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.view</span><span class="w"> </span><span class="kn">import</span> <span class="n">SEEDS_FILE</span><span class="p">,</span> <span class="n">VARIABLES_FILE</span><span class="p">,</span> <span class="n">SimulatorView</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
 
     <span class="kn">from</span><span class="w"> </span><span class="nn">pymongo.collection</span><span class="w"> </span><span class="kn">import</span> <span class="n">Collection</span>
 
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation._records</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelRecord</span><span class="p">,</span> <span class="n">ScenarioRecord</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.composite</span><span class="w"> </span><span class="kn">import</span> <span class="n">Composite</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">ArchiverEvent</span><span class="p">,</span>
+        <span class="n">ChannelRecord</span><span class="p">,</span>
+        <span class="n">PulseRecord</span><span class="p">,</span>
+        <span class="n">ScenarioRecord</span><span class="p">,</span>
+        <span class="n">TopoffRecord</span><span class="p">,</span>
+    <span class="p">)</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;archive&quot;</span><span class="p">)</span>
 
@@ -786,16 +792,16 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.__init__">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">channels</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRecord</span><span class="p">],</span>
         <span class="n">held</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
-        <span class="n">events</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]],</span>
+        <span class="n">events</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ArchiverEvent</span><span class="p">]],</span>
         <span class="n">composite</span><span class="p">:</span> <span class="n">Composite</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">anchor_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
         <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">state</span><span class="p">:</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">pulses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">topoffs</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">pulses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">PulseRecord</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">topoffs</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TopoffRecord</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">channels</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_topoffs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">topoffs</span> <span class="ow">or</span> <span class="p">{})</span>
@@ -820,7 +826,7 @@
 
 <div class="viewcode-block" id="ArchiveComposite.topoff_record">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.topoff_record">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TopoffRecord</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The ``topoff`` seed record that refills ``address``&#39;s ``loss`` events, or None.&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_topoffs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span></div>
 
@@ -1021,9 +1027,9 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_stepped</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">,</span>
         <span class="n">held</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
-        <span class="n">events</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">events</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ArchiverEvent</span><span class="p">],</span>
         <span class="n">times</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;A non-float channel&#39;s stored values: its held value, then each ``step`` event&#39;s ``to``.&quot;&quot;&quot;</span>
@@ -1041,7 +1047,7 @@
         <span class="k">return</span> <span class="n">stored</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_wire</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_wire</span><span class="p">(</span><span class="n">channel</span><span class="p">:</span> <span class="n">ChannelRecord</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;A stored value as the wire carries it: a label as its option index.&quot;&quot;&quot;</span>
         <span class="n">value_type</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">value_type</span> <span class="ow">in</span> <span class="n">channel_values</span><span class="o">.</span><span class="n">LABELLED_TYPES</span><span class="p">:</span>
@@ -1054,8 +1060,8 @@
 <div class="viewcode-block" id="scenario_events">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.scenario_events">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">scenario_events</span><span class="p">(</span>
-    <span class="n">scenarios</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+    <span class="n">scenarios</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ScenarioRecord</span><span class="p">],</span> <span class="n">names</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArchiverEvent</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The archiver events a scenario set writes, by channel.</span>
 
 <span class="sd">    Args:</span>
@@ -1067,10 +1073,13 @@
 <span class="sd">        Each channel&#39;s events in set order; a channel an ``archiver`` entry</span>
 <span class="sd">        names with no events maps to an empty list.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">events</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">events</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ArchiverEvent</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
-            <span class="n">events</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">]),</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;events&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="n">scenario</span> <span class="o">=</span> <span class="n">scenarios</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">scenario</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;archiver&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">():</span>
+            <span class="n">events</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">]),</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;events&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">())</span>
     <span class="k">return</span> <span class="n">events</span></div>
 
 
@@ -1115,12 +1124,12 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">view</span><span class="p">,</span> <span class="n">SimulatorView</span><span class="p">):</span>
         <span class="n">view</span> <span class="o">=</span> <span class="n">SimulatorView</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
     <span class="n">scenarios</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ScenarioRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">_scenarios</span><span class="p">()</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">scenario</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]):</span> <span class="n">scenario</span> <span class="k">for</span> <span class="n">scenario</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">scenarios</span><span class="p">()</span>
     <span class="p">}</span>
     <span class="n">records</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ChannelRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">_channel_entries</span><span class="p">()</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">channel</span><span class="p">[</span><span class="s2">&quot;address&quot;</span><span class="p">]):</span> <span class="n">channel</span> <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">view</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
     <span class="p">}</span>
-    <span class="n">seeds</span> <span class="o">=</span> <span class="n">view</span><span class="o">.</span><span class="n">_seeds</span><span class="p">()</span>
+    <span class="n">seeds</span> <span class="o">=</span> <span class="n">view</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">SEEDS_FILE</span><span class="p">)[</span><span class="s2">&quot;seeds&quot;</span><span class="p">]</span>
     <span class="n">archived</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">view</span><span class="o">.</span><span class="n">channels</span><span class="p">())</span>
     <span class="n">names</span> <span class="o">=</span> <span class="n">resolve_active_scenarios</span><span class="p">([</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">active_set</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">])</span>
 

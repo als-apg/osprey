@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 14, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 15, 2026"/>
   </head>
   
   
@@ -457,11 +457,14 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_facility_timezone</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.safety_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">atomic_replace</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - typing only</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.simulation.records</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScenarioRecord</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;ACTIVE_SCENARIOS_FILENAME&quot;</span><span class="p">,</span>
@@ -661,7 +664,7 @@
 
 <div class="viewcode-block" id="scenario_targets">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.state.scenario_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">scenario_targets</span><span class="p">(</span><span class="n">scenario</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">scenario_targets</span><span class="p">(</span><span class="n">scenario</span><span class="p">:</span> <span class="n">ScenarioRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The targets a scenario writes: addresses, engine variables and coupled channels.</span>
 
 <span class="sd">    Args:</span>
@@ -681,7 +684,8 @@
     <span class="k">for</span> <span class="n">fault</span> <span class="ow">in</span> <span class="p">(</span><span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;faults&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
         <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">fault</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;writes&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;channel_faults&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
-    <span class="n">moved</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;couple&quot;</span><span class="p">,</span> <span class="s2">&quot;noise&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}}</span>
+    <span class="n">moved</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;couple&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}}</span>
+    <span class="n">moved</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;noise&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">moved</span><span class="p">)</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_SETS_MOTION</span> <span class="o">+</span> <span class="n">address</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">moved</span><span class="p">)</span>
     <span class="n">targets</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_STILLS</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">scenario</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;still&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">())</span>
