@@ -80,7 +80,11 @@ def _first_author(
 
 def _logins(config: Mapping[str, Any]) -> dict[str, list[str]]:
     """``render name -> who opens it``: roster people by tier, a shared card by its access."""
-    from osprey.deployment.web_terminals.roster import effective_tier, shared_app_name
+    from osprey.deployment.web_terminals.roster import (
+        authored_people,
+        effective_tier,
+        shared_app_name,
+    )
 
     from .build_profile_emit import effective_web_terminals
 
@@ -88,8 +92,7 @@ def _logins(config: Mapping[str, Any]) -> dict[str, list[str]]:
     if not web_terminals.get("enabled"):
         return {}
     opened: dict[str, list[str]] = {}
-    users = web_terminals.get("users")
-    for entry in users if isinstance(users, list) else []:
+    for entry in authored_people(web_terminals):
         if not isinstance(entry, Mapping) or not isinstance(entry.get("name"), str):
             continue
         tier = effective_tier(
