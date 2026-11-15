@@ -483,6 +483,7 @@ def test_a_subclass_of_a_package_model_is_refused_at_encode_time():
 
 
 def test_a_tag_two_package_models_share_names_neither(monkeypatch):
+    monkeypatch.setattr(frames, "_MODELS", {})
     monkeypatch.setattr(frames, "_package_models", lambda: {"Endpoint": None})
     endpoint = Endpoint(host="h", port=1, mode="addr_list")
 
@@ -918,3 +919,39 @@ def test_encoding_a_frame_over_the_size_limit_is_refused(monkeypatch):
 
     with pytest.raises(frames.FrameEncodeError, match=r"frame of \d+ bytes exceeds the 64 limit"):
         frames.encode_result("req-big", "x" * 100)
+
+
+def test_no_two_package_models_share_a_name():
+    """Every module loaded, each model name is one class, so a cached name has no twin.
+
+    The codec keeps the name table it walked: a name it has found once is not
+    looked up again, which is sound only while no module loaded later can
+    define a second model of the same name.
+    """
+    import importlib
+    import pkgutil
+
+    import osprey_connectors
+
+    for module in pkgutil.walk_packages(osprey_connectors.__path__, "osprey_connectors."):
+        try:
+            importlib.import_module(module.name)
+        except ImportError:  # an optional dependency this environment lacks
+            continue
+    shared = sorted(name for name, cls in frames._package_models().items() if cls is None)
+    assert shared == []
+
+
+def test_a_known_model_is_found_without_walking_again(monkeypatch):
+    frames.encode_result("req-warm", Endpoint(host="h", port=1, mode="addr_list"))
+    walks: list[None] = []
+    real = frames._package_models
+
+    def counting() -> dict[str, type | None]:
+        walks.append(None)
+        return real()
+
+    monkeypatch.setattr(frames, "_package_models", counting)
+    frames.encode_result("req-again", Endpoint(host="h", port=2, mode="addr_list"))
+
+    assert walks == []

@@ -68,11 +68,7 @@ shape preserved), and the package's records:
   declaration order. It decodes as a real instance of that class, validated by
   the class itself. A subclass defined elsewhere is refused, and so is a name
   two of the package's models share, since the far side could not tell which
-  was meant;
-* the connector dataclasses ``ChannelValue``, ``ChannelMetadata`` and
-  ``ChannelWriteResult`` for as long as they are dataclasses, in the same
-  layout, so a dataclass and the model that replaces it put the same bytes on
-  the wire.
+  was meant.
 
 Anything else is refused at encode time rather than silently degraded.
 
@@ -91,7 +87,6 @@ connector-host child refuses that request alone and keeps serving.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import struct
 import uuid
@@ -103,11 +98,9 @@ from typing import TypeAlias, TypeGuard
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors.control_system._base import (
-    ChannelMetadata,
-    ChannelValue,
-    ChannelWriteResult,
-)
+# Imported for its records: a frame can name only a model whose module is
+# loaded, and a connector's replies carry these on both sides of the pipe.
+from osprey_connectors.control_system import _base as _channel_records  # noqa: F401
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc._exceptions import (
     _registered_tag,
@@ -215,14 +208,6 @@ class ErrorFrame(FrozenModel):
     exception: BaseException
 
 
-#: The connector records that cross as dataclasses, for as long as they are
-#: dataclasses: one that has become a model crosses as a model, in the same
-#: layout, and drops out of this table.
-_CONNECTOR_RECORDS: tuple[type, ...] = (ChannelValue, ChannelMetadata, ChannelWriteResult)
-_DATACLASSES: dict[str, type] = {
-    cls.__name__: cls for cls in _CONNECTOR_RECORDS if dataclasses.is_dataclass(cls)
-}
-
 #: The package whose models a frame may name. A frame can rebuild only a record
 #: this package defines, never an arbitrary class the far side happens to load.
 _MODEL_PACKAGE = "osprey_connectors"
@@ -252,17 +237,19 @@ def _package_models() -> dict[str, type[BaseModel] | None]:
     return found
 
 
-class _Models:
-    """The package's models by name, walked at most once per frame and only when needed."""
+#: The package's models by name, as :func:`_package_models` last found them.
+#: Walked once per process, and again only when a name is missing, so a model
+#: whose module has loaded since is found and a known name costs one lookup.
+#: That no two of the package's models share a name is held by a test that
+#: loads every module, so a name found once cannot gain a twin later.
+_MODELS: dict[str, type[BaseModel] | None] = {}
 
-    def __init__(self) -> None:
-        self._by_name: dict[str, type[BaseModel] | None] | None = None
 
-    def get(self, name: str) -> type[BaseModel] | None:
-        """The one model this package defines under *name*, or ``None``."""
-        if self._by_name is None:
-            self._by_name = _package_models()
-        return self._by_name.get(name)
+def _package_model(name: str) -> type[BaseModel] | None:
+    """The one model this package defines under *name*, or ``None``."""
+    if name not in _MODELS:
+        _MODELS.update(_package_models())
+    return _MODELS.get(name)
 
 
 def new_request_id() -> str:
@@ -312,10 +299,8 @@ def _is_json_array(node: object) -> TypeGuard[list[object]]:
     return isinstance(node, list)
 
 
-def _encode_value(value: object, blobs: list[bytes], models: _Models | None = None) -> _Json:
+def _encode_value(value: object, blobs: list[bytes]) -> _Json:
     """Turn ``value`` into a JSON node, appending any binary payloads to ``blobs``."""
-    if models is None:
-        models = _Models()
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, np.ndarray):
@@ -327,36 +312,28 @@ def _encode_value(value: object, blobs: list[bytes], models: _Models | None = No
     if isinstance(value, datetime):
         return {_TAG: "datetime", "iso": value.isoformat()}
     if isinstance(value, (list, tuple)):
-        return [_encode_value(item, blobs, models) for item in value]
+        return [_encode_value(item, blobs) for item in value]
     if isinstance(value, dict):
         return {
             _TAG: "dict",
-            "items": [
-                [str(key), _encode_value(item, blobs, models)] for key, item in value.items()
-            ],
+            "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
     tag = type(value).__name__
-    names: list[str] | None = None
-    if isinstance(value, BaseModel) and models.get(tag) is type(value):
-        names = list(type(value).model_fields)
-    elif dataclasses.is_dataclass(value) and _DATACLASSES.get(tag) is type(value):
-        names = [spec.name for spec in dataclasses.fields(value)]
-    if names is None:
+    if not isinstance(value, BaseModel) or _package_model(tag) is not type(value):
         raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
+    names = list(type(value).model_fields)
     return {
         _TAG: tag,
-        "fields": {name: _encode_value(getattr(value, name), blobs, models) for name in names},
+        "fields": {name: _encode_value(getattr(value, name), blobs) for name in names},
     }
 
 
-def _decode_value(node: object, blobs: list[bytes], models: _Models | None = None) -> object:
+def _decode_value(node: object, blobs: list[bytes]) -> object:
     """Inverse of :func:`_encode_value`."""
-    if models is None:
-        models = _Models()
     if node is None or isinstance(node, (bool, int, float, str)):
         return node
     if _is_json_array(node):
-        return [_decode_value(item, blobs, models) for item in node]
+        return [_decode_value(item, blobs) for item in node]
     if not _is_json_object(node):
         raise FrameDecodeError(f"unsupported JSON node of type {type(node).__name__!r}")
 
@@ -373,38 +350,35 @@ def _decode_value(node: object, blobs: list[bytes], models: _Models | None = Non
             raise FrameDecodeError(f"datetime node carries a {type(iso).__name__}, not a string")
         return datetime.fromisoformat(iso)
     if tag == "dict":
-        return _decode_items(node["items"], blobs, models)
-    rebuild = _rebuilder(tag, models)
+        return _decode_items(node["items"], blobs)
+    rebuild = _rebuilder(tag)
     fields = node["fields"]
     if not _is_json_object(fields):
         raise FrameDecodeError(f"{tag} node fields are not a JSON object")
-    kwargs = {name: _decode_value(item, blobs, models) for name, item in fields.items()}
+    kwargs = {name: _decode_value(item, blobs) for name, item in fields.items()}
     try:
         return rebuild(kwargs)
     except (TypeError, ValueError) as exc:
         raise _UnrebuildableValueError(str(tag), exc) from exc
 
 
-def _rebuilder(tag: object, models: _Models) -> Callable[[dict[str, object]], object]:
+def _rebuilder(tag: object) -> Callable[[dict[str, object]], object]:
     """How a record node's decoded fields become an instance of the class *tag* names.
 
     A model is validated laxly, so each field's declared type restores what the
-    JSON-shaped wire flattened (a tuple, an enum member); a dataclass is called.
+    JSON-shaped wire flattened (a tuple, an enum member).
 
     Raises:
         FrameDecodeError: *tag* names no record a frame may carry.
     """
     if isinstance(tag, str):
-        dataclass_cls = _DATACLASSES.get(tag)
-        if dataclass_cls is not None:
-            return lambda fields: dataclass_cls(**fields)
-        model_cls = models.get(tag)
+        model_cls = _package_model(tag)
         if model_cls is not None:
             return lambda fields: model_cls.model_validate(fields, strict=False, by_name=True)
     raise FrameDecodeError(f"unknown value tag {tag!r} in frame payload")
 
 
-def _decode_items(items: object, blobs: list[bytes], models: _Models) -> dict[object, object]:
+def _decode_items(items: object, blobs: list[bytes]) -> dict[object, object]:
     """The dict a ``dict`` node's ``[key, value]`` pairs describe."""
     if not _is_json_array(items):
         raise FrameDecodeError(f"dict node items are a {type(items).__name__}, not a list")
@@ -413,7 +387,7 @@ def _decode_items(items: object, blobs: list[bytes], models: _Models) -> dict[ob
         if not _is_json_array(pair) or len(pair) != 2:
             raise FrameDecodeError(f"dict node item {pair!r} is not a [key, value] pair")
         key, item = pair
-        decoded[key] = _decode_value(item, blobs, models)
+        decoded[key] = _decode_value(item, blobs)
     return decoded
 
 
