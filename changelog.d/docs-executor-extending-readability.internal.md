@@ -1,1 +1,0 @@
-The Python executor and Extending Osprey pages are rewritten in sentences of at most 30 words; the write-surface library lists, the trigger-source and health-plugin instructions and the LUME build contract become lists and numbered steps, with no change of meaning.
