@@ -170,6 +170,8 @@ TEMPERATURE_ROUTES = [
     ("openai", "o4-mini", "https://api.openai.com/v1", False),
     ("openai", "gpt-7-nova", "https://api.openai.com/v1", False),
     ("anthropic", "claude-haiku-4-5-20251001", None, True),
+    ("anthropic", "claude-sonnet-5", None, False),
+    ("anthropic", "claude-opus-5-5", None, False),
     ("google", "gemini-2.5-flash", None, True),
     ("als-apg", "claude-haiku-4-5-20251001", GATEWAY_URL, False),
     ("als-apg", "claude-haiku-5-5", GATEWAY_URL, False),
@@ -182,8 +184,9 @@ TEMPERATURE_ROUTES = [
 
 class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
     """The adapter decides per model: OpenAI's reasoning models refuse every temperature
-    but their default, its chat models take the caller's. The Claude 5 models behind the
-    als-apg provider refuse every temperature but 1, so no request to it carries one."""
+    but their default, its chat models take the caller's. The Claude 5 models refuse every
+    temperature but 1: the anthropic provider sends none to them, the als-apg provider
+    sends none to any model."""
 
     @pytest.mark.parametrize(
         ("provider", "model_id", "base_url", "sent"),
@@ -233,6 +236,33 @@ class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
         from osprey.models.providers.openai import OpenAIProviderAdapter
 
         assert OpenAIProviderAdapter.accepts_temperature(model_id) is takes
+
+    @pytest.mark.parametrize(
+        ("model_id", "takes"),
+        [
+            ("claude-3-5-sonnet-20241022", True),
+            ("claude-3-7-sonnet-latest", True),
+            ("claude-sonnet-4", True),
+            ("claude-sonnet-4-20250514", True),
+            ("claude-opus-4-1", True),
+            ("claude-opus-4-1-20250805", True),
+            ("claude-haiku-4-5", True),
+            ("claude-haiku-4-5-20251001", True),
+            ("claude-sonnet-4-6", True),
+            ("claude-opus-4-7", False),
+            ("claude-opus-4-8", False),
+            ("claude-sonnet-5", False),
+            ("claude-haiku-5-5", False),
+            ("claude-opus-5-5", False),
+            ("claude-fable-5-1", False),
+            ("claude-sonnet-6", False),
+            ("claude-nova-7", False),
+        ],
+    )
+    def test_anthropic_decides_per_model(self, model_id, takes):
+        from osprey.models.providers.anthropic import AnthropicProviderAdapter
+
+        assert AnthropicProviderAdapter.accepts_temperature(model_id) is takes
 
     def test_every_model_takes_one_unless_the_adapter_says_otherwise(self):
         from osprey.models.providers.base import BaseProvider
