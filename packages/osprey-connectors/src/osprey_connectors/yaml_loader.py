@@ -164,14 +164,14 @@ def safe_dump(
 ) -> str | bytes | None:
     """Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.
 
+    The keyword arguments are the emitter options ``yaml.safe_dump`` takes, with
+    its defaults.
+
     Args:
         data: Plain Python objects; anything else is refused, as ``yaml.safe_dump`` refuses it.
         stream: An open file to write to; ``None`` returns the document. With an
             ``encoding`` the file is a binary one, as ``yaml.safe_dump`` writes it.
-        default_style, default_flow_style, canonical, indent, width,
-        allow_unicode, line_break, encoding, explicit_start, explicit_end,
-        version, tags, sort_keys: The emitter options ``yaml.safe_dump`` takes,
-            with its defaults.
+        encoding: The encoding of the document; ``None`` for text.
 
     Returns:
         With no ``stream``, the document: text, or bytes in ``encoding`` when one
