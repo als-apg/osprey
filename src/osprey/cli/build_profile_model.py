@@ -830,17 +830,29 @@ class BuildProfile:
         to the selection. A manifest that does not load contributes none; its
         refusal is :meth:`_validate_apps`'.
         """
+        return frozenset(self.shown_app_panels(profile_dir))
+
+    def shown_app_panels(self, profile_dir: Path) -> dict[str, tuple[str, str]]:
+        """The panels of the applications this render's card shows.
+
+        Args:
+            profile_dir: The profile root the applications are loaded from.
+
+        Returns:
+            ``panel id -> (application name, panel label)``. A manifest that
+            does not load contributes none; its refusal is :meth:`_validate_apps`'.
+        """
         shown = [name for name in self.apps if self.app_shown(name)]
         if not shown:
-            return frozenset()
+            return {}
         from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import load as load_apps
 
         try:
             manifests = load_apps(profile_dir, shown)
         except AppManifestError:
-            return frozenset()
-        return frozenset(m.panel.id for m in manifests if m.panel is not None)
+            return {}
+        return {m.panel.id: (m.name, m.panel.label) for m in manifests if m.panel is not None}
 
     def _validate_environment(self) -> list[str]:
         """Return validation errors for the ``environment:`` block (empty when clean).
