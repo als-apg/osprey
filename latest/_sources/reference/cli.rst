@@ -339,6 +339,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    osprey profile presets
    osprey profile artifacts
    osprey profile card
+   osprey profile panels
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -364,6 +365,17 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
+
+``osprey profile panels [--json] [--html FILE] [--repo DIRECTORY]``
+   Print which login shows which panel: one row per panel, one column for the
+   deployment's own profile and for every file under ``tiers/``. A cell is
+   ``DEFAULT`` (the tab the login opens on), ``tab``, ``menu`` (selected but
+   hidden, so reachable from the panel menu only) or ``-``. It reads each
+   login's resolved profile, the way the build does; nothing is built.
+   ``--json`` prints the table as one document in which every cell names the
+   file whose line selects the panel and the file whose line hides it.
+   ``--html FILE`` writes the table as one self-contained page, where
+   selecting a cell says which file decides it.
 
 .. code-block:: bash
 

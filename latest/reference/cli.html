@@ -781,6 +781,7 @@ source a deployment is built from — see <a class="reference internal" href="..
 osprey<span class="w"> </span>profile<span class="w"> </span>presets
 osprey<span class="w"> </span>profile<span class="w"> </span>artifacts
 osprey<span class="w"> </span>profile<span class="w"> </span>card
+osprey<span class="w"> </span>profile<span class="w"> </span>panels
 </pre></div>
 </div>
 <dl class="simple">
@@ -804,6 +805,16 @@ machine it talks to, and what runs beside it. It reads <code class="docutils lit
 the login files beside it; nothing is built, started or probed.
 <code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the rows as one JSON array of <code class="docutils literal notranslate"><span class="pre">{group,</span> <span class="pre">label,</span> <span class="pre">value}</span></code>
 objects on stdout and every warning on stderr.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">panels</span> <span class="pre">[--json]</span> <span class="pre">[--html</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print which login shows which panel: one row per panel, one column for the
+deployment’s own profile and for every file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. A cell is
+<code class="docutils literal notranslate"><span class="pre">DEFAULT</span></code> (the tab the login opens on), <code class="docutils literal notranslate"><span class="pre">tab</span></code>, <code class="docutils literal notranslate"><span class="pre">menu</span></code> (selected but
+hidden, so reachable from the panel menu only) or <code class="docutils literal notranslate"><span class="pre">-</span></code>. It reads each
+login’s resolved profile, the way the build does; nothing is built.
+<code class="docutils literal notranslate"><span class="pre">--json</span></code> prints the table as one document in which every cell names the
+file whose line selects the panel and the file whose line hides it.
+<code class="docutils literal notranslate"><span class="pre">--html</span> <span class="pre">FILE</span></code> writes the table as one self-contained page, where
+selecting a cell says which file decides it.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
