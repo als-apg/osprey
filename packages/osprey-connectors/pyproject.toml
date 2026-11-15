@@ -18,6 +18,9 @@ dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
+    # `typing_extensions.override` marks a method that overrides its base on
+    # Python 3.11, where `typing.override` does not exist yet.
+    "typing-extensions>=4.4.0",
     # Channel Access client for the EPICS connector. Pure Python on top of
     # epicscorelibs, which ships a libca per architecture.
     "aioca>=2.1",

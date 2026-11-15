@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
@@ -202,6 +204,7 @@ class Overlap:
     second: str
     motion: bool = False
 
+    @override
     def __str__(self) -> str:
         if self.motion:
             return (

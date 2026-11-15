@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
@@ -396,7 +397,9 @@ class ArchiveComposite:
         """The archived addresses the snapshot documents carry: every non-waveform channel."""
         return [address for address in self.addresses if not self._is_waveform(address)]
 
-    def traces(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[np.ndarray]:
+    def traces(
+        self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]
+    ) -> list[npt.NDArray[np.float64]]:
         """One waveform channel's traces at absolute epoch seconds.
 
         A pulsed channel's trace is :func:`~osprey_connectors.simulation.pulse.trace`
@@ -442,7 +445,7 @@ class ArchiveComposite:
         self._require(address)
         return self._held[address]
 
-    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[object]:
+    def series(self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]) -> list[object]:
         """One channel's samples at absolute epoch seconds, in the wire representation.
 
         A ``float`` channel holds its start-state value, moved by the active
@@ -466,7 +469,7 @@ class ArchiveComposite:
         return self.samples([address], t_s)[address]
 
     def samples(
-        self, addresses: Sequence[str], t_s: Sequence[float] | np.ndarray
+        self, addresses: Sequence[str], t_s: Sequence[float] | npt.NDArray[np.float64]
     ) -> dict[str, list[object]]:
         """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
 
@@ -517,7 +520,7 @@ class ArchiveComposite:
     def _is_waveform(self, address: str) -> bool:
         return channel_values.is_waveform(self._channels[address].get("value_type"))
 
-    def _drive(self, address: str, times: np.ndarray) -> np.ndarray:
+    def _drive(self, address: str, times: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """A pulse source's level: held, moved by its archiver events, as a number.
 
         A float channel is moved by every archiver event, any other only by
@@ -536,7 +539,7 @@ class ArchiveComposite:
         if address not in self._channels:
             raise KeyError(f"{address} is not a channel of the simulator view")
 
-    def _level(self, address: str, times: np.ndarray) -> np.ndarray:
+    def _level(self, address: str, times: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """A float channel's start-state value moved by its archiver events."""
         count = len(times)
         start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
@@ -550,7 +553,7 @@ class ArchiveComposite:
         channel: ChannelRecord,
         held: object,
         events: Sequence[ArchiverEvent],
-        times: np.ndarray,
+        times: npt.NDArray[np.float64],
     ) -> list[object]:
         """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
         stored = [held] * len(times)
@@ -701,7 +704,9 @@ def build(
 # ---------------------------------------------------------------------------
 
 
-def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
+def _seed_grid(
+    knobs: SeedKnobs, t0: datetime
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """The timestamps to seed and the instant each one expires.
 
     The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
@@ -746,7 +751,7 @@ def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
     return times, tier_expiry(knobs, times)
 
 
-def tier_expiry(knobs: SeedKnobs, epoch_s: np.ndarray) -> np.ndarray:
+def tier_expiry(knobs: SeedKnobs, epoch_s: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """When each of these samples expires, by the tier its timestamp belongs to.
 
     A timestamp on the coarse cadence belongs to the coarse tier and lives out
@@ -761,7 +766,7 @@ def tier_expiry(knobs: SeedKnobs, epoch_s: np.ndarray) -> np.ndarray:
     return np.asarray(epoch_s + lifetime)
 
 
-def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> np.ndarray:
+def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> npt.NDArray[np.float64]:
     """Epoch-aligned timestamps in ``[start_s, end_s]`` at ``cadence_s``."""
     first = np.ceil(start_s / cadence_s) * cadence_s
     last = np.floor(end_s / cadence_s) * cadence_s
@@ -777,7 +782,7 @@ def _epoch_seconds(moment: datetime) -> float:
     return aware.timestamp()
 
 
-def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
+def _as_utc_datetimes(epoch_s: npt.NDArray[np.float64]) -> list[datetime]:
     """Epoch seconds back to the timezone-aware datetimes the store stores.
 
     pymongo reads a naive datetime as UTC, so writing aware ones costs nothing
@@ -792,7 +797,7 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 
 
 def _synthesize_documents(
-    archive: ArchiveComposite, epoch_s: np.ndarray
+    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64]
 ) -> list[dict[str, object]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
@@ -880,7 +885,7 @@ def seed_fingerprint(
 
 
 def _write_manifest(
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     fingerprint: Mapping[str, object],
     *,
     seeded_at: datetime,
@@ -916,7 +921,7 @@ def _write_manifest(
 
 
 def compare_fingerprint(
-    collection: Collection, fingerprint: Mapping[str, object]
+    collection: Collection[dict[str, object]], fingerprint: Mapping[str, object]
 ) -> FingerprintComparison:
     """Whether the store in front of us was built with the knobs now in force.
 
@@ -934,8 +939,12 @@ def compare_fingerprint(
     if stored is None:
         return FingerprintComparison(SeedState.ABSENT)
 
-    seeded_at = stored.get("seeded_at")
+    stamp = stored.get("seeded_at")
+    seeded_at = stamp if isinstance(stamp, datetime) else None
     held = stored.get("fingerprint") or {}
+    if not isinstance(held, Mapping):
+        # What reading a field off such a manifest raised before it was checked.
+        raise AttributeError(f"{type(held).__name__!r} object has no attribute 'get'")
     differences = tuple(
         (key, held.get(key), expected)
         for key, expected in sorted(fingerprint.items())
@@ -966,7 +975,7 @@ def waveform_collection(collection: str) -> str:
 def waveform_document(
     channel: str,
     date: datetime,
-    values: Sequence[float] | np.ndarray,
+    values: Sequence[float] | npt.NDArray[np.float64],
     *,
     expire_at: datetime,
 ) -> dict[str, object]:
@@ -997,7 +1006,11 @@ def waveform_document(
     }
 
 
-def _prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
+def _prepare_collection(
+    collection: Collection[dict[str, object]],
+    *,
+    waveforms: Collection[dict[str, object]] | None = None,
+) -> None:
     """Create the two indexes the store cannot work without.
 
     ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,
@@ -1023,7 +1036,7 @@ def _prepare_collection(collection: Collection, *, waveforms: Collection | None 
 
 
 def seed_base(
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     archive: ArchiveComposite,
     knobs: SeedKnobs,
     *,
@@ -1032,7 +1045,7 @@ def seed_base(
     workers: int = _DEFAULT_WORKERS,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
-    waveforms: Collection | None = None,
+    waveforms: Collection[dict[str, object]] | None = None,
 ) -> SeedReport:
     """Build the store: indexes, the whole base series, then the manifest.
 
@@ -1130,7 +1143,7 @@ def seed_base(
 
 
 def _waveform_documents(
-    archive: ArchiveComposite, epoch_s: np.ndarray, expire_s: np.ndarray
+    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64], expire_s: npt.NDArray[np.float64]
 ) -> list[dict[str, object]]:
     """The trace documents of every waveform channel at these instants.
 
@@ -1155,7 +1168,7 @@ def _waveform_documents(
 def _submit_bounded(
     pool: ThreadPoolExecutor,
     pending: set[Future[None]],
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     documents: list[dict[str, object]],
     limit: int,
 ) -> set[Future[None]]:
@@ -1179,22 +1192,24 @@ def _submit_bounded(
     return pending
 
 
-def _insert_chunk(collection: Collection, documents: list[dict[str, object]]) -> None:
+def _insert_chunk(
+    collection: Collection[dict[str, object]], documents: list[dict[str, object]]
+) -> None:
     """Insert one batch, unordered so the server may parallelize it internally."""
     if documents:
         collection.insert_many(documents, ordered=False)
 
 
 def _chunks(
-    times: np.ndarray, expiry: np.ndarray, size: int
-) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    times: npt.NDArray[np.float64], expiry: npt.NDArray[np.float64], size: int
+) -> Iterator[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
     """Split the grid into contiguous batches of at most ``size`` timestamps."""
     for start in range(0, len(times), size):
         stop = start + size
         yield times[start:stop], expiry[start:stop]
 
 
-def oldest_sample(collection: Collection) -> datetime | None:
+def oldest_sample(collection: Collection[dict[str, object]]) -> datetime | None:
     """The instant of the oldest stored sample, or ``None`` for an empty store.
 
     This is what honest archiver metadata reports as the start of coverage. The

@@ -216,7 +216,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
@@ -270,6 +270,13 @@ logger = logging.getLogger("osprey_connectors.ipc.pool")
 
 _T = TypeVar("_T")
 
+
+class _ProxyMethod(Protocol):
+    """A :class:`ConnectorHostProxy` method as :meth:`ConnectorHostPool._invoke` calls it."""
+
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
+
+
 #: The one execution mode a key may carry besides ``None``.
 READONLY = "readonly"
 
@@ -305,6 +312,19 @@ _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_c
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
 _Key = tuple[str, str | None] | tuple[str, str | None, str | None, str | None]
+
+
+def _optional_name(name: str, value: object) -> str | None:
+    """*value* stripped, or ``None`` for ``None``; a non-string or blank one is refused.
+
+    Raises:
+        ValueError: *value* is not ``None`` and not a non-blank string.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be None or a non-blank name, got {value!r}")
+    return value.strip()
 
 
 def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
@@ -727,15 +747,10 @@ class ConnectorHostPool:
         """
         if execution_mode not in (None, READONLY):
             raise ValueError(f"execution_mode must be None or {READONLY!r}, got {execution_mode!r}")
-        for name, value in (("owner", owner), ("authorization", authorization)):
-            if value is not None and (not isinstance(value, str) or not value.strip()):
-                raise ValueError(f"{name} must be None or a non-blank name, got {value!r}")
-        key = _make_key(
-            target,
-            execution_mode,
-            owner.strip() if owner is not None else None,
-            authorization.strip() if authorization is not None else None,
-        )
+        # Both are refused before either is used, owner first.
+        owner_name = _optional_name("owner", owner)
+        authorization_name = _optional_name("authorization", authorization)
+        key = _make_key(target, execution_mode, owner_name, authorization_name)
         await self._ensure(key)
         return PooledConnector(self, key)
 
@@ -776,7 +791,7 @@ class ConnectorHostPool:
         """Run the proxy method named *method* on *key*'s child. Never retried."""
 
         async def call(proxy: ConnectorHostProxy) -> object:
-            bound: Callable[..., Awaitable[object]] = getattr(proxy, method)
+            bound: _ProxyMethod = getattr(proxy, method)
             return await bound(*args, **kwargs)
 
         return await self._call(key, method, call)
@@ -960,6 +975,10 @@ class ConnectorHostPool:
                 "drive it from that loop only"
             )
 
+    def _is_closed(self) -> bool:
+        """Whether :meth:`close` has run, read afresh: it can run while a call awaits."""
+        return self._closed
+
     async def _ensure(self, key: _Key) -> _PoolChild:
         self._check_loop()
         if self._closed:
@@ -982,7 +1001,7 @@ class ConnectorHostPool:
                     CAUSE_EXITED,
                 )
             child = await self._start(key)
-            if self._closed:
+            if self._is_closed():
                 # close() ran while this child was starting; it waits on this
                 # lock, so stopping the child here is what it is waiting for.
                 await self._stop(child)
@@ -1090,9 +1109,10 @@ class ConnectorHostPool:
                 phases=phases,
             )
 
-        try:
+        async def init_report() -> object:
+            """The child's reply to its init frame; a silent or lost child is a start failure."""
             try:
-                report = await proxy.supervisor_request("init", init, self._start_timeout_s)
+                return await proxy.supervisor_request("init", init, self._start_timeout_s)
             except ChildUnresponsiveError as exc:
                 raise failure(
                     STAGE_INIT, f"did not answer its init frame within {self._start_timeout_s}s."
@@ -1115,6 +1135,8 @@ class ConnectorHostPool:
                 exc.add_note(f"raised by the connector-host child (pid {pid}) for {_label(key)}")
                 raise
 
+        try:
+            report = await init_report()
             if not isinstance(report, dict):
                 raise failure(
                     STAGE_INIT,

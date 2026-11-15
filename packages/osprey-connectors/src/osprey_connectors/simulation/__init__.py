@@ -8,14 +8,11 @@ composite, the texture engine, the archive and the series primitives are
 imported from their own modules.
 """
 
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, TypeGuard
+from collections.abc import Iterable, Mapping
+from typing import SupportsInt, TypeGuard
 
 from osprey_connectors.simulation.status import model_status, read_model_status
 from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
-
-if TYPE_CHECKING:
-    import numpy as np
 
 __all__ = [
     "DEFAULT_FAST_TICK_S",
@@ -97,7 +94,7 @@ def _resolve_period(config: Mapping[str, object], key: str, default: float) -> f
     return float(raw)
 
 
-def decode_char_waveform(value: "str | Sequence[int] | np.ndarray") -> str:
+def decode_char_waveform(value: str | Iterable[SupportsInt]) -> str:
     """The text a string channel holds, whichever shape it arrives in.
 
     A ``str`` passes unchanged. An array of character codes (a list, a tuple

@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
+from typing_extensions import override
+
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.put_log._contract import PutLog, PutRow
 from osprey_connectors.service_answers import (
@@ -80,6 +82,7 @@ class CaPutLog(PutLog):
             transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_WHERE)
         self._transport = transport
 
+    @override
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage[PutRow]:
@@ -103,6 +106,7 @@ class CaPutLog(PutLog):
             return self._page(Outcome.NO_MATCH, truncated=truncated, reason=_NO_ROWS_REASON)
         return self._page(Outcome.FOUND, rows=rows, truncated=truncated)
 
+    @override
     async def probe(self, deadline: float) -> str | Unavailable:
         """Whether a search answers; the root's status is not a request this backend may send."""
         envelope = await self._search("", 1, deadline)

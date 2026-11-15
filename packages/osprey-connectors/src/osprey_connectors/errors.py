@@ -341,7 +341,7 @@ class ChannelWriteFailedError(ChannelError):
         reason: str,
         message: str | None = None,
         *,
-        outcome: "WriteOutcome | None" = None,
+        outcome: "WriteOutcome | str | None" = None,
         value_written: object = None,
         observed_value: object = None,
     ):

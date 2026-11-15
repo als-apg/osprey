@@ -29,6 +29,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typing_extensions import override
+
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
@@ -73,6 +75,7 @@ class PhoebusAlarmLogger(AlarmLog):
             transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_SETTINGS_KEY)
         self._transport = transport
 
+    @override
     async def history(
         self, channel: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage[AlarmHistoryRow]:
@@ -90,6 +93,7 @@ class PhoebusAlarmLogger(AlarmLog):
             Outcome.FOUND, rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
         )
 
+    @override
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         started = time.monotonic()
         answer = await self._search(channel, _CONFIG_SEARCH_SIZE, None, deadline)
@@ -114,6 +118,7 @@ class PhoebusAlarmLogger(AlarmLog):
                     return _config_record(newest)
         return AlarmConfigRecord(in_tree="unknown", path=path)
 
+    @override
     async def probe(self, deadline: float) -> str | Unavailable:
         answer = await self._transport.request("GET", "/", deadline=deadline)
         if isinstance(answer, Unavailable):

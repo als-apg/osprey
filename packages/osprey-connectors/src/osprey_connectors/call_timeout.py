@@ -7,7 +7,7 @@ every connector that bounds its calls names and refuses that bound alike.
 """
 
 import math
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import SupportsFloat
 
 from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
@@ -106,8 +106,10 @@ def refuse_renamed_timeout_keys(config: Mapping[str, object]) -> None:
 
 
 def _dotted_paths(node: Mapping[str, object], prefix: str = "") -> Iterator[str]:
-    """Every key of *node*, nested ones included, as a dotted path."""
-    for key, value in node.items():
+    """Every string key of *node*, nested ones included, as a dotted path."""
+    # A YAML mapping may hold a key of any type, whatever the annotation says.
+    items: Iterable[tuple[object, object]] = node.items()
+    for key, value in items:
         if not isinstance(key, str):
             continue
         path = f"{prefix}.{key}" if prefix else key

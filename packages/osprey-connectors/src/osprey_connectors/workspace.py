@@ -11,7 +11,8 @@ import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+
+from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "BUILD_DIR_NAME",
@@ -224,7 +225,9 @@ def resolve_config_path() -> Path:
     return rendered if rendered.is_file() else cwd / "config.yml"
 
 
-def load_osprey_config() -> dict[str, Any]:
+# The values are the YAML parse's, which every consumer reads by the shape its
+# own config has.
+def load_osprey_config() -> dict[str, ContractAny]:
     """Load OSPREY configuration (delegates to ConfigBuilder singleton).
 
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
