@@ -118,6 +118,15 @@ def exc_client():
     async def gone():
         raise ClientDisconnect()
 
+    @app.get("/gone-from-a-task-group")
+    async def gone_from_a_task_group():
+        # The shape a production disconnect arrives in: starlette's task group
+        # fails, and the ClientDisconnect is raised from its ExceptionGroup.
+        try:
+            raise ExceptionGroup("unhandled errors in a TaskGroup", [RuntimeError("stream")])
+        except ExceptionGroup as group:
+            raise ClientDisconnect() from group
+
     @app.get("/fine")
     async def fine():
         return {"ok": True}
@@ -150,6 +159,15 @@ class TestExceptionLoggingMiddleware:
         records = [r for r in caplog.records if r.name == "osprey.interfaces.middleware"]
         assert [(r.levelno, r.exc_info) for r in records] == [(logging.DEBUG, None)]
         assert "GET /gone" in records[0].getMessage()
+
+    def test_a_disconnect_raised_from_a_task_group_failure_is_the_same(self, exc_client, caplog):
+        """The cause chain a served request carries does not make it a server error."""
+        with caplog.at_level(logging.DEBUG, logger="osprey.interfaces.middleware"):
+            resp = exc_client.get("/gone-from-a-task-group")
+
+        assert resp.status_code == 499
+        records = [r for r in caplog.records if r.name == "osprey.interfaces.middleware"]
+        assert [(r.levelno, r.exc_info) for r in records] == [(logging.DEBUG, None)]
 
 
 class TestStampOwner:
