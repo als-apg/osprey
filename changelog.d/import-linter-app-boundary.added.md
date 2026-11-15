@@ -1,1 +1,0 @@
-The application import boundary, under which application code imports OSPREY only through `osprey.apps.sdk`, `osprey.facility.kinds` and public `osprey_connectors`, is now checked by `osprey.apps.boundary`, and `osprey.apps.loader` is reachable only from the build.

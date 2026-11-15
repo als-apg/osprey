@@ -1,1 +1,0 @@
-Web terminal feedback: dropped code only tests reached. The store's unused header reader is gone, the record id is a required argument, and the payload composer no longer takes cap, floor or separator overrides.

@@ -1,1 +1,0 @@
-The build can project each application the profile's `apps:` block names into `services.<key>` entries: a `runtime: osprey` container renders through the bundled application runtime, an `image:` container through its own compose fragment, each on a loopback port from the facility band unless pinned.

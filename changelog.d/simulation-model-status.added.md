@@ -1,1 +1,0 @@
-`osprey_connectors.simulation.model_status(connector, model)` returns a served physics model's status, `ok` or the engine's error text, from the composite the connector serves in process, and refuses an unknown model by naming the served models.

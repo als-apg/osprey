@@ -1,1 +1,0 @@
-`osprey profile expand` is removed. `osprey init --revalidate` now also fills in the config keys a profile leaves to its preset and refreshes the provider entries OSPREY ships; `--preset NAME` picks the preset.
