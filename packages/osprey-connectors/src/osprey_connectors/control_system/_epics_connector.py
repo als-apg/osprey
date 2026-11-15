@@ -24,6 +24,7 @@ from typing import (
     Literal,
     ParamSpec,
     Protocol,
+    Required,
     SupportsFloat,
     SupportsIndex,
     SupportsInt,
@@ -34,7 +35,6 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import Field
 from typing_extensions import Buffer, override
 
 from osprey_connectors._contract_types import ContractAny
@@ -67,7 +67,6 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
@@ -736,13 +735,13 @@ class _PvaContext(Protocol):
     def close(self) -> None: ...
 
 
-class _PvaPayload(FrozenModel):
+class _PvaPayload(TypedDict, total=False):
     """One normative type's reading: its value, and what it adds to the metadata."""
 
-    value: ContractAny
-    raw_metadata: dict[str, ContractAny] = Field(default_factory=dict)
-    enum_labels: list[str] | None = None
-    enum_label: str | None = None
+    value: Required[object]
+    raw_metadata: dict[str, object]
+    enum_labels: list[str] | None
+    enum_label: str | None
 
 
 class _ChannelSubscription:
@@ -1658,16 +1657,16 @@ class EPICSConnector(ControlSystemConnector):
         else:
             payload = self._pva_scalar_value(value)
 
-        raw_metadata.update(payload.raw_metadata)
+        raw_metadata.update(payload.pop("raw_metadata", {}))
 
         metadata = self._pva_metadata(value, timestamp, raw_metadata)
         # Only the enum branch contributes these; every other payload leaves the
         # fields at their None default, which is what marks a channel as not
         # enum-typed.
-        metadata.enum_labels = payload.enum_labels
-        metadata.enum_label = payload.enum_label
+        metadata.enum_labels = payload.get("enum_labels")
+        metadata.enum_label = payload.get("enum_label")
 
-        return ChannelValue(value=payload.value, timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
         self, value: object, timestamp: datetime, raw_metadata: dict[str, object]
@@ -1749,10 +1748,10 @@ class EPICSConnector(ControlSystemConnector):
         """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
         scalar = _pva_field(value, "value")
         dtype: object = getattr(scalar, "dtype", None)
-        return _PvaPayload(
-            value=scalar,
-            raw_metadata={"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
-        )
+        return {
+            "value": scalar,
+            "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
+        }
 
     def _pva_enum_value(self, value: object) -> _PvaPayload:
         """NTEnum: the INDEX is the value; the choices become enum metadata.
@@ -1774,16 +1773,16 @@ class EPICSConnector(ControlSystemConnector):
         choices = list(_pva_items(enum_field, "choices"))
         labels, label = _enum_label_fields(choices, index)
 
-        return _PvaPayload(
-            value=index,
-            enum_labels=labels,
-            enum_label=label,
-            raw_metadata={
+        return {
+            "value": index,
+            "enum_labels": labels,
+            "enum_label": label,
+            "raw_metadata": {
                 "dtype": "enum",
                 "enum_index": index,
                 "enum_choices": choices,
             },
-        )
+        }
 
     def _pva_ndarray_value(self, channel_address: str, value: object) -> _PvaPayload:
         """NTNDArray: the carried array, reshaped per its dimension list.
@@ -1830,7 +1829,7 @@ class EPICSConnector(ControlSystemConnector):
                 ) from None
 
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
-        return _PvaPayload(value=array, raw_metadata=raw_metadata)
+        return {"value": array, "raw_metadata": raw_metadata}
 
     @override
     def current_value_reader(self) -> CurrentValueReader | None:

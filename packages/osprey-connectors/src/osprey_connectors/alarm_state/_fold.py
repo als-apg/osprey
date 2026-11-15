@@ -12,11 +12,10 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
-
-from pydantic import Field
 
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
@@ -24,7 +23,6 @@ from osprey_connectors.alarm_state._contract import (
     AlarmStateRow,
     severity_rank,
 )
-from osprey_connectors.model import MutableModel
 from osprey_connectors.service_answers import _flag, _text
 
 FEED_LOADING = "alarm feed still loading"
@@ -35,12 +33,13 @@ _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
 
 
-class FeedSnapshot(MutableModel):
+@dataclass
+class FeedSnapshot:
     """Every message folded so far; each PV maps its tree paths to their latest value."""
 
     messages: int = 0
-    states: dict[str, dict[str, Mapping[str, object]]] = Field(default_factory=dict)
-    configs: dict[str, dict[str, Mapping[str, object]]] = Field(default_factory=dict)
+    states: dict[str, dict[str, Mapping[str, object]]] = field(default_factory=dict)
+    configs: dict[str, dict[str, Mapping[str, object]]] = field(default_factory=dict)
 
 
 def fold_message(
