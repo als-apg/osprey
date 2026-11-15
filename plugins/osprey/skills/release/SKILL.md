@@ -210,6 +210,54 @@ release it is synced with every extra the test tree reaches for, not just
 `dev`. A module whose extra is absent skips itself, and a skipped module is a
 green that proved nothing.
 
+### Provision the host first
+
+Do this before the first test runs, not after reading the first skip list. A
+test whose prerequisite is absent skips itself, so an unprovisioned host
+returns a green run that left hundreds of tests out, and each prerequisite
+found afterwards costs another full run.
+
+**Pick the host.** The run needs a container runtime, about 20 idle cores and
+most of a day. A laptop that is also running agent sessions does not finish:
+the unit sweep hits its 90-minute bound with no failure reported. Use a
+workstation or a build host, in a fresh clone, and tell the maintainer which
+host before starting. On a host other runs share, give every service the
+release run starts a port and a name of its own.
+
+**Then provision everything in this table, and prove each line**, before the
+unit sweep:
+
+| Prerequisite | Tests it unlocks | Provision | Prove |
+| --- | --- | --- | --- |
+| Vendored front-end files | browser tests, every stack capture in Step 3 | `uv run osprey vendor fetch` | `uv run osprey vendor verify` |
+| Playwright browsers | browser tests, including the WebKit cases | `uv run playwright install chromium webkit`; on macOS WebKit needs a logged-in desktop session, so run those cases there or in a Linux container | the browser tests run instead of skipping |
+| QMD sidecar images | QMD sidecar and models-mount tests | both builds of the `qmd-sidecar-e2e` job in `ci.yml` | `docker image inspect` on both tags |
+| VA live containers | `tests/va/e2e` | the image builds and `OSPREY_VA_E2E_ENABLE=1` of the `va-live-e2e` job | the directory collects and runs |
+| Ollama with the models the tests name | Ollama-backed unit tests, the proxy e2e modules | install Ollama, `ollama pull` each model a skip or failure names, `OSPREY_E2E_OLLAMA=1` for the e2e lane | `curl -s localhost:11434/api/tags` lists them |
+| Facility lane stand-in | `tests/cli/test_als_lane.py` | `OSPREY_ALS_LANE_STAND_IN=tests/fixtures/mml/nsls2` | the module runs |
+| MML checkout, `als-ontology` checkout | `tests/facility`, the TTL seeder tests | clone them; `OSPREY_MML_MACHINE_ROOT=<MML>/machine/<facility>` | the modules run |
+| Open-file limit | the whole sweep: one worker holds about 500 descriptors once everything is provisioned | `ulimit -n 8192` in the shell that runs the tests (macOS gives 256) | `ulimit -n` |
+| pvAccess client | the pvAccess connector tests | run those modules as an overlay, `uv run --frozen --with pvapy pytest ...`; installed into the venv it fails the shipped-library review test | the modules run |
+| `psql` client | the role tests in `tests/e2e/test_ariel_search.py` | any PostgreSQL client on `PATH` | `psql --version` |
+| ARIEL Postgres, seeded | the ARIEL scenario tests, the retrieval half of the logbook delegation test | a pgvector Postgres on a port of its own, `OSPREY_ARIEL_DB_URI`, then `osprey sim apply nominal --yes` in a demo project pointed at it. Never the default port on a shared host: the tests purge and reseed whatever they reach | `psql "$OSPREY_ARIEL_DB_URI" -c 'select count(*) from enhanced_entries'` |
+| A Linux container | the Linux-only tests, on a macOS host | run their modules in a `python:3.13` container with the tree mounted | they run instead of skipping |
+| JS toolchain check | `app-check-js` | `uv run python scripts/check.py run app-check-js` | it reports `ran` |
+| MATLAB with the AT toolbox | MML export parity | a licensed MATLAB on `PATH` | `matlab -batch "disp(1)"` |
+| Keys a docs video names in `needs_env` | the video takes in Step 3 | export each one on the host | `python -m docs.screenshots list`, then check each named key is set |
+
+The CI lane named in a row is the reference: copy its build commands and
+environment out of `.github/workflows/ci.yml`, never from memory. When a
+release run meets a skip this table does not cover, add the row in the same
+release.
+
+**What may still skip.** Only a test that cannot run on the host at all (a
+Linux-only syscall on macOS) or one that is opt-in by design (a manual spike,
+a ratchet with nothing to check). Every such skip is listed for the
+maintainer with the CI lane that runs it, or with "no lane runs this". A skip
+for something that could have been installed is not an acceptable skip.
+
+### Run the suites
+
 ```bash
 export UV_PROJECT_ENVIRONMENT=.venv-release-test
 uv sync --extra dev --extra teams --extra gchat --extra virtual-accelerator
@@ -221,11 +269,19 @@ export OSPREY_E2E_PROVIDER=als-apg
 export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
 unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
-# Unit tests
-uv run python scripts/check.py run pytest -- -n 4 -q
+# Unit tests: the parallel sweep, then the suites that run alone. The sweep
+# does not include the second line's suites.
+uv run python scripts/check.py run pytest -- -n 8 -q
+uv run python scripts/check.py run pytest-pty pytest-wallclock pytest-wallclock-unit
 
 rm -rf .venv-release-test
 ```
+
+`check.py` refuses `-rs`, so it cannot print skip reasons. To read them, take
+the pytest command `check.py` echoes on its `check: pytest:` line and run it
+once more with `-rs` appended. `canopy-contract` is refused where CANOPY is not
+installed, and it takes any check named in the same command down with it; it
+has its own CI lane, so leave it out of the local run.
 
 The e2e half is the bulk lane, run exactly as CI runs it — same parallelism,
 same exclusions. Copy the invocation out of the `e2e-tests` job rather than
@@ -247,8 +303,13 @@ is not meant to. The `full-ci` run below is their gate.
 
 Read the skips, not just the exit code. A missing key, container runtime or
 backend turns a lane green having run nothing, and `tests/e2e/README.md` lists
-what each one needs. Anything still skipping for want of Postgres or Ollama
-gets named in the release notes as untested rather than passed over.
+what each one needs. A skip for want of something installable sends you back
+to the provisioning table, not to the release notes.
+
+The bulk lane shares the model endpoint with every agentic CI lane in flight.
+Start it when at most two PR runs are running
+(`gh run list --workflow ci.yml --status in_progress`); under contention its
+tests hang to their caps instead of failing.
 
 Also trigger the on-demand benchmark lane against the release tree, which no
 PR runs: `gh workflow run ci.yml -f run_benchmarks=true`.
@@ -349,6 +410,12 @@ uv run python -m docs.screenshots upload-check          # takes vs manifest, len
 To redo one take: `uv run make -C docs doc-videos VIDEOOPTS="--video <name>
 --theme dark"`. A video skipped for a missing key prints one line; record it
 before going on, never ship it stale.
+
+**Before recording, read each video's `layout`** in
+`docs/screenshots/videos.py` and each recipe's surface. The operator chat is
+what the docs show; a take or screenshot of the Claude Code terminal is wrong
+however long its storyboard has asked for it. Fix the entry first, and agree a
+changed layout with the maintainer before recording.
 
 **Watch every take, both themes, start to finish** (`docs/demo-video/*.mp4`).
 Check that the dialogs, captions and panels shown match this release's UI,
