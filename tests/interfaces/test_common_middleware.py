@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
@@ -111,6 +114,10 @@ def exc_client():
     async def boom():
         raise RuntimeError("kaboom")
 
+    @app.get("/gone")
+    async def gone():
+        raise ClientDisconnect()
+
     @app.get("/fine")
     async def fine():
         return {"ok": True}
@@ -132,6 +139,17 @@ class TestExceptionLoggingMiddleware:
         resp = exc_client.get("/fine")
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
+
+    def test_a_client_disconnect_is_not_a_server_error(self, exc_client, caplog):
+        """A browser abandoning a slow request is answered 499 and costs one DEBUG
+        line: no ERROR record and no traceback for the log handler to render."""
+        with caplog.at_level(logging.DEBUG, logger="osprey.interfaces.middleware"):
+            resp = exc_client.get("/gone")
+
+        assert resp.status_code == 499
+        records = [r for r in caplog.records if r.name == "osprey.interfaces.middleware"]
+        assert [(r.levelno, r.exc_info) for r in records] == [(logging.DEBUG, None)]
+        assert "GET /gone" in records[0].getMessage()
 
 
 class TestStampOwner:
