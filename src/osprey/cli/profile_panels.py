@@ -256,32 +256,92 @@ def format_panel_matrix(matrix: Mapping[str, Any]) -> list[str]:
 
 
 _PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panels by login</title>
 <style>
-:root{--bg:#fff;--fg:#1a1d21;--dim:#667085;--line:#e3e6ea;--tab:#d7ecff;--def:#1f6feb;--deffg:#fff;--menu:#fdf0cc}
-@media (prefers-color-scheme:dark){:root{--bg:#14171a;--fg:#e6e8eb;--dim:#98a2b3;--line:#2b3138;--tab:#17406b;--def:#4c9aff;--deffg:#0b1320;--menu:#5a4712}}
-body{margin:0;padding:24px 16px;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
-h1{font-size:18px;margin:0 0 4px}p{color:var(--dim);margin:0 0 16px}
-.wrap{overflow-x:auto}table{border-collapse:collapse}
-th,td{border-bottom:1px solid var(--line);padding:6px 10px;text-align:center;white-space:nowrap}
-th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--bg)}
-thead th{vertical-align:bottom}th small,td small{display:block;color:var(--dim);font-weight:400}
-.tab{background:var(--tab)}.default{background:var(--def);color:var(--deffg);font-weight:600}
-.menu{background:var(--menu)}.off{color:var(--dim)}
-#why{margin-top:16px;min-height:3em;color:var(--dim)}td[data-why]{cursor:pointer}
+__TOKENS__
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;padding:var(--space-5) var(--space-4);background:var(--surface-canvas);
+  color:var(--text-primary);font:var(--weight-regular) var(--text-lg)/var(--leading-normal) var(--font-display)}
+header{display:flex;align-items:baseline;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-4)}
+h1{margin:0;font-size:var(--text-3xl);font-weight:var(--weight-semibold)}
+header p{margin:0;color:var(--text-secondary);flex:1 1 240px}
+button{font:inherit;font-size:var(--text-md);color:var(--text-secondary);background:var(--surface-card);
+  border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-1) var(--space-3);cursor:pointer}
+button:hover{background:var(--surface-hover);color:var(--text-primary)}
+.card{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{padding:var(--space-2) var(--space-3);text-align:center;white-space:nowrap;
+  border-bottom:1px solid var(--surface-hairline)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--surface-hover)}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface-card)}
+thead th{vertical-align:bottom;background:var(--surface-well);font-weight:var(--weight-semibold)}
+thead th:first-child{background:var(--surface-well);font-size:var(--text-sm);letter-spacing:1px;
+  text-transform:uppercase;color:var(--text-muted)}
+small{display:block;font:var(--weight-regular) var(--text-base)/var(--leading-tight) var(--font-mono);color:var(--text-muted)}
+.pill{display:inline-block;min-width:64px;padding:2px var(--space-2);border-radius:var(--radius-full);
+  font-size:var(--text-md);border:1px solid transparent}
+.default .pill{background:var(--color-accent);color:var(--color-on-accent);font-weight:var(--weight-semibold)}
+.tab .pill{background:var(--accent-tint-12);color:var(--color-accent-light);border-color:var(--accent-tint-25)}
+.menu .pill{background:var(--accent-secondary-tint-12);color:var(--color-accent-secondary);
+  border-color:var(--accent-secondary-tint-25)}
+.off .pill{color:var(--text-muted)}
+td[data-why]{cursor:pointer}
+td[data-why]:focus-visible,td.picked{outline:2px solid var(--surface-focus);outline-offset:-2px}
+.legend{display:flex;gap:var(--space-4);flex-wrap:wrap;margin:var(--space-3) 0;color:var(--text-secondary);
+  font-size:var(--text-md)}
+.legend span{display:inline-flex;align-items:center;gap:var(--space-2)}
+#why{margin-top:var(--space-3);padding:var(--space-3) var(--space-4);min-height:44px;background:var(--surface-well);
+  border:1px solid var(--border-default);border-radius:var(--radius-lg);color:var(--text-secondary)}
 </style></head><body>
-<h1>Panels by login</h1>
+<header><h1>Panels by login</h1>
 <p>What each login of this deployment shows. Select a cell to see which file decides it.</p>
-<div class="wrap"><table><thead><tr><th>panel</th>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
-<div id="why"></div>
+<button type="button" id="theme">Light</button></header>
+<div class="card"><table><thead><tr><th>Panel</th>__HEAD__</tr></thead><tbody>__BODY__</tbody></table></div>
+<div class="legend">
+<span class="default"><span class="pill">default</span>opens first</span>
+<span class="tab"><span class="pill">tab</span>on the sidebar</span>
+<span class="menu"><span class="pill">menu</span>in the panel menu only</span>
+<span class="off"><span class="pill">&ndash;</span>not there</span></div>
+<div id="why">Select a cell.</div>
 <script>
 const data=__DATA__;
-document.querySelectorAll('td[data-why]').forEach(td=>td.addEventListener('click',()=>{
-  document.getElementById('why').textContent=td.dataset.why;}));
+const root=document.documentElement,button=document.getElementById('theme');
+function theme(name){root.dataset.theme=name;button.textContent=name==='dark'?'Light':'Dark';}
+theme(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+button.addEventListener('click',()=>theme(root.dataset.theme==='dark'?'light':'dark'));
+function pick(td){document.querySelectorAll('td.picked').forEach(c=>c.classList.remove('picked'));
+  td.classList.add('picked');document.getElementById('why').textContent=td.dataset.why;}
+document.querySelectorAll('td[data-why]').forEach(td=>{
+  td.addEventListener('click',()=>pick(td));
+  td.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(td);}});});
 </script></body></html>
 """
+
+_PAGE_MARKS = {STATE_DEFAULT: "default", STATE_TAB: "tab", STATE_MENU: "menu", STATE_OFF: "\u2013"}
+
+
+def _theme_tokens() -> str:
+    """The design system's dark and light token blocks, for a page that links nothing.
+
+    The page is one file a maintainer opens from disk, so it cannot link
+    ``tokens.css``; it carries the two blocks of it instead, and so wears the
+    colours and scale every OSPREY panel wears.
+    """
+    from importlib.resources import files
+
+    text = (
+        files("osprey.interfaces.design_system")
+        .joinpath("static", "css", "tokens.css")
+        .read_text(encoding="utf-8")
+    )
+    blocks = []
+    for opener in (':root, [data-theme="dark"] {', '[data-theme="light"] {'):
+        start = text.index(opener)
+        blocks.append(text[start : text.index("\n}", start) + 2])
+    return "\n".join(blocks)
 
 
 def _why(render: Mapping[str, Any], panel: Mapping[str, str]) -> str:
@@ -310,7 +370,8 @@ def panel_matrix_html(matrix: Mapping[str, Any]) -> str:
     esc = html.escape
     head = "".join(
         f"<th>{esc(render['name'])}<small>{esc(render['file'])}</small>"
-        f"<small>{esc(', '.join(render['logins']))}</small></th>"
+        + "".join(f"<small>{esc(login)}</small>" for login in render["logins"])
+        + "</th>"
         for render in matrix["renders"]
     )
     body = ""
@@ -319,9 +380,14 @@ def panel_matrix_html(matrix: Mapping[str, Any]) -> str:
         for render in matrix["renders"]:
             state = render["panels"][panel["id"]]["state"]
             body += (
-                f'<td class="{state}" data-why="{esc(_why(render, panel), quote=True)}">'
-                f"{esc(_MARKS[state])}</td>"
+                f'<td class="{state}" tabindex="0" data-why="{esc(_why(render, panel), quote=True)}">'
+                f'<span class="pill">{esc(_PAGE_MARKS[state])}</span></td>'
             )
         body += "</tr>"
     data = json.dumps(matrix).replace("</", "<\\/")
-    return _PAGE.replace("__HEAD__", head).replace("__BODY__", body).replace("__DATA__", data)
+    return (
+        _PAGE.replace("__TOKENS__", _theme_tokens())
+        .replace("__HEAD__", head)
+        .replace("__BODY__", body)
+        .replace("__DATA__", data)
+    )
