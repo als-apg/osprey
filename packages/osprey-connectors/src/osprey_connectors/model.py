@@ -44,7 +44,6 @@ class FrozenModel(BaseModel):
         extra="forbid",
         strict=True,
         validate_by_name=True,
-        validate_by_alias=True,
     )
 
 
@@ -56,7 +55,6 @@ class MutableModel(BaseModel):
         strict=True,
         validate_assignment=True,
         validate_by_name=True,
-        validate_by_alias=True,
     )
 
 

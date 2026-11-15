@@ -1692,7 +1692,7 @@ class ConnectorHostManager:
             return None
         if ROLE_READ_ONLY not in derivation.endpoints:
             return None
-        return _on_read_role(derivation)
+        return evolve(derivation, selected_role=ROLE_READ_ONLY)
 
     def _probe_channel(self, target: str, derivation: TargetDerivation) -> str:
         """The channel the destination proves itself with, or a refusal.
@@ -1772,7 +1772,9 @@ class ConnectorHostManager:
             )
         rederived = self._derive(target)
         if without_write_gateway and ROLE_READ_ONLY in rederived.derivation.endpoints:
-            rederived = replace(rederived, derivation=_on_read_role(rederived.derivation))
+            rederived = replace(
+                rederived, derivation=evolve(rederived.derivation, selected_role=ROLE_READ_ONLY)
+            )
         child = await self._launch_once(
             target,
             rederived,
@@ -2078,11 +2080,6 @@ class ConnectorHostManager:
             DEFAULT_PROBE_TIMEOUT_S,
         )
         return DEFAULT_PROBE_TIMEOUT_S
-
-
-def _on_read_role(derivation: TargetDerivation) -> TargetDerivation:
-    """*derivation* with its ``read_only`` row selected, everything else as derived."""
-    return evolve(derivation, selected_role=ROLE_READ_ONLY)
 
 
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
