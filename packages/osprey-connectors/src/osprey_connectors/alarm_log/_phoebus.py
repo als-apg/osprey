@@ -25,10 +25,11 @@ import json
 import math
 import re
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import ConfigDict, OnErrorOmit, TypeAdapter, ValidationError
+from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
@@ -55,15 +56,6 @@ _NO_LOGGED_EVENTS = "no logged events"
 _MALFORMED_REASON = "malformed response"
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
-
-
-class _Root(FrozenModel):
-    """What the root answers, read for the service's name and version."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    name: object = None
-    version: object = None
 
 
 class _LoggedRow(FrozenModel):
@@ -189,11 +181,9 @@ class PhoebusAlarmLogger(AlarmLog):
         answer = await self._transport.request("GET", "/", deadline=deadline)
         if isinstance(answer, Unavailable):
             return answer
-        try:
-            root = _Root.model_validate(answer)
-        except ValidationError:
+        if not isinstance(answer, Mapping):
             return Unavailable(reason=_MALFORMED_REASON)
-        service = " ".join(str(value) for value in (root.name, root.version) if value)
+        service = " ".join(str(answer[key]) for key in ("name", "version") if answer.get(key))
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
     async def _search(
