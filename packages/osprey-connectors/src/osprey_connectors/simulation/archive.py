@@ -349,12 +349,9 @@ class ArchiveComposite:
     ) -> None:
         self._channels = dict(channels)
         self._topoffs = dict(topoffs or {})
-        self._pulses = {
-            address: {"driver": seed.driver, "enable": seed.enable}
-            for address, seed in (pulses or {}).items()
-        }
+        self._pulses = dict(pulses or {})
         for address, seed in self._pulses.items():
-            for role, source in seed.items():
+            for role, source in (("driver", seed.driver), ("enable", seed.enable)):
                 if source not in self._channels:
                     raise ValueError(
                         f"the pulse seed of {address} names {role} {source}, "
@@ -433,8 +430,8 @@ class ArchiveComposite:
         if seed is None:
             held = np.asarray(self._held[address], dtype=np.float64).reshape(-1)
             return [held.copy() for _ in times]
-        drive = self._drive(seed["driver"], times)
-        enabled = self._drive(seed["enable"], times) != 0.0
+        drive = self._drive(seed.driver, times)
+        enabled = self._drive(seed.enable, times) != 0.0
         return [
             pulse.trace(address, float(moment), float(level), bool(on))
             for moment, level, on in zip(times, drive, enabled, strict=True)

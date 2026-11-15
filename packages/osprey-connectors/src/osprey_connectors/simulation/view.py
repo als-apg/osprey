@@ -259,7 +259,7 @@ class Channel(FrozenModel):
                     "unit": entry.unit,
                     "description": entry.description,
                     "writable": entry.writable,
-                    "value_range": _bounds(entry.value_range),
+                    "value_range": entry.value_range,
                     "owner": entry.owner,
                     "on": entry.on,
                     "options": entry.options,
@@ -680,16 +680,6 @@ class SimulatorView:
     def scenario_dir(self, name: str) -> Path:
         """The view's copy of a scenario's attached files, ``scenarios/<name>/``."""
         return self.path / SCENARIOS_DIR / name
-
-
-def _bounds(
-    value_range: Sequence[int | float | None] | None,
-) -> tuple[int | float | None, ...] | None:
-    """A channel entry's ``value_range``; the build writes ``[min, max]`` or ``None``.
-
-    :class:`Channel` refuses any other shape, a ``None`` side among them.
-    """
-    return None if value_range is None else tuple(value_range)
 
 
 def _on_nodes(channel: Channel | None) -> tuple[str, ...]:
