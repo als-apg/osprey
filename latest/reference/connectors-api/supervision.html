@@ -1004,10 +1004,10 @@ one means the child itself said nothing in time, so it may be wedged.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>reader</strong> (<em>Any</em>) – Anything with <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">read(n)</span> <span class="pre">-&gt;</span> <span class="pre">bytes</span></code> returning <code class="docutils literal notranslate"><span class="pre">b&quot;&quot;</span></code> at
+<li><p><strong>reader</strong> (<em>ContractAny</em>) – Anything with <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">read(n)</span> <span class="pre">-&gt;</span> <span class="pre">bytes</span></code> returning <code class="docutils literal notranslate"><span class="pre">b&quot;&quot;</span></code> at
 EOF — an <code class="xref py py-class docutils literal notranslate"><span class="pre">asyncio.StreamReader</span></code>, and therefore an
 <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process.stdout</span></code>.</p></li>
-<li><p><strong>writer</strong> (<em>Any</em>) – Anything with <code class="docutils literal notranslate"><span class="pre">write(bytes)</span></code>, <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">drain()</span></code> and
+<li><p><strong>writer</strong> (<em>ContractAny</em>) – Anything with <code class="docutils literal notranslate"><span class="pre">write(bytes)</span></code>, <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">drain()</span></code> and
 <code class="docutils literal notranslate"><span class="pre">close()</span></code> — an <code class="xref py py-class docutils literal notranslate"><span class="pre">asyncio.StreamWriter</span></code>, and therefore an
 <code class="docutils literal notranslate"><span class="pre">asyncio.subprocess.Process.stdin</span></code>. <code class="docutils literal notranslate"><span class="pre">wait_closed()</span></code> is used
 when present.</p></li>

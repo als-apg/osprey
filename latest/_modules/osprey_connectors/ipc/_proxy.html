@@ -515,8 +515,9 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">TypeVar</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">TypeVar</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ChannelValue</span><span class="p">,</span>
     <span class="n">ChannelWriteResult</span><span class="p">,</span>
@@ -647,8 +648,10 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/supervision.html#osprey_connectors.ipc.ConnectorHostProxy.__init__">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">reader</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-        <span class="n">writer</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="c1"># The transport is duck-typed by the class&#39;s contract (see its</span>
+        <span class="c1"># docstring), and the package has no public type for either half.</span>
+        <span class="n">reader</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
+        <span class="n">writer</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">timeout_grace_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
         <span class="n">deadline_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>

@@ -4011,9 +4011,9 @@ fails closed with <a class="reference internal" href="#osprey_connectors.settle.
 readback that cannot be reached, is not a channel, or times out raises
 <a class="reference internal" href="#osprey_connectors.settle.SettleReadError" title="osprey_connectors.settle.SettleReadError"><code class="xref py py-class docutils literal notranslate"><span class="pre">SettleReadError</span></code></a>, which names it, as does one that answers no value; a
 lost connector raises its own error.</p>
-<p>This module imports only the std-lib and <code class="docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code>, and
-takes any connector with an awaitable <code class="docutils literal notranslate"><span class="pre">read_channel(address)</span></code> whose result
-carries <code class="docutils literal notranslate"><span class="pre">.value</span></code>.</p>
+<p>This module imports only the std-lib, <code class="docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code> and the
+package’s contract alias, and takes any connector with an awaitable
+<code class="docutils literal notranslate"><span class="pre">read_channel(address)</span></code> whose result carries <code class="docutils literal notranslate"><span class="pre">.value</span></code>.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.settle.Landing">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.settle.</span></span><span class="sig-name descname"><span class="pre">Landing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">setpoint</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">readback</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">demand</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bound</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/settle.html#Landing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.settle.Landing" title="Link to this definition">#</a></dt>

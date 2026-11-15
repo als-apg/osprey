@@ -1476,9 +1476,10 @@ job in the framework.</p>
 <dd><p>The source of every section on every target, per the module table.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: not the
+<dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: not the
 <code class="docutils literal notranslate"><span class="pre">pv_directory:</span></code> section, because the <code class="docutils literal notranslate"><span class="pre">va</span></code> half turns on whether
-the deployment built a simulator.</p>
+the deployment built a simulator. Anything that is not a mapping
+has no section.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">{kind:</span> <span class="pre">{target:</span> <span class="pre">BackendSpec</span> <span class="pre">|</span> <span class="pre">None}}</span></code> with every target of

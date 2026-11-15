@@ -441,7 +441,8 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">ssl</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;CA_FILE_ERRORS&quot;</span><span class="p">,</span>
@@ -504,6 +505,8 @@
 
 
 
+<span class="c1"># ContractAny: the values pymongo.MongoClient takes as ``**kwargs: Any``, past</span>
+<span class="c1"># host and port; every caller unpacks the result straight into it.</span>
 <div class="viewcode-block" id="mongo_client_kwargs">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.archiver.mongo_client_kwargs">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">mongo_client_kwargs</span><span class="p">(</span>
@@ -516,7 +519,7 @@
     <span class="n">auth_source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">ca_bundle</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The keyword arguments for ``pymongo.MongoClient``.</span>
 
 <span class="sd">    Every MongoDB client OSPREY opens takes its arguments from here: the agent&#39;s</span>
@@ -543,7 +546,9 @@
 <span class="sd">        ca_bundle: A CA file to trust; setting it turns TLS on.</span>
 <span class="sd">        timeout_s: Seconds to wait for a server.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="n">url</span><span class="p">}</span> <span class="k">if</span> <span class="n">url</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="n">host</span><span class="p">,</span> <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">port</span><span class="p">}</span>
+    <span class="n">kwargs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="n">url</span><span class="p">}</span> <span class="k">if</span> <span class="n">url</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;host&quot;</span><span class="p">:</span> <span class="n">host</span><span class="p">,</span> <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="n">port</span><span class="p">}</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">username</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">username</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;password&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">password</span>

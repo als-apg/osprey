@@ -540,14 +540,15 @@
 
 <div class="viewcode-block" id="archive_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.archive_targets.archive_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archive_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archive_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The control targets whose history this deployment&#39;s ``archiver`` block holds.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        config: The full config mapping, as loaded from ``config.yml`` — not the</span>
 <span class="sd">            ``archiver:`` section, because the answer for the mongodb store</span>
 <span class="sd">            turns on whether the deployment built a simulator, which the</span>
-<span class="sd">            section alone does not carry.</span>
+<span class="sd">            section alone does not carry. Anything that is not a mapping states</span>
+<span class="sd">            no archiver, which is the mock&#39;s.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        The targets per the module table — :data:`APPLIANCE_TARGETS`,</span>
@@ -555,7 +556,10 @@
 <span class="sd">        set has no archive: a caller holding it has nothing to offer, never a</span>
 <span class="sd">        default to fall back on.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_ARCHIVER_SECTION_KEY</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="c1"># No section is the mock&#39;s, which has no targets.</span>
+        <span class="k">return</span> <span class="n">_NO_TARGETS</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_ARCHIVER_SECTION_KEY</span><span class="p">)</span>
     <span class="n">archiver_type</span> <span class="o">=</span> <span class="n">resolve_archiver_type</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">archiver_type</span> <span class="o">==</span> <span class="n">MOCK_ARCHIVER</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_NO_TARGETS</span>
@@ -575,7 +579,7 @@
 
 <div class="viewcode-block" id="archive_withheld">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.archive_targets.archive_withheld">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">archive_withheld</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">archive_withheld</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a session on *target* must be told it has no archive.</span>
 
 <span class="sd">    The agent&#39;s reader of the one ``archiver:`` block asks this before it</span>
@@ -585,7 +589,8 @@
 <span class="sd">    the archiver pairing&#39;s question, asked at build and at the target switch.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        config: The full config mapping, as loaded from ``config.yml``.</span>
+<span class="sd">        config: The full config mapping, as loaded from ``config.yml``; anything</span>
+<span class="sd">            that is not a mapping states the mock.</span>
 <span class="sd">        target: The control target the session is on.</span>
 
 <span class="sd">    Returns:</span>

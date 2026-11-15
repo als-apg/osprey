@@ -534,7 +534,7 @@ or a numpy array, signed or unsigned bytes) is read up to its first NUL
 and decoded as UTF-8, an invalid byte becoming U+FFFD.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> | </em><em>Sequence</em><em>[</em><em>int</em><em>] </em><em>| </em><em>np.ndarray</em>) – The value read from the channel.</p>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> | </em><em>Iterable</em><em>[</em><em>SupportsInt</em><em>]</em>) – The value read from the channel.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The decoded text.</p>
@@ -1699,7 +1699,7 @@ product of <code class="docutils literal notranslate"><span class="pre">shape</s
 <dd><p>The labels of a bool or enum channel record.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>channel</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – The channel record.</p>
+<dd class="field-odd"><p><strong>channel</strong> (<em>ChannelRecord</em><em> | </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em><em>]</em>) – The channel record.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The record’s <code class="docutils literal notranslate"><span class="pre">options</span></code>, or <code class="xref py py-data docutils literal notranslate"><span class="pre">DEFAULT_BOOL_OPTIONS</span></code> without them.</p>
@@ -2033,7 +2033,7 @@ waveform channel without a <code class="docutils literal notranslate"><span clas
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>address</strong> (<em>str</em>) – A <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel address of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2046,7 +2046,7 @@ waveform channel without a <code class="docutils literal notranslate"><span clas
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>list[<em>ndarray</em>]</p>
+<dd class="field-even"><p>list[<em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2080,7 +2080,7 @@ trace (<a class="reference internal" href="#osprey_connectors.simulation.archive
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>address</strong> (<em>str</em>) – A channel address of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2105,7 +2105,7 @@ runs once per timestamp for all of them rather than once per channel.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>addresses</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Channel addresses of the view.</p></li>
-<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em>) – Epoch seconds, ascending.</p></li>
+<li><p><strong>t_s</strong> (<em>Sequence</em><em>[</em><em>float</em><em>] </em><em>| </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em>) – Epoch seconds, ascending.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -2392,7 +2392,7 @@ its directory, which is opened with <code class="xref py py-meth docutils litera
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>collection</strong> (<em>Collection</em>) – The sample collection.</p></li>
+<li><p><strong>collection</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – The sample collection.</p></li>
 <li><p><strong>fingerprint</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – What <a class="reference internal" href="#osprey_connectors.simulation.archive.seed_fingerprint" title="osprey_connectors.simulation.archive.seed_fingerprint"><code class="xref py py-func docutils literal notranslate"><span class="pre">seed_fingerprint()</span></code></a> says the knobs are now.</p></li>
 </ul>
 </dd>
@@ -2464,7 +2464,7 @@ chunk loop and so also before the manifest.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>collection</strong> (<em>Collection</em>) – The sample collection. Existing samples are not removed —
+<li><p><strong>collection</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – The sample collection. Existing samples are not removed —
 a caller reseeding is expected to drop first, and one that is
 extending a store deliberately is not second-guessed here.</p></li>
 <li><p><strong>archive</strong> (<a class="reference internal" href="#osprey_connectors.simulation.archive.ArchiveComposite" title="osprey_connectors.simulation.archive.ArchiveComposite"><em>ArchiveComposite</em></a>) – The archive composite of the active set; every one of its
@@ -2477,7 +2477,7 @@ manifest because changing it changes the store’s size on disk.</p></li>
 <li><p><strong>chunk_size</strong> (<em>int</em>) – Timestamps synthesized and inserted per batch.</p></li>
 <li><p><strong>progress</strong> (<em>Callable</em><em>[</em><em>[</em><a class="reference internal" href="#osprey_connectors.simulation.archive.SeedReport" title="osprey_connectors.simulation.archive.SeedReport"><em>SeedReport</em></a><em>]</em><em>, </em><em>None</em><em>] </em><em>| </em><em>None</em>) – Called after each chunk with the running report, for a
 deploy-time progress line.</p></li>
-<li><p><strong>waveforms</strong> (<em>Collection</em><em> | </em><em>None</em>) – The <a class="reference internal" href="#osprey_connectors.simulation.archive.waveform_collection" title="osprey_connectors.simulation.archive.waveform_collection"><code class="xref py py-func docutils literal notranslate"><span class="pre">waveform_collection()</span></code></a> beside <code class="docutils literal notranslate"><span class="pre">collection</span></code>;
+<li><p><strong>waveforms</strong> (<em>Collection</em><em>[</em><em>dict</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>] </em><em>| </em><em>None</em>) – The <a class="reference internal" href="#osprey_connectors.simulation.archive.waveform_collection" title="osprey_connectors.simulation.archive.waveform_collection"><code class="xref py py-func docutils literal notranslate"><span class="pre">waveform_collection()</span></code></a> beside <code class="docutils literal notranslate"><span class="pre">collection</span></code>;
 <code class="docutils literal notranslate"><span class="pre">None</span></code> opens it from <code class="docutils literal notranslate"><span class="pre">collection</span></code>’s database. Only a view with
 <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channels needs it.</p></li>
 </ul>
@@ -2536,7 +2536,7 @@ rewrite restoring a window it once protected — re-stamp a document correctly
 without knowing how it was originally produced.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2632,7 +2632,7 @@ start at their instant and never move a sample before it; <code class="docutils 
 channel’s <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed record, which alone refills a loss.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>np.ndarray</p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2733,7 +2733,7 @@ share a channel’s name from replaying that channel’s own texture stream.</p>
 <dd><p>Convert timestamps to epoch seconds, or None when not convertible.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em> | None</p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]] | None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2751,7 +2751,7 @@ when an anchored or time-of-day event cannot be placed because the
 timestamps were not convertible to epoch seconds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>list[tuple[np.ndarray, float]]</p>
+<dd class="field-odd"><p>list[tuple[<em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]], float]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2782,7 +2782,7 @@ equivalence against a per-sample reference implementation.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_key</strong> (<em>bytes</em>) – Channel key, typically <a class="reference internal" href="#osprey_connectors.simulation.series.channel_key_bytes" title="osprey_connectors.simulation.series.channel_key_bytes"><code class="xref py py-func docutils literal notranslate"><span class="pre">channel_key_bytes()</span></code></a> output optionally
 suffixed with a subkey to get an independent stream.</p></li>
-<li><p><strong>counters_ms</strong> (<em>ndarray</em>) – Per-sample counters, conventionally epoch milliseconds.
+<li><p><strong>counters_ms</strong> (<em>_Buffer</em><em> | </em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>] </em><em>| </em><em>_NestedSequence</em><em>[</em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>]</em><em>] </em><em>| </em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em> | </em><em>_NestedSequence</em><em>[</em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em>]</em>) – Per-sample counters, conventionally epoch milliseconds.
 Floats are rounded to the nearest integer; any shape is accepted.</p></li>
 </ul>
 </dd>
@@ -2791,7 +2791,7 @@ Floats are rounded to the nearest integer; any shape is accepted.</p></li>
 <code class="docutils literal notranslate"><span class="pre">counters_ms</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2839,7 +2839,7 @@ archiver windows agree exactly on their shared timestamps.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel_key</strong> (<em>bytes</em>) – Channel key, as for <a class="reference internal" href="#osprey_connectors.simulation.series.keyed_normals" title="osprey_connectors.simulation.series.keyed_normals"><code class="xref py py-func docutils literal notranslate"><span class="pre">keyed_normals()</span></code></a>.</p></li>
-<li><p><strong>t_abs_s</strong> (<em>ndarray</em>) – Absolute epoch seconds; any shape.</p></li>
+<li><p><strong>t_abs_s</strong> (<em>_Buffer</em><em> | </em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>] </em><em>| </em><em>_NestedSequence</em><em>[</em><em>_SupportsArray</em><em>[</em><em>dtype</em><em>[</em><em>Any</em><em>]</em><em>]</em><em>] </em><em>| </em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em> | </em><em>_NestedSequence</em><em>[</em><em>complex</em><em> | </em><em>bytes</em><em> | </em><em>str</em><em>]</em>) – Absolute epoch seconds; any shape.</p></li>
 <li><p><strong>amplitude</strong> (<em>float</em>) – Envelope bound, in the channel’s declared units.</p></li>
 <li><p><strong>period_s</strong> (<em>float</em>) – Slowest period in seconds; must be positive.</p></li>
 </ul>
@@ -2852,7 +2852,7 @@ archiver windows agree exactly on their shared timestamps.</p>
     from turning a division by zero into silent <code class="docutils literal notranslate"><span class="pre">NaN</span></code> in the series.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><em>ndarray</em></p>
+<dd class="field-even"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2878,7 +2878,8 @@ the level a <code class="docutils literal notranslate"><span class="pre">topoff<
 channel that declares no motion, or that an active scenario stills, has an
 envelope of 0.0.</p>
 <p>The module imports only the standard library and the standard-library-only
-<a class="reference internal" href="#module-osprey_connectors.simulation.topoff" title="osprey_connectors.simulation.topoff"><code class="xref py py-mod docutils literal notranslate"><span class="pre">topoff</span></code></a>, so the build, the simulator
+<a class="reference internal" href="#module-osprey_connectors.simulation.topoff" title="osprey_connectors.simulation.topoff"><code class="xref py py-mod docutils literal notranslate"><span class="pre">topoff</span></code></a> and
+<a class="reference internal" href="#module-osprey_connectors.simulation.values" title="osprey_connectors.simulation.values"><code class="xref py py-mod docutils literal notranslate"><span class="pre">values</span></code></a>, so the build, the simulator
 view’s reader and the texture model share one rule.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.envelope.active_envelopes">
@@ -2893,7 +2894,7 @@ reading any active scenario’s <code class="docutils literal notranslate"><span
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>seeds</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>SeedRecord</em><em>]</em>) – Seeds by address.</p></li>
-<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Scenario records by name, the simulator view’s or the
+<li><p><strong>scenarios</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em><em>]</em>) – Scenario records by name, the simulator view’s or the
 facility file’s; only <code class="docutils literal notranslate"><span class="pre">still</span></code>, <code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code> and
 <code class="docutils literal notranslate"><span class="pre">noise</span></code> are read.</p></li>
 <li><p><strong>active</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – The active scenario names, in order; a name <code class="docutils literal notranslate"><span class="pre">scenarios</span></code>
@@ -2971,7 +2972,7 @@ own reads its demand and reports the condition itself.</p></li>
 the composite share one table.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint',</span> <span class="pre">'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback',</span> <span class="pre">'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
 <dd><p>Every channel fault, by its word.</p>
 </dd></dl>
 
@@ -3069,7 +3070,7 @@ epoch milliseconds, matching how the texture engine keys its motion.</p>
 <dd class="field-even"><p>A float64 array of shape <code class="docutils literal notranslate"><span class="pre">(_TRACE_POINTS,)</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3366,7 +3367,7 @@ term scales; a scalar or an array shaped like <code class="docutils literal notr
 without motion, stilled, or not of type float.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>ndarray</em></p>
+<dd class="field-odd"><p><em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3424,7 +3425,7 @@ otherwise, each bounded by the view’s <code class="docutils literal notranslat
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>channel</strong> (<em>ChannelRecord</em>) – The channel’s record in <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>.</p></li>
-<li><p><strong>nominal</strong> (<em>Any</em>) – Its start value, in its stored representation.</p></li>
+<li><p><strong>nominal</strong> (<a class="reference internal" href="#osprey_connectors.simulation.values.StoredValue" title="osprey_connectors.simulation.values.StoredValue"><em>values.StoredValue</em></a>) – Its start value, in its stored representation.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -3669,7 +3670,11 @@ write changes nothing else.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.get">
-<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.get" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">object</span></span></span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.get"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.get" title="Link to this definition">#</a></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">object</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">object</span></span></span></dt>
 <dd><p>Read channels, each as its variable declares it; a waveform as an array of its shape.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -3682,7 +3687,7 @@ write changes nothing else.</p>
 <dd class="field-odd"><p><strong>ValueError</strong> – A name is not a channel or status address of the view.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>Any</em>] | <em>Any</em></p>
+<dd class="field-even"><p>dict[str, object] | object</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3714,7 +3719,7 @@ setpoint reads its level. A failed child’s readbacks read NaN.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>levels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>float</em><em> | </em><em>ndarray</em><em>]</em>) – Float channel levels by address, each a scalar or an array
+<li><p><strong>levels</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>float</em><em> | </em><em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>float64</em><em>]</em><em>]</em><em>]</em>) – Float channel levels by address, each a scalar or an array
 shaped like <code class="docutils literal notranslate"><span class="pre">t_s</span></code>; a monitor plane needs every channel of its
 <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.readout_group" title="osprey_connectors.simulation.composite.Composite.readout_group"><code class="xref py py-meth docutils literal notranslate"><span class="pre">readout_group()</span></code></a>.</p></li>
 <li><p><strong>t_s</strong> (<em>object</em>) – Epoch seconds, one-dimensional.</p></li>
@@ -3728,7 +3733,7 @@ shaped like <code class="docutils literal notranslate"><span class="pre">t_s</sp
     monitor plane’s partner has no level.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, <em>ndarray</em>]</p>
+<dd class="field-even"><p>dict[str, <em>ndarray</em>[tuple[<em>Any</em>, …], <em>dtype</em>[<em>float64</em>]]]</p>
 </dd>
 </dl>
 </dd></dl>

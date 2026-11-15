@@ -455,7 +455,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">MutableMapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextmanager</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">overload</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">overload</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
 
@@ -463,6 +463,7 @@
 <span class="c1"># ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so</span>
 <span class="c1"># there is no cycle.</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">yaml_loader</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">DEFAULT_AGENT_DATA_BASE_DIR</span><span class="p">,</span>
     <span class="n">SIMULATION_STATE_DIR_CONFIG_KEY</span><span class="p">,</span>
@@ -506,9 +507,11 @@
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;CONFIG&quot;</span><span class="p">)</span>
 
 
+<span class="c1"># The data comes back in the shape it went in, a YAML parse&#39;s untyped tree as a</span>
+<span class="c1"># rule, and every caller reads the shape its own config has.</span>
 <div class="viewcode-block" id="resolve_env_vars">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.resolve_env_vars">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">resolve_env_vars</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">environ</span><span class="p">:</span> <span class="s2">&quot;Mapping[str, str] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">resolve_env_vars</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">environ</span><span class="p">:</span> <span class="s2">&quot;Mapping[str, str] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ContractAny</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Recursively resolve environment variables in configuration data.</span>
 
 <span class="sd">    Supports both simple and bash-style default value syntax:</span>
@@ -1392,9 +1395,13 @@
 
 
 
+<span class="c1"># The values are the YAML parse&#39;s, which every consumer reads by the shape its</span>
+<span class="c1"># own config has.</span>
 <div class="viewcode-block" id="load_project_config">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.load_project_config">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">load_project_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">wrap_errors</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_project_config</span><span class="p">(</span>
+    <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">wrap_errors</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Load a built project&#39;s ``config.yml`` the way the deploy path loads it.</span>
 
 <span class="sd">    The single entry point every project-facing command and deployment step</span>
@@ -1434,7 +1441,7 @@
 
     <span class="k">try</span><span class="p">:</span>
         <span class="k">with</span> <span class="n">quiet_logger</span><span class="p">([</span><span class="s2">&quot;registry&quot;</span><span class="p">,</span> <span class="s2">&quot;CONFIG&quot;</span><span class="p">]):</span>
-            <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">))</span><span class="o">.</span><span class="n">raw_config</span>
+            <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">))</span><span class="o">.</span><span class="n">raw_config</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">wrap_errors</span><span class="p">:</span>
             <span class="k">raise</span>

@@ -537,9 +537,10 @@ connector type alone answers no for a facility baseline that keeps its
 simulator. The simulator view cannot decide, because every build writes it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The build
+<dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The build
 validator, which sees an overlay, passes the overlay with
-<code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code> filled in from the profile.</p>
+<code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code> filled in from the profile.
+Anything that is not a mapping has no simulator.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>bool</p>
@@ -784,10 +785,11 @@ stand-in that rehearses it.</p>
 <dd><p>The control targets whose history this deployment’s <code class="docutils literal notranslate"><span class="pre">archiver</span></code> block holds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
+<dd class="field-odd"><p><strong>config</strong> (<em>object</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — not the
 <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> section, because the answer for the mongodb store
 turns on whether the deployment built a simulator, which the
-section alone does not carry.</p>
+section alone does not carry. Anything that is not a mapping states
+no archiver, which is the mock’s.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The targets per the module table — <a class="reference internal" href="#osprey_connectors.archive_targets.APPLIANCE_TARGETS" title="osprey_connectors.archive_targets.APPLIANCE_TARGETS"><code class="xref py py-data docutils literal notranslate"><span class="pre">APPLIANCE_TARGETS</span></code></a>,
@@ -813,7 +815,8 @@ the archiver pairing’s question, asked at build and at the target switch.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p><strong>config</strong> (<em>object</em>) – The full config mapping, as loaded from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>; anything
+that is not a mapping states the mock.</p></li>
 <li><p><strong>target</strong> (<em>str</em>) – The control target the session is on.</p></li>
 </ul>
 </dd>

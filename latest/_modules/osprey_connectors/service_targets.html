@@ -482,13 +482,14 @@
 
 <div class="viewcode-block" id="service_targets">
 <a class="viewcode-back" href="../../reference/connectors-api/services.html#osprey_connectors.service_targets.service_targets">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">service_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">BackendSpec</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">service_targets</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">BackendSpec</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The source of every section on every target, per the module table.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        config: The full config mapping, as loaded from ``config.yml``: not the</span>
 <span class="sd">            ``pv_directory:`` section, because the ``va`` half turns on whether</span>
-<span class="sd">            the deployment built a simulator.</span>
+<span class="sd">            the deployment built a simulator. Anything that is not a mapping</span>
+<span class="sd">            has no section.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        ``{kind: {target: BackendSpec | None}}`` with every target of</span>

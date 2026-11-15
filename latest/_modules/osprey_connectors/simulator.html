@@ -535,7 +535,7 @@
 
 <div class="viewcode-block" id="has_simulator">
 <a class="viewcode-back" href="../../reference/connectors-api/deployment.html#osprey_connectors.simulator.has_simulator">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">has_simulator</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">has_simulator</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether the build has a simulator.</span>
 
 <span class="sd">    The port alone answers no for an in-process virtual accelerator; the</span>
@@ -546,6 +546,7 @@
 <span class="sd">        config: The full config mapping, as loaded from ``config.yml``. The build</span>
 <span class="sd">            validator, which sees an overlay, passes the overlay with</span>
 <span class="sd">            ``services.virtual_accelerator.port`` filled in from the profile.</span>
+<span class="sd">            Anything that is not a mapping has no simulator.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">False</span>

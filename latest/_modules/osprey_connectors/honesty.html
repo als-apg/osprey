@@ -509,6 +509,8 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">override</span>
+
 <span class="kn">from</span><span class="w"> </span><span class="nn">.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">INVENTED_HISTORY_TYPES</span><span class="p">,</span>
     <span class="n">MOCK_ARCHIVER</span><span class="p">,</span>
@@ -579,6 +581,7 @@
 <span class="sd">    set to ``None`` — which YAML produces for a bare ``archiver.type:`` and which</span>
 <span class="sd">    the factory resolves to the mock.&quot;&quot;&quot;</span>
 
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>  <span class="c1"># pragma: no cover - debugging aid</span>
         <span class="k">return</span> <span class="s2">&quot;&lt;absent&gt;&quot;</span>
 

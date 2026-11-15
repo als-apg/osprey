@@ -449,6 +449,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">zoneinfo</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZoneInfo</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.logger</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.relative_time</span><span class="w"> </span><span class="kn">import</span> <span class="n">RelativeTimestamp</span><span class="p">,</span> <span class="n">resolve_relative_timestamp</span>
@@ -563,14 +564,14 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_mix64</span><span class="p">(</span><span class="n">z</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_mix64</span><span class="p">(</span><span class="n">z</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;splitmix64 avalanche finalizer over a uint64 array (wrapping arithmetic).&quot;&quot;&quot;</span>
     <span class="n">z</span> <span class="o">=</span> <span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_30</span><span class="p">))</span> <span class="o">*</span> <span class="n">_MIX_A</span>
     <span class="n">z</span> <span class="o">=</span> <span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_27</span><span class="p">))</span> <span class="o">*</span> <span class="n">_MIX_B</span>
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">z</span> <span class="o">^</span> <span class="p">(</span><span class="n">z</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_31</span><span class="p">))</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_as_counter_array</span><span class="p">(</span><span class="n">counters</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_counter_array</span><span class="p">(</span><span class="n">counters</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalize counters to uint64, rounding floats to the nearest integer.</span>
 
 <span class="sd">    Epoch-millisecond counters usually arrive as float64 (``epoch_s * 1000``);</span>
@@ -585,7 +586,9 @@
     <span class="k">return</span> <span class="n">array</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_keyed_words</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;tuple[np.ndarray, np.ndarray]&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_keyed_words</span><span class="p">(</span>
+    <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The two uint64 words each sample consumes, as a pair of arrays.</span>
 
 <span class="sd">    Exactly two words per sample, addressed by that sample&#39;s own counter — no</span>
@@ -600,7 +603,7 @@
 
 <div class="viewcode-block" id="keyed_normals">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.keyed_normals">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">keyed_normals</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">keyed_normals</span><span class="p">(</span><span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">counters_ms</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Standard normal draws addressed by ``(channel key, counter)``.</span>
 
 <span class="sd">    Each sample&#39;s draw is a pure function of its own counter, so two windows</span>
@@ -638,14 +641,14 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_unit_interval</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_unit_interval</span><span class="p">(</span><span class="n">words</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Map uint64 words onto float64 in the half-open interval ``[0, 1)``.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">((</span><span class="n">words</span> <span class="o">&gt;&gt;</span> <span class="n">_SHIFT_11</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="o">*</span> <span class="n">_TWO_POW_M53</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_wander_components</span><span class="p">(</span>
     <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">period_s</span><span class="p">:</span> <span class="nb">float</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;tuple[np.ndarray, np.ndarray, np.ndarray]&quot;</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Periods, phases and normalized weights of one channel&#39;s texture stack.</span>
 
 <span class="sd">    Periods are log-spaced downward from ``period_s`` (the slowest) across</span>
@@ -676,8 +679,8 @@
 <div class="viewcode-block" id="wander">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.wander">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">wander</span><span class="p">(</span>
-    <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">t_abs_s</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span> <span class="n">amplitude</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">period_s</span><span class="p">:</span> <span class="nb">float</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+    <span class="n">channel_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">t_abs_s</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">amplitude</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">period_s</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Band-limited quasi-random baseline texture, evaluated on absolute time.</span>
 
 <span class="sd">    A seeded sum of :data:`_WANDER_COMPONENTS` sinusoids whose periods are</span>
@@ -736,7 +739,7 @@
 
 <div class="viewcode-block" id="epoch_seconds_array">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.epoch_seconds_array">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">epoch_seconds_array</span><span class="p">(</span><span class="n">timestamps</span><span class="p">:</span> <span class="s2">&quot;Iterable[object]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">epoch_seconds_array</span><span class="p">(</span><span class="n">timestamps</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert timestamps to epoch seconds, or None when not convertible.&quot;&quot;&quot;</span>
     <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">ts</span> <span class="ow">in</span> <span class="n">timestamps</span><span class="p">:</span>
@@ -846,11 +849,11 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.event_positions">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">event_positions</span><span class="p">(</span>
     <span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span>
-    <span class="n">t_frac</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
-    <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
+    <span class="n">t_frac</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span>
+    <span class="n">t_abs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;list[tuple[np.ndarray, float]]&quot;</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="nb">float</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Coordinate axis and event position(s) for one event.</span>
 
 <span class="sd">    Fraction-positioned (``at``) and anchored (``at_offset``, ``at_when``)</span>
@@ -877,7 +880,9 @@
 
 <div class="viewcode-block" id="daily_occurrences">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.daily_occurrences">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">daily_occurrences</span><span class="p">(</span><span class="n">at_time</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">daily_occurrences</span><span class="p">(</span>
+    <span class="n">at_time</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">t_abs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.</span>
 
 <span class="sd">    Walks calendar dates from the window start to its end (in timezone ``tz``)</span>
@@ -906,7 +911,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A ``burst``&#39;s excursion at ``dt`` seconds after its instant.</span>
 
 <span class="sd">    Zero before the instant, ``amplitude`` at it, then a fast exponential</span>
@@ -933,9 +938,9 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_loss_deficit</span><span class="p">(</span>
     <span class="n">event</span><span class="p">:</span> <span class="s2">&quot;ArchiverEvent&quot;</span><span class="p">,</span>
     <span class="n">at</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-    <span class="n">x</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span>
     <span class="n">topoff</span><span class="p">:</span> <span class="s2">&quot;TopoffRecord | None&quot;</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;How far a ``loss`` holds a channel below its level at each instant of ``x``.</span>
 
 <span class="sd">    The channel drops by ``amount`` in one step at ``at`` and nothing brings it</span>
@@ -987,14 +992,14 @@
 <div class="viewcode-block" id="apply_events">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.apply_events">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">apply_events</span><span class="p">(</span>
-    <span class="n">series</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+    <span class="n">series</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span>
     <span class="n">events</span><span class="p">:</span> <span class="s2">&quot;Sequence[ArchiverEvent]&quot;</span><span class="p">,</span>
     <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
+    <span class="n">t_abs</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">topoff</span><span class="p">:</span> <span class="s2">&quot;TopoffRecord | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).</span>
 
 <span class="sd">    A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``</span>

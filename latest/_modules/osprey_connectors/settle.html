@@ -442,9 +442,9 @@
 <span class="sd">:class:`SettleReadError`, which names it, as does one that answers no value; a</span>
 <span class="sd">lost connector raises its own error.</span>
 
-<span class="sd">This module imports only the std-lib and ``osprey_connectors.errors``, and</span>
-<span class="sd">takes any connector with an awaitable ``read_channel(address)`` whose result</span>
-<span class="sd">carries ``.value``.</span>
+<span class="sd">This module imports only the std-lib, ``osprey_connectors.errors`` and the</span>
+<span class="sd">package&#39;s contract alias, and takes any connector with an awaitable</span>
+<span class="sd">``read_channel(address)`` whose result carries ``.value``.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -455,8 +455,9 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">SupportsIndex</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">SupportsIndex</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelError</span><span class="p">,</span> <span class="n">ChannelReadFailedError</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -603,7 +604,9 @@
 <div class="viewcode-block" id="settle">
 <a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.settle.settle">[docs]</a>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">settle</span><span class="p">(</span>
-    <span class="n">connector</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="c1"># Duck-typed by the module&#39;s contract: any object with an awaitable</span>
+    <span class="c1"># ``read_channel(address)``, which the package has no public type to name.</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
     <span class="n">landings</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Landing</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>

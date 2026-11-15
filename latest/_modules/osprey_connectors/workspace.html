@@ -441,7 +441,8 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;BUILD_DIR_NAME&quot;</span><span class="p">,</span>
@@ -672,9 +673,11 @@
 
 
 
+<span class="c1"># The values are the YAML parse&#39;s, which every consumer reads by the shape its</span>
+<span class="c1"># own config has.</span>
 <div class="viewcode-block" id="load_osprey_config">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.workspace.load_osprey_config">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">load_osprey_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_osprey_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ContractAny</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Load OSPREY configuration (delegates to ConfigBuilder singleton).</span>
 
 <span class="sd">    Delegates to the framework&#39;s ``ConfigBuilder`` so that ``${VAR:-default}``</span>

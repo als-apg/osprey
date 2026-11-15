@@ -631,7 +631,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">SupportsFloat</span><span class="p">,</span> <span class="n">TypedDict</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorInternalError</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc</span><span class="w"> </span><span class="kn">import</span> <span class="n">_frames</span> <span class="k">as</span> <span class="n">frames</span>
@@ -639,7 +639,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">POSTURE_ENV_VAR</span><span class="p">,</span> <span class="n">SANDBOX_MODE</span><span class="p">,</span> <span class="n">is_readonly_run</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Mapping</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Awaitable</span><span class="p">,</span> <span class="n">Mapping</span>
 
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="n">ControlSystemConnector</span>
 
@@ -953,10 +953,10 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_rule_role</span><span class="p">(</span><span class="n">gateways</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">writes_enabled</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">readonly_run</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.</span>
 
-<span class="sd">    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,</span>
+<span class="sd">    The rule itself is :func:`osprey_connectors.control_system._gateway_role._selected_role`,</span>
 <span class="sd">    the one place it lives: this only adds that an empty table selects nothing.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.ipc._verification</span><span class="w"> </span><span class="kn">import</span> <span class="n">_selected_role</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system._gateway_role</span><span class="w"> </span><span class="kn">import</span> <span class="n">_selected_role</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">gateways</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
@@ -1296,6 +1296,12 @@
         <span class="k">raise</span> <span class="ne">TimeoutError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="k">else</span> <span class="n">reason</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
 
 
+<span class="k">class</span><span class="w"> </span><span class="nc">_ServedMethod</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A :data:`PROXY_METHODS` member as the child calls it: keywords in, an awaitable out.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
+
+
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_invoke</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">ControlSystemConnector</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Run one request against the connector.</span>
 
@@ -1311,7 +1317,7 @@
     <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;spawn_probe&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="k">await</span> <span class="n">_spawn_probe</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">method</span> <span class="ow">in</span> <span class="n">PROXY_METHODS</span><span class="p">:</span>
-        <span class="n">served</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Awaitable</span><span class="p">[</span><span class="nb">object</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+        <span class="n">served</span><span class="p">:</span> <span class="n">_ServedMethod</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
         <span class="k">return</span> <span class="k">await</span> <span class="n">served</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;connector host does not serve </span><span class="si">{</span><span class="n">method</span><span class="si">!r}</span><span class="s2">; it serves &quot;</span>

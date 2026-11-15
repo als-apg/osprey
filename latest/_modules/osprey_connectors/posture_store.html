@@ -568,6 +568,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Final</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">NamedTuple</span><span class="p">,</span> <span class="n">cast</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">override</span>
+
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">session_hold</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.identity</span><span class="w"> </span><span class="kn">import</span> <span class="n">acting_identity</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.posture_env</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_readonly_run</span>
@@ -772,9 +774,11 @@
 
     <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">()</span>
 
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;&lt;no owner&gt;&quot;</span>
 
+    <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
         <span class="k">return</span> <span class="s2">&quot;&lt;no owner&gt;&quot;</span></div>
 
@@ -1283,7 +1287,7 @@
     <span class="k">return</span> <span class="n">text</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_read_tree_context</span><span class="p">(</span><span class="n">tree</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_TreeContext</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_read_tree_context</span><span class="p">(</span><span class="n">tree</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">owner</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_TreeContext</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;*owner*&#39;s whole record out of the read-only *tree*, with the reason when there is none.</span>
 
 <span class="sd">    The reader a container uses when it holds the whole tree and no chip of its</span>
