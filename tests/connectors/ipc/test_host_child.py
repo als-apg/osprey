@@ -938,7 +938,7 @@ def test_a_gateways_entry_that_is_not_a_mapping_reports_no_role(monkeypatch):
 
     report = host._post_connect_report(object(), "epics", "live", section)
 
-    assert (report.selected_role, report.mode, report.host, report.port) == (
+    assert (report["selected_role"], report["mode"], report["host"], report["port"]) == (
         None,
         "name_server",
         "localhost",
@@ -1056,9 +1056,9 @@ def test_the_report_arms_the_target_whose_switch_is_on(mixed_deployment):
         _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
 
-    assert report.target == "va"
-    assert report.connector_type == "virtual_accelerator"
-    assert report.writes_enabled is True
+    assert report["target"] == "va"
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["writes_enabled"] is True
 
 
 def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
@@ -1068,9 +1068,9 @@ def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
         _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
 
-    assert report.target == "live"
-    assert report.connector_type == "epics"
-    assert report.writes_enabled is False
+    assert report["target"] == "live"
+    assert report["connector_type"] == "epics"
+    assert report["writes_enabled"] is False
 
 
 def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deployment, monkeypatch):
@@ -1090,9 +1090,9 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
     # half, reported where the run mode collapses the verdict. What the readonly
     # run collapses is the selection itself — an armed target still went
     # through the read gateway.
-    assert report.writes_enabled is True
-    assert report.readonly_run is True
-    assert report.selected_role == "read_only"
+    assert report["writes_enabled"] is True
+    assert report["readonly_run"] is True
+    assert report["selected_role"] == "read_only"
 
 
 # ------------------------------- the posture the selection was made with
@@ -1228,7 +1228,7 @@ def _verify(config, report, writes_enabled):
     from osprey_connectors.ipc._verification import derive_endpoints, verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
-    return derivation, verify_child_report(derivation, report.as_wire())
+    return derivation, verify_child_report(derivation, report)
 
 
 @pytest.mark.usefixtures("switched_off_va")
@@ -1257,14 +1257,14 @@ def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     # it down, and the report is the connector's own answer rather than a
     # second reading of the config.
     assert connector._writes_enabled is False
-    assert report.selected_role == "read_only"
+    assert report["selected_role"] == "read_only"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "read_only"
     assert verification.ok, verification.detail
 
-    assert report.writes_enabled is False
-    assert report.readonly_run is False
+    assert report["writes_enabled"] is False
+    assert report["readonly_run"] is False
 
 
 def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
@@ -1284,8 +1284,8 @@ def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
     )
 
     assert connector._writes_enabled is True
-    assert report.writes_enabled is True
-    assert report.selected_role == "write_access"
+    assert report["writes_enabled"] is True
+    assert report["selected_role"] == "write_access"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "write_access"
@@ -1311,9 +1311,9 @@ async def test_a_switched_off_target_reports_the_posture_its_writes_are_refused_
         connector, "virtual_accelerator", "va", config["control_system"]
     )
 
-    assert report.writes_enabled is False
-    assert report.readonly_run is False
-    assert report.selected_role == "read_only"
+    assert report["writes_enabled"] is False
+    assert report["readonly_run"] is False
+    assert report["selected_role"] == "read_only"
 
     # Same instance, same rule: the deployment arms this target, so the refusal
     # can only be the switch the report is now reporting.

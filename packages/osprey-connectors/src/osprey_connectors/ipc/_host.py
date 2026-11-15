@@ -207,14 +207,11 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Protocol, SupportsFloat
-
-from pydantic import Field
+from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypedDict
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
-from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:
@@ -586,19 +583,14 @@ def _installed_role(
     return matched[0] if len(matched) == 1 else None
 
 
-class _PostConnectReport(FrozenModel):
-    """The post-connect report, as this child builds it (see the module docstring).
-
-    It crosses as :meth:`as_wire`, the mapping the parent verifies, in field
-    order and under the module docstring's keys.
-    """
+class _PostConnectReport(TypedDict):
+    """The post-connect report, as this child writes it (see the module docstring)."""
 
     selected_role: str | None
     mode: str | None
     host: str | None
     port: int | str | None
-    #: Keyed ``_epics_configured`` on the wire, the connector attribute it reads.
-    epics_configured: bool = Field(alias="_epics_configured")
+    _epics_configured: bool
     connector_type: str
     transport: str | None
     target: str
@@ -607,10 +599,6 @@ class _PostConnectReport(FrozenModel):
     authorization: str | None
     epics_env: dict[str, str]
     pid: int
-
-    def as_wire(self) -> dict[str, object]:
-        """The report as the init frame carries it: a mapping, keyed as documented."""
-        return self.model_dump(by_alias=True)
 
 
 def _init_block(value: object, where: str) -> Mapping[str, object]:
@@ -662,23 +650,23 @@ def _post_connect_report(
         writes_enabled = _selection_writes_enabled(connector)
     mode, host, port = _installed_endpoint()
 
-    return _PostConnectReport(
-        selected_role=_installed_role(gateways, mode, host, port, writes_enabled, readonly_run),
-        mode=mode,
-        host=host,
-        port=port,
-        epics_configured=bool(getattr(connector, "_epics_configured", False)),
-        connector_type=connector_type,
-        transport=getattr(connector, "transport", None),
-        target=target,
-        writes_enabled=writes_enabled,
-        readonly_run=readonly_run,
-        authorization=_named_authorization(),
-        epics_env={
+    return {
+        "selected_role": _installed_role(gateways, mode, host, port, writes_enabled, readonly_run),
+        "mode": mode,
+        "host": host,
+        "port": port,
+        "_epics_configured": bool(getattr(connector, "_epics_configured", False)),
+        "connector_type": connector_type,
+        "transport": getattr(connector, "transport", None),
+        "target": target,
+        "writes_enabled": writes_enabled,
+        "readonly_run": readonly_run,
+        "authorization": _named_authorization(),
+        "epics_env": {
             name: value for name, value in os.environ.items() if name.startswith(EPICS_ENV_PREFIXES)
         },
-        pid=os.getpid(),
-    )
+        "pid": os.getpid(),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -759,10 +747,10 @@ async def _build_connector(
         "connector host: serving target %r as %r (role=%r mode=%r %s:%s)",
         target,
         connector_type,
-        report.selected_role,
-        report.mode,
-        report.host,
-        report.port,
+        report["selected_role"],
+        report["mode"],
+        report["host"],
+        report["port"],
     )
     return connector, report
 
@@ -1042,7 +1030,7 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         # the supervisor's pipe open.
         marks.close()
 
-    await writer.send(frames.encode_result(init.request_id, report.as_wire()))
+    await writer.send(frames.encode_result(init.request_id, report))
     return await _serve(connector, stream, writer)
 
 
