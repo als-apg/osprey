@@ -573,8 +573,8 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
     )
 
     assert described is Outcome.NOT_LISTED
-    assert (page.outcome, page.rows) == (Outcome.NO_MATCH, [])
-    assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, [])
+    assert (page.outcome, page.rows) == (Outcome.NO_MATCH, ())
+    assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, ())
 
 
 @pytest.mark.parametrize("case", HISTORY_CASES, ids=_ids(HISTORY_CASES))
@@ -603,7 +603,7 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
     assert page.outcome is Outcome.FOUND
     assert [row.address for row in page.rows] == [channel["name"] for channel in channels]
     assert page.total is None
-    assert page.partial == [{"part": "count", "reason": NO_ANSWER}]
+    assert page.partial == ({"part": "count", "reason": NO_ANSWER},)
 
 
 @pytest.mark.parametrize("case", HTTP_CASES, ids=_ids(HTTP_CASES))

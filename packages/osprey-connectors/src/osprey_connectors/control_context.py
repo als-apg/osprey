@@ -146,7 +146,7 @@ from pydantic import Field
 
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping, evolve
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
@@ -315,8 +315,9 @@ class ControlContext(FrozenModel):
 
     :func:`read_record` hands back the cached instance, which is frozen: a
     caller that needs a changed record builds a new one. Its ``posture``,
-    ``last_switch`` and ``switch`` maps are the cached instance's own, so they
-    are not edited in place either — an in-place edit would reach every other
+    ``last_switch`` and ``switch`` maps are read-only
+    (:data:`~osprey_connectors.model.ReadOnlyMapping`) for the same reason: they
+    are the cached instance's own, and an in-place edit would reach every other
     reader in the process.
 
     Attributes:
@@ -344,9 +345,9 @@ class ControlContext(FrozenModel):
     target: str
     generation: int
     owner: Owner | None = None
-    posture: dict[str, str] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    switch: Mapping[str, str] = Field(default_factory=dict)
+    posture: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    switch: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     switch_epoch: int | None = None
 
     def to_payload(self) -> dict[str, object]:
@@ -1482,12 +1483,12 @@ class ServerReport(FrozenModel):
     applied_target: str | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, object] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    last_posture_realign: dict[str, object] | None = None
-    targets: dict[str, object] = Field(default_factory=dict)
+    reachability: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    last_posture_realign: ReadOnlyMapping[str, object] | None = None
+    targets: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
     updated_at: str | None = None
-    statement: dict[str, dict[str, object] | None] | None = None
+    statement: ReadOnlyMapping[str, ReadOnlyMapping[str, object] | None] | None = None
 
     @property
     def display_only(self) -> bool:

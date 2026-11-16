@@ -371,7 +371,7 @@ async def test_a_search_with_no_rows_is_no_match_never_not_listed(
     page = await directory.search(DirectoryQuery(**fields), timeout_s=DEADLINE)
 
     assert page.outcome is Outcome.NO_MATCH
-    assert page.rows == []
+    assert page.rows == ()
     assert page.total == 0
     assert await directory.count(DirectoryQuery(**fields), timeout_s=DEADLINE) == 0
 
@@ -478,7 +478,7 @@ async def test_pages_slice_the_whole_result_and_say_when_more_follows(
     assert [row.address for row in (*first.rows, *last.rows)] == every
     assert (first.total, first.truncated) == (16, True)
     assert (last.total, last.truncated) == (16, False)
-    assert (beyond.outcome, beyond.rows, beyond.total) == (Outcome.FOUND, [], 16)
+    assert (beyond.outcome, beyond.rows, beyond.total) == (Outcome.FOUND, (), 16)
 
 
 async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:

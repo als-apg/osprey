@@ -141,7 +141,7 @@ class CaPutLog(PutLog):
         return HistoryPage(
             outcome=outcome,
             source=self.source,
-            rows=rows or [],
+            rows=tuple(rows or ()),
             truncated=truncated,
             retention_known=False,
             reason=reason,

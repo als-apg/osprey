@@ -87,7 +87,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping
 
 __all__ = [
     "EXCEPTION_SPECS",
@@ -127,7 +127,7 @@ class ExceptionSpec(FrozenModel):
 
     cls: type[BaseException]
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
+    ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
 
@@ -135,7 +135,7 @@ class _Detail(FrozenModel):
     """What of one vocabulary class crosses beyond its channel."""
 
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
+    ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
 

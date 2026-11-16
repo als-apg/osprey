@@ -438,7 +438,7 @@ class TestEnumReadings:
 
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
-        assert result.metadata.enum_labels == ["Closed", "Open"]
+        assert result.metadata.enum_labels == ("Closed", "Open")
         assert result.metadata.enum_label == "Open"
 
     async def test_enum_labels_are_cached_per_attribute(self, connector):

@@ -36,7 +36,7 @@ from osprey_connectors.control_system._gateway_role import (
     _selected_role,
     readonly_gateway_refusal,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,
@@ -142,7 +142,7 @@ class TargetDerivation(FrozenModel):
 
     target: str
     connector_type: str
-    endpoints: dict[str, Endpoint]
+    endpoints: ReadOnlyMapping[str, Endpoint]
     selected_role: str
     transport: str | None
     gateways_declared: str = GATEWAYS_MISSING

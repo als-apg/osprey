@@ -14,7 +14,7 @@ from typing import Literal, Self
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import override
 
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.service_answers import (
     Outcome,
     Source,
@@ -46,8 +46,8 @@ class DirectoryRecord(FrozenModel):
     """One channel in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
-    properties: Mapping[str, str] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list)
+    properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
+    tags: FrozenTuple[str] = ()
 
 
 class DirectoryQuery(FrozenModel):
@@ -60,7 +60,7 @@ class DirectoryQuery(FrozenModel):
 
     words: str = ""
     address_pattern: str | None = None
-    properties: Mapping[str, str] = Field(default_factory=dict)
+    properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     status: str | None = None
     server: tuple[str, ...] = ()
     channel_type: tuple[str, ...] = ()
@@ -103,10 +103,10 @@ class DirectoryPage(FrozenModel):
     request: str
     source: Source
     total: int | None = None
-    rows: list[DirectoryRow] = Field(default_factory=list)
+    rows: FrozenTuple[DirectoryRow] = ()
     truncated: bool = False
-    partial: list[Mapping[str, str]] = Field(default_factory=list)
-    facets: Mapping[str, list[Mapping[str, object]]] | None = None
+    partial: FrozenTuple[ReadOnlyMapping[str, str]] = ()
+    facets: ReadOnlyMapping[str, FrozenTuple[ReadOnlyMapping[str, object]]] | None = None
     facets_reason: str | None = None
     reason: str | None = None
 

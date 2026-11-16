@@ -632,11 +632,11 @@ class VAInProcessConnector(ControlSystemConnector):
         variable = composite.supported_variables[address]
         unit = getattr(variable, "unit", None) or (record and record.unit) or ""
         severity = composite.output_severity([address])
-        labels: list[str] | None = None
+        labels: tuple[str, ...] | None = None
         if record is not None and record.value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
-            labels = values.channel_labels(record)
+            labels = tuple(values.channel_labels(record))
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),

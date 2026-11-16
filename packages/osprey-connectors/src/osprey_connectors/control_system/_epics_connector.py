@@ -16,7 +16,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from types import ModuleType
@@ -498,7 +498,7 @@ class _GetItemIterable(Protocol):
     def __getitem__(self, index: int, /) -> object: ...
 
 
-def _enum_label_fields(labels: object, index: object) -> tuple[list[str] | None, str | None]:
+def _enum_label_fields(labels: object, index: object) -> tuple[tuple[str, ...] | None, str | None]:
     """Normalize a raw label list and resolve the label for ``index``.
 
     Every branch fails soft: a control system that reports no labels, reports
@@ -512,7 +512,7 @@ def _enum_label_fields(labels: object, index: object) -> tuple[list[str] | None,
     if not isinstance(labels, Iterable | _GetItemIterable):
         return None, None  # not iterable — nothing usable was reported
     try:
-        normalized = [str(label) for label in iter(labels)]
+        normalized = tuple(str(label) for label in iter(labels))
     except TypeError:  # not iterable after all — nothing usable was reported
         return None, None
     if not normalized:
@@ -737,7 +737,7 @@ class _PvaPayload(TypedDict, total=False):
 
     value: Required[object]
     raw_metadata: dict[str, object]
-    enum_labels: list[str] | None
+    enum_labels: tuple[str, ...] | None
     enum_label: str | None
 
 
@@ -1672,7 +1672,7 @@ class EPICSConnector(ControlSystemConnector):
         timestamp: datetime,
         raw_metadata: dict[str, object],
         *,
-        enum_labels: Sequence[str] | None = None,
+        enum_labels: tuple[str, ...] | None = None,
         enum_label: str | None = None,
     ) -> ChannelMetadata:
         """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
@@ -1723,7 +1723,7 @@ class EPICSConnector(ControlSystemConnector):
             warning_high=warning_high,
             alarm_low=alarm_low,
             alarm_high=alarm_high,
-            enum_labels=None if enum_labels is None else list(enum_labels),
+            enum_labels=enum_labels,
             enum_label=enum_label,
             raw_metadata=raw_metadata,
         )

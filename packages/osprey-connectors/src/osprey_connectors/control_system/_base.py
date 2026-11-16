@@ -31,7 +31,7 @@ from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
 
@@ -73,10 +73,10 @@ class ChannelMetadata(FrozenModel):
     an enum channel: a control system reports the label list only when it has
     one, and an index outside it resolves to nothing.
 
-    ``enum_labels`` is a ``list`` rather than a tuple because that is what
-    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`
-    encodes sequences as JSON arrays and decodes them as lists, so a tuple set
-    here would compare unequal to the same field read through a proxy.
+    ``enum_labels`` is a tuple, and takes a list on input: the connector-host
+    IPC (:mod:`osprey_connectors.ipc._frames`) carries it as a JSON array,
+    which decodes as a list, and the field turns it back into the tuple the
+    sender held, so the field compares equal on both sides of the seam.
 
     ``control_low`` / ``control_high`` (EPICS DRVL/DRVH), ``warning_low`` /
     ``warning_high`` (LOW/HIGH) and ``alarm_low`` / ``alarm_high`` (LOLO/HIHI)
@@ -94,8 +94,9 @@ class ChannelMetadata(FrozenModel):
     value decoded on the far side of the connector-host IPC seam — which
     validates it again — is unchanged. ``writable`` takes a ``bool`` or an
     integer ``0``/``1`` and reads anything else as "not reported"; a
-    ``raw_metadata`` of ``None`` is an empty one. Every other field holds a
-    value of its own type, or the construction raises.
+    ``raw_metadata`` of ``None`` is an empty one, and the record holds it
+    read-only (:data:`~osprey_connectors.model.ReadOnlyMapping`). Every other
+    field holds a value of its own type, or the construction raises.
     """
 
     units: str = ""
@@ -111,10 +112,10 @@ class ChannelMetadata(FrozenModel):
     display_low: float | None = None
     display_high: float | None = None
     #: Every state this enum-typed channel can report, in index order; None off enums.
-    enum_labels: list[str] | None = None
+    enum_labels: FrozenTuple[str] | None = None
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
-    raw_metadata: dict[str, ContractAny] | None = Field(default_factory=dict)
+    raw_metadata: ReadOnlyMapping[str, ContractAny] | None = Field(default_factory=empty_mapping)
     #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
     control_low: float | None = None
     control_high: float | None = None

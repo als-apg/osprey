@@ -18,20 +18,18 @@ service answered, as the service recorded it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Generic, Literal, Self, TypeVar
 
 from pydantic import (
-    Field,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
     model_validator,
 )
 
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping
 from osprey_connectors.types import ControlTarget
 
 #: The row record a :class:`HistoryPage` holds.
@@ -111,7 +109,7 @@ class BackendSpec(FrozenModel):
     kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
     type: str
     target: ControlTarget
-    settings: Mapping[str, object]
+    settings: ReadOnlyMapping[str, object]
     rehearsal: bool
 
 
@@ -123,7 +121,7 @@ class HistoryPage(FrozenModel, Generic[_RowT]):
 
     outcome: Outcome
     source: Source
-    rows: Sequence[_RowT] = Field(default_factory=list)
+    rows: FrozenTuple[_RowT] = ()
     truncated: bool = False
     retention_known: bool = False
     reason: str | None = None

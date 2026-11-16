@@ -164,7 +164,7 @@ def _attribute_timestamp(attr: object, tz: tzinfo) -> datetime:
     return datetime.fromtimestamp(tv_sec + tv_usec / 1e6, tz)
 
 
-def _enum_label_for(labels: list[str] | None, index: object) -> str | None:
+def _enum_label_for(labels: tuple[str, ...] | None, index: object) -> str | None:
     """The label this reading's index resolves to, or ``None``.
 
     Fails soft on anything unresolvable: the integer index alone is still a
@@ -193,7 +193,7 @@ class TangoConnector(ControlSystemConnector):
         self._connected: bool = False
         self._proxies: dict[str, _DeviceProxy] = {}
         self._subscriptions: dict[str, tuple[_DeviceProxy, int]] = {}
-        self._enum_labels: dict[str, list[str] | None] = {}
+        self._enum_labels: dict[str, tuple[str, ...] | None] = {}
         self._timeout_s: float = DEFAULT_TIMEOUT_S
         # PyTango and the ``tango_host`` override, both set by connect().
         self._tango: _PyTango | None = None
@@ -300,7 +300,7 @@ class TangoConnector(ControlSystemConnector):
 
     def _labels_for(
         self, proxy: _DeviceProxy, device_name: str, attribute: str
-    ) -> list[str] | None:
+    ) -> tuple[str, ...] | None:
         """Enum labels for a ``DevEnum`` attribute, cached per attribute.
 
         Fails soft to ``None``: labels are an enrichment, never a precondition
@@ -309,11 +309,11 @@ class TangoConnector(ControlSystemConnector):
         key = f"{device_name}/{attribute}"
         if key in self._enum_labels:
             return self._enum_labels[key]
-        labels: list[str] | None
+        labels: tuple[str, ...] | None
         try:
             info = proxy.get_attribute_config(attribute)
             raw = getattr(info, "enum_labels", None)
-            labels = [str(label) for label in raw] if raw else None
+            labels = tuple(str(label) for label in raw) if raw else None
         except Exception as exc:
             logger.debug(f"Could not fetch enum labels for '{key}': {exc}")
             labels = None
@@ -351,7 +351,7 @@ class TangoConnector(ControlSystemConnector):
         alarm_status, severity = _quality_fields(quality)
         timestamp = _attribute_timestamp(attr, get_facility_timezone())
 
-        enum_labels: list[str] | None = None
+        enum_labels: tuple[str, ...] | None = None
         enum_label: str | None = None
         attr_type: object = getattr(attr, "type", None)
         if attr_type is not None and "DevEnum" in str(attr_type):

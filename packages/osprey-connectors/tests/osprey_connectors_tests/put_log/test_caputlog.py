@@ -116,7 +116,7 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
     assert page.outcome is Outcome.FOUND
-    assert page.rows == [
+    assert page.rows == (
         PutRow(
             at="2026-10-28T21:03:11.000Z",
             address=f"{PV}.HIHI",
@@ -125,8 +125,8 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
             new="50",
             user="opsuser",
             client="opi-02.demo.lab",
-        )
-    ]
+        ),
+    )
     assert page.retention_known is False
     assert page.truncated is False
     assert page.reason is None
@@ -179,7 +179,7 @@ async def test_only_rows_of_other_pvs_is_no_logged_puts() -> None:
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
     assert page.outcome is Outcome.NO_MATCH
-    assert page.rows == []
+    assert page.rows == ()
 
 
 async def test_rows_come_newest_first_whatever_order_the_service_ranks_them() -> None:
@@ -283,7 +283,7 @@ async def test_an_empty_result_says_no_logged_puts_and_never_that_it_never_chang
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
     assert page.outcome is Outcome.NO_MATCH
-    assert page.rows == []
+    assert page.rows == ()
     assert page.reason == "no logged puts"
     assert "never" not in page.reason
     assert page.retention_known is False
@@ -297,7 +297,7 @@ async def test_a_service_with_no_answer_is_unavailable_with_its_reason() -> None
 
     assert page.outcome is Outcome.UNAVAILABLE
     assert page.reason == "no answer within 5 s"
-    assert page.rows == []
+    assert page.rows == ()
     assert page.retention_known is False
 
 

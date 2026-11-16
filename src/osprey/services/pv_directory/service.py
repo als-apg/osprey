@@ -201,8 +201,8 @@ class DirectoryService:
             DirectoryPage(
                 searched=_searched(server, origins, alarms, archived),
                 source=source,
-                partial=partial,
-                facets=facets,
+                partial=tuple(partial),
+                facets=None if facets is None else {k: tuple(v) for k, v in facets.items()},
                 facets_reason=facets_reason,
                 **fields_out,
             )

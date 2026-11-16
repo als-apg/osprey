@@ -81,7 +81,7 @@ def test_the_directory_names_no_backends_property_map():
 def test_a_page_of_any_other_outcome_needs_no_reason():
     page = DirectoryPage(outcome=Outcome.NO_MATCH, searched="q", request="r", source=SOURCE)
 
-    assert (page.rows, page.partial, page.total, page.facets) == ([], [], None, None)
+    assert (page.rows, page.partial, page.total, page.facets) == ((), (), None, None)
 
 
 def test_a_record_converts_to_the_json_shape():

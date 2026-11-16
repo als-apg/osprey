@@ -99,7 +99,8 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert isinstance(first, Binding)
     assert view.binding(first.address) == first
     assert dict(first.record) == wiring[first.model][0]
-    assert isinstance(first.record, MappingProxyType)
+    with pytest.raises(TypeError):
+        first.record["model"] = "elsewhere"  # type: ignore[index]
 
     channel = view.channel(first.address)
     assert isinstance(channel, Channel)

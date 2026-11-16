@@ -27,21 +27,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Annotated, Literal, TypeAlias, TypeVar
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
     AfterValidator,
-    BeforeValidator,
     ConfigDict,
     Field,
     PlainSerializer,
-    SerializerFunctionWrapHandler,
-    WrapSerializer,
     field_validator,
     model_validator,
 )
 
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 
 __all__ = [
     "AddressesDocument",
@@ -65,10 +62,6 @@ __all__ = [
     "WiringRecord",
 ]
 
-_T = TypeVar("_T")
-_K = TypeVar("_K")
-_V = TypeVar("_V")
-
 
 def _freeze(value: object) -> object:
     """A read-only copy of a JSON value: mappings as proxies, lists as tuples."""
@@ -88,34 +81,11 @@ def _thaw(value: object) -> object:
     return value
 
 
-def _as_tuple(value: object) -> object:
-    """A list as the tuple a field holds; any other value as it is, for the field to judge."""
-    return tuple(value) if isinstance(value, list) else value
-
-
-def _read_only(value: Mapping[_K, _V]) -> Mapping[_K, _V]:
-    """A validated mapping, served read-only."""
-    return MappingProxyType(dict(value))
-
-
-def _as_dict(value: Mapping[_K, _V], handler: SerializerFunctionWrapHandler) -> object:
-    """A read-only mapping, written as the dict it was read from."""
-    return handler(dict(value))
-
-
 #: A number a document states: an ``int`` or a ``float``, kept as written.
 _Real: TypeAlias = int | float
 
 #: A value the view carries verbatim, served read-only and written back as read.
 _Verbatim: TypeAlias = Annotated[object, AfterValidator(_freeze), PlainSerializer(_thaw)]
-
-#: A list of a document, served as a tuple.
-_Tuple: TypeAlias = Annotated[tuple[_T, ...], BeforeValidator(_as_tuple)]
-
-#: A mapping of a document, served read-only.
-_ReadOnly: TypeAlias = Annotated[
-    Mapping[_K, _V], AfterValidator(_read_only), WrapSerializer(_as_dict)
-]
 
 
 class _Record(FrozenModel):
@@ -126,11 +96,6 @@ class _Record(FrozenModel):
     """
 
     model_config = ConfigDict(ser_json_inf_nan="constants")
-
-
-def _empty() -> Mapping[_K, _V]:
-    """An empty read-only mapping: the block a record does not state."""
-    return MappingProxyType({})
 
 
 class NoiseRecord(_Record):
@@ -202,7 +167,7 @@ class LinearTerm(_Record):
 class GateRecord(_Record):
     """A ``gate`` seed: its inputs' blocking labels and the gated value."""
 
-    inputs: _ReadOnly[str, _Verbatim]
+    inputs: ReadOnlyMapping[str, _Verbatim]
     gated: bool | _Real | str
 
 
@@ -212,8 +177,8 @@ class SeedRecord(_Record):
     nominal: _Verbatim = None
     noise: NoiseRecord | None = None
     drift: _WanderRecord | None = None
-    clamp: _Tuple[_Real | None] | None = None
-    linear: _ReadOnly[str, _Real | LinearTerm] | None = None
+    clamp: FrozenTuple[_Real | None] | None = None
+    linear: ReadOnlyMapping[str, _Real | LinearTerm] | None = None
     gate: GateRecord | None = None
     pulse: PulseRecord | None = None
     topoff: TopoffRecord | None = None
@@ -236,11 +201,11 @@ class ChannelRecord(_Record):
     unit: str | None
     description: str | None
     writable: bool
-    value_range: _Tuple[_Real | None] | None
+    value_range: FrozenTuple[_Real | None] | None
     owner: str
-    on: _ReadOnly[str, str] | None
-    options: _Tuple[str] | None = None
-    shape: _Tuple[int] | None = None
+    on: ReadOnlyMapping[str, str] | None
+    options: FrozenTuple[str] | None = None
+    shape: FrozenTuple[int] | None = None
     precision: int | None = None
 
 
@@ -267,9 +232,9 @@ class WiringRecord(_Record):
     engine_role: str | None = None
     plane: str | None = None
     refresh: str | None = None
-    marks: _Tuple[str] | None = None
+    marks: FrozenTuple[str] | None = None
     value_type: str | None = None
-    shape: _Tuple[int] | None = None
+    shape: FrozenTuple[int] | None = None
 
 
 class ModelEntry(_Record):
@@ -278,10 +243,10 @@ class ModelEntry(_Record):
     name: str
     engine: str | None = None
     served: bool = False
-    settings: _ReadOnly[str, _Verbatim] = Field(default_factory=_empty)
+    settings: ReadOnlyMapping[str, _Verbatim] = Field(default_factory=empty_mapping)
     deck: str | None = None
-    wiring: _Tuple[WiringRecord] = ()
-    inputs: _Tuple[_ReadOnly[str, _Verbatim]] = ()
+    wiring: FrozenTuple[WiringRecord] = ()
+    inputs: FrozenTuple[ReadOnlyMapping[str, _Verbatim]] = ()
 
 
 class _When(_Record):
@@ -336,7 +301,7 @@ class ArchiverEvent(_Record):
     until: _Real | None = None
     until_offset: _Real | None = None
     until_when: _When | None = None
-    to: bool | _Real | str | _Tuple[_Verbatim] | None = None
+    to: bool | _Real | str | FrozenTuple[_Verbatim] | None = None
     amplitude: _Real | None = None
     width: _Real | None = None
     decay_s: _Real | None = None
@@ -360,13 +325,13 @@ class _ArchiverEntry(_Record):
     """One entry of a scenario's ``archiver`` block: a channel and its events."""
 
     channel: str
-    events: _Tuple[ArchiverEvent] = ()
+    events: FrozenTuple[ArchiverEvent] = ()
 
 
 class _FaultRecord(_Record):
     """One model's fault in a scenario's ``faults`` block; ``inactive`` is ``None`` when active."""
 
-    writes: _ReadOnly[str, _Verbatim]
+    writes: ReadOnlyMapping[str, _Verbatim]
     inactive: str | None = None
 
 
@@ -379,16 +344,16 @@ class ScenarioRecord(_Record):
 
     name: str
     description: str | None = None
-    overrides: _ReadOnly[str, _Verbatim] = Field(default_factory=_empty)
-    archiver: _Tuple[_ArchiverEntry] = ()
-    logbook: _Tuple[_ReadOnly[str, _Verbatim]] = ()
+    overrides: ReadOnlyMapping[str, _Verbatim] = Field(default_factory=empty_mapping)
+    archiver: FrozenTuple[_ArchiverEntry] = ()
+    logbook: FrozenTuple[ReadOnlyMapping[str, _Verbatim]] = ()
     sessions: _Verbatim = None
-    drivers: _ReadOnly[str, DriveRecord] = Field(default_factory=_empty)
-    couple: _ReadOnly[str, _Tuple[CouplingTerm]] = Field(default_factory=_empty)
-    noise: _ReadOnly[str, NoiseRecord] = Field(default_factory=_empty)
-    channel_faults: _ReadOnly[str, str] = Field(default_factory=_empty)
+    drivers: ReadOnlyMapping[str, DriveRecord] = Field(default_factory=empty_mapping)
+    couple: ReadOnlyMapping[str, FrozenTuple[CouplingTerm]] = Field(default_factory=empty_mapping)
+    noise: ReadOnlyMapping[str, NoiseRecord] = Field(default_factory=empty_mapping)
+    channel_faults: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     still: tuple[str, ...] = ()
-    faults: _ReadOnly[str, _FaultRecord] = Field(default_factory=_empty)
+    faults: ReadOnlyMapping[str, _FaultRecord] = Field(default_factory=empty_mapping)
 
     @field_validator("still", mode="before")
     @classmethod
@@ -403,7 +368,7 @@ class ServedModelsDocument(_Record):
     """``served_models.json``: the models the render serves, in serving order."""
 
     schema_id: str = Field(alias="schema")
-    models: _Tuple[str]
+    models: FrozenTuple[str]
 
 
 class AddressesDocument(_Record):
@@ -415,9 +380,9 @@ class AddressesDocument(_Record):
     """
 
     schema_id: str = Field(alias="schema")
-    channels: _Tuple[str]
-    status: _Tuple[str]
-    ioc_health: _Tuple[str] = ()
+    channels: FrozenTuple[str]
+    status: FrozenTuple[str]
+    ioc_health: FrozenTuple[str] = ()
 
 
 class VariablesDocument(_Record):
@@ -425,19 +390,19 @@ class VariablesDocument(_Record):
 
     schema_id: str = Field(alias="schema")
     code: str
-    models: _Tuple[ModelEntry]
-    channels: _Tuple[ChannelRecord]
+    models: FrozenTuple[ModelEntry]
+    channels: FrozenTuple[ChannelRecord]
 
 
 class SeedsDocument(_Record):
     """``seeds.json``: each seeded channel's seed, by address."""
 
     schema_id: str = Field(alias="schema")
-    seeds: _ReadOnly[str, SeedRecord]
+    seeds: ReadOnlyMapping[str, SeedRecord]
 
 
 class ScenariosDocument(_Record):
     """``scenarios.json``: every scenario, sorted by name."""
 
     schema_id: str = Field(alias="schema")
-    scenarios: _Tuple[ScenarioRecord]
+    scenarios: FrozenTuple[ScenarioRecord]

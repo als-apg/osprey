@@ -201,7 +201,7 @@ class TestNtEnumMapping:
         assert result.value == 2
         assert not isinstance(result.value, str)
         assert result.metadata.enum_label == "On"
-        assert result.metadata.enum_labels == ["Off", "Standby", "On"]
+        assert result.metadata.enum_labels == ("Off", "Standby", "On")
         assert result.metadata.raw_metadata["enum_index"] == 2
         assert result.metadata.raw_metadata["enum_choices"] == ["Off", "Standby", "On"]
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTEnum:1.0"
