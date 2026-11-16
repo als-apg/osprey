@@ -424,8 +424,6 @@ class TestInliner:
         sorted(p.name for p in (inline_assets.DESIGN_SYSTEM_STATIC / "js/components").glob("*.js")),
     )
     def test_every_component_module_inlines(self, module):
-        # The inliner reads import specifiers with a regex that does not skip comments, so a
-        # usage comment that spells this module's own import reads as an import cycle.
         inline_assets.module_data_url(f"/design-system/js/components/{module}")
 
     def test_a_commented_out_import_is_left_untouched(self):
