@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import weakref
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -734,13 +735,15 @@ def _size(value: object) -> int | float | None:
 def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     """A rack's devices: those a ``located_in`` claim puts at a unit in it, then the rest.
 
-    Every claim into the rack that names a unit gives one unit, whatever the
-    device's built place (a device claimed into two racks is in both, and
-    the build leaves its place empty); a device with two unit claims into
-    one rack appears once, at its first claim in graph order. Units are
-    listed in :data:`RACK_ORDER` (the highest unit first), ties by id, each
-    with the claim's standing and its ``size_u`` when that parses as a
-    number. The devices whose built place is the rack and that no unit claim
+    Every distinct (device, unit) that a claim into the rack names is one
+    unit, whatever the device's built place: a device claimed into two racks
+    is in both, and a device whose claims name two units in one rack is
+    drawn at both, each marked ``conflicting``. A panel shows the model's
+    contradiction rather than pick a side. Claims from several sources that
+    agree on one (device, unit) are one unit carrying all their citations.
+    Units are listed in :data:`RACK_ORDER` (the highest unit first), ties by
+    id, each with the claims' standing and the first ``size_u`` that parses
+    as a number. The devices whose built place is the rack and that no unit claim
     positions are ``unpositioned``, by id. Each entry links to the device's
     card and carries a :class:`Light` per channel the device's roll-up reads.
 
@@ -750,30 +753,38 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     rack = graph.thing(rack_id, "place")
     index = _index(graph)
 
-    def unit(thing: Thing, claim: Edge | None) -> RackUnit:
-        lights = tuple(_light(graph, name) for name in rule_channels(graph, thing.id, "device"))
-        return RackUnit(
-            claim.unit if claim is not None else None,
-            _ref(graph, index, thing),
-            lights,
-            _size(claim.attributes.get("size_u")) if claim is not None else None,
-            claim.standing if claim is not None else None,
-        )
+    def lights(thing: Thing) -> tuple[Light, ...]:
+        return tuple(_light(graph, name) for name in rule_channels(graph, thing.id, "device"))
 
-    positioned: dict[str, tuple[int, str, RackUnit]] = {}
+    # (device, unit) -> its claims into this rack, in graph order
+    slots: dict[tuple[str, int], list[Edge]] = {}
     for claim in graph.neighbours(rack_id, "place").get(PLACE_RELATION, ()):
-        if claim.outgoing or claim.other_kind != "device" or claim.unit is None:
-            continue
-        if claim.other not in positioned:  # a device's first unit claim into the rack
-            thing = graph.thing(claim.other, "device")
-            positioned[claim.other] = (-claim.unit, thing.id, unit(thing, claim))
+        if not claim.outgoing and claim.other_kind == "device" and claim.unit is not None:
+            slots.setdefault((claim.other, claim.unit), []).append(claim)
+    units_of = Counter(device for device, _unit in slots)
+    positioned: list[tuple[int, str, RackUnit]] = []
+    for (device, position), claims in slots.items():
+        thing = graph.thing(device, "device")
+        sizes = [_size(claim.attributes.get("size_u")) for claim in claims]
+        citations = dict.fromkeys(claim.source for claim in claims if claim.source is not None)
+        contested = any(claim.standing == "contested" for claim in claims)
+        entry = RackUnit(
+            position,
+            _ref(graph, index, thing),
+            lights(thing),
+            next((size for size in sizes if size is not None), None),
+            "contested" if contested else "accepted",
+            conflicting=units_of[device] > 1,
+            citations=tuple(citations),
+        )
+        positioned.append((-position, device, entry))
     unpositioned = [
-        (thing.id, unit(thing, None))
+        (thing.id, RackUnit(None, _ref(graph, index, thing), lights(thing)))
         for thing in graph.within(rack_id)
-        if thing.kind == "device" and thing.id not in positioned
+        if thing.kind == "device" and thing.id not in units_of
     ]
     elevation = Elevation(
-        tuple(entry[-1] for entry in sorted(positioned.values(), key=lambda e: e[:2])),
+        tuple(entry[-1] for entry in sorted(positioned, key=lambda e: e[:2])),
         tuple(entry[-1] for entry in sorted(unpositioned, key=lambda e: e[0])),
         RACK_ORDER,
     )

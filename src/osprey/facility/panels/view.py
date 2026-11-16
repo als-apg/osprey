@@ -254,8 +254,13 @@ class RackUnit:
         lights: One per channel its roll-up reads.
         size_u: The height in units the place relation's ``size_u`` states,
             when it parses as a number; ``None`` otherwise.
-        standing: The unit claim's standing (``accepted`` or ``contested``);
-            ``None`` for an unpositioned device.
+        standing: The unit claims' standing: ``contested`` when any claim for
+            this (device, unit) is, else ``accepted``; ``None`` for an
+            unpositioned device.
+        conflicting: The same device has claims naming more than one unit
+            in this rack; each unit is drawn, none is picked.
+        citations: The documents of every claim for this (device, unit),
+            each once, in graph order.
     """
 
     position: int | None
@@ -263,6 +268,8 @@ class RackUnit:
     lights: tuple[Light, ...]
     size_u: int | float | None = None
     standing: str | None = None
+    conflicting: bool = False
+    citations: tuple[Citation, ...] = ()
 
 
 @dataclass(frozen=True)

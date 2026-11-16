@@ -39,6 +39,25 @@
   object:
     place: XR/XR01/RK1
     unit: 40
+- id: xr02-ch5-rack1b
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR01/RK1
+    unit: 41
+- id: xr01-ch2-rack-layout
+  type: located_in
+  subject:
+    device: XR01:CH2
+  object:
+    place: XR/XR01/RK1
+    unit: 20
+  source:
+    document: XR-LAYOUT
+    version: A
+    state: released
+    locator: sheet 5
 - id: xr02-ch5-rack2
   type: located_in
   subject:
