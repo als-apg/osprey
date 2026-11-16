@@ -504,6 +504,21 @@ def run_role(entry: ArtifactEntry) -> RunRole:
     return "output"
 
 
+def is_run_bookkeeping(entry: ArtifactEntry) -> bool:
+    """Whether *entry* is a by-product of a run rather than something made on purpose.
+
+    Any run part but ``output`` is bookkeeping: the approval hook's preview, the
+    executor's notebook and its result record. An entry stamped with an explicit
+    ``run_part`` is judged by that alone, and an unstamped legacy entry also by
+    its ``RUN_RECORD_KEY`` mark. The one rule every surface that shows only
+    deliberate artifacts reads (the activity strip, a dispatch run's
+    produced-artifact listing).
+    """
+    if entry.metadata.get("run_part") is not None:
+        return run_role(entry) != "output"
+    return run_role(entry) != "output" or entry.metadata.get(RUN_RECORD_KEY) is True
+
+
 def _result_status(entry: ArtifactEntry) -> RunStatus:
     """A result head's status: its stored ``run_status``, else what its result says."""
     stored = entry.metadata.get("run_status")

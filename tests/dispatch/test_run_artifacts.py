@@ -307,6 +307,142 @@ class TestDescribeRunArtifacts:
         assert d["delivered_mime"] == "image/png"
 
 
+def _save_execute_call(store: ArtifactStore, run_id: str, call: int) -> list[str]:
+    """Save what one ``execute`` call leaves behind: preview, notebook, result record.
+
+    Stamped the way the approval hook and the executor's response builder stamp
+    them. Returns the three ids.
+    """
+    from osprey.stores.artifact_store import RUN_RECORD_KEY
+
+    exec_id = f"toolu_{call}"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OSPREY_DISPATCH_RUN_ID", run_id)
+        preview = store.save_file(
+            file_content=b"# Review\n",
+            filename=f"review_{call}.md",
+            title=f"Review: call {call}",
+            artifact_type="markdown",
+            mime_type="text/markdown",
+            tool_source="osprey_approval",
+            metadata={RUN_RECORD_KEY: True, "run_part": "preview"},
+            exec_id=exec_id,
+        )
+        notebook = store.save_file(
+            file_content=b'{"cells": [], "nbformat": 4, "nbformat_minor": 5, "metadata": {}}',
+            filename=f"call_{call}.ipynb",
+            title=f"Notebook: call {call}",
+            artifact_type="notebook",
+            mime_type="application/x-ipynb+json",
+            tool_source="execute",
+            metadata={RUN_RECORD_KEY: True, "run_part": "code"},
+            exec_id=exec_id,
+        )
+        record = store.save_data(
+            tool="execute",
+            data={"code": "print(1)", "stdout": "1\n"},
+            title=f"call {call}",
+            description=f"call {call}",
+            metadata={RUN_RECORD_KEY: True, "run_part": "result", "run_status": "succeeded"},
+            exec_id=exec_id,
+        )
+    return [preview.id, notebook.id, record.id]
+
+
+def _save_figure(store: ArtifactStore, run_id: str, call: int) -> str:
+    """Save a figure an ``execute`` call's code drew, as the response builder does."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OSPREY_DISPATCH_RUN_ID", run_id)
+        entry = store.save_file(
+            file_content=PNG_BYTES,
+            filename="current_vs_time.png",
+            title="Figure: current_vs_time",
+            artifact_type="image",
+            mime_type="image/png",
+            tool_source="execute",
+            metadata={"run_part": "output", "figure": True},
+            exec_id=f"toolu_{call}",
+        )
+    return entry.id
+
+
+class TestOnlyDeliberateArtifactsAreListed:
+    """One plot asked for, several ``execute`` calls made: the list names the plot (#2499)."""
+
+    def test_one_plot_and_several_execute_calls_list_exactly_the_plot(self, tmp_path, monkeypatch):
+        store = _rooted_store(tmp_path, monkeypatch)
+        bookkeeping: list[str] = []
+        for call in range(5):
+            bookkeeping += _save_execute_call(store, "run-1", call)
+        plot = _save_figure(store, "run-1", call=4)
+
+        described = resolve_mod.describe_run_artifacts("run-1")
+
+        assert [d["artifact_id"] for d in described] == [plot]
+        assert len(bookkeeping) == 15  # 16 run-tagged entries in the store, one listed
+
+    def test_a_notebook_the_code_saved_on_purpose_is_listed(self, tmp_path, monkeypatch):
+        store = _rooted_store(tmp_path, monkeypatch)
+        _save_execute_call(store, "run-1", 0)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("OSPREY_DISPATCH_RUN_ID", "run-1")
+            kept = store.save_file(
+                file_content=b'{"cells": [], "nbformat": 4, "nbformat_minor": 5, "metadata": {}}',
+                filename="analysis.ipynb",
+                title="Notebook: analysis",
+                artifact_type="notebook",
+                mime_type="application/x-ipynb+json",
+                tool_source="execute",
+                metadata={"run_part": "output"},
+                exec_id="toolu_0",
+            )
+
+        assert [d["artifact_id"] for d in resolve_mod.describe_run_artifacts("run-1")] == [kept.id]
+
+    def test_create_tool_artifacts_are_listed(self, tmp_path, monkeypatch):
+        store = _rooted_store(tmp_path, monkeypatch)
+        _save_execute_call(store, "run-1", 0)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("OSPREY_DISPATCH_RUN_ID", "run-1")
+            doc = store.save_file(
+                file_content=HTML_BYTES,
+                filename="report.html",
+                title="Report",
+                artifact_type="html",
+                mime_type="text/html",
+                tool_source="create_document",
+            )
+
+        assert [d["artifact_id"] for d in resolve_mod.describe_run_artifacts("run-1")] == [doc.id]
+
+    def test_a_bridge_is_handed_exactly_the_plot(self, client):
+        """Status body -> ``artifact_descriptors``, the path every bridge delivers from."""
+        from osprey.bridges.core.artifacts import artifact_descriptors
+
+        c, store, _ = client
+        for call in range(3):
+            _save_execute_call(store, "run-3", call)
+        plot = _save_figure(store, "run-3", call=2)
+
+        status_artifacts = _list_via_status(c, "run-3")
+        listed = c.get("/dispatch/run-3/artifacts", headers=_auth()).json()
+
+        assert [d["artifact_id"] for d in artifact_descriptors(status_artifacts)] == [plot]
+        assert [d["artifact_id"] for d in listed] == [plot]
+
+    def test_bookkeeping_stays_fetchable_by_id(self, client, monkeypatch):
+        """Left out of the list, not locked away: the byte route still serves it."""
+        c, store, _ = client
+        _, _, record = _save_execute_call(store, "run-1", 0)
+
+        import osprey.stores.artifact_converters as conv
+
+        monkeypatch.setitem(conv.CONVERTER_REGISTRY, "application/json", conv.passthrough)
+        r = c.get(f"/dispatch/run-1/artifacts/{record}", headers=_auth())
+
+        assert r.status_code == 200
+
+
 class TestResolveSingleRunArtifact:
     async def test_missing_file_is_none(self, tmp_path, monkeypatch):
         store = _rooted_store(tmp_path, monkeypatch)

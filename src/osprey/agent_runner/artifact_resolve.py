@@ -354,12 +354,22 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
     is cheap regardless of artifact count. Returns ``[]`` for an unknown/empty
     ``run_id`` or a run that produced no artifacts.
 
+    "Produced" means made on purpose: a figure, a ``save_artifact()`` file, a
+    ``create_*`` tool's document. A script run's bookkeeping — the approval
+    preview, the per-execution notebook and the result record
+    (:func:`~osprey.stores.artifact_store.is_run_bookkeeping`) — is left out,
+    because every consumer of this list republishes what it names (a chat
+    bridge posts each one into the conversation). Like a caller-supplied input,
+    a bookkeeping entry stays reachable by id through the created-by byte route.
+
     Each descriptor is ``{artifact_id, filename, source_mime, delivered_mime,
     convertible}``. ``source_mime`` is retained so a consumer always knows the
     real original bytes even when ``delivered_mime`` differs (rendered to PNG).
     """
     if not run_id:
         return []
+    from osprey.stores.artifact_store import is_run_bookkeeping
+
     try:
         entries = _get_store().list_entries(run_filter=run_id, exclude_examples=True)
     except Exception:
@@ -371,6 +381,9 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
         # produced — they are surfaced separately (see describe_run_input_artifacts)
         # so a consumer never mistakes an ingested image for agent output.
         if e.origin == "input":
+            continue
+        # Nor is a script run's own record of itself (preview, notebook, result).
+        if is_run_bookkeeping(e):
             continue
         delivered_mime, convertible = predict_delivery(e.mime_type)
         out.append(

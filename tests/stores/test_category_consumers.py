@@ -115,12 +115,12 @@ def _entry(**fields):
 class TestActivityVerdict:
     @pytest.mark.parametrize("part", ["preview", "code", "result"])
     def test_run_parts_other_than_output_are_bookkeeping(self, part):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
+        from osprey.stores.artifact_store import is_run_bookkeeping
 
-        assert _is_bookkeeping(_entry(tool_source="execute", metadata={"run_part": part}))
+        assert is_run_bookkeeping(_entry(tool_source="execute", metadata={"run_part": part}))
 
     def test_a_run_output_emits(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
+        from osprey.stores.artifact_store import is_run_bookkeeping
 
         entry = _entry(
             tool_source="execute",
@@ -128,19 +128,21 @@ class TestActivityVerdict:
             title="Notebook: saved on purpose",
             metadata={"run_part": "output", RUN_RECORD_KEY: True},
         )
-        assert not _is_bookkeeping(entry)
+        assert not is_run_bookkeeping(entry)
 
     def test_legacy_result_record_is_bookkeeping(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
+        from osprey.stores.artifact_store import is_run_bookkeeping
 
-        assert _is_bookkeeping(_entry(tool_source="execute", category="code_output"))
-        assert _is_bookkeeping(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
+        assert is_run_bookkeeping(_entry(tool_source="execute", category="code_output"))
+        assert is_run_bookkeeping(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
 
     def test_a_deliberate_save_emits_whatever_its_category(self):
-        from osprey.mcp_server.artifact_activity import _is_bookkeeping
+        from osprey.stores.artifact_store import is_run_bookkeeping
 
-        assert not _is_bookkeeping(_entry(tool_source="create_static_plot"))
-        assert not _is_bookkeeping(_entry(tool_source="artifact_register", category="code_output"))
+        assert not is_run_bookkeeping(_entry(tool_source="create_static_plot"))
+        assert not is_run_bookkeeping(
+            _entry(tool_source="artifact_register", category="code_output")
+        )
 
 
 # ---- summary by form ---------------------------------------------------------

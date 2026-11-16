@@ -13,7 +13,10 @@ Exposes:
 Which artifacts belong to a run is decided by the artifact store's write-time
 ``run_id`` tag (created-by), so all three artifact surfaces — the status-body
 list, the list route, and the byte route — share one strict isolation gate and
-cannot disagree. See ``osprey.agent_runner.artifact_resolve``.
+cannot disagree. The two lists name what the run made on purpose; its
+caller-supplied inputs and each script run's own bookkeeping (preview, notebook,
+result record) are left out of them and stay fetchable by id. See
+``osprey.agent_runner.artifact_resolve``.
 
 Every run is also recorded as two ``run`` entries in the worker's own spool
 (:mod:`osprey.agent_record.writer`): ``run:<run_id>:accept`` when the run is
