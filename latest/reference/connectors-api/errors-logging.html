@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 15, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 16, 2026"/>
   </head>
   
   
@@ -1148,7 +1148,12 @@ paths must never call it — importing Osprey leaves logging untouched.</p>
 never removes or clears handlers it did not install. Handlers owned by
 someone else — <code class="docutils literal notranslate"><span class="pre">caplog</span></code>’s capture handler, a host application’s own
 handlers — survive. Calling it repeatedly is a no-op beyond re-applying the
-level.</p>
+level and the <code class="docutils literal notranslate"><span class="pre">logging.*</span></code> settings.</p>
+<p>Those settings are read from the configuration on every call and applied to
+the handler this function installed. An entry point that configures logging
+before it knows which deployment it serves calls again once it does, and
+the handler then renders by that deployment’s settings. Settings that
+cannot be read fall back to the defaults, with one warning per process.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>level</strong> (<em>int</em>) – Root logger level.</p>
