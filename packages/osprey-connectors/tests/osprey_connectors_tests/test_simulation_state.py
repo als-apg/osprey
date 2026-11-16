@@ -260,7 +260,7 @@ def test_a_naive_anchor_is_refused_before_the_file_is_written(tmp_path: Path) ->
     with pytest.raises(NaiveDatetimeError, match="anchor_at") as raised:
         write_active_state(tmp_path, VIEW, ["burst"], anchor_at=ANCHOR.replace(tzinfo=None))
 
-    assert raised.value.name == "anchor_at"
+    assert raised.value.parameter == "anchor_at"
     assert path.read_text(encoding="utf-8") == "thermal\n"
 
 

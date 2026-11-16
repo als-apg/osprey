@@ -1062,7 +1062,7 @@ def test_a_naive_seed_anchor_is_refused_by_name_before_anything_is_written(archi
     with pytest.raises(NaiveDatetimeError, match="anchor_at") as raised:
         seed_base(collection, archive, SMALL, anchor_at=NAIVE_T0)  # type: ignore[arg-type]
 
-    assert raised.value.name == "anchor_at"
+    assert raised.value.parameter == "anchor_at"
     assert collection.documents == []
     assert collection.manifest is None
 
