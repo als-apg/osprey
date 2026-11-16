@@ -233,18 +233,30 @@ class RackUnit:
         position: The rack unit the place relation names, or ``None``.
         link: The device's card, or a fact when it has no screen.
         lights: One per channel its roll-up reads.
+        size_u: The height in units the place relation's ``size_u`` states,
+            when it parses as a number; ``None`` otherwise.
     """
 
     position: int | None
     link: Link | Fact
     lights: tuple[Light, ...]
+    size_u: int | float | None = None
 
 
 @dataclass(frozen=True)
 class Elevation:
-    """A rack's devices, by rack unit (those with none last, by id)."""
+    """A rack's devices.
+
+    Attributes:
+        units: The devices whose place relation names a unit, in *order*
+            (ties by id).
+        unpositioned: The devices in the rack with no unit, by id.
+        order: ``top-down``: the highest unit number first.
+    """
 
     units: tuple[RackUnit, ...]
+    unpositioned: tuple[RackUnit, ...]
+    order: str
 
 
 @dataclass(frozen=True)

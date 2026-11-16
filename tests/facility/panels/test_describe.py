@@ -11,6 +11,7 @@ import pytest
 
 from osprey.facility.panels import load_graph
 from osprey.facility.panels.describe import (
+    RACK_ORDER,
     RELATION_TITLES,
     checkout,
     describe,
@@ -41,7 +42,7 @@ from osprey.facility.panels.view import (
 from osprey.facility.records import FacilityRecords
 from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
 
-RACKS = frozenset({"rack"})
+SECTORS = frozenset({"sector"})  # a level marked as a rack by parameter
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
 
 
@@ -171,7 +172,7 @@ def test_a_light_whose_rules_the_engine_cannot_evaluate_says_so(panel_graph):
 
 def test_a_channel_less_thing_has_place_pose_and_no_signal_or_health(panel_graph):
     view = device_card(panel_graph, "XR02:SHIELD1")
-    assert _titles(view) == ["where"]
+    assert _titles(view) == ["where", "sources"]
     where = _section(view, "where").items
     assert where[0] == Link("place", Target("card", "place", "XR/XR02"))
     (pose,) = [item for item in where if isinstance(item, Fact)]
@@ -287,7 +288,7 @@ def test_a_device_card_has_its_place_chain_as_crumbs(panel_graph):
 
 
 def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
-    view = device_card(panel_graph, "XR/XR01/RK1", rack_classes=RACKS)
+    view = device_card(panel_graph, "XR/XR01/RK1")
     screens = [item.target for item in _section(view, "screens").items]
     assert Target("place", "place", "XR/XR01/RK1") in screens
     assert Target("rack", "place", "XR/XR01/RK1") in screens
@@ -297,16 +298,18 @@ def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
         card("XR01:CH3"),
     ]
     assert [row.channel for row in _section(view, "signals").items] == ["XR01:RackTemp-RB"]
-    no_rack = device_card(panel_graph, "XR/XR01/RK1")
-    assert Target("rack", "place", "XR/XR01/RK1") not in [
-        item.target for item in _section(no_rack, "screens").items
+    sector = Target("rack", "place", "XR/XR01")
+    assert sector not in [
+        item.target for item in _section(device_card(panel_graph, "XR/XR01"), "screens").items
     ]
+    marked = device_card(panel_graph, "XR/XR01", rack_classes=SECTORS)
+    assert sector in [item.target for item in _section(marked, "screens").items]
 
 
 def test_a_thing_with_no_screen_is_a_fact_not_a_link(panel_graph):
     within = _section(device_card(panel_graph, "XR/XR02", kind="place"), "within").items
-    shield = [item for item in within if getattr(item, "text", None) == "XR02:SHIELD1"]
-    assert len(shield) == 1 and isinstance(shield[0], Fact)
+    block = [item for item in within if getattr(item, "text", None) == "XR02:BLOCK1"]
+    assert len(block) == 1 and isinstance(block[0], Fact)
 
 
 def test_a_group_card_links_its_members_and_its_set(panel_graph):
@@ -324,16 +327,19 @@ def test_a_group_card_links_its_members_and_its_set(panel_graph):
 
 
 def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
-    found = set(targets(panel_graph, rack_classes=RACKS))
+    found = set(targets(panel_graph))
     assert card("XR01:QF1") in found
     assert card("XR01:CH1") in found  # a channel and the located_in to its own place
-    assert card("XR02:SHIELD1") not in found  # no channel, no relation but its place
+    assert card("XR02:SHIELD1") in found  # a pose and no channel: reachable
+    assert card("XR02:BLOCK1") not in found  # a citation alone is no screen
     for place in ("XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"):
         assert Target("card", "place", place) in found
         assert Target("place", "place", place) in found
-    assert Target("rack", "place", "XR/XR01/RK1") in found
+    assert Target("rack", "place", "XR/XR01/RK1") in found  # unit claims, no parameter
     assert Target("rack", "place", "XR/XR01") not in found
-    assert Target("rack", "place", "XR/XR01/RK1") not in set(targets(panel_graph))
+    marked = set(targets(panel_graph, rack_classes=SECTORS))
+    assert Target("rack", "place", "XR/XR01") in marked
+    assert Target("rack", "place", "XR") not in marked  # level machine
     for group in ("XR01-VAC", "XR02-VAC", "XR-QUAD"):
         assert Target("card", "group", group) in found
         assert Target("set", "group", group) in found
@@ -344,7 +350,7 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
     assert Target("rollup", "place", "XR/XR01/RK1", by="place") not in found
     assert Target("checkout", "place", "XR/XR01/RK1") not in found
     assert not {target.id for target in found} & set(EXCLUDED)
-    assert len(found) == len(targets(panel_graph, rack_classes=RACKS))
+    assert len(found) == len(targets(panel_graph))
 
 
 def test_a_set_needs_members_that_share_one_class(tmp_path):
@@ -365,9 +371,9 @@ def _every_view(
 
 def test_every_link_target_is_a_screen(panel_graph):
     params = {"symbols": {"Pump": "pump"}, "above": frozenset({"pump"})}
-    found = set(targets(panel_graph, rack_classes=RACKS))
-    views = _every_view(panel_graph, RACKS, **params)
-    assert [view.id for view in views] == targets(panel_graph, rack_classes=RACKS)
+    found = set(targets(panel_graph, rack_classes=SECTORS))
+    views = _every_view(panel_graph, SECTORS, **params)
+    assert [view.id for view in views] == targets(panel_graph, rack_classes=SECTORS)
     links = [link for view in views for link in _links(view)]
     assert links
     assert {link.target for link in links} <= found
@@ -380,7 +386,7 @@ def test_every_link_target_is_a_screen_with_contested_and_unknown_relations(tmp_
 
 
 def test_views_carry_channel_names_never_values(panel_graph):
-    for view in _every_view(panel_graph, RACKS):
+    for view in _every_view(panel_graph, SECTORS):
         for item in _walk(view):
             assert not {"value", "values"} & {field.name for field in dataclasses.fields(item)}
 
@@ -448,6 +454,7 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
         "XR02:BEND1": "no position",
         "XR02:IP1": "no position",  # a ring-frame row with no s
         "XR02:IP2": "no position",
+        "XR02:BLOCK1": "no position",
     }
     assert not _ids(view) & set(EXCLUDED)
 
@@ -484,17 +491,22 @@ def test_a_place_with_no_ring_position_has_no_extent(panel_graph):
 # -- rack elevation ---------------------------------------------------------------
 
 
-def test_rack_elevation_orders_units_by_rack_unit_then_id(panel_graph):
+def test_rack_elevation_orders_units_top_down_and_lists_the_rest(panel_graph):
+    assert RACK_ORDER == "top-down"
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     assert view.id == Target("rack", "place", "XR/XR01/RK1")
     (elevation,) = _section(view, "units").items
     assert isinstance(elevation, Elevation)
-    assert [(unit.position, unit.link.target) for unit in elevation.units] == [
-        (10, card("XR01:CH1")),
-        (None, card("XR01:CH2")),
-        (None, card("XR01:CH3")),
+    assert elevation.order == RACK_ORDER
+    assert [(u.position, u.size_u, u.link.target) for u in elevation.units] == [
+        (20, None, card("XR01:CH2")),
+        (10, 2, card("XR01:CH1")),  # the claim states size_u
     ]
-    assert all(unit.lights == () for unit in elevation.units)  # a rack with no rule
+    assert [(u.position, u.link.target) for u in elevation.unpositioned] == [
+        (None, card("XR01:CH3"))
+    ]
+    every = (*elevation.units, *elevation.unpositioned)
+    assert all(unit.lights == () for unit in every)  # a rack with no rule
 
 
 def test_rack_elevation_lights_are_the_units_roll_up_channels(tmp_path):
@@ -506,8 +518,20 @@ def test_rack_elevation_lights_are_the_units_roll_up_channels(tmp_path):
     (elevation,) = _section(
         rack_elevation(_graph(tmp_path, racked_pump), "XR/XR01/RK1"), "units"
     ).items
-    pump = [unit for unit in elevation.units if unit.link.target.id == "XR01:IP1"]
+    pump = [unit for unit in elevation.unpositioned if unit.link.target.id == "XR01:IP1"]
     assert pump[0].lights == (Light("XR01:IP1:State-Sts", disagree=True),)
+
+
+def test_a_size_that_does_not_parse_is_left_out(tmp_path):
+    def odd_size(document: dict[str, Any]) -> None:
+        for claim in document["relations"]:
+            if claim["id"] == "xr01-ch1-rack":
+                claim["attributes"]["size_u"] = "half"
+
+    (elevation,) = _section(
+        rack_elevation(_graph(tmp_path, odd_size), "XR/XR01/RK1"), "units"
+    ).items
+    assert [(u.link.target.id, u.size_u) for u in elevation.units][1] == ("XR01:CH1", None)
 
 
 # -- health roll-up ---------------------------------------------------------------

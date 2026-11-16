@@ -8,12 +8,14 @@ links only point at those targets; a thing with no screen is named in a
 
 Which things get which screens:
 
-- ``card``: every device that has a channel or a relation other than its
-  place relation (``located_in`` its own place), every place, every group;
+- ``card``: every device that has a channel, a pose, or a relation other
+  than its place relation (``located_in`` its own place), every place, every
+  group; a citation alone gives no card;
 - ``set``: every group whose members are devices of one class;
 - ``place``: every place with anything within it;
-- ``rack``: every place whose ``level`` is one of the ``rack_classes`` passed
-  in (the marker is data; no level name is written here);
+- ``rack``: every place some ``located_in`` claim names a unit in, and every
+  place whose ``level`` is one of the ``rack_classes`` passed in (both
+  markers are data; no level or place name is written here);
 - ``rollup`` (by ``place`` and by ``system``) and ``checkout``: every place
   with a rule-bearing channel within it, at any depth.
 
@@ -23,6 +25,7 @@ the channels and asks :mod:`~osprey.facility.panels.health` for the states.
 
 from __future__ import annotations
 
+import math
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -57,6 +60,7 @@ __all__ = [
     "GENERIC_SYMBOL",
     "NO_SYSTEM",
     "PLACE_RELATION",
+    "RACK_ORDER",
     "RELATION_TITLES",
     "checkout",
     "describe",
@@ -90,6 +94,10 @@ RELATION_TITLES: Mapping[str, tuple[str, str]] = MappingProxyType(
     }
 )
 
+#: How a rack elevation lists its units: ``top-down`` is the highest unit
+#: number first, as a rack is numbered from the bottom (unit 1 lowest).
+RACK_ORDER = "top-down"
+
 #: The symbol of a class the symbol mapping does not name.
 GENERIC_SYMBOL = "generic"
 
@@ -113,6 +121,7 @@ class _Index:
     sets: frozenset[str]
     ruled: frozenset[str]  # places with a rule-bearing channel within
     readbacks: frozenset[str]  # every channel some setpoint is paired with
+    racked: frozenset[str]  # places some located_in claim names a unit in
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -153,6 +162,7 @@ def _build_index(graph: PanelGraph) -> _Index:
     sets: set[str] = set()
     ruled: set[str] = set()
     readbacks: set[str] = set()
+    racked: set[str] = set()
     for thing in graph.things():
         if thing.kind == "group":
             members = graph.members(thing.id)
@@ -165,8 +175,11 @@ def _build_index(graph: PanelGraph) -> _Index:
             pair = graph.pair(channel.name)
             if pair is not None:
                 readbacks.add(pair.readback)
+        for edge in graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ()):
+            if edge.outgoing and edge.other_kind == "place" and edge.unit is not None:
+                racked.add(edge.other)
         if thing.kind == "device":
-            if channels or _neighbour_edges(graph, thing):
+            if channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
                 carded.add(thing.id)
             if thing.place is not None:
                 place_views.add(thing.place)
@@ -183,6 +196,7 @@ def _build_index(graph: PanelGraph) -> _Index:
         frozenset(sets),
         frozenset(ruled),
         frozenset(readbacks),
+        frozenset(racked),
     )
 
 
@@ -200,6 +214,8 @@ def _has(
     if view == "place":
         return thing_id in index.place_views
     if view == "rack":
+        if thing_id in index.racked:
+            return True
         return _holds(graph, thing_id, "place") and graph.thing(thing_id, "place").level in (
             rack_classes
         )
@@ -651,37 +667,74 @@ def place_view(
 # -- rack elevation --------------------------------------------------------------
 
 
-def _rack_unit(graph: PanelGraph, thing: Thing, rack_id: str) -> int | None:
+def _rack_claim(graph: PanelGraph, thing: Thing, rack_id: str) -> Edge | None:
+    """The device's place relation into the rack that names a unit, or ``None``."""
     for edge in graph.neighbours(thing.id, "device").get(PLACE_RELATION, ()):
         if edge.outgoing and edge.other == rack_id and edge.unit is not None:
-            return edge.unit
+            return edge
+    return None
+
+
+def _size(value: object) -> int | float | None:
+    """A ``size_u`` attribute as a number: an integer stays one; text that is no number is ``None``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+        return number if math.isfinite(number) else None
     return None
 
 
 def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     """The devices placed directly in a rack, by the rack unit their place relation names.
 
-    Devices with no unit follow, by id. Each unit links to the device's card
-    and carries a :class:`Light` per channel the device's roll-up reads.
+    Units are listed in :data:`RACK_ORDER` (the highest unit first), ties by
+    id; devices in the rack whose relation names no unit are ``unpositioned``,
+    by id. Each unit links to the device's card, carries the claim's
+    ``size_u`` when it parses as a number, and a :class:`Light` per channel
+    the device's roll-up reads.
 
     Raises:
         KeyError: No such place, or it is excluded.
     """
     rack = graph.thing(rack_id, "place")
     index = _index(graph)
-    devices = [thing for thing in graph.within(rack_id) if thing.kind == "device"]
-    placed = [(_rack_unit(graph, thing, rack_id), thing) for thing in devices]
-    placed.sort(key=lambda entry: (entry[0] is None, entry[0] or 0, entry[1].id))
-    units = tuple(
-        RackUnit(
-            position,
+
+    def unit(thing: Thing, claim: Edge | None) -> RackUnit:
+        lights = tuple(_light(graph, name) for name in rule_channels(graph, thing.id, "device"))
+        return RackUnit(
+            claim.unit if claim is not None else None,
             _ref(graph, index, thing),
-            tuple(_light(graph, name) for name in rule_channels(graph, thing.id, "device")),
+            lights,
+            _size(claim.attributes.get("size_u")) if claim is not None else None,
         )
-        for position, thing in placed
+
+    positioned: list[tuple[int, str, RackUnit]] = []
+    unpositioned: list[tuple[str, RackUnit]] = []
+    for thing in graph.within(rack_id):
+        if thing.kind != "device":
+            continue
+        claim = _rack_claim(graph, thing, rack_id)
+        if claim is not None and claim.unit is not None:
+            positioned.append((-claim.unit, thing.id, unit(thing, claim)))
+        else:
+            unpositioned.append((thing.id, unit(thing, None)))
+    elevation = Elevation(
+        tuple(entry[-1] for entry in sorted(positioned, key=lambda e: e[:2])),
+        tuple(entry[-1] for entry in sorted(unpositioned, key=lambda e: e[0])),
+        RACK_ORDER,
     )
     crumbs = _crumbs(graph, index, rack.place, "place")
-    sections = (Section("units", (Elevation(units),)),)
+    sections = (Section("units", (elevation,)),)
     return View(Target("rack", "place", rack_id), rack_id, crumbs, sections)
 
 

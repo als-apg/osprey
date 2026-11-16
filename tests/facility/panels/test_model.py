@@ -37,7 +37,7 @@ def test_things_are_the_devices_places_and_groups(panel_graph: PanelGraph) -> No
         kinds.setdefault(thing.kind, set()).add(thing.id)
     assert kinds["place"] == {"XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"}
     assert kinds["group"] == {"XR01-VAC", "XR02-VAC", "XR-QUAD"}
-    assert len(kinds["device"]) == 6 + 4 + 3 + 1 + 1
+    assert len(kinds["device"]) == 6 + 4 + 3 + 1 + 1 + 1  # XR02:BLOCK1: a citation only
 
 
 def test_a_thing_carries_kind_class_place_and_citations(panel_graph: PanelGraph) -> None:
@@ -296,6 +296,7 @@ def test_an_excluded_place_hides_everything_within_it(panel_graph: PanelGraph) -
         "XR02:IP1",
         "XR02:IP2",
         "XR02:SHIELD1",
+        "XR02:BLOCK1",
     }
 
 

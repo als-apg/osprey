@@ -58,3 +58,16 @@
 - id: XR02:SHIELD1
   class: Infrastructure
   place: XR/XR02
+  citations:
+  - document: XR-LAYOUT
+    version: A
+    state: released
+    locator: sheet 3
+- id: XR02:BLOCK1
+  class: Infrastructure
+  place: XR/XR02
+  citations:
+  - document: XR-LAYOUT
+    version: A
+    state: released
+    locator: sheet 3

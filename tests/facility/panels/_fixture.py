@@ -17,7 +17,9 @@ ring-frame row and no ``s_m``. The channel
 ``XR01:IP1:State-Sts`` has health rows from two sources that disagree on value
 ``0``; ``XR02:IP2:Interlock-Sts`` is an excluded channel on a kept thing;
 ``VA:XR:InjectionKnob`` is a simulation-only channel; ``XR01:QF1:Current-SP``
-states a tolerance.
+states a tolerance. The rack ``XR/XR01/RK1`` names units for ``XR01:CH1``
+(10, size 2) and ``XR01:CH2`` (20), none for ``XR01:CH3``; ``XR02:BLOCK1`` has
+a citation and nothing else.
 """
 
 from __future__ import annotations

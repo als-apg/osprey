@@ -18,11 +18,20 @@
   object:
     place: XR/XR01/RK1
     unit: 10
+  attributes:
+    size_u: '2'
   source:
     document: XR-RACKS
     version: B
     state: released
     locator: sheet 1
+- id: xr01-ch2-rack
+  type: located_in
+  subject:
+    device: XR01:CH2
+  object:
+    place: XR/XR01/RK1
+    unit: 20
 - id: xr01-ip1-readout
   type: read_out_by
   subject:
