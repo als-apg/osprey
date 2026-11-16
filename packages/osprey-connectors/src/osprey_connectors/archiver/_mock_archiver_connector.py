@@ -22,6 +22,7 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     simulation_state_dir,
