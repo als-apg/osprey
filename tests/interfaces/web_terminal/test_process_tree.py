@@ -64,7 +64,7 @@ def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     # Commands started within one second carry the same whole-second start.
     second = 1_700_000_000.0
     rows = {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "sleeping")
         for pid, ppid, pgid, started, command in [
             (4202, 1, 4202, second - 5.0, "agent"),
             (4208, 4202, 4208, second, "python orbit_poll.py"),
@@ -100,7 +100,7 @@ def _wrapper(command: str) -> str:
 def _table(*rows: tuple[int, int, int, float, str]) -> dict[int, process_tree.ProcessRow]:
     """A process table of ``(pid, ppid, pgid, started, command)`` rows, all running."""
     return {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "sleeping")
         for pid, ppid, pgid, started, command in rows
     }
 
@@ -628,7 +628,7 @@ def test_a_tree_read_from_a_given_table_takes_no_read_of_its_own(monkeypatch):
 
 def test_describe_processes_escapes_labels():
     text = process_tree.describe_processes(
-        [process_tree.ProcessRow(4242, 1, 4242, 0.0, "scan\x1b[2J", "S")]
+        [process_tree.ProcessRow(4242, 1, 4242, 0.0, "scan\x1b[2J", "sleeping")]
     )
     assert text.startswith("pid 4242 ")
     assert "\x1b" not in text
