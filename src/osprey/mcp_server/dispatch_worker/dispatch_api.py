@@ -4,7 +4,7 @@ Exposes:
   POST /dispatch                      — enqueue an agent prompt, returns 202 + run_id
   GET  /dispatch/{id}                 — poll a run for completion (body carries artifact descriptors)
   GET  /dispatch/{id}/stream          — SSE stream of run events
-  GET  /dispatch/{id}/artifacts       — descriptors of the artifacts the run produced
+  GET  /dispatch/{id}/artifacts       — descriptors of the artifacts the run made for the person
   GET  /dispatch/{id}/artifacts/{aid} — resolved (renderable) bytes of one artifact the run produced
   DELETE /dispatch/{id}               — cancel an in-flight run
   GET  /health                        — liveness check with run statistics
@@ -13,7 +13,10 @@ Exposes:
 Which artifacts belong to a run is decided by the artifact store's write-time
 ``run_id`` tag (created-by), so all three artifact surfaces — the status-body
 list, the list route, and the byte route — share one strict isolation gate and
-cannot disagree. See ``osprey.agent_runner.artifact_resolve``.
+cannot disagree. The two lists name the entries whose writer stated they were
+made for the person who asked (``ArtifactEntry.deliver``); everything else the
+run wrote stays fetchable by id. See
+``osprey.agent_runner.artifact_resolve``.
 
 Every run is also recorded as two ``run`` entries in the worker's own spool
 (:mod:`osprey.agent_record.writer`): ``run:<run_id>:accept`` when the run is
@@ -1058,9 +1061,9 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             timeout=DISPATCH_TIMEOUT_SEC,
         )
         result["completed_at"] = time.time()
-        # Descriptors of the artifacts this run produced (created-by tag), for
-        # consumers that republish them (see the /artifacts routes). Render-free:
-        # computed once at completion from the store tag and persisted with the
+        # Descriptors of the artifacts this run made for the person (created-by
+        # tag, stated ``deliver``), for consumers that republish them (see the
+        # /artifacts routes). Render-free: computed once at completion from the store tag and persisted with the
         # run so it survives restart and never disagrees with the live routes.
         result["artifacts"] = describe_run_artifacts(run_id)
         # Caller-supplied inputs ingested for this run, kept separate from the
@@ -1251,7 +1254,12 @@ async def get_dispatch_result(run_id: str) -> dict[str, Any]:
 
 @app.get("/dispatch/{run_id}/artifacts", dependencies=[Depends(_verify_token)])
 async def list_dispatch_artifacts(run_id: str) -> list[dict[str, Any]]:
-    """List descriptors of the artifacts a run produced (created-by tag).
+    """List descriptors of the artifacts a run made for the person who asked.
+
+    Those are the run's entries (created-by tag) whose writer stated
+    ``deliver`` at save time: plots, documents, files the agent saved or
+    registered on purpose. A record the run or a tool kept is not listed; the
+    byte route below still serves it by id.
 
     Metadata only — never renders a converter, so it is cheap regardless of
     artifact count. Returns ``[]`` for a run with no artifacts AND for an

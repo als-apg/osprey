@@ -46,6 +46,14 @@ async def artifact_register(
     cannot be passed here; save it from the code that produced it with
     ``save_artifact()`` inside ``execute``.
 
+    What this tool registers is for the person you are answering: in a chat
+    conversation it is posted with your reply, as are your plots, documents and
+    ``save_artifact()`` files. What a tool stored for you to read (an archived
+    series, a large channel reading and its picture, a screenshot) is not
+    posted. To send a stored picture, register its image file here. To send
+    data, write it to a CSV file in ``execute`` and register that file; a
+    registered JSON file arrives as a picture of its text, not as data.
+
     Exactly one of ``file_path`` or ``content`` must be provided.
 
     Args:
@@ -110,6 +118,7 @@ async def artifact_register(
                 title=title,
                 description=description,
                 tool_source="artifact_register",
+                deliver=True,
             )
         else:
             # Inline content
@@ -134,6 +143,7 @@ async def artifact_register(
                 description=description,
                 mime_type=mime,
                 tool_source="artifact_register",
+                deliver=True,
             )
 
         url = gallery_url()

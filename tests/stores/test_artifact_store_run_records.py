@@ -38,6 +38,16 @@ class TestIsRunRecord:
         entry = _save(store, title, metadata={RUN_RECORD_KEY: key_value})
         assert is_run_record(entry) is expected
 
+    @pytest.mark.parametrize(
+        ("part", "expected"),
+        [("preview", True), ("code", True), ("result", True), ("output", False)],
+    )
+    def test_a_stated_run_part_decides_alone(self, store, part, expected):
+        """An output is never a run record, whatever else the entry carries."""
+        entry = _save(store, "Run", metadata={"run_part": part, RUN_RECORD_KEY: True})
+        assert is_run_record(entry) is expected
+        assert is_run_record(_save(store, "Run", metadata={"run_part": part})) is expected
+
     def test_an_absent_key_is_not_a_run_record(self, store):
         assert is_run_record(_save(store, "Result")) is False
 

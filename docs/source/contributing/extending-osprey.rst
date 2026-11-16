@@ -89,6 +89,16 @@ Pinning test: ``tests/registry/test_mcp.py``, which resolves those definitions
 into the generated agent configuration --- permissions, hooks and environment
 included.
 
+A tool that saves to the artifact store says, on each save, whether the file is
+for the person who asked: pass ``deliver=True`` to ``save_file``,
+``save_object`` or ``save_from_path`` for a plot, a document or anything else
+the tool makes as its answer. A dispatch run lists exactly those files and a
+chat bridge posts them into the conversation. Leave the argument out for what
+the tool keeps for the agent to read --- a data record, a log, a source file:
+it stays in the store and the gallery and is never posted. Pinning test:
+``tests/stores/test_artifact_deliver.py``, which classifies every save in
+``src/osprey``.
+
 .. _extending-chat-bridge:
 
 Chat bridge
