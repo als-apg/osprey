@@ -330,7 +330,7 @@ class TestVAInProcessConnector:
         assert result.outcome is WriteOutcome.CONFIRMED
         assert reading.value == 2
         assert reading.metadata.enum_label == "PULSED"
-        assert reading.metadata.enum_labels == ["OFF", "CW", "PULSED"]
+        assert reading.metadata.enum_labels == ("OFF", "CW", "PULSED")
 
         await connector.disconnect()
 

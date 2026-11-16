@@ -263,7 +263,7 @@ class TestMonitors:
 
         assert received[0].value == 2
         assert received[0].metadata.enum_label == "FAULT"
-        assert received[0].metadata.enum_labels == ["OFFLINE", "STANDBY", "FAULT"]
+        assert received[0].metadata.enum_labels == ("OFFLINE", "STANDBY", "FAULT")
         assert received[0].metadata.alarm_status == "NO_ALARM"
 
     async def test_an_enum_without_labels_still_delivers_the_index(self):

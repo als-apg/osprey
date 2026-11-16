@@ -267,7 +267,7 @@ class TestLiveReads:
         assert reading.value == ENUM_INDEX
         assert not isinstance(reading.value, str)
         assert reading.metadata.enum_label == ENUM_CHOICES[ENUM_INDEX]
-        assert reading.metadata.enum_labels == ENUM_CHOICES
+        assert reading.metadata.enum_labels == tuple(ENUM_CHOICES)
         raw = reading.metadata.raw_metadata
         assert raw["nt_id"] == "epics:nt/NTEnum:1.0"
         assert raw["enum_index"] == ENUM_INDEX

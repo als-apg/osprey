@@ -91,7 +91,7 @@ channel in its third state gives:
 
    value                = 2
    metadata.enum_label  = 'ACQUIRING'
-   metadata.enum_labels = ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
+   metadata.enum_labels = ('OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT')
 
 Everything below is configuration only — which machine sits behind that API.
 
