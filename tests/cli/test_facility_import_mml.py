@@ -315,6 +315,30 @@ def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
 
 
+def _retired(*paths: str) -> list[str]:
+    return [
+        "import mml: data/facility/ holds files seeded under the retired header, read as seeded:",
+        *paths,
+        f"set line 1 of each to: {HEADER}",
+    ]
+
+
+def test_a_reimport_reads_a_retired_header_file_as_seeded(cleared: Path) -> None:
+    pytest.importorskip("at")
+    assert _import(cleared).exit_code == 0
+    limits = _facility(cleared) / "limits.yaml"
+    lines = limits.read_text(encoding="utf-8").split("\n")
+    assert lines[0] == HEADER
+    limits.write_text("\n".join([FORMER_HEADER, *lines[1:]]), encoding="utf-8")
+    before = limits.read_bytes()
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == _retired("data/facility/limits.yaml")
+    assert limits.read_bytes() == before
+
+
 def _former(*paths: str) -> list[str]:
     return [
         "import mml: data/facility/ holds files seeded under the old header, "
