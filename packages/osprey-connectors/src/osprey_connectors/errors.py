@@ -29,6 +29,8 @@ with its channel, so a public failure needs no registry entry of its own.
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from pydantic import field_validator
+
 from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
@@ -52,6 +54,7 @@ __all__ = [
     "ConfigurationError",
     "ConnectorInternalError",
     "ConnectorUnavailableError",
+    "RecoveryAction",
     "RecoveryRecord",
     "RefusalReason",
     "RegistryError",
@@ -446,16 +449,43 @@ class ChannelUnreachableError(ChannelError):
         super().__init__(address, message or f"{address} did not answer")
 
 
-class RecoveryRecord(FrozenModel):
-    """One thing a supervisor did about a failure, as a failure's ``recovery`` carries it.
+class RecoveryAction(StrEnum):
+    """What a supervisor did about a failure."""
 
-    ``action`` is the word naming the step
-    (:class:`~osprey_connectors.recovery.RecoveryAction`), ``text`` the sentence
-    an operator reads.
+    CONNECTOR_DROPPED = "connector_dropped"
+    CHILD_REPLACED = "child_replaced"
+    CHILD_KEPT = "child_kept"
+    RESPAWN_REFUSED = "respawn_refused"
+
+
+class RecoveryRecord(FrozenModel):
+    """One thing a supervisor did about a failure, in one sentence.
+
+    What :meth:`~osprey_connectors.recovery.RecoveryPolicy.recover` answers, and
+    what a failure's ``recovery`` carries. ``action`` names the step and takes
+    the :class:`RecoveryAction` member or its word, holding the member; a word
+    that names no step is refused. ``text`` is the sentence an operator reads,
+    and may not be empty.
     """
 
-    action: str
+    action: RecoveryAction
     text: str
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _member(cls, action: object) -> RecoveryAction:
+        """The member *action* is, or whose word it is, as ``RecoveryAction(action)`` finds it."""
+        member = next((member for member in RecoveryAction if member == action), None)
+        if member is None:
+            raise ValueError(f"{action!r} is not a valid RecoveryAction")
+        return member
+
+    @field_validator("text")
+    @classmethod
+    def _stated(cls, text: str) -> str:
+        if not text:
+            raise ValueError("a recovery record states what was done; its text is empty")
+        return text
 
 
 class ConnectorUnavailableError(ConnectionError):

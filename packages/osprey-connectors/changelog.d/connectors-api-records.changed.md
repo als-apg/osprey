@@ -25,3 +25,9 @@ the fields, the dump says so itself: a `ControlContext` carries `schema` and
 the `posture` mirror of its switch, a `ServerReport` leaves `statement` out
 unless it has one, and a grant, ledger or request carries `schema`. The files
 written are byte-for-byte what they were.
+
+`osprey_connectors.recovery.Recovery` is gone: `RecoveryPolicy.recover()`
+answers an `osprey_connectors.errors.RecoveryRecord`, whose `action` is now a
+`RecoveryAction` (built from the member or its word, and refused for a word that
+names no step) and whose `text` may not be empty. `RecoveryAction` lives in
+`osprey_connectors.errors`.

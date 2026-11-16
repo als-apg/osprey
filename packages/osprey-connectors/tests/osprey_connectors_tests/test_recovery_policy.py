@@ -13,14 +13,10 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryAction,
     RecoveryRecord,
 )
-from osprey_connectors.recovery import (
-    Recovery,
-    RecoveryAction,
-    RecoveryPolicy,
-    Timing,
-)
+from osprey_connectors.recovery import RecoveryPolicy, Timing
 
 _Step = recovery._Step
 
@@ -335,24 +331,30 @@ def test_tickets_are_monotonic():
 
 def test_an_unknown_action_word_fails_at_construction():
     with pytest.raises(ValueError):
-        Recovery(action="child_rebooted", text="Something happened.")
+        RecoveryRecord(action="child_rebooted", text="Something happened.")
 
 
 def test_an_empty_sentence_fails_at_construction():
     with pytest.raises(ValueError):
-        Recovery(action=RecoveryAction.CHILD_KEPT, text="")
+        RecoveryRecord(action=RecoveryAction.CHILD_KEPT, text="")
 
 
-def test_a_record_coerces_its_action_word_and_renders_as_a_dict():
-    record = Recovery(action="child_kept", text="Kept.")
+def test_a_record_coerces_its_action_word_and_dumps_it_as_the_word():
+    record = RecoveryRecord(action="child_kept", text="Kept.")
 
     assert record.action is RecoveryAction.CHILD_KEPT
-    assert record.as_dict() == RecoveryRecord(action="child_kept", text="Kept.")
+    assert record == RecoveryRecord(action=RecoveryAction.CHILD_KEPT, text="Kept.")
+    assert record.model_dump(mode="json") == {"action": "child_kept", "text": "Kept."}
+
+
+def test_an_action_of_another_type_fails_at_construction():
+    with pytest.raises(ValueError):
+        RecoveryRecord(action=1, text="Something happened.")
 
 
 def test_every_sentence_names_only_what_the_policy_knows():
     for (action, timing, _failure), text in recovery._SENTENCES.items():
-        Recovery(action=action, text=text)
+        RecoveryRecord(action=action, text=text)
         assert "{" not in text
         if action is RecoveryAction.RESPAWN_REFUSED:
             assert timing is Timing.EAGER

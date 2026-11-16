@@ -265,6 +265,25 @@ def test_connector_unavailable_round_trips():
     assert rebuilt.recovery == ()
 
 
+@pytest.mark.parametrize("action", ["child_replaced", "child_rebooted"])
+def test_a_recovery_a_child_sends_is_never_read(action):
+    """A child cannot claim a recovery: only the parent's supervisor records one.
+
+    Not even a record that would build (``child_replaced``) is decoded, so a
+    child of another version naming a step this one does not know
+    (``child_rebooted``) cannot fail the decode or reach the operator either.
+    """
+    body = exceptions.ExceptionFrameBody(
+        class_tag="ConnectorUnavailableError",
+        message="PVA client context is gone",
+        fields={"recovery": [{"action": action, "text": "Replaced."}]},
+    )
+    rebuilt = exceptions.decode_exception(body)
+
+    assert type(rebuilt) is ConnectorUnavailableError
+    assert rebuilt.recovery == ()
+
+
 def test_connection_error_round_trips():
     rebuilt = _round_trip(ConnectionError("gateway unreachable"))
 

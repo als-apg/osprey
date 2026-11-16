@@ -121,7 +121,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
-from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
+from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
 from osprey_connectors.ipc import (
     DEFAULT_CALL_TIMEOUT_S,
     ROLE_READ_ONLY,
@@ -144,7 +144,6 @@ from osprey_connectors.ipc import (
 from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
-from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import (
     SIMULATED_TYPES,
     TARGET_LIVE,

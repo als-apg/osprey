@@ -91,11 +91,14 @@ from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.control_system import ControlSystemConnector
-from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
-from osprey_connectors.errors import RecoveryRecord as Recovery
+from osprey_connectors.errors import (
+    ConfigurationError,
+    ConnectorUnavailableError,
+    RecoveryAction,
+    RecoveryRecord,
+)
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.model import evolve
-from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import configured_targets, tier_allows
 
 __all__ = [
@@ -346,7 +349,7 @@ class ControlSystemContext:
         #: The one handle each key is served through, by key.
         self._handles: dict[str, _SupervisedConnector] = {}
         #: The latest recovery each key ran, with the instance or child it was for.
-        self._recoveries: dict[str, tuple[Any, asyncio.Task[Recovery | None]]] = {}
+        self._recoveries: dict[str, tuple[Any, asyncio.Task[RecoveryRecord | None]]] = {}
 
     def initialize(self) -> None:
         """Load config and register connector types.
@@ -540,15 +543,15 @@ class ControlSystemContext:
             raise ConnectorUnavailableError(str(exc), recovery=self._records(record)) from exc
 
     @staticmethod
-    def _records(record: Recovery | None) -> tuple[Recovery, ...]:
+    def _records(record: RecoveryRecord | None) -> tuple[RecoveryRecord, ...]:
         return (record,) if record is not None else ()
 
     async def _recover(
         self,
         name: str,
         incarnation: Any,
-        act: Callable[[str, Any], Awaitable[Recovery]],
-    ) -> Recovery | None:
+        act: Callable[[str, Any], Awaitable[RecoveryRecord]],
+    ) -> RecoveryRecord | None:
         """Run *act* once for the instance or child that failed; share its record.
 
         Every call that saw the same incarnation fail waits on, and reports,
@@ -570,8 +573,8 @@ class ControlSystemContext:
 
     @staticmethod
     async def _guarded(
-        act: Callable[[str, Any], Awaitable[Recovery]], name: str, incarnation: Any
-    ) -> Recovery | None:
+        act: Callable[[str, Any], Awaitable[RecoveryRecord]], name: str, incarnation: Any
+    ) -> RecoveryRecord | None:
         """*act*'s record; a recovery that itself failed is logged and reports nothing."""
         try:
             return await act(name, incarnation)
@@ -579,7 +582,7 @@ class ControlSystemContext:
             logger.exception("Recovering the %s connector failed", name)
             return None
 
-    async def _replace(self, name: str, incarnation: Any) -> Recovery:
+    async def _replace(self, name: str, incarnation: Any) -> RecoveryRecord:
         """Replace the connector a call found unavailable, and say what became of it.
 
         The record states what happened to the instance or child that served the
@@ -588,20 +591,20 @@ class ControlSystemContext:
         """
         replaced = await self.invalidate_connector(name, incarnation=incarnation)
         if not self._served_from_a_child(name):
-            return Recovery(
+            return RecoveryRecord(
                 action=RecoveryAction.CONNECTOR_DROPPED,
                 text=f"The {name.replace('_', ' ')} connector was dropped; "
                 "the next call builds a new one.",
             )
         if replaced:
-            return Recovery(
+            return RecoveryRecord(
                 action=RecoveryAction.CHILD_REPLACED,
                 text="The connector-host child that served this call has been replaced; "
                 "the call was not retried.",
             )
         return self._respawn_refused()
 
-    async def _answer_unresponsive(self, name: str, proxy: Any) -> Recovery:
+    async def _answer_unresponsive(self, name: str, proxy: Any) -> RecoveryRecord:
         """Ping the child a call did not hear back from; replace it if it is silent.
 
         A child that answers the ping is alive and merely slow, so it is kept:
@@ -613,24 +616,24 @@ class ControlSystemContext:
         except Exception:
             if not await self.invalidate_connector(name, incarnation=proxy):
                 return self._respawn_refused()
-            return Recovery(
+            return RecoveryRecord(
                 action=RecoveryAction.CHILD_REPLACED,
                 text="The connector-host child did not answer a ping and has been replaced; "
                 "the call was not retried.",
             )
-        return Recovery(
+        return RecoveryRecord(
             action=RecoveryAction.CHILD_KEPT,
             text="The connector-host child still answers a ping, so it was kept; the call "
             "may yet complete in it and was not retried.",
         )
 
-    def _respawn_refused(self) -> Recovery:
+    def _respawn_refused(self) -> RecoveryRecord:
         """The record of a replacement the manager refused, saying what still serves."""
         if self.connector_hosts.has_child():
             still = "the previous child still serves this target."
         else:
             still = "no child is serving; control-system calls are refused until one is running."
-        return Recovery(
+        return RecoveryRecord(
             action=RecoveryAction.RESPAWN_REFUSED,
             text=f"Replacing the connector-host child was refused; {still}",
         )
