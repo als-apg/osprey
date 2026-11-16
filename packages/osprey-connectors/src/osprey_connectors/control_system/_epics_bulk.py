@@ -569,14 +569,14 @@ class CABulk:
             if not waiter.done():
                 waiter.set_result(result)
 
-    async def metadata(self, address: str, timeout: float) -> ChannelMetadata | None:
+    async def metadata(self, address: str, timeout_s: float) -> ChannelMetadata | None:
         """Metadata of a subscribed address, awaiting its CTRL event. CA loop.
 
         ``None`` when nothing subscribes to ``address``, when the record has no
         monitors, or when it was closed, repointed or left without monitors
         while waiting: the caller then reads the channel.
         Raises :class:`ChannelUnreachableError` when no control data came
-        within ``timeout``: the channel did not answer.
+        within ``timeout_s``: the channel did not answer.
         """
         record = self._records.get(normalise_address(address))
         if record is None or self._without_monitors(record):
@@ -586,12 +586,12 @@ class CABulk:
         waiter: asyncio.Future[ChannelMetadata | None] = asyncio.get_running_loop().create_future()
         record.waiters.append(waiter)
         try:
-            return await asyncio.wait_for(waiter, timeout)
+            return await asyncio.wait_for(waiter, timeout_s)
         except TimeoutError:
             raise ChannelUnreachableError(
                 record.name,
                 f"CA channel '{record.name}' is subscribed but delivered no control data "
-                f"within {timeout}s",
+                f"within {timeout_s}s",
             ) from None
         finally:
             if waiter in record.waiters:

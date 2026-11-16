@@ -497,7 +497,7 @@ def post_target(client, target: str):
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:
     """One value off the wire, through whichever child is serving right now."""
-    value = await manager.active_proxy().read_channel(address, timeout=IO_TIMEOUT_S)
+    value = await manager.active_proxy().read_channel(address, timeout_s=IO_TIMEOUT_S)
     assert isinstance(value, ChannelValue)
     return value.value
 
@@ -513,7 +513,7 @@ async def write_rows(manager: ConnectorHostManager, address: str, value: float) 
     travels out of a module-scoped fixture (see :func:`session`).
     """
     results = await manager.active_proxy().write_multiple_channels(
-        [(address, value)], timeout=IO_TIMEOUT_S
+        [(address, value)], timeout_s=IO_TIMEOUT_S
     )
     return [
         {
@@ -804,7 +804,7 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
         """Put the setpoint back to rest, whatever the current posture is."""
         with contextlib.suppress(Exception):
             await manager.active_proxy().write_channel(
-                CORRECTOR_SP, REST_VALUE, timeout=IO_TIMEOUT_S
+                CORRECTOR_SP, REST_VALUE, timeout_s=IO_TIMEOUT_S
             )
 
     with quiet_notifications():

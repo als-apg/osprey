@@ -668,7 +668,8 @@ class VAInProcessConnector(ControlSystemConnector):
     async def read_channel(
         self,
         address: str,
-        timeout: float
+        *,
+        timeout_s: float
         | None = None,  # ControlSystemConnector.read_channel signature; an in-process read never blocks
     ) -> ChannelValue:
         """Read a channel as the simulator serves it, motion included.
@@ -700,10 +701,11 @@ class VAInProcessConnector(ControlSystemConnector):
     async def read_multiple_channels(
         self,
         addresses: list[str],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout)
+        return await self._read_concurrently(addresses, timeout_s)
 
     @override
     async def get_metadata(self, address: str) -> ChannelMetadata:
@@ -784,7 +786,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self,
         address: str,
         value: object,
-        timeout: float
+        *,
+        timeout_s: float
         | None = None,  # ControlSystemConnector.write_channel signature; an in-process write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -798,7 +801,7 @@ class VAInProcessConnector(ControlSystemConnector):
         Args:
             address: A writable setpoint of the view.
             value: Value to write.
-            timeout: Ignored in process.
+            timeout_s: Ignored in process.
             confirm: Whether to re-read the channel and compare, or ``None`` to
                 resolve the policy for this channel from the limits database.
 

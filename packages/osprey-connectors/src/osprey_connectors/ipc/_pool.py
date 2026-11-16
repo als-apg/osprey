@@ -131,7 +131,7 @@ connector is gone. Its message is the operator-facing sentence, and its
   starts a fresh one, and ``recovery`` says so (``child_replaced``).
 * :class:`ConnectorHostUnresponsiveError` — a ``ConnectorHostLostError`` that
   is also a :class:`TimeoutError` (``cause="unresponsive"``): the child let a
-  call's own ``timeout`` plus ``timeout_grace_s`` pass — or ``call_deadline_s``
+  call's own ``timeout_s`` plus ``timeout_grace_s`` pass — or ``call_timeout_s``
   for a call with no timeout — without replying, **and then failed to answer a
   ping** within ``ping_timeout_s``. It is killed, and every other call in flight
   on it fails the same way. A ``TimeoutError`` because that is what the call
@@ -251,7 +251,7 @@ from osprey_connectors.recovery import RecoveryAction, RecoveryPolicy, Timing
 from osprey_connectors.types import TRANSPORT_CA, machine_kind
 
 __all__ = [
-    "DEFAULT_CALL_DEADLINE_S",
+    "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
     "READONLY",
     "ConnectorHostError",
@@ -285,7 +285,7 @@ READONLY = "readonly"
 DEFAULT_START_TIMEOUT_S = 30.0
 
 #: Local deadline for a call that names no timeout of its own.
-DEFAULT_CALL_DEADLINE_S = 60.0
+DEFAULT_CALL_TIMEOUT_S = 60.0
 
 #: How long a child that missed a call's deadline gets to answer a ping before
 #: it is judged wedged and killed.
@@ -667,9 +667,9 @@ class ConnectorHostPool:
             leads it to, and with none its writes stay off.
         python: The interpreter children run under.
         start_timeout_s: Bound on a child starting and answering its init frame.
-        call_deadline_s: Local deadline for a call that names no ``timeout``;
+        call_timeout_s: Local timeout for a call that names no ``timeout_s``;
             a child silent that long is pinged.
-        timeout_grace_s: How long past a call's own ``timeout`` the child may
+        timeout_grace_s: How long past a call's own ``timeout_s`` the child may
             take to answer before it is pinged. The child applies the timeout
             to the control-system call and reports its own
             :class:`TimeoutError` first, which is the better error.
@@ -690,7 +690,7 @@ class ConnectorHostPool:
         config_file: str | PathLike[str] | None = None,
         python: str = sys.executable,
         start_timeout_s: float = DEFAULT_START_TIMEOUT_S,
-        call_deadline_s: float = DEFAULT_CALL_DEADLINE_S,
+        call_timeout_s: float = DEFAULT_CALL_TIMEOUT_S,
         timeout_grace_s: float = 1.0,
         ping_timeout_s: float = DEFAULT_PING_TIMEOUT_S,
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
@@ -700,7 +700,7 @@ class ConnectorHostPool:
         self._config_file = str(Path(config_file).resolve()) if config_file else None
         self._python = python
         self._start_timeout_s = start_timeout_s
-        self._call_deadline_s = call_deadline_s
+        self._call_timeout_s = call_timeout_s
         self._timeout_grace_s = timeout_grace_s
         self._ping_timeout_s = ping_timeout_s
         self._terminate_grace_s = terminate_grace_s
@@ -914,7 +914,7 @@ class ConnectorHostPool:
         if not child.usable():
             return False
         try:
-            await child.proxy.supervisor_request("ping", {}, self._ping_timeout_s)
+            await child.proxy.supervisor_request("ping", {}, timeout_s=self._ping_timeout_s)
         except Exception:
             return False
         return True
@@ -1087,7 +1087,7 @@ class ConnectorHostPool:
             reader,
             process.stdin,
             timeout_grace_s=self._timeout_grace_s,
-            deadline_s=self._call_deadline_s,
+            call_timeout_s=self._call_timeout_s,
         )
         child = _PoolChild(key=key, process=process, proxy=proxy, reader=reader, report={})
         pid = child.pid
@@ -1112,7 +1112,7 @@ class ConnectorHostPool:
         async def init_report() -> object:
             """The child's reply to its init frame; a silent or lost child is a start failure."""
             try:
-                return await proxy.supervisor_request("init", init, self._start_timeout_s)
+                return await proxy.supervisor_request("init", init, timeout_s=self._start_timeout_s)
             except ChildUnresponsiveError as exc:
                 raise failure(
                     STAGE_INIT, f"did not answer its init frame within {self._start_timeout_s}s."
@@ -1439,59 +1439,75 @@ class PooledConnector:
         child = self._pool._children.get(self._key)
         return dict(child.report) if child is not None and child.usable() else {}
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         return await self._pool._call(
-            self._key, "read_channel", lambda proxy: proxy.read_channel(address, timeout)
+            self._key,
+            "read_channel",
+            lambda proxy: proxy.read_channel(address, timeout_s=timeout_s),
         )
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         return await self._pool._call(
             self._key,
             "read_multiple_channels",
-            lambda proxy: proxy.read_multiple_channels(addresses, timeout),
+            lambda proxy: proxy.read_multiple_channels(addresses, timeout_s=timeout_s),
         )
 
     async def write_channel(
         self,
         address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         return await self._pool._call(
             self._key,
             "write_channel",
-            lambda proxy: proxy.write_channel(address, value, timeout, confirm),
+            lambda proxy: proxy.write_channel(address, value, timeout_s=timeout_s, confirm=confirm),
         )
 
     async def write_multiple_channels(
         self,
         operations: Sequence[tuple[str, object]],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         return await self._pool._call(
             self._key,
             "write_multiple_channels",
-            lambda proxy: proxy.write_multiple_channels(operations, timeout, confirm),
+            lambda proxy: proxy.write_multiple_channels(
+                operations, timeout_s=timeout_s, confirm=confirm
+            ),
         )
 
     async def write_channel_checked(
-        self, address: str, value: object, **kwargs: object
+        self,
+        address: str,
+        value: object,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 
         ``ChannelWriteBlockedError`` for a refusal — writes disabled, a
         readonly child, limits — and ``ChannelWriteFailedError`` for a write
-        that was sent but not confirmed. ``confirm`` and ``timeout`` pass
+        that was sent but not confirmed. ``timeout_s`` and ``confirm`` pass
         through to :meth:`write_channel`.
         """
         # The proxy's own write_channel_checked is the base class's function,
         # bound by name: it is typed for a ControlSystemConnector, not the proxy.
         result = await self._pool._invoke(
-            self._key, "write_channel_checked", address, value, **kwargs
+            self._key,
+            "write_channel_checked",
+            address,
+            value,
+            timeout_s=timeout_s,
+            confirm=confirm,
         )
         return _expect(result, ChannelWriteResult, "write_channel_checked")
 

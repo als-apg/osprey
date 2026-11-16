@@ -128,29 +128,29 @@ class ChannelDirectory(_Backend, ABC):
         return MappingProxyType({})
 
     @abstractmethod
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
         """One page of the rows *query* matches; no rows is ``NO_MATCH``, not ``NOT_LISTED``."""
 
     @abstractmethod
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
         """How many rows *query* matches over the whole directory."""
 
     @abstractmethod
     async def describe(
-        self, address: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         """The record of the channel at exactly *address*, or ``NOT_LISTED``."""
 
     @abstractmethod
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:
+    async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:
         """The property names the directory holds."""
 
     @abstractmethod
     async def property_values(
-        self, property: str, *, prefix: str | None = None, deadline: float
+        self, property: str, *, prefix: str | None = None, timeout_s: float
     ) -> list[str] | Unavailable:
         """The values of *property*, those starting with *prefix* if given."""
 
     @abstractmethod
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether the service answers: the evidence in plain words, or why not."""

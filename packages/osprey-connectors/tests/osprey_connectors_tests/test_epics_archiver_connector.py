@@ -234,7 +234,7 @@ class TestGetDataMethod:
                 addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                timeout=60,
+                timeout_s=60,
             )
 
     @pytest.mark.asyncio
@@ -362,7 +362,7 @@ class TestGetDataErrorHandling:
                     addresses=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
-                    timeout=timeout,
+                    timeout_s=timeout,
                 )
 
             await connector.disconnect()

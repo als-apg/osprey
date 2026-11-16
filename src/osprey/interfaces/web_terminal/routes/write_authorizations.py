@@ -137,7 +137,7 @@ async def read_current_values(
 
     async def read_one(connector: Any, address: str) -> None:
         try:
-            reading = await connector.read_channel(address, timeout=VALUE_READ_TIMEOUT_S)
+            reading = await connector.read_channel(address, timeout_s=VALUE_READ_TIMEOUT_S)
             values[address] = reading.value
         except Exception:  # one channel unread is shown as unread
             logger.debug("Could not read %s for the approve card", address, exc_info=True)

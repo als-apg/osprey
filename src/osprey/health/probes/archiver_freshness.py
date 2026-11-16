@@ -120,7 +120,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             [channel],
             start,
             now,
-            timeout=int(timeout_s),
+            timeout_s=timeout_s,
         )
     except Exception as exc:  # any archiver failure becomes an error result
         latency_ms = (perf_counter() - t0) * 1000.0

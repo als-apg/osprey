@@ -78,12 +78,12 @@ class _CountingConnector(DictConnector):
         self.served: list[tuple[str, str]] = []
         self.read_error: Exception | None = None
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         self.reads.append(address)
         self.served.append(("read", address))
         if self.read_error is not None:
             raise self.read_error
-        return await super().read_channel(address, timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
     def _put(self, address: str, value: Any) -> None:
         self.puts.append((address, value))

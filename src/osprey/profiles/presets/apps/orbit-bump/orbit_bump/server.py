@@ -1001,7 +1001,7 @@ def create_app(
         try:
             live = await connector(target, bound)
             read_back = await asyncio.wait_for(
-                live.read_multiple_channels(addrs, timeout=bound),
+                live.read_multiple_channels(addrs, timeout_s=bound),
                 timeout=bound + max(_READ_MARGIN_S, 0.5 * bound),
             )
         except Exception as exc:  # an unreachable machine reads null, never a 5xx

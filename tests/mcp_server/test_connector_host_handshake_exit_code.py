@@ -54,7 +54,7 @@ async def test_a_child_that_exits_during_the_handshake_reports_its_exit_code():
         with pytest.raises(SwitchError) as caught:
             await _launch_request("live", process, proxy, "init", {}, 10.0, "spawn", 2.0)
     finally:
-        await proxy.disconnect(ack_timeout=0.0)
+        await proxy.disconnect(ack_timeout_s=0.0)
 
     assert "closed its output stream while answering 'init' (exit code 5)" in str(caught.value)
     assert process.returncode == 5
@@ -66,7 +66,7 @@ async def test_a_child_error_frame_during_init_is_a_spawn_refusal():
         with pytest.raises(SwitchError) as caught:
             await _launch_request("live", process, proxy, "init", {}, 10.0, "spawn", 2.0)
     finally:
-        await proxy.disconnect(ack_timeout=0.0)
+        await proxy.disconnect(ack_timeout_s=0.0)
         await asyncio.wait_for(process.wait(), 10.0)
 
     assert caught.value.reason == REASON_SPAWN_FAILED

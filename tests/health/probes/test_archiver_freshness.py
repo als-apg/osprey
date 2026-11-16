@@ -47,9 +47,10 @@ class _SpyArchiver:
         start_date: Any,
         end_date: Any,
         precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
-        timeout: int | None = None,
+        *,
+        timeout_s: int | None = None,
     ) -> pd.DataFrame:
-        self.get_data_calls.append((channels, start_date, end_date, timeout))
+        self.get_data_calls.append((channels, start_date, end_date, timeout_s))
         if self._raise_exc is not None:
             raise self._raise_exc
         return self._frame

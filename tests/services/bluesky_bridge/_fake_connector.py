@@ -62,7 +62,7 @@ class FakeConnector:
         # only other outcome ``write_channel_checked`` returns rather than raises.
         self.write_outcome = "confirmed"
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the connector read signature
         self.read_calls.append(address)
         return FakeChannelValue(value=self.readbacks.get(address))
 

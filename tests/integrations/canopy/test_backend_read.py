@@ -128,7 +128,7 @@ class _Machine(FakeConnector):
             ),
         )
 
-    async def read_channel(self, address, timeout=None):  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the connector read signature
         type(self).reads += 1
         if address not in type(self).store:
             raise TimeoutError(f"{address} did not answer")
@@ -386,7 +386,7 @@ class TestGet:
     ):
         """A read still pending at the read timeout is abandoned and says how long it waited."""
 
-        async def never(self, address, timeout=None):  # noqa: ARG001 - the connector read signature
+        async def never(self, address, *, timeout_s=None):  # noqa: ARG001 - the connector read signature
             await asyncio.sleep(30)
 
         monkeypatch.setattr(machine, "read_channel", never)

@@ -79,7 +79,7 @@ class FakeConnector:
         self.checked_calls: list[tuple[str, Any]] = []
         self.unchecked_calls: list[tuple[str, Any]] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the connector read signature
         class _Reading:
             value = 1.0
 

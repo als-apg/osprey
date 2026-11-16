@@ -86,7 +86,7 @@ class FakeBackend:
             rehearsal=self.spec.rehearsal,
         )
 
-    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def probe(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return "answered"
 
 
@@ -108,7 +108,7 @@ class FakeDirectory(FakeBackend):
             and query.words in record.row.address
         ]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
@@ -122,22 +122,22 @@ class FakeDirectory(FakeBackend):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return len(self._hits(query))
 
-    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.records.get(address, Outcome.NOT_LISTED)
 
 
 class FakeHistory(FakeBackend):
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         return HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
             rows=[PutRow(at="t", address=address, old="1", new="2")],
         )
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return AlarmConfigRecord(in_tree="yes", path=f"/SR/{address}")
 
 
@@ -150,7 +150,7 @@ class FakeAlarmState(FakeBackend):
     async def aclose(self) -> None:
         pass
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         state = AlarmStateRecord(
             severity="MAJOR", status="NO_ALARM", latched=True, time="2026-11-11T06:00:00.000Z"
         )

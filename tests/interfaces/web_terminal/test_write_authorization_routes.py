@@ -492,7 +492,7 @@ class _Pool:
     async def connector(self, _target: str) -> _Pool:
         return self
 
-    async def read_channel(self, address: str, timeout: float) -> Any:  # noqa: ARG002
+    async def read_channel(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002
         import asyncio
         from types import SimpleNamespace
 

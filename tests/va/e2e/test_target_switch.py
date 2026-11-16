@@ -500,7 +500,7 @@ def quiet_switch_notifications(monkeypatch):
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:
     """One value off the wire, through whichever child is serving right now."""
-    value = await manager.active_proxy().read_channel(address, timeout=READ_TIMEOUT_S)
+    value = await manager.active_proxy().read_channel(address, timeout_s=READ_TIMEOUT_S)
     assert isinstance(value, ChannelValue)
     return value.value
 
@@ -789,7 +789,7 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         context = context_for(manager)
         connector = await context.control_system()
         assert isinstance(
-            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue
+            await connector.read_channel(VA_PROBE, timeout_s=READ_TIMEOUT_S), ChannelValue
         )
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
@@ -800,7 +800,7 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         )
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
+            await connector.read_channel(VA_PROBE, timeout_s=READ_TIMEOUT_S)
 
         refusal = raised.value
         assert isinstance(refusal, ConnectorUnavailableError)
@@ -847,7 +847,7 @@ class TestFailClosedWhenTheChildIsKilledExternally:
             what="the manager dropping its child",
         )
         with pytest.raises(NoConnectorHostError):
-            await connector.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S)
+            await connector.read_channel(VA_PROBE, timeout_s=READ_TIMEOUT_S)
 
         assert len(manager.spawned) == 2
         assert manager.has_child() is True
@@ -955,7 +955,7 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
             # a failing assertion must cost this run one test, not all of them.
             with contextlib.suppress(Exception):
                 await manager.active_proxy().write_channel(
-                    CORRECTOR_SP, 0.0, timeout=READ_TIMEOUT_S
+                    CORRECTOR_SP, 0.0, timeout_s=READ_TIMEOUT_S
                 )
 
         assert await reading(manager, CORRECTOR_SP) == pytest.approx(0.0)
@@ -1109,7 +1109,7 @@ class TestTheExecutorsWriteIsPinnedToItsTarget:
                 if manager.active_target() != "va":
                     await manager.switch("va")
                 await manager.active_proxy().write_channel(
-                    CORRECTOR_SP, 0.0, timeout=READ_TIMEOUT_S
+                    CORRECTOR_SP, 0.0, timeout_s=READ_TIMEOUT_S
                 )
 
 
@@ -1350,7 +1350,7 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
             for _ in range(CONSECUTIVE_SWITCHES):
                 hung = asyncio.create_task(
                     manager.active_proxy().read_channel(
-                        UNSERVED_CHANNEL, timeout=CONNECTOR_TIMEOUT_S
+                        UNSERVED_CHANNEL, timeout_s=CONNECTOR_TIMEOUT_S
                     )
                 )
                 hung_reads.append(hung)

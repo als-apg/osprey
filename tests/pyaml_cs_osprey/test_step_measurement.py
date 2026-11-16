@@ -168,10 +168,10 @@ class ModelConnector(DictConnector):
             "TUNE:v": 0.3 + TUNE_GAIN[1] * quads + (2.0 + CHROMA_GAIN[1] * sexts) * delta_p,
         }
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         if address in READINGS:
             self._state[address] = float(self._derived()[address])
-        return await super().read_channel(address, timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
     def _put(self, address: str, value: Any) -> None:
         if self.on_put is not None:
@@ -284,9 +284,9 @@ class TestEveryPath:
         served: list[tuple[str, str]] = []
         read = connector.read_channel
 
-        async def logged_read(address: str, timeout: float | None = None) -> Any:
+        async def logged_read(address: str, *, timeout_s: float | None = None) -> Any:
             served.append(("read", address))
-            return await read(address, timeout)
+            return await read(address, timeout_s=timeout_s)
 
         connector.read_channel = logged_read  # type: ignore[method-assign]
         connector.on_put = lambda address: served.append(("put", address))
@@ -468,7 +468,7 @@ class LaggingConnector(ModelConnector):
         self.events: list[tuple[str, Any]] = []
         self.on_put = lambda address: self.events.append(("put", address))
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         if address in self.pairs.values():
             self.events.append(("poll", address))
             if address in self.pending:
@@ -478,7 +478,7 @@ class LaggingConnector(ModelConnector):
                 else:
                     del self.pending[address]
                     self._state[address] = value
-        return await super().read_channel(address, timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
     def _put(self, address: str, value: Any) -> None:
         readback = self.pairs.get(address)

@@ -34,10 +34,10 @@ class PutLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, address: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[PutRow]:
         """The logged writes of *address*, ``PutRow`` rows, field puts included, newest first."""
 
     @abstractmethod
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether the service answers: the evidence in plain words, or why not."""

@@ -194,7 +194,7 @@ async def _one_shot(connector, fake, name: str, *, ever: bool = True) -> None:
         await connector.read_channel(name)
         channel.connected = False
     with pytest.raises(ChannelUnreachableError):
-        await connector.read_channel(name, timeout=0.01)
+        await connector.read_channel(name, timeout_s=0.01)
 
 
 async def _until(predicate, timeout: float = 5.0) -> None:
@@ -378,7 +378,7 @@ class TestOneShotRule:
     async def test_the_read_path_records_failures_connections_and_new_connects(self):
         connector, aioca = _watched()
         with pytest.raises(ChannelUnreachableError):
-            await connector.read_channel("ca://DOWN", timeout=0.01)
+            await connector.read_channel("ca://DOWN", timeout_s=0.01)
         assert time.monotonic() - connector._connect_failures["DOWN"] < 5
         assert "DOWN" not in connector._one_shot_connected
         assert connector._one_shot_connect_at is None
@@ -608,7 +608,7 @@ async def _read_within(connector, name: str, seconds: float) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         try:
-            await connector.read_channel(name, timeout=1.0)
+            await connector.read_channel(name, timeout_s=1.0)
             return True
         except ChannelUnreachableError:
             await asyncio.sleep(0.1)
@@ -729,7 +729,7 @@ async def _scenario_successor(args):
 async def _scenario_one_shot_unknown(args):
     connector = await _connected(args)
     try:
-        await connector.read_channel("WS:UNKNOWN", timeout=1.0)
+        await connector.read_channel("WS:UNKNOWN", timeout_s=1.0)
         read = "ok"
     except ChannelUnreachableError as exc:
         read = type(exc).__name__

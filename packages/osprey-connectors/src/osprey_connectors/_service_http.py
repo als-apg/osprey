@@ -89,7 +89,7 @@ class Transport(Protocol):
         *,
         params: Params | None = None,
         json_body: object = None,
-        deadline: float,
+        timeout_s: float,
     ) -> object: ...
 
 
@@ -161,16 +161,16 @@ class ReadOnlyTransport:
         *,
         params: Params | None = None,
         json_body: object = None,
-        deadline: float,
+        timeout_s: float,
     ) -> object:
-        """One request, finished within *deadline* seconds or the block's ``timeout_s``.
+        """One request, finished within *timeout_s* seconds or the block's ``timeout_s``.
 
         Args:
             method: The HTTP method, as spelled in ``ALLOWED_REQUESTS``.
             path: The path under the configured url, with no query.
             params: The query; a sequence of pairs may repeat a key.
             json_body: Sent as a JSON body when not None.
-            deadline: The seconds this call may spend.
+            timeout_s: The seconds this call may spend.
 
         Returns:
             The parsed JSON, or :class:`Unavailable` with the reason in plain words.
@@ -182,7 +182,7 @@ class ReadOnlyTransport:
         connection = self._connection
         if connection is None:
             return Unavailable(reason=self._block_reason)
-        bound = min(deadline, connection.timeout_or(deadline))
+        bound = min(timeout_s, connection.timeout_or(timeout_s))
         no_answer = Unavailable(reason=f"no answer within {bound:g} s")
         if bound <= 0:
             return no_answer

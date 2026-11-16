@@ -147,7 +147,7 @@ class _DoorProbe(ControlSystemConnector):
     async def disconnect(self):
         pass
 
-    async def read_channel(self, addr, timeout=None):
+    async def read_channel(self, addr, *, timeout_s=None):
         raise NotImplementedError
 
     async def write_channel(self, address, value, **kwargs):
@@ -175,7 +175,7 @@ class _DoorProbe(ControlSystemConnector):
             for addr, val in operations
         ]
 
-    async def read_multiple_channels(self, addrs, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return {}
 
     async def subscribe(self, addr, cb):  # noqa: ARG002 - the control-system connector interface fixes this signature

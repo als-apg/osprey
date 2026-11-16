@@ -79,7 +79,7 @@ class FakeDirectory:
     def _hits(self, query: Any) -> list[Any]:
         return [row for row in self.rows if query.words in row.address]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.failure:
             raise RuntimeError(self.failure)
         hits = self._hits(query)
@@ -95,13 +95,13 @@ class FakeDirectory:
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.failure:
             raise RuntimeError(self.failure)
         await asyncio.sleep(self.count_delay)
         return len(self._hits(query))
 
-    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return Outcome.NOT_LISTED
 
     async def property_values(
@@ -109,7 +109,7 @@ class FakeDirectory:
         property: str,
         *,
         prefix: str | None = None,
-        deadline: float,  # noqa: ARG002
+        timeout_s: float,  # noqa: ARG002
     ) -> Any:
         self.asked.append((property, prefix))
         if self.failure:
@@ -245,7 +245,7 @@ class FakeFeed:
     async def aclose(self) -> None:
         pass
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(

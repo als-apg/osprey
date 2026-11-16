@@ -776,7 +776,7 @@ class TestBoundedCalls:
             proxy.read_attribute.side_effect = read
             conn = await _bounded_tango(30)
             with pytest.raises(TimeoutError) as raised:
-                await conn.read_channel(_ADDRESS, timeout=0.2)
+                await conn.read_channel(_ADDRESS, timeout_s=0.2)
             answered_first = not read.returned
 
         assert answered_first

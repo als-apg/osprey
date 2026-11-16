@@ -634,7 +634,7 @@ class TestBoundedCalls:
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(30)
             with pytest.raises(TimeoutError) as raised:
-                await conn.read_channel("FAC/DEV/LOC/PROP", timeout=0.2)
+                await conn.read_channel("FAC/DEV/LOC/PROP", timeout_s=0.2)
             answered_first = not get.returned
 
         assert answered_first

@@ -493,7 +493,7 @@ def test_the_child_reports_the_verdict_for_its_own_target(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize("channel", list(PROBED_UNITS))
 def test_spawn_probe_reads_the_named_channel(ready_child, channel):
-    frame = ready_child.call("spawn_probe", address=channel, timeout=5.0)
+    frame = ready_child.call("spawn_probe", address=channel, timeout_s=5.0)
 
     assert isinstance(frame, frames.ResultFrame)
     assert isinstance(frame.value, ChannelValue)
@@ -506,7 +506,7 @@ def test_spawn_probe_reads_the_named_channel(ready_child, channel):
 def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(ready_child):
     # The mock's own response delay (10 ms) outlasts this bound, so the probe
     # is cut off by the bound rather than by the connector.
-    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout=0.001)
+    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=0.001)
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.class_tag == "TimeoutError"
@@ -527,10 +527,10 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
 def test_a_probe_with_a_bound_that_is_not_positive_is_refused_and_the_child_keeps_serving(
     ready_child, bound
 ):
-    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout=bound)
+    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=bound)
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert f"spawn_probe timeout must be positive, got {bound!r}" in frame.message
+    assert f"spawn_probe timeout_s must be positive, got {bound!r}" in frame.message
 
     follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)

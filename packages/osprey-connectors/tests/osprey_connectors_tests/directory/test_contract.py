@@ -21,7 +21,7 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
         (
             DirectoryRow,
             [
-                "name",
+                "address",
                 "status",
                 "description",
                 "channel_type",
@@ -35,7 +35,7 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
             DirectoryQuery,
             [
                 "words",
-                "name",
+                "address_pattern",
                 "properties",
                 "status",
                 "server",
@@ -87,7 +87,7 @@ def test_a_page_of_any_other_outcome_needs_no_reason():
 def test_a_record_converts_to_the_json_shape():
     record = DirectoryRecord(row=DirectoryRow(address="A"), properties={"caPort": "5064"})
 
-    assert record.model_dump()["row"]["name"] == "A"
+    assert record.model_dump()["row"]["address"] == "A"
     assert record.model_dump()["properties"] == {"caPort": "5064"}
 
 

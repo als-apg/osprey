@@ -2,7 +2,7 @@
 
 A backend is read-only and never raises: a service that gives no answer is a
 value, :class:`Unavailable`, or a page whose outcome says so. Every method is
-async and takes ``deadline``, the seconds this call may spend; the caller owns
+async and takes the keyword ``timeout_s``, the seconds this call may spend; the caller owns
 the overall budget and hands the same figure to calls it runs concurrently.
 
 Backends are built as ``Backend(spec, *, project_dir=None, **seams)``. The

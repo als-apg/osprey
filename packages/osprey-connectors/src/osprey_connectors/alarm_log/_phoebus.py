@@ -135,10 +135,10 @@ class PhoebusAlarmLogger(AlarmLog):
 
     @override
     async def history(
-        self, address: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[AlarmHistoryRow]:
         # One row more than asked for tells a full page from a longer history.
-        answer = await self._search(address, limit + 1, since, deadline)
+        answer = await self._search(address, limit + 1, since, timeout_s)
         if isinstance(answer, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=answer.reason)
         matching = _rows_of(answer, address)
@@ -152,9 +152,11 @@ class PhoebusAlarmLogger(AlarmLog):
         )
 
     @override
-    async def config_for(self, address: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(
+        self, address: str, *, timeout_s: float
+    ) -> AlarmConfigRecord | Unavailable:
         started = time.monotonic()
-        answer = await self._search(address, _CONFIG_SEARCH_SIZE, None, deadline)
+        answer = await self._search(address, _CONFIG_SEARCH_SIZE, None, timeout_s)
         if isinstance(answer, Unavailable):
             return answer
         rows = _rows_of(answer, address)
@@ -166,9 +168,9 @@ class PhoebusAlarmLogger(AlarmLog):
         # State rows prove a path but not the tree's entry, so nothing below answers "no".
         path = rows[0].tree_path
         if path is not None:
-            remaining = deadline - (time.monotonic() - started)
+            remaining = timeout_s - (time.monotonic() - started)
             fallback = await self._transport.request(
-                "GET", _CONFIG_PATH, params={"config": f"config:{path}"}, deadline=remaining
+                "GET", _CONFIG_PATH, params={"config": f"config:{path}"}, timeout_s=remaining
             )
             if isinstance(fallback, list):
                 newest = _newest_config_row(_rows_of(fallback, address))
@@ -177,8 +179,8 @@ class PhoebusAlarmLogger(AlarmLog):
         return AlarmConfigRecord(in_tree="unknown", path=path)
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
-        answer = await self._transport.request("GET", "/", deadline=deadline)
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
+        answer = await self._transport.request("GET", "/", timeout_s=timeout_s)
         if isinstance(answer, Unavailable):
             return answer
         if not isinstance(answer, Mapping):
@@ -187,13 +189,13 @@ class PhoebusAlarmLogger(AlarmLog):
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
     async def _search(
-        self, address: str, size: int, since: datetime | None, deadline: float
+        self, address: str, size: int, since: datetime | None, timeout_s: float
     ) -> list[object] | Unavailable:
         params: dict[str, str | int] = {"pv": address, "size": size}
         if since is not None:
             params.update(start=_days_since(since), end="now")
         answer = await self._transport.request(
-            "GET", _SEARCH_PATH, params=params, deadline=deadline
+            "GET", _SEARCH_PATH, params=params, timeout_s=timeout_s
         )
         if isinstance(answer, Unavailable | list):
             return answer

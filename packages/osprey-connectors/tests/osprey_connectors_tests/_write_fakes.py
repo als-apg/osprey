@@ -138,17 +138,18 @@ class RecordingConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):
         raise NotImplementedError
 
     async def write_channel(
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         self.writes.append((address, value))
@@ -158,7 +159,7 @@ class RecordingConnector(ControlSystemConnector):
             outcome=WriteOutcome.CONFIRMED,
         )
 
-    async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def write_multiple_channels(self, operations, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return [await self.write_channel(addr, val) for addr, val in operations]
 
     async def subscribe(self, address, callback):

@@ -135,17 +135,17 @@ class PhoebusAlarmState(AlarmState):
 
     @override
     async def state_for(
-        self, address: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> AlarmStateRecord | Unavailable | None:
-        await self._settling(deadline)
+        await self._settling(timeout_s)
         unanswered = self._unanswered()
         if unanswered is not None:
             return unanswered
         return state_record(self._snapshot, address, stale=self._stale())
 
     @override
-    async def states(self, deadline: float) -> AlarmStates | Unavailable:
-        await self._settling(deadline)
+    async def states(self, *, timeout_s: float) -> AlarmStates | Unavailable:
+        await self._settling(timeout_s)
         unanswered = self._unanswered()
         if unanswered is not None:
             return unanswered
@@ -154,25 +154,27 @@ class PhoebusAlarmState(AlarmState):
         return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
 
     @override
-    async def config_for(self, address: str, deadline: float) -> AlarmConfigRecord | Unavailable:
-        await self._settling(deadline)
+    async def config_for(
+        self, address: str, *, timeout_s: float
+    ) -> AlarmConfigRecord | Unavailable:
+        await self._settling(timeout_s)
         unanswered = self._unanswered()
         return unanswered if unanswered is not None else config_record(self._snapshot, address)
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         before_catch_up = self._before_catch_up()
         if before_catch_up is not None:
             return before_catch_up
         age = _now() - self._last_contact
         return f"read {self._snapshot.messages} messages; last contact {age:.0f} s ago"
 
-    async def _settling(self, deadline: float) -> None:
-        """Wait up to *deadline* seconds for a started feed to catch up or be found unreachable."""
-        if self._task is None or self._settled.is_set() or deadline <= 0:
+    async def _settling(self, timeout_s: float) -> None:
+        """Wait up to *timeout_s* seconds for a started feed to catch up or be found unreachable."""
+        if self._task is None or self._settled.is_set() or timeout_s <= 0:
             return
         with suppress(TimeoutError):
-            async with asyncio.timeout(deadline):
+            async with asyncio.timeout(timeout_s):
                 await self._settled.wait()
 
     def _unanswered(self) -> Unavailable | None:

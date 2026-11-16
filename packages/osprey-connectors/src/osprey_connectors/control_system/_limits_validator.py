@@ -60,7 +60,7 @@ CurrentValueReader = Callable[[str], object]
 #: exactly like the connector's own ``timeout_s`` — a gateway two hops away
 #: answers slower than a soft IOC on the same host — so a deployment overrides
 #: it with ``control_system.connector.<type>.step_read_timeout_s``.
-DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0
+DEFAULT_STEP_READ_TIMEOUT_S = 2.0
 
 #: The per-connector key that overrides it, spelled once so the connector and
 #: the python-executor sandbox cannot read two different names.
@@ -205,7 +205,7 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
 
-def step_read_timeout_seconds(
+def step_read_timeout_s(
     config: Mapping[str, object] | None, connector_type: str | None = None
 ) -> float:
     """The ``max_step`` fresh-read budget one connector block declares.
@@ -218,7 +218,7 @@ def step_read_timeout_seconds(
             placeholder in that message.
 
     Returns:
-        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_SECONDS` when
+        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_S` when
         the block declares none or declares something that is not a positive
         number. A value that cannot be used is warned about, naming the key and
         what was found, and then falls back rather than raising: this resolves
@@ -226,10 +226,10 @@ def step_read_timeout_seconds(
         that takes writes down.
     """
     if not isinstance(config, Mapping):
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     declared = config.get(STEP_READ_TIMEOUT_KEY)
     if declared is None:
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     if isinstance(declared, bool) or not isinstance(declared, int | float) or declared <= 0:
         logger.warning(
             "control_system.connector.%s.%s must be a positive number of seconds, "
@@ -237,9 +237,9 @@ def step_read_timeout_seconds(
             connector_type or "<type>",
             STEP_READ_TIMEOUT_KEY,
             declared,
-            DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+            DEFAULT_STEP_READ_TIMEOUT_S,
         )
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     return float(declared)
 
 

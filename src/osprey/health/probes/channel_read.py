@@ -3,7 +3,7 @@
 Reads a single control-system channel through the suite's shared connector,
 obtained from the :class:`~osprey.health.runtime.HealthRuntime` on the probe
 context (``ctx.runtime.get_connector()``). The read is a plain
-``connector.read_channel(address, timeout=timeout_s)`` — this probe never writes
+``connector.read_channel(address, timeout_s=timeout_s)`` — this probe never writes
 and never subscribes; every I/O flows through the one connector the runtime owns.
 
 Grading:
@@ -71,7 +71,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     t0 = perf_counter()
     try:
         connector = await ctx.runtime.get_connector()
-        channel = await connector.read_channel(address, timeout=timeout_s)
+        channel = await connector.read_channel(address, timeout_s=timeout_s)
     except Exception as exc:  # any read failure becomes an error result
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(

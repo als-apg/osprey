@@ -135,7 +135,7 @@ async def test_set_settles_within_an_authored_tolerance(
     fake.echo_target["SP"] = "RB"
     fake.write_outcome = "unrequested"
 
-    async def read_near_miss(address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
+    async def read_near_miss(address: str, *, timeout_s: float | None = None):  # noqa: ARG001 - the connector read signature
         fake.read_calls.append(address)
         return FakeChannelValue(value=5.0 - 0.005)
 
@@ -416,7 +416,7 @@ async def test_set_polls_an_unrequested_write_until_the_readback_settles(
     fake.echo_readback = False  # the readback moves only under the poll loop
     device = ConnectorSettable(fake, "SP", name="motor")
 
-    async def settle_after_first_poll(address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
+    async def settle_after_first_poll(address: str, *, timeout_s: float | None = None):  # noqa: ARG001 - the connector read signature
         fake.read_calls.append(address)
         fake.readbacks["SP"] = 3.5
         return FakeChannelValue(value=fake.readbacks["SP"])

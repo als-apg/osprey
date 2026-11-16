@@ -123,7 +123,7 @@ from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
 from osprey_connectors.ipc import (
-    DEFAULT_CALL_DEADLINE_S,
+    DEFAULT_CALL_TIMEOUT_S,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     AttributedReader,
@@ -341,7 +341,7 @@ async def _launch_request(
         )
 
     try:
-        return await proxy.supervisor_request(method, kwargs, timeout)
+        return await proxy.supervisor_request(method, kwargs, timeout_s=timeout)
     except ChildUnresponsiveError as exc:
         raise failure(f"did not answer {method!r} within {timeout}s") from exc
     except Exception as exc:
@@ -1825,7 +1825,7 @@ class ConnectorHostManager:
         # A call that names no timeout of its own still ends: a child silent
         # past this deadline raises ChildUnresponsiveError, which the error
         # handler answers by pinging the child and replacing it if it is wedged.
-        proxy = ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S)
+        proxy = ConnectorHostProxy(reader, process.stdin, call_timeout_s=DEFAULT_CALL_TIMEOUT_S)
         try:
             report = await _launch_request(
                 target,
@@ -1873,7 +1873,7 @@ class ConnectorHostManager:
                         process,
                         proxy,
                         "spawn_probe",
-                        {"address": probe_channel, "timeout": probe_timeout},
+                        {"address": probe_channel, "timeout_s": probe_timeout},
                         probe_timeout,
                         STAGE_PROBE,
                         self._terminate_grace_s,
@@ -1985,7 +1985,7 @@ class ConnectorHostManager:
         timeout = self._drain_timeout()
         try:
             child.proxy.refuse_new_requests(cause)
-            drained = await child.proxy.drain(timeout)
+            drained = await child.proxy.drain(timeout_s=timeout)
             if drained:
                 await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
                 return True

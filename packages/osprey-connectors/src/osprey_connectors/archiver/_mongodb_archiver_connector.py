@@ -481,7 +481,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -492,7 +493,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
                 client-side via pandas resampling. Anything else raises ValueError.
@@ -511,7 +512,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 non-raw processing mode is requested for a channel that
                 carries non-numeric values
         """
-        bound: float = timeout if timeout is not None else self._timeout
+        bound: float = timeout_s if timeout_s is not None else self._timeout
 
         self._require_connected()
 

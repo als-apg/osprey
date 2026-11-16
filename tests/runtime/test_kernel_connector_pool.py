@@ -130,7 +130,7 @@ class _FirstContextConnector:
         self.server = config["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
         return SimpleNamespace(value=f"{_FIRST_SERVER['server']}/{address}")
 
     async def disconnect(self) -> None:
@@ -175,7 +175,7 @@ class _FakeHandle:
         self.writes: list[tuple[str, Any, dict[str, Any]]] = []
         self.batches: list[tuple[list[tuple[str, Any]], dict[str, Any]]] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
         self.pool.record_loop()
         return SimpleNamespace(value=f"{self.server}/{address}")
 
@@ -189,9 +189,9 @@ class _FakeHandle:
             observed_value=value,
         )
 
-    async def write_multiple_channels(self, operations, timeout=None, confirm=None):
+    async def write_multiple_channels(self, operations, *, timeout_s=None, confirm=None):
         self.pool.record_loop()
-        self.batches.append((list(operations), {"timeout": timeout, "confirm": confirm}))
+        self.batches.append((list(operations), {"timeout": timeout_s, "confirm": confirm}))
         return [
             ChannelWriteResult(address=address, value_written=value, outcome=WriteOutcome.CONFIRMED)
             for address, value in operations
@@ -507,7 +507,7 @@ class TestPooledWrites:
         )
 
         (handle,) = fake_pool[0].handles
-        assert handle.writes == [("SR:SP", 1.5, {"timeout": 2.0, "confirm": True})]
+        assert handle.writes == [("SR:SP", 1.5, {"timeout_s": 2.0, "confirm": True})]
 
     def test_a_multi_channel_write_reaches_write_multiple_channels(
         self, monkeypatch, state_root, fake_pool

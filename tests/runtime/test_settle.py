@@ -71,8 +71,8 @@ class Readbacks:
         self.values = values
         self.reads: list[str] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
-        del timeout
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
+        del timeout_s
         self.reads.append(address)
         return ChannelValue(
             value=self.values.get(address), timestamp=datetime.now(UTC), metadata=ChannelMetadata()

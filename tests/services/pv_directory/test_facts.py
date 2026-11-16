@@ -107,7 +107,7 @@ class FakeBackend:
             rehearsal=self.spec.rehearsal,
         )
 
-    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def probe(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return f"{self.spec.type} answered"
 
 
@@ -140,7 +140,7 @@ class FakeDirectory(FakeBackend):
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return DirectoryPage(
                 outcome=Outcome.UNAVAILABLE,
@@ -162,12 +162,12 @@ class FakeDirectory(FakeBackend):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
-    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return Unavailable(reason=self.fail)
         return self.records.get(address, Outcome.NOT_LISTED)
@@ -183,16 +183,16 @@ class FakeAlarmState(FakeBackend):
     async def start(self) -> None:
         pass
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.listed
 
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.state
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -201,7 +201,7 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     delay = 0.0
 
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         await asyncio.sleep(self.delay)
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
@@ -209,14 +209,14 @@ class FakeAlarmLog(FakeBackend):
             rows=[AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
         )
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
 class FakePutLog(FakeBackend):
     page: Any = None
 
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,

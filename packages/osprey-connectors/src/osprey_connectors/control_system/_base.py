@@ -1341,13 +1341,13 @@ class ControlSystemConnector(ABC):
         """Close connection to control system and cleanup resources."""
 
     @abstractmethod
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         """
         Read current value of a channel.
 
         Args:
             address: Address/name of the channel
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
 
         Returns:
             ChannelValue with current value, timestamp, and metadata
@@ -1367,7 +1367,8 @@ class ControlSystemConnector(ABC):
         self,
         address: str,
         value: ContractAny,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
@@ -1376,7 +1377,7 @@ class ControlSystemConnector(ABC):
         Args:
             address: Address/name of the channel
             value: Value to write
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             confirm: Whether to re-read the channel and compare, or ``None`` to
                 let the connector resolve the policy for this channel
 
@@ -1444,8 +1445,9 @@ class ControlSystemConnector(ABC):
         self,
         address: str,
         value: ContractAny,
-        # Passed straight through to write_channel, whatever this connector's takes.
-        **kwargs: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Await write_channel and enforce the reference monitor's denial contract.
 
@@ -1456,8 +1458,8 @@ class ControlSystemConnector(ABC):
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
         confirmed write returns and the scan proceeds; ``osprey.runtime.write_channel``
-        routes through it for the same reason. Extra keyword arguments (``confirm``,
-        ``timeout``) pass straight through to write_channel. The result inspection
+        routes through it for the same reason. ``timeout_s`` and ``confirm`` pass
+        straight through to write_channel, ``None`` as the omission it is there. The result inspection
         itself lives in :func:`raise_for_write_result`, which the multi-channel paths
         share.
         """
@@ -1467,7 +1469,7 @@ class ControlSystemConnector(ABC):
         )
 
         try:
-            result = await self.write_channel(address, value, **kwargs)
+            result = await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
         except ChannelLimitsViolationError as exc:
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
             # so consumers key on one refusal signal. Connection failures and
@@ -1477,11 +1479,11 @@ class ControlSystemConnector(ABC):
         return raise_for_write_result(result)
 
     async def _read_concurrently(
-        self, addresses: list[str], timeout: float | None
+        self, addresses: list[str], timeout_s: float | None
     ) -> dict[str, ChannelValue]:
         """Read channels concurrently, omitting failed reads and re-raising cancellations."""
         results = await asyncio.gather(
-            *(self.read_channel(address, timeout) for address in addresses),
+            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
             return_exceptions=True,
         )
         values: dict[str, ChannelValue] = {}
@@ -1495,14 +1497,14 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """
         Read multiple channels efficiently (can be optimized per control system).
 
         Args:
             addresses: List of channel addresses to read
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
 
         Returns:
             Dictionary mapping channel address to ChannelValue
@@ -1513,7 +1515,8 @@ class ControlSystemConnector(ABC):
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
         operations: list[tuple[str, ContractAny]],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         """
@@ -1564,7 +1567,7 @@ class ControlSystemConnector(ABC):
 
         Args:
             operations: List of (address, value) tuples
-            timeout: Optional timeout in seconds, given to each write
+            timeout_s: Optional timeout in seconds, given to each write
             confirm: Whether every channel in the batch is confirmed, or ``None``
                 to let each channel resolve its own policy
 
@@ -1607,7 +1610,7 @@ class ControlSystemConnector(ABC):
             named, refusals = await self._check_batch(batch)
             if any(refusal is not None for refusal in refusals):
                 return _refused_batch(named, refusals)
-            return await self._send_batch(named, timeout, confirm)
+            return await self._send_batch(named, timeout_s, confirm)
 
     def _write_precheck(
         self,
@@ -1731,7 +1734,7 @@ class ControlSystemConnector(ABC):
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
         batch: list[tuple[str, ContractAny]],
-        timeout: float | None,
+        timeout_s: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:
         """Send a batch that passed every check: one result per write, in order.
@@ -1743,7 +1746,7 @@ class ControlSystemConnector(ABC):
         control system takes concurrent puts sends them together, and asks
         once, immediately before the puts start.
         """
-        kwargs: dict[str, float | bool | None] = {"timeout": timeout}
+        kwargs: dict[str, float | bool | None] = {"timeout_s": timeout_s}
         if confirm is not None:
             kwargs["confirm"] = confirm
         write = type(self)._unguarded_write_channel

@@ -384,7 +384,7 @@ def channel_access_reader(settings: RecorderSettings) -> ChannelReader:
                 )
                 return {}
         reads = {
-            address: asyncio.create_task(connector.read_channel(address, timeout=cadence))
+            address: asyncio.create_task(connector.read_channel(address, timeout_s=cadence))
             for address in addresses
         }
         if not reads:

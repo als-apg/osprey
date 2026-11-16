@@ -146,7 +146,7 @@ def _ctrl_reading(**limits):
 async def _ca_read_metadata(ctrl, *, write=True):
     channel = FakeChannel(ca_reading(42.0), ctrl=ctrl, write=write)
     return await ca_connector(channels={"SR:CH": channel}, timeout=1.0).read_channel(
-        "SR:CH", timeout=1.0
+        "SR:CH", timeout_s=1.0
     )
 
 

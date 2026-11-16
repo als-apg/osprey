@@ -213,7 +213,7 @@ class SimulatorDirectory(ChannelDirectory):
         return self._records_read
 
     @override
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
         searched = _searched(query)
         request = f"{_REQUEST_PREFIX} · {searched}"
         records = self._records()
@@ -240,7 +240,7 @@ class SimulatorDirectory(ChannelDirectory):
         )
 
     @override
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
         records = self._records()
         return (
             records if isinstance(records, Unavailable) else len(_matching(records.values(), query))
@@ -250,7 +250,8 @@ class SimulatorDirectory(ChannelDirectory):
     async def describe(
         self,
         address: str,
-        deadline: float,
+        *,
+        timeout_s: float,
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
@@ -259,7 +260,7 @@ class SimulatorDirectory(ChannelDirectory):
         return Outcome.NOT_LISTED if record is None else record
 
     @override
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:
+    async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
@@ -271,7 +272,7 @@ class SimulatorDirectory(ChannelDirectory):
         property: str,
         *,
         prefix: str | None = None,
-        deadline: float,
+        timeout_s: float,
     ) -> list[str] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
@@ -284,7 +285,7 @@ class SimulatorDirectory(ChannelDirectory):
         return sorted(value for value in values if value.startswith(prefix or ""))
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records

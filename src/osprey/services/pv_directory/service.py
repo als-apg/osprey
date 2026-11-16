@@ -161,7 +161,7 @@ class DirectoryService:
         full = asyncio.create_task(self._full_set(at, backend, server, count, started, deadline))
         feed = asyncio.create_task(self._alarm_index(deadline))
         store = asyncio.create_task(self._archive_index(deadline))
-        page = None if cut else asyncio.create_task(backend.search(server, deadline))
+        page = None if cut else asyncio.create_task(backend.search(server, timeout_s=deadline))
         tasks = [task for task in (count, full, feed, store, page) if task is not None]
         await asyncio.wait(tasks, timeout=deadline)
         late = f"no answer within {deadline:g} s"
@@ -266,7 +266,7 @@ class DirectoryService:
             payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
             return {**payload, "origin": origin, "record": None}
         deadline = self._timeout()
-        answer = await self._bounded(backend.describe(name, deadline), deadline)
+        answer = await self._bounded(backend.describe(name, timeout_s=deadline), deadline)
         payload = {"source": as_payload(source), "origin": origin, "record": None}
         if isinstance(answer, Unavailable):
             return {**payload, "outcome": "unavailable", "reason": answer.reason}
@@ -436,7 +436,7 @@ class DirectoryService:
             # backend that overruns it, so "still loading" stays the backend's word.
             answer = await self._bounded(snapshot.probe(deadline), deadline + _PROBE_GRACE_S)
         else:
-            answer = await self._bounded(backend.probe(deadline), deadline)
+            answer = await self._bounded(backend.probe(timeout_s=deadline), deadline)
         if isinstance(answer, str):
             return {"outcome": "found", "source": as_payload(source), "evidence": answer}
         return {"outcome": "unavailable", "source": as_payload(source), "reason": answer.reason}
@@ -564,7 +564,7 @@ class DirectoryService:
         cached = self._cached(at, key)
         if cached is not None:
             return cached
-        answer = await backend.count(server, deadline)
+        answer = await backend.count(server, timeout_s=deadline)
         if isinstance(answer, int):
             self._store(at, key, answer)
         return answer
@@ -592,7 +592,7 @@ class DirectoryService:
         if total == 0:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
-        answer = await backend.search(evolve(server, page=0, page_size=total), left)
+        answer = await backend.search(evolve(server, page=0, page_size=total), timeout_s=left)
         if answer.outcome == Outcome.UNAVAILABLE:
             return Unavailable(reason=answer.reason or "no answer")
         fetched = _FullSet(list(answer.rows), answer.request)

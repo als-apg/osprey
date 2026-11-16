@@ -96,7 +96,8 @@ class ArchiverConnector(ABC):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -116,7 +117,7 @@ class ArchiverConnector(ABC):
                 every processing mode. A backend that bins on a grid of its own
                 is the documented exception — the EPICS Archiver Appliance's
                 operators are epoch-anchored, and the window merely clips them.
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Anything
                 else raises ValueError.

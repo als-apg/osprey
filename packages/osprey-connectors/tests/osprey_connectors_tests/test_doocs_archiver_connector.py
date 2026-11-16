@@ -264,7 +264,7 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout=3)
+        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout_s=3)
 
         assert seen["timeout"] == 3
 
@@ -274,7 +274,7 @@ class TestGetDataTimeout:
         seen = self._spy_wait_for(monkeypatch)
 
         with pytest.raises(TimeoutError):
-            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout=0)
+            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout_s=0)
 
         assert seen["timeout"] == 0
 

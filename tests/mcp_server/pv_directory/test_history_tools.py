@@ -96,10 +96,10 @@ class FakeBackend:
 
 
 class FakeDirectory(FakeBackend):
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return 0
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return Outcome.NOT_LISTED
 
 
@@ -115,10 +115,10 @@ class FakeAlarmState(FakeBackend):
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.states.get(address)
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -127,11 +127,11 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         self.asked.append((address, since, limit))
         return self._page(self.rows)
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -140,7 +140,7 @@ class FakePutLog(FakeBackend):
     rows: list[Any] = []
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         self.asked.append((address, since, limit))
         return self._page(self.rows)
 

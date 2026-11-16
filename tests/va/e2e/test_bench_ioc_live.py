@@ -557,7 +557,7 @@ async def reading(
     manager: ConnectorHostManager, address: str, *, timeout: float = CALL_TIMEOUT_S
 ) -> ChannelValue:
     """One reading off the wire, through whichever child is serving right now."""
-    value = await manager.active_proxy().read_channel(address, timeout=timeout)
+    value = await manager.active_proxy().read_channel(address, timeout_s=timeout)
     assert isinstance(value, ChannelValue)
     return value
 
@@ -776,7 +776,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         # here would look identical at the call site and prove nothing.
         assert abs(PROTECTED_WRITE_VALUE) < LIMITS_MAX
         result = await manager.active_proxy().write_channel(
-            PROTECTED_SP, PROTECTED_WRITE_VALUE, timeout=CALL_TIMEOUT_S
+            PROTECTED_SP, PROTECTED_WRITE_VALUE, timeout_s=CALL_TIMEOUT_S
         )
 
         assert result.outcome is WriteOutcome.REFUSED
@@ -803,14 +803,14 @@ class TestTheControlSystemsOwnWriteRefusal:
         manager = await started_on(make_manager, deployment, "live")
 
         refused = await manager.active_proxy().write_channel(
-            PROTECTED_SP, PROTECTED_WRITE_VALUE, timeout=CALL_TIMEOUT_S
+            PROTECTED_SP, PROTECTED_WRITE_VALUE, timeout_s=CALL_TIMEOUT_S
         )
         with pytest.raises(ChannelWriteBlockedError) as blocked:
             raise_for_write_result(refused)
 
         with pytest.raises(ChannelLimitsViolationError) as violated:
             await manager.active_proxy().write_channel(
-                WRITABLE_SP, OUT_OF_LIMITS_VALUE, timeout=CALL_TIMEOUT_S
+                WRITABLE_SP, OUT_OF_LIMITS_VALUE, timeout_s=CALL_TIMEOUT_S
             )
 
         assert blocked.value.reason == "CONTROL_SYSTEM_REFUSED"
@@ -842,14 +842,14 @@ class TestTheControlSystemsOwnWriteRefusal:
         """
         manager = await started_on(make_manager, deployment, "live")
         on_the_bench = await manager.active_proxy().write_channel(
-            PROTECTED_SP, VA_WRITE_VALUE, timeout=CALL_TIMEOUT_S
+            PROTECTED_SP, VA_WRITE_VALUE, timeout_s=CALL_TIMEOUT_S
         )
         assert on_the_bench.outcome is WriteOutcome.REFUSED
 
         await manager.switch("va")
         try:
             on_the_simulator = await manager.active_proxy().write_channel(
-                PROTECTED_SP, VA_WRITE_VALUE, timeout=CALL_TIMEOUT_S
+                PROTECTED_SP, VA_WRITE_VALUE, timeout_s=CALL_TIMEOUT_S
             )
 
             assert on_the_simulator.outcome is not WriteOutcome.REFUSED
@@ -860,7 +860,7 @@ class TestTheControlSystemsOwnWriteRefusal:
             # Every other test in this module reads a machine at rest.
             with contextlib.suppress(Exception):
                 await manager.active_proxy().write_channel(
-                    PROTECTED_SP, 0.0, timeout=CALL_TIMEOUT_S
+                    PROTECTED_SP, 0.0, timeout_s=CALL_TIMEOUT_S
                 )
         # And the bench IOC still holds its own seeded value: the write that
         # succeeded went to the other machine.
@@ -978,7 +978,7 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
 
         try:
             written = await manager.active_proxy().write_channel(
-                ALARM_CHANNEL, ALARM_DRIVE_VALUE, timeout=CALL_TIMEOUT_S
+                ALARM_CHANNEL, ALARM_DRIVE_VALUE, timeout_s=CALL_TIMEOUT_S
             )
             assert written.outcome is not WriteOutcome.REFUSED, (
                 written.error_message or written.notes
@@ -1000,7 +1000,7 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
             # of all of them.
             with contextlib.suppress(Exception):
                 await manager.active_proxy().write_channel(
-                    ALARM_CHANNEL, ALARM_SEEDED_VALUE, timeout=CALL_TIMEOUT_S
+                    ALARM_CHANNEL, ALARM_SEEDED_VALUE, timeout_s=CALL_TIMEOUT_S
                 )
 
 

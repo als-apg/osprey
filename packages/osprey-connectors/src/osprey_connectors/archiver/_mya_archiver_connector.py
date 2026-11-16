@@ -343,7 +343,8 @@ class MYAArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """Retrieve historical data for one or more channels.
@@ -354,7 +355,7 @@ class MYAArchiverConnector(ArchiverConnector):
             end_date: End of the time range.
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
                 resolution.
-            timeout: Optional timeout in seconds.
+            timeout_s: Optional timeout in seconds.
             processing: Aggregation within each bin. ``mean``/``min``/``max``/
                 ``std``/``count`` are computed by mystats server-side;
                 ``median`` is binned client-side from raw events because MYA
@@ -375,7 +376,8 @@ class MYAArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("MYA archiver not connected")
 
-        timeout = timeout or self._timeout
+        if timeout_s is None:
+            timeout_s = self._timeout
         start_utc, end_utc = utc_window(start_date, end_date)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
@@ -390,7 +392,7 @@ class MYAArchiverConnector(ArchiverConnector):
             return self._fetch_events(addresses, start_utc, end_utc)
 
         try:
-            series = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
+            series = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout_s)
 
             if server_side:
                 # mystats already binned, so aggregate_series is skipped -- but
@@ -415,7 +417,7 @@ class MYAArchiverConnector(ArchiverConnector):
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(f"MYA archiver request timed out after {timeout}s") from e
+            raise TimeoutError(f"MYA archiver request timed out after {timeout_s}s") from e
         except ConnectionRefusedError as e:
             raise ConnectorUnavailableError(
                 "Cannot connect to the MYA archiver. Check connectivity and configuration."

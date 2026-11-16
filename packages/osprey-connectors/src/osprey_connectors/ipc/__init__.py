@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         stop_host,
     )
     from osprey_connectors.ipc._pool import (
-        DEFAULT_CALL_DEADLINE_S,
+        DEFAULT_CALL_TIMEOUT_S,
         DEFAULT_PING_TIMEOUT_S,
         READONLY,
         ConnectorHostError,
@@ -76,7 +76,7 @@ __all__ = [
     "kill_host",
     "spawn_host",
     "stop_host",
-    "DEFAULT_CALL_DEADLINE_S",
+    "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
     "READONLY",
     "ConnectorHostError",
@@ -118,7 +118,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "kill_host": "osprey_connectors.ipc._launch",
     "spawn_host": "osprey_connectors.ipc._launch",
     "stop_host": "osprey_connectors.ipc._launch",
-    "DEFAULT_CALL_DEADLINE_S": "osprey_connectors.ipc._pool",
+    "DEFAULT_CALL_TIMEOUT_S": "osprey_connectors.ipc._pool",
     "DEFAULT_PING_TIMEOUT_S": "osprey_connectors.ipc._pool",
     "READONLY": "osprey_connectors.ipc._pool",
     "ConnectorHostError": "osprey_connectors.ipc._pool",

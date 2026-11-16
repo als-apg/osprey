@@ -83,7 +83,7 @@ class FakeBackend:
             "description": description,
         }
 
-    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def probe(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return f"{self.spec.type} answered"
 
 
@@ -111,7 +111,7 @@ class FakeDirectory(FakeBackend):
             if query.words in row.address and (not query.server or row.server in query.server)
         ]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         self.searches.append(query)
         await asyncio.sleep(self.search_delay)
         hits = self._hits(query)
@@ -127,12 +127,12 @@ class FakeDirectory(FakeBackend):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         self.counts.append(query)
         await asyncio.sleep(self.count_delay)
         return len(self._hits(query))
 
-    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.records.get(address, Outcome.NOT_LISTED)
 
 
@@ -147,13 +147,13 @@ class FakeAlarmState(FakeBackend):
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return AlarmStateRecord(severity="MAJOR")
 
-    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return Unavailable(reason="no message from the feed yet")
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
@@ -373,7 +373,7 @@ def test_the_filter_cap_answers_display_filter_cap(
 async def test_a_zero_count_drops_the_backend_count_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def search(self: Any, query: Any, deadline: float) -> Any:  # noqa: ARG001 - a fake
+    async def search(self: Any, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG001 - a fake
         return DirectoryPage(
             outcome=Outcome.NO_MATCH,
             searched="from the backend",

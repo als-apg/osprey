@@ -56,7 +56,7 @@ def test_request_frame_round_trips_method_and_kwargs():
         {
             "address": "SR:BEND:1:CUR",
             "value": 1.5,
-            "timeout": None,
+            "timeout_s": None,
             "verify": True,
             "retries": 3,
             "history": [1, 2.5, "three"],
@@ -72,7 +72,7 @@ def test_request_frame_round_trips_method_and_kwargs():
     assert frame.kwargs == {
         "address": "SR:BEND:1:CUR",
         "value": 1.5,
-        "timeout": None,
+        "timeout_s": None,
         "verify": True,
         "retries": 3,
         "history": [1, 2.5, "three"],
@@ -80,20 +80,20 @@ def test_request_frame_round_trips_method_and_kwargs():
         "at": TS,
     }
     assert frame.kwargs["verify"] is True
-    assert frame.kwargs["timeout"] is None
+    assert frame.kwargs["timeout_s"] is None
 
 
 def test_batched_multi_channel_read_request_round_trips():
     payload = frames.encode_request(
         "req-batch",
         "read_multiple_channels",
-        {"addresses": ["SR:A", "SR:B", "SR:C"], "timeout": 2.0},
+        {"addresses": ["SR:A", "SR:B", "SR:C"], "timeout_s": 2.0},
     )
     frame = _round_trip(payload)
 
     assert frame.method == "read_multiple_channels"
     assert frame.kwargs["addresses"] == ["SR:A", "SR:B", "SR:C"]
-    assert frame.kwargs["timeout"] == 2.0
+    assert frame.kwargs["timeout_s"] == 2.0
 
 
 def test_codec_does_not_validate_method_names():

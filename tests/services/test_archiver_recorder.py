@@ -602,10 +602,10 @@ class _StallingConnector:
         self.cancelled: list[str] = []
         self.timeouts: list[float | None] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         from osprey_connectors.control_system._base import ChannelValue
 
-        self.timeouts.append(timeout)
+        self.timeouts.append(timeout_s)
         if address in self.stalled:
             try:
                 await asyncio.Event().wait()

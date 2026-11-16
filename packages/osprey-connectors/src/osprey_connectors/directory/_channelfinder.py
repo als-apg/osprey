@@ -303,11 +303,11 @@ class ChannelFinderDirectory(ChannelDirectory):
             tags=[tag.name for tag in channel.tags or ()],
         )
 
-    async def _get(self, path: str, params: _Params | None, deadline: float) -> object:
-        return await self._transport.request("GET", path, params=params, deadline=deadline)
+    async def _get(self, path: str, params: _Params | None, timeout_s: float) -> object:
+        return await self._transport.request("GET", path, params=params, timeout_s=timeout_s)
 
     @override
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
         started = time.monotonic()
         searched = _searched(query)
         size = max(query.page_size, 0)
@@ -338,7 +338,7 @@ class ChannelFinderDirectory(ChannelDirectory):
 
         while True:
             narrowing = searches.pop(0)
-            left = deadline - (time.monotonic() - started)
+            left = timeout_s - (time.monotonic() - started)
             params: _Params = [*narrowing, ("~size", size), ("~from", start)]
             sent.append(_literal(_CHANNELS, params))
             body, counted = await asyncio.gather(
@@ -371,11 +371,11 @@ class ChannelFinderDirectory(ChannelDirectory):
             )
 
     @override
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
         started = time.monotonic()
         total: int | Unavailable = 0
         for narrowing in self._searches(query):
-            left = deadline - (time.monotonic() - started)
+            left = timeout_s - (time.monotonic() - started)
             total = _total(await self._get(_COUNT, narrowing, left))
             if total != 0:
                 break
@@ -383,10 +383,10 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     @override
     async def describe(
-        self, address: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         params: _Params = [("~name", _one_value(address)), ("~size", _DESCRIBE_SIZE)]
-        channels = _channels(await self._get(_CHANNELS, params, deadline))
+        channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):
             return channels
         for channel in channels:
@@ -395,17 +395,17 @@ class ChannelFinderDirectory(ChannelDirectory):
         return Outcome.NOT_LISTED
 
     @override
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:
-        names = _names(await self._get(_PROPERTIES, None, deadline))
+    async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:
+        names = _names(await self._get(_PROPERTIES, None, timeout_s))
         return names if isinstance(names, Unavailable) else sorted(names)
 
     @override
     async def property_values(
-        self, property: str, *, prefix: str | None = None, deadline: float
+        self, property: str, *, prefix: str | None = None, timeout_s: float
     ) -> list[str] | Unavailable:
         wanted = f"{_one_value(prefix)}*" if prefix else "*"
         params: _Params = [(property, wanted), ("~size", _VALUES_SIZE)]
-        channels = _channels(await self._get(_CHANNELS, params, deadline))
+        channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):
             return channels
         values = {_properties_of(channel).get(property) for channel in channels}
@@ -414,10 +414,10 @@ class ChannelFinderDirectory(ChannelDirectory):
         )
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         names, sample = await asyncio.gather(
-            self.property_names(deadline),
-            self._get(_CHANNELS, [("~name", "*"), ("~size", _PROBE_SAMPLE_SIZE)], deadline),
+            self.property_names(timeout_s=timeout_s),
+            self._get(_CHANNELS, [("~name", "*"), ("~size", _PROBE_SAMPLE_SIZE)], timeout_s),
         )
         if isinstance(names, Unavailable):
             return names

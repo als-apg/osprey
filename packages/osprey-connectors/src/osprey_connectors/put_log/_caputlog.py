@@ -87,12 +87,12 @@ class CaPutLog(PutLog):
 
     @override
     async def history(
-        self, address: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[PutRow]:
         """The logged writes of *address*, newest first within the page the service returned."""
         limit = max(1, min(limit, _MAX_ROWS))
         # One row past the limit, so a full page differs from one that just fills.
-        envelope = await self._search(f"{address}.*", limit + 1, deadline)
+        envelope = await self._search(f"{address}.*", limit + 1, timeout_s)
         if isinstance(envelope, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=envelope.reason)
 
@@ -110,18 +110,18 @@ class CaPutLog(PutLog):
         return self._page(Outcome.FOUND, rows=rows, truncated=truncated)
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether a search answers; the root's status is not a request this backend may send."""
-        envelope = await self._search("", 1, deadline)
+        envelope = await self._search("", 1, timeout_s)
         return envelope if isinstance(envelope, Unavailable) else "search answered"
 
-    async def _search(self, term: str, rows: int, deadline: float) -> _Envelope | Unavailable:
+    async def _search(self, term: str, rows: int, timeout_s: float) -> _Envelope | Unavailable:
         body = {
             "state": {"searchTerm": term, "current": 1, "resultsPerPage": rows},
             "queryConfig": {"search_fields": {"pv": {}}},
         }
         answer = await self._transport.request(
-            "POST", _SEARCH_PATH, json_body=body, deadline=deadline
+            "POST", _SEARCH_PATH, json_body=body, timeout_s=timeout_s
         )
         if isinstance(answer, Unavailable):
             return answer

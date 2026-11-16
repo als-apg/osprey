@@ -54,14 +54,15 @@ class _StubConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
     async def write_channel(
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         raise NotImplementedError
@@ -70,7 +71,7 @@ class _StubConnector(ControlSystemConnector):
         raise NotImplementedError
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 

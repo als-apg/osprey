@@ -735,7 +735,7 @@ class TestQueryShapeWithoutDocker:
                 addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
-                timeout=0,
+                timeout_s=0,
             )
 
     @pytest.mark.asyncio

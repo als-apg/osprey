@@ -121,7 +121,7 @@ async def checked_write(
     if confirm is not None:
         call_kwargs["confirm"] = confirm
     if timeout is not None:
-        call_kwargs["timeout"] = timeout
+        call_kwargs["timeout_s"] = timeout
 
     if on_attempt is not None:
         on_attempt(address)

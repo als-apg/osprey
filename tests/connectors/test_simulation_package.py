@@ -179,8 +179,8 @@ def test_a_status_channel_is_read_through_the_connector_and_decoded(value):
     read: list[str] = []
 
     class _Connector:
-        async def read_channel(self, address, timeout=None):
-            del timeout
+        async def read_channel(self, address, *, timeout_s=None):
+            del timeout_s
             read.append(address)
             return SimpleNamespace(value=value)
 

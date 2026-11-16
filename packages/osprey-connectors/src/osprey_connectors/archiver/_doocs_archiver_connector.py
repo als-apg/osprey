@@ -160,7 +160,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -171,7 +172,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
-            timeout: Timeout in seconds. ``None`` falls back to the connector's
+            timeout_s: Timeout in seconds. ``None`` falls back to the connector's
                 configured default rather than waiting indefinitely.
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
@@ -190,7 +191,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         """
 
         # asyncio.wait_for(timeout=None) would block indefinitely.
-        bound: float = timeout if timeout is not None else self._timeout
+        bound: float = timeout_s if timeout_s is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")

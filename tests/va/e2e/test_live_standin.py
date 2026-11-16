@@ -553,7 +553,7 @@ def stamped_root(module_environment, monkeypatch):
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:
     """One value off the wire, through whichever child is serving right now."""
-    value = await manager.active_proxy().read_channel(address, timeout=READ_TIMEOUT_S)
+    value = await manager.active_proxy().read_channel(address, timeout_s=READ_TIMEOUT_S)
     assert isinstance(value, ChannelValue)
     return value.value
 
@@ -584,7 +584,9 @@ async def refused_write(manager: ConnectorHostManager, address: str, value: floa
     message should say so.
     """
     try:
-        result = await manager.active_proxy().write_channel(address, value, timeout=READ_TIMEOUT_S)
+        result = await manager.active_proxy().write_channel(
+            address, value, timeout_s=READ_TIMEOUT_S
+        )
     except ChannelLimitsViolationError as exc:
         return Refusal(
             kind=type(exc).__name__,

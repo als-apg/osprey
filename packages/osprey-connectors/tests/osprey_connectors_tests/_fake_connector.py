@@ -185,16 +185,17 @@ class FakeConnector(ControlSystemConnector):
     async def read_channel(
         self,
         address: str,
-        timeout: float | None = None,  # noqa: ARG002 - the connector read signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the connector read signature
     ) -> ChannelValue:
         await asyncio.sleep(self._response_delay)
         self._require_up(address)
         return self._read_value(address)
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
-        return await self._read_concurrently(addresses, timeout)
+        return await self._read_concurrently(addresses, timeout_s)
 
     async def get_metadata(self, address: str) -> ChannelMetadata:
         self._require_up(address)
@@ -209,7 +210,8 @@ class FakeConnector(ControlSystemConnector):
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the connector write signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the connector write signature
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Validate limits, put the value, and confirm it by re-reading unless told not to."""

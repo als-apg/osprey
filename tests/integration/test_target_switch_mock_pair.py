@@ -357,17 +357,17 @@ class TestRoutingFollowsTheActiveTarget:
         connector = await pair.context.control_system()
         assert isinstance(connector.connector, ConnectorHostProxy)
         assert isinstance(
-            await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
+            await connector.read_channel(LIVE_PROBE, timeout_s=CALL_TIMEOUT_S), ChannelValue
         )
 
         await pair.manager.switch("va")
 
         connector = await pair.context.control_system()
         assert isinstance(
-            await connector.read_channel(VA_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
+            await connector.read_channel(VA_PROBE, timeout_s=CALL_TIMEOUT_S), ChannelValue
         )
         with pytest.raises(ChannelUnreachableError):
-            await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)
+            await connector.read_channel(LIVE_PROBE, timeout_s=CALL_TIMEOUT_S)
 
     async def test_the_roster_and_the_report_file_report_the_new_target(self, pair):
         """What the operator and every out-of-process reader are told.
@@ -424,7 +424,7 @@ class TestRefusalsCrossTheServingSeam:
 
         with pytest.raises(ChannelLimitsViolationError) as raised:
             await connector.write_channel(
-                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout=CALL_TIMEOUT_S
+                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
             )
 
         exc = raised.value
@@ -453,7 +453,7 @@ class TestRefusalsCrossTheServingSeam:
 
         with pytest.raises(ChannelLimitsViolationError):
             await connector.write_channel(
-                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout=CALL_TIMEOUT_S
+                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
             )
 
         assert value_read(await read_through_the_tool(SHARED_CHANNEL), SHARED_CHANNEL) == LIVE_SEED
@@ -488,7 +488,7 @@ class TestBatchedReadsCrossOnce:
 
         with counted_frames() as log:
             readings = await connector.read_multiple_channels(
-                list(BATCH_CHANNELS), timeout=CALL_TIMEOUT_S
+                list(BATCH_CHANNELS), timeout_s=CALL_TIMEOUT_S
             )
 
         assert log.requests == ["read_multiple_channels"]
@@ -504,7 +504,7 @@ class TestBatchedReadsCrossOnce:
 
         with counted_frames() as log:
             for address in BATCH_CHANNELS:
-                await connector.read_channel(address, timeout=CALL_TIMEOUT_S)
+                await connector.read_channel(address, timeout_s=CALL_TIMEOUT_S)
 
         assert log.requests == ["read_channel"] * len(BATCH_CHANNELS)
         assert len(log.replies) == len(BATCH_CHANNELS)
@@ -819,7 +819,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
         connector = await deployment.context.control_system()
         assert isinstance(connector.connector, ConnectorHostProxy)
         assert isinstance(
-            await connector.read_channel(VA_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
+            await connector.read_channel(VA_PROBE, timeout_s=CALL_TIMEOUT_S), ChannelValue
         )
 
         await move_the_deployment(deployment.manager, "live")
@@ -831,4 +831,4 @@ class TestTheSimulatorInProcessIsTheBaseline:
         assert value_read(back, SHARED_CHANNEL) == pytest.approx(IN_PROCESS_SEED)
         connector = await deployment.context.control_system()
         with pytest.raises(ChannelNotFoundError):
-            await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)
+            await connector.read_channel(LIVE_PROBE, timeout_s=CALL_TIMEOUT_S)

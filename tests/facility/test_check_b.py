@@ -188,9 +188,9 @@ class ReplicaRuntime:
         return self._reading(self.composite.get([address])[address])
 
     async def read_multiple_channels(
-        self, addresses: Sequence[str], timeout: float | None = None
+        self, addresses: Sequence[str], *, timeout_s: float | None = None
     ) -> dict[str, Any]:
-        del timeout
+        del timeout_s
         values = self.composite.get(list(addresses))
         return {address: self._reading(values[address]) for address in addresses}
 

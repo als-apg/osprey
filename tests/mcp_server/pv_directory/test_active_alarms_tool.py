@@ -66,7 +66,7 @@ class FakeAlarmState:
     async def aclose(self) -> None:
         pass
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.listed
 
 

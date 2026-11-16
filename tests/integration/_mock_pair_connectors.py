@@ -141,7 +141,8 @@ class _PairConnector(ControlSystemConnector):
     async def read_channel(
         self,
         address: str,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelValue:
         if address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
@@ -152,10 +153,10 @@ class _PairConnector(ControlSystemConnector):
         )
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         readings = await asyncio.gather(
-            *(self.read_channel(address, timeout=timeout) for address in addresses),
+            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
             return_exceptions=True,
         )
         return {
@@ -168,7 +169,8 @@ class _PairConnector(ControlSystemConnector):
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelWriteResult:
         if address == LIMITS_CHANNEL:

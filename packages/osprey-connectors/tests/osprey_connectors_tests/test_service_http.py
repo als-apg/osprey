@@ -150,7 +150,7 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
     ],
 )
 async def test_a_refused_request_never_reaches_the_network(service, allowed, method, path):
-    answer = await _transport(service, allowed).request(method, path, deadline=5)
+    answer = await _transport(service, allowed).request(method, path, timeout_s=5)
 
     assert isinstance(answer, Unavailable)
     assert method in answer.reason and "refused" in answer.reason
@@ -160,7 +160,7 @@ async def test_a_refused_request_never_reaches_the_network(service, allowed, met
 async def test_a_refusal_comes_before_a_broken_connection_block():
     transport = ReadOnlyTransport({"headers": {}}, CHANNELFINDER, where="pv_directory.settings")
 
-    answer = await transport.request("DELETE", "/resources/channels", deadline=5)
+    answer = await transport.request("DELETE", "/resources/channels", timeout_s=5)
 
     assert isinstance(answer, Unavailable) and "refused" in answer.reason
 
@@ -181,7 +181,7 @@ async def test_a_refusal_comes_before_a_broken_connection_block():
 async def test_an_allowed_request_is_sent(service, allowed, method, path, sent):
     service.answer(sent, 200, JSON, b"[]")
 
-    answer = await _transport(service, allowed).request(method, path, deadline=5)
+    answer = await _transport(service, allowed).request(method, path, timeout_s=5)
 
     assert answer == []
     assert [(r["method"], r["target"]) for r in service.received] == [(method, sent)]
@@ -196,7 +196,7 @@ async def test_the_base_path_is_kept_and_the_trailing_slash_of_root_is_sent(serv
         {"url": f"{service.url}/alarm-logger/"}, ALARM_LOGGER, where="alarm_log.settings"
     )
 
-    assert await transport.request("GET", "/", deadline=5) == {}
+    assert await transport.request("GET", "/", timeout_s=5) == {}
     assert service.received[0]["target"] == "/alarm-logger/"
 
 
@@ -207,7 +207,7 @@ async def test_params_are_percent_encoded_in_the_query_and_may_repeat(service):
         "GET",
         "/resources/channels",
         params=[("~name", "SR *"), ("~size", 50), ("~tag", "a"), ("~tag", "b")],
-        deadline=5,
+        timeout_s=5,
     )
 
     assert service.received[0]["target"] == (
@@ -219,7 +219,7 @@ async def test_a_search_posts_its_json_body(service):
     service.answer("/search", 200, JSON, b'{"results": []}')
 
     answer = await _transport(service, PUT_LOG).request(
-        "POST", "/search", json_body={"query": "SR:PV"}, deadline=5
+        "POST", "/search", json_body={"query": "SR:PV"}, timeout_s=5
     )
 
     assert answer == {"results": []}
@@ -232,7 +232,7 @@ async def test_a_token_login_is_sent_from_the_named_variable(service, monkeypatc
     service.answer("/resources/tags", 200, JSON, b"[]")
 
     await _transport(service, auth={"token_env": "DIRECTORY_TOKEN"}).request(
-        "GET", "/resources/tags", deadline=5
+        "GET", "/resources/tags", timeout_s=5
     )
 
     assert service.received[0]["headers"]["Authorization"] == "Bearer s3cret"
@@ -254,7 +254,7 @@ async def test_a_token_login_is_sent_from_the_named_variable(service, monkeypatc
 async def test_any_content_type_but_html_is_parsed_as_json(service, content_type, body, parsed):
     service.answer("/resources/channels", 200, content_type, body)
 
-    assert await _transport(service).request("GET", "/resources/channels", deadline=5) == parsed
+    assert await _transport(service).request("GET", "/resources/channels", timeout_s=5) == parsed
 
 
 @pytest.mark.parametrize(
@@ -273,7 +273,7 @@ async def test_any_content_type_but_html_is_parsed_as_json(service, content_type
 async def test_html_reads_as_a_login_page(service, status, content_type, body):
     service.answer("/resources/channels", status, content_type, body)
 
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert answer.reason == (
@@ -295,7 +295,7 @@ async def test_html_reads_as_a_login_page(service, status, content_type, body):
 async def test_html_with_any_other_status_names_the_status(service, status, content_type, body):
     service.answer("/resources/channels", status, content_type, body)
 
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason=f"answered HTTP {status}")
 
@@ -305,7 +305,7 @@ async def test_a_redirect_reads_as_a_login_page_and_is_not_followed(service, sta
     service.redirect("/resources/channels", status, f"{service.url}/sso/login")
     service.answer("/sso/login", 200, JSON, b"[]")
 
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert [r["target"] for r in service.received] == ["/resources/channels"]
@@ -314,7 +314,9 @@ async def test_a_redirect_reads_as_a_login_page_and_is_not_followed(service, sta
 async def test_a_redirect_of_a_post_is_not_followed(service):
     service.redirect("/search", 307, f"{service.url}/elsewhere")
 
-    answer = await _transport(service, PUT_LOG).request("POST", "/search", json_body={}, deadline=5)
+    answer = await _transport(service, PUT_LOG).request(
+        "POST", "/search", json_body={}, timeout_s=5
+    )
 
     assert answer == Unavailable(reason=LOGIN_PAGE_REASON)
     assert [r["target"] for r in service.received] == ["/search"]
@@ -324,7 +326,7 @@ async def test_a_redirect_of_a_post_is_not_followed(service):
 async def test_a_body_that_is_not_json_is_malformed(service, body):
     service.answer("/resources/channels", 200, "application/json", body)
 
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason="malformed response")
 
@@ -333,7 +335,7 @@ async def test_a_body_that_is_not_json_is_malformed(service, body):
 async def test_an_error_status_is_named(service, status):
     service.answer("/resources/channels", status, JSON, b"{}")
 
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason=f"answered HTTP {status}")
 
@@ -346,7 +348,7 @@ async def test_a_silent_service_answers_no_answer_within_the_deadline(service):
     service.answer("/resources/channels", 200, JSON, b"[]")
 
     started = time.monotonic()
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=0.2)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=0.2)
 
     assert answer == Unavailable(reason="no answer within 0.2 s")
     assert time.monotonic() - started < 2.0
@@ -356,14 +358,14 @@ async def test_a_shorter_configured_timeout_bounds_a_longer_deadline(service):
     service.hang_s = 3.0
 
     answer = await _transport(service, timeout_s=0.2).request(
-        "GET", "/resources/channels", deadline=60
+        "GET", "/resources/channels", timeout_s=60
     )
 
     assert answer == Unavailable(reason="no answer within 0.2 s")
 
 
 async def test_a_spent_deadline_sends_nothing(service):
-    answer = await _transport(service).request("GET", "/resources/channels", deadline=0)
+    answer = await _transport(service).request("GET", "/resources/channels", timeout_s=0)
 
     assert answer == Unavailable(reason="no answer within 0 s")
     assert service.received == []
@@ -398,7 +400,7 @@ async def test_a_body_dripped_past_the_deadline_times_out():
             where="pv_directory.settings",
         )
         started = time.monotonic()
-        answer = await transport.request("GET", "/resources/channels", deadline=0.3)
+        answer = await transport.request("GET", "/resources/channels", timeout_s=0.3)
     finally:
         server.shutdown()
         server.server_close()
@@ -416,8 +418,8 @@ async def test_a_reply_at_the_size_cap_is_read_and_one_byte_over_is_refused(serv
     service.answer("/resources/tags", 200, JSON, b" " * 2**20 + b"1")
     transport = _transport(service)
 
-    assert await transport.request("GET", "/resources/channels", deadline=5) == 1
-    answer = await transport.request("GET", "/resources/tags", deadline=5)
+    assert await transport.request("GET", "/resources/channels", timeout_s=5) == 1
+    answer = await transport.request("GET", "/resources/tags", timeout_s=5)
     assert answer == Unavailable(reason="answered more than 1 MiB")
 
 
@@ -433,7 +435,7 @@ async def test_a_declared_length_over_the_cap_is_refused_before_reading(monkeypa
 
     with _serving(do_get) as transport:
         started = time.monotonic()
-        answer = await transport.request("GET", "/resources/channels", deadline=30)
+        answer = await transport.request("GET", "/resources/channels", timeout_s=30)
 
     assert answer == Unavailable(reason="answered more than 1 MiB")
     assert time.monotonic() - started < 4.0
@@ -459,7 +461,7 @@ async def test_an_undeclared_reply_over_the_cap_stops_the_read(monkeypatch):
         finished.set()
 
     with _serving(do_get) as transport:
-        answer = await transport.request("GET", "/resources/channels", deadline=30)
+        answer = await transport.request("GET", "/resources/channels", timeout_s=30)
         assert finished.wait(5)
 
     assert answer == Unavailable(reason="answered more than 1 MiB")
@@ -491,7 +493,7 @@ def _chunked(handler: BaseHTTPRequestHandler, written: bytes) -> None:
 )
 async def test_a_body_cut_short_is_never_read_as_data(do_get):
     with _serving(do_get) as transport:
-        answer = await transport.request("GET", "/resources/channels/count", deadline=5)
+        answer = await transport.request("GET", "/resources/channels/count", timeout_s=5)
 
     assert isinstance(answer, Unavailable)
     assert answer.reason.startswith("could not reach the service")
@@ -503,7 +505,7 @@ async def test_a_complete_chunked_body_is_read():
         _chunked(handler, b"4\r\n1234\r\n0\r\n\r\n")
 
     with _serving(do_get) as transport:
-        assert await transport.request("GET", "/resources/channels/count", deadline=5) == 1234
+        assert await transport.request("GET", "/resources/channels/count", timeout_s=5) == 1234
 
 
 # --- a service or a block that cannot be used ---------------------------------------
@@ -517,7 +519,7 @@ async def test_a_closed_port_is_unavailable():
         {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="pv_directory.settings"
     )
 
-    answer = await transport.request("GET", "/resources/channels", deadline=5)
+    answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
     assert isinstance(answer, Unavailable)
     assert answer.reason.startswith("could not reach the service")
@@ -536,7 +538,7 @@ async def test_a_closed_port_is_unavailable():
 async def test_a_block_that_cannot_be_used_is_unavailable_naming_the_key(settings, named):
     transport = ReadOnlyTransport(settings, CHANNELFINDER, where="pv_directory.settings")
 
-    answer = await transport.request("GET", "/resources/channels", deadline=5)
+    answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
     assert isinstance(answer, Unavailable)
     assert named in answer.reason
@@ -558,7 +560,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
     monkeypatch.setenv("DIRECTORY_SECRET", secret)
     caplog.set_level(logging.DEBUG)
 
-    answer = await _transport(service, auth=auth).request("GET", "/resources/channels", deadline=5)
+    answer = await _transport(service, auth=auth).request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason="`pv_directory.settings`: the url or login cannot be sent")
     assert service.received == []
@@ -578,7 +580,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
 async def test_a_url_that_cannot_be_sent_is_unavailable_naming_the_block(url):
     transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="pv_directory.settings")
 
-    answer = await transport.request("GET", "/resources/channels", deadline=5)
+    answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(reason="`pv_directory.settings`: the url or login cannot be sent")
 
@@ -588,7 +590,7 @@ async def test_a_refused_login_names_the_status_not_the_login(service, monkeypat
     service.answer("/resources/channels", 401, JSON, b'{"error": "no"}')
 
     answer = await _transport(service, auth={"token_env": "DIRECTORY_SECRET"}).request(
-        "GET", "/resources/channels", deadline=5
+        "GET", "/resources/channels", timeout_s=5
     )
 
     assert answer == Unavailable(reason="answered HTTP 401")
@@ -603,7 +605,7 @@ async def test_a_query_that_cannot_be_encoded_sends_nothing(service, monkeypatch
     monkeypatch.setenv("DIRECTORY_SECRET", "tok-secret")
     transport = _transport(service, auth={"token_env": "DIRECTORY_SECRET"})
 
-    answer = await transport.request("GET", "/resources/channels", params=params, deadline=5)
+    answer = await transport.request("GET", "/resources/channels", params=params, timeout_s=5)
 
     assert answer == Unavailable(reason="the query cannot be sent")
     assert service.received == []
@@ -615,7 +617,7 @@ async def test_a_url_with_a_query_or_fragment_sends_nothing(service, suffix):
         {"url": service.url + suffix}, CHANNELFINDER, where="pv_directory.settings"
     )
 
-    answer = await transport.request("GET", "/resources/channels", deadline=5)
+    answer = await transport.request("GET", "/resources/channels", timeout_s=5)
 
     assert answer == Unavailable(
         reason="`pv_directory.settings.url` must not carry a query or fragment"

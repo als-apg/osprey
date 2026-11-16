@@ -22,9 +22,9 @@ from typing import Any
 
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.control_system import (
-    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    DEFAULT_STEP_READ_TIMEOUT_S,
     STEP_READ_TIMEOUT_KEY,
-    step_read_timeout_seconds,
+    step_read_timeout_s,
 )
 from osprey_connectors.logger import get_logger
 
@@ -105,7 +105,7 @@ def write_budget(config: Mapping[str, Any]) -> WriteBudget:
         The budget.
     """
     timeouts = [DEFAULT_TIMEOUT_S]
-    step_reads = [DEFAULT_STEP_READ_TIMEOUT_SECONDS]
+    step_reads = [DEFAULT_STEP_READ_TIMEOUT_S]
     for connector_type, block in _connector_blocks(config).items():
         if not isinstance(block, Mapping):
             logger.warning(
@@ -119,7 +119,7 @@ def write_budget(config: Mapping[str, Any]) -> WriteBudget:
             logger.warning("%s; the write budget skips this block", exc)
             continue
         timeouts.append(timeout)
-        step_reads.append(step_read_timeout_seconds(block, str(connector_type)))
+        step_reads.append(step_read_timeout_s(block, str(connector_type)))
     step_read = min(max(step_reads), MAX_WRITE_BOUND_S - 2 * MIN_CALL_BOUND_S)
     timeout = min(max(timeouts), (MAX_WRITE_BOUND_S - step_read) / 2)
     bound = step_read + 2 * timeout
@@ -162,14 +162,14 @@ def bound_budget(
     _refuse_non_finite("the write budget's T", budget.T)
     _refuse_non_finite("the write budget's S", budget.S)
     timeout = min(call_timeout_s(declared, connector_type), budget.T)
-    step_read = min(step_read_timeout_seconds(declared, connector_type), budget.S)
+    step_read = min(step_read_timeout_s(declared, connector_type), budget.S)
     return timeout, step_read, step_read + 2 * timeout
 
 
 def _refuse_non_finite_step_read(block: Mapping[str, Any], connector_type: str | None) -> None:
     """Refuse a block whose step-read ceiling is a non-finite number.
 
-    :func:`step_read_timeout_seconds` falls back on a value it cannot use, but
+    :func:`step_read_timeout_s` falls back on a value it cannot use, but
     NaN passes its ``<= 0`` check and would poison ``min`` with NaN, and an
     infinite ceiling is no bound at all, so both are refused here by name.
     """

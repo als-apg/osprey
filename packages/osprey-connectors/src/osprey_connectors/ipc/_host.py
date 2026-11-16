@@ -154,9 +154,9 @@ N channels cost one request frame and one result frame rather than N of each.
 Requests are dispatched as tasks and may complete in any order; the parent
 matches replies by ``request_id``.
 
-``spawn_probe {address, timeout}`` is the readiness check the parent runs
+``spawn_probe {address, timeout_s}`` is the readiness check the parent runs
 against a freshly spawned child before it swaps traffic over: a real read of
-one named channel, bounded by ``timeout``, returning that channel's
+one named channel, bounded by ``timeout_s``, returning that channel's
 :class:`~osprey_connectors.control_system.ChannelValue`. It is a distinct
 method because a probe is allowed to fail without meaning anything is wrong
 with the child — a failed probe aborts a switch, and this child keeps serving.
@@ -857,14 +857,17 @@ async def _refuse(frame: _Undecodable, writer: _FrameWriter) -> None:
 
 
 async def _spawn_probe(
-    connector: ControlSystemConnector, address: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
+    connector: ControlSystemConnector,
+    address: object,
+    *,
+    timeout_s: object = DEFAULT_PROBE_TIMEOUT_S,
 ) -> ChannelValue:
     """Read one named channel under a hard bound.
 
     Args:
         connector: The live connector.
         address: Channel address to read.
-        timeout: Seconds to allow, defaulting to
+        timeout_s: Seconds to allow, defaulting to
             :data:`DEFAULT_PROBE_TIMEOUT_S`. The bound is applied here as well
             as being passed to the connector: a control-system client that
             ignores its own timeout must not be able to hang the switch that is
@@ -885,16 +888,18 @@ async def _spawn_probe(
     """
     if not isinstance(address, str):
         raise TypeError(f"spawn_probe address must be a channel address, got {address!r}")
-    if timeout is None:
+    if timeout_s is None:
         bound = DEFAULT_PROBE_TIMEOUT_S
-    elif isinstance(timeout, str | SupportsFloat):
-        bound = float(timeout)
+    elif isinstance(timeout_s, str | SupportsFloat):
+        bound = float(timeout_s)
     else:
-        raise TypeError(f"spawn_probe timeout must be a number, got {timeout!r}")
+        raise TypeError(f"spawn_probe timeout_s must be a number, got {timeout_s!r}")
     if bound <= 0:
-        raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
+        raise ValueError(f"spawn_probe timeout_s must be positive, got {timeout_s!r}")
     try:
-        return await asyncio.wait_for(connector.read_channel(address, timeout=bound), timeout=bound)
+        return await asyncio.wait_for(
+            connector.read_channel(address, timeout_s=bound), timeout=bound
+        )
     except TimeoutError as exc:
         reason = f"probe read of {address!r} timed out after {bound}s"
         # A connector that reported its own timeout said something more

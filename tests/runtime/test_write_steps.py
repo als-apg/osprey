@@ -103,12 +103,13 @@ class _Connector(ControlSystemConnector):
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         kwargs = {}
-        if timeout is not None:
-            kwargs["timeout"] = timeout
+        if timeout_s is not None:
+            kwargs["timeout_s"] = timeout_s
         if confirm is not None:
             kwargs["confirm"] = confirm
         self.events.append(("connector", address))
@@ -119,10 +120,10 @@ class _Connector(ControlSystemConnector):
 
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):
         raise NotImplementedError
 
     async def subscribe(self, address, callback, *, on_connection=None) -> str:
@@ -241,7 +242,7 @@ class TestCheckedWriteArguments:
         result = await _write(connector, None, confirm=False, timeout=2.5)
 
         assert result.outcome == WriteOutcome.UNREQUESTED
-        assert connector.calls == [("TEST:PV", 42.0, {"confirm": False, "timeout": 2.5})]
+        assert connector.calls == [("TEST:PV", 42.0, {"confirm": False, "timeout_s": 2.5})]
 
     async def test_the_call_goes_through_the_checked_door(self, monkeypatch):
         connector = _Connector([])
@@ -257,7 +258,7 @@ class TestCheckedWriteArguments:
         await _write(connector, None, timeout=1.0)
 
         assert doors == ["write_channel_checked"]
-        assert connector.calls == [("TEST:PV", 42.0, {"timeout": 1.0})]
+        assert connector.calls == [("TEST:PV", 42.0, {"timeout_s": 1.0})]
 
 
 class TestCheckedWriteDenialContract:

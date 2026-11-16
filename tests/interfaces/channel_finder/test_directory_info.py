@@ -58,24 +58,24 @@ LABELLED = {"type": "labelled", "settings": {"url": "http://directory.example"}}
 class LabelledDirectory(ChannelDirectory):
     """A facility directory of an out-of-tree type."""
 
-    async def search(self, query: Any, deadline: float) -> Any:
+    async def search(self, query: Any, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def count(self, query: Any, deadline: float) -> Any:
+    async def count(self, query: Any, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def describe(self, address: str, deadline: float) -> Any:
+    async def describe(self, address: str, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def property_names(self, deadline: float) -> Any:
+    async def property_names(self, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
     async def property_values(
-        self, property: str, *, prefix: str | None = None, deadline: float
+        self, property: str, *, prefix: str | None = None, timeout_s: float
     ) -> Any:
         raise NotImplementedError
 
-    async def probe(self, deadline: float) -> Any:
+    async def probe(self, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
 

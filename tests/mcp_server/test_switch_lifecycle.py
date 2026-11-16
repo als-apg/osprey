@@ -46,7 +46,7 @@ from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc._launch import host_env
-from osprey_connectors.ipc._pool import DEFAULT_CALL_DEADLINE_S
+from osprey_connectors.ipc._pool import DEFAULT_CALL_TIMEOUT_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import (
     Endpoint,
@@ -207,12 +207,12 @@ class TestSuccessfulSwitch:
 
         await manager.switch("va")
 
-        value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
+        value = await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0)
         assert isinstance(value, ChannelValue)
         # The refusing channel is the fixture connector's, so this really is the
         # VA child answering and not the mock the live target left behind.
         with pytest.raises(ChannelUnreachableError):
-            await manager.active_proxy().read_channel(REFUSE_CHANNEL, timeout=10.0)
+            await manager.active_proxy().read_channel(REFUSE_CHANNEL, timeout_s=10.0)
 
     async def test_the_result_names_the_type_and_the_probe_channel_it_proved(self, make_manager):
         manager = await started_on(make_manager, "live")
@@ -245,7 +245,7 @@ class TestSuccessfulSwitch:
         assert result["target"] == "va"
         assert manager.active_target() == "va"
         assert isinstance(
-            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_a_round_trip_reports_the_generation_it_was_given_each_way(self, make_manager):
@@ -301,7 +301,7 @@ class TestSuccessfulSwitch:
         assert record["applied_target"] == "va"
         assert record["applied_generation"] == 1
         assert isinstance(
-            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0), ChannelValue
         )
 
 
@@ -331,7 +331,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert manager.status()["child_pid"] == manager.spawned[0].pid
 
         # And the previous child is still serving, not merely still running.
-        value = await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0)
+        value = await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0)
         assert isinstance(value, ChannelValue)
 
     async def test_a_probe_that_times_out_names_the_channel_in_the_refusal(self, make_manager):
@@ -412,7 +412,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert manager.active_target() == "live"
         assert manager.active_generation() == 0
         assert isinstance(
-            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_a_child_whose_posture_is_not_the_derived_one_is_refused(
@@ -442,7 +442,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert manager.active_target() == "live"
         assert manager.active_generation() == 0
         assert isinstance(
-            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_a_target_without_a_probe_channel_is_refused_before_any_spawn(self, make_manager):
@@ -561,7 +561,7 @@ class TestDeadWriteGatewayFallback:
             "the write-role candidate outlived the probe that failed it"
         )
         # And the child that landed really serves reads on the read gateway.
-        value = await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0)
+        value = await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0)
         assert isinstance(value, ChannelValue)
 
     async def test_a_write_after_a_fallback_landing_is_still_refused(
@@ -577,7 +577,7 @@ class TestDeadWriteGatewayFallback:
         manager = await self._stranded_session(make_manager, write_armed_project)
         await manager.switch("live")
 
-        result = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+        result = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
@@ -600,7 +600,7 @@ class TestDeadWriteGatewayFallback:
         assert result["write_gateway_fallback"]["port"] == DEAD_WRITE_PORT
         assert manager.active_target() == "live"
         assert isinstance(
-            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_the_fallback_landing_is_published_as_the_read_gateway(
@@ -695,7 +695,7 @@ class TestProbeFailureNamesTheGateway:
         assert "write_access" in error.detail
         assert manager.active_target() == "va"
         # Nothing about the failed pair of launches moved the session.
-        value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
+        value = await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0)
         assert isinstance(value, ChannelValue)
 
 
@@ -747,9 +747,9 @@ class TestPerTargetPosture:
         manager = await mixed_session(make_manager, va_armed_project)
         await manager.switch("va")
 
-        armed = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        armed = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout_s=10.0)
         await manager.switch("live")
-        refused = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+        refused = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert armed.outcome is not WriteOutcome.REFUSED
         assert refused.outcome is WriteOutcome.REFUSED
@@ -788,7 +788,7 @@ class TestTheSwitchGovernsWrites:
         arm(state_root, "va")
         manager, result = await self._on_va(make_manager, tier_project)
 
-        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert result["target"] == "va"
         assert result["selected_role"] == "write_access"
@@ -800,7 +800,7 @@ class TestTheSwitchGovernsWrites:
         arm(state_root)
         manager, result = await self._on_va(make_manager, tier_project)
 
-        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert result["target"] == "va"
         assert result["selected_role"] == "read_only"
@@ -984,7 +984,7 @@ class TestDraining:
         await manager.switch("live")
 
         with pytest.raises(ConnectionError) as raised:
-            await retired.read_channel(LIVE_PROBE, timeout=5.0)
+            await retired.read_channel(LIVE_PROBE, timeout_s=5.0)
         assert "target switch" in str(raised.value)
         assert "'live'" in str(raised.value)
 
@@ -1007,7 +1007,7 @@ class TestRespawn:
     async def test_the_launched_child_has_the_reference_call_deadline(self, make_manager):
         manager = await started_on(make_manager, "live")
 
-        assert manager.active_proxy()._deadline_s == DEFAULT_CALL_DEADLINE_S
+        assert manager.active_proxy()._call_timeout_s == DEFAULT_CALL_TIMEOUT_S
 
     async def test_a_same_target_respawn_replaces_the_process_without_a_generation_bump(
         self, make_manager
@@ -1024,7 +1024,7 @@ class TestRespawn:
         assert manager.active_generation() == generation
         assert manager.status()["child_pid"] != first_pid
         assert isinstance(
-            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0), ChannelValue
         )
         assert target_state.read()["children"] == [manager.status()["child_pid"]]
 
@@ -1151,7 +1151,7 @@ class TestTheDestinationAlreadyAnswers:
         assert result["child_pid"] == pid
         # The child that was never touched is the one still answering.
         assert isinstance(
-            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_the_no_op_answer_has_the_shape_a_real_switch_returns(self, make_manager):
@@ -1305,7 +1305,7 @@ class TestReconcileToTheRecord:
         assert result["respawned"] is False
         assert result["child_pid"] == child_pid
         assert isinstance(
-            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_a_same_target_reconcile_republishes_the_binding_and_the_terminus(
@@ -1389,7 +1389,7 @@ class TestReconcileToTheRecord:
             "the child for the previous target was still running after the reconcile"
         )
         assert isinstance(
-            await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_reconcile_to_the_same_target_and_generation_publishes_nothing_new(
@@ -2075,7 +2075,7 @@ class TestServingFromTheChild:
             before = await context.control_system()
             served_before = before.connector
             assert isinstance(served_before, ConnectorHostProxy)
-            assert isinstance(await before.read_channel(LIVE_PROBE, timeout=10.0), ChannelValue)
+            assert isinstance(await before.read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue)
 
             result = await manager.switch("va")
 
@@ -2085,8 +2085,8 @@ class TestServingFromTheChild:
             # The VA child is the fixture connector, which refuses this channel:
             # the read is being served by the process the switch just adopted.
             with pytest.raises(ChannelUnreachableError):
-                await after.read_channel(REFUSE_CHANNEL, timeout=10.0)
-            assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
+                await after.read_channel(REFUSE_CHANNEL, timeout_s=10.0)
+            assert isinstance(await after.read_channel(VA_PROBE, timeout_s=10.0), ChannelValue)
             assert result["child_pid"] == manager.status()["child_pid"]
 
         # Nothing was ever cached in the in-process entry.
@@ -2102,13 +2102,13 @@ class TestServingFromTheChild:
         spawned = len(manager.spawned)
 
         with pytest.raises(ConnectorUnavailableError, match="nothing was sent") as raised:
-            await before.write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+            await before.write_channel("SR:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert "'live'" in str(raised.value) and "'va'" in str(raised.value)
         assert raised.value.recovery == ()
         assert len(manager.spawned) == spawned
         after = await context.control_system()
-        assert isinstance(await after.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
+        assert isinstance(await after.read_channel(VA_PROBE, timeout_s=10.0), ChannelValue)
 
     async def test_a_write_is_answered_by_the_child_that_serves_the_target(self, make_manager):
         """A write crosses the boundary and comes back with the child's verdict.
@@ -2121,7 +2121,7 @@ class TestServingFromTheChild:
         context = context_for(manager)
 
         connector = await context.control_system()
-        result = await connector.write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+        result = await connector.write_channel("SR:CORR:1:SP", 0.5, timeout_s=10.0)
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
@@ -2163,7 +2163,7 @@ class TestServingFromTheChild:
         assert manager.active_target() == "live"
         assert result["probe_channel"] == ""
         assert isinstance(
-            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout_s=10.0), ChannelValue
         )
 
     async def test_the_two_unprobed_launches_say_which_one_they_are(self, make_manager, caplog):
@@ -2203,7 +2203,7 @@ class TestNoChildRefusal:
         assert await wait_for(lambda: not manager.has_child())
 
         with pytest.raises(NoConnectorHostError) as raised:
-            await connector.read_channel(VA_PROBE, timeout=10.0)
+            await connector.read_channel(VA_PROBE, timeout_s=10.0)
 
         refusal = raised.value
         assert isinstance(refusal, ConnectorUnavailableError)
@@ -2227,7 +2227,7 @@ class TestNoChildRefusal:
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
         assert await wait_for(lambda: not manager.has_child())
         refusals = await asyncio.gather(
-            *(connector.read_channel(VA_PROBE, timeout=10.0) for _ in range(3)),
+            *(connector.read_channel(VA_PROBE, timeout_s=10.0) for _ in range(3)),
             return_exceptions=True,
         )
 
@@ -2237,7 +2237,7 @@ class TestNoChildRefusal:
         assert len(manager.spawned) == 2
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation
-        assert isinstance(await connector.read_channel(VA_PROBE, timeout=10.0), ChannelValue)
+        assert isinstance(await connector.read_channel(VA_PROBE, timeout_s=10.0), ChannelValue)
         assert len(manager.spawned) == 2
 
 

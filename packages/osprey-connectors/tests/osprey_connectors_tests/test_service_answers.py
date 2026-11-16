@@ -75,30 +75,30 @@ def _spec(**changes) -> BackendSpec:
 
 
 class _Directory(ChannelDirectory):
-    async def search(self, query, deadline):
+    async def search(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def count(self, query, deadline):
+    async def count(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def describe(self, address, deadline):
+    async def describe(self, address, *, timeout_s):
         raise NotImplementedError
 
-    async def property_names(self, deadline):
+    async def property_names(self, *, timeout_s):
         raise NotImplementedError
 
-    async def property_values(self, property, *, prefix=None, deadline):
+    async def property_values(self, property, *, prefix=None, timeout_s):
         raise NotImplementedError
 
-    async def probe(self, deadline):
+    async def probe(self, *, timeout_s):
         raise NotImplementedError
 
 
 class _Log(PutLog):
-    async def history(self, address, since, limit, deadline):
+    async def history(self, address, since, limit, *, timeout_s):
         raise NotImplementedError
 
-    async def probe(self, deadline):
+    async def probe(self, *, timeout_s):
         raise NotImplementedError
 
 
@@ -122,7 +122,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
-        (PutRow, ["at", "channel", "field", "old", "new", "user", "client"]),
+        (PutRow, ["at", "address", "field", "old", "new", "user", "client"]),
         (
             HistoryPage,
             ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
@@ -131,7 +131,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
             AlarmStateRecord,
             ["severity", "status", "latched", "acknowledged", "message", "time", "stale"],
         ),
-        (AlarmStateRow, ["channel", "path", "state"]),
+        (AlarmStateRow, ["address", "path", "state"]),
         (AlarmStates, ["rows", "stale", "last_contact"]),
         (
             AlarmConfigRecord,
@@ -216,13 +216,14 @@ def test_an_abc_declares_exactly_its_methods(abc, methods):
 
 
 @pytest.mark.parametrize(("abc", "methods"), ABCS.items(), ids=lambda v: getattr(v, "__name__", ""))
-def test_every_method_is_async_and_a_read_takes_a_deadline_last(abc, methods):
+def test_every_method_is_async_and_a_read_takes_a_keyword_only_timeout_s_last(abc, methods):
     for method in methods:
         func = getattr(abc, method)
         assert inspect.iscoroutinefunction(func), f"{abc.__name__}.{method}"
         if method in {"start", "aclose"}:
             continue
-        assert list(inspect.signature(func).parameters)[-1] == "deadline", method
+        last = list(inspect.signature(func).parameters.values())[-1]
+        assert (last.name, last.kind) == ("timeout_s", inspect.Parameter.KEYWORD_ONLY), method
 
 
 @pytest.mark.parametrize(
@@ -235,8 +236,8 @@ def test_every_method_is_async_and_a_read_takes_a_deadline_last(abc, methods):
         (PutLog, "history"),
     ],
 )
-def test_a_read_of_one_channel_names_it_channel(abc, method):
-    assert list(inspect.signature(getattr(abc, method)).parameters)[1] == "channel"
+def test_a_read_of_one_channel_names_it_address(abc, method):
+    assert list(inspect.signature(getattr(abc, method)).parameters)[1] == "address"
 
 
 @pytest.mark.parametrize("abc", ABCS)

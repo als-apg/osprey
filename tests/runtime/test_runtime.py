@@ -91,7 +91,7 @@ class RecordingConnector(ControlSystemConnector):
     # --- Unused abstract-method stubs -------------------------------------
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
@@ -673,9 +673,9 @@ class BatchReadConnector(RecordingConnector):
         self.batch_calls: list[tuple[list[str], float | None]] = []
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
-        self.batch_calls.append((list(addresses), timeout))
+        self.batch_calls.append((list(addresses), timeout_s))
         return {
             address: ChannelValue(value=self.table[address], timestamp=datetime.now())
             for address in addresses
@@ -1189,8 +1189,8 @@ class TestReadChannels:
 
     def test_read_channels_connector_exception_propagates(self):
         class Exploding(BatchReadConnector):
-            async def read_multiple_channels(self, addresses, timeout=None):
-                raise ConnectionError(f"link down reading {addresses} ({timeout=})")
+            async def read_multiple_channels(self, addresses, *, timeout_s=None):
+                raise ConnectionError(f"link down reading {addresses} ({timeout_s=})")
 
         with _patched_factory(Exploding({})), pytest.raises(ConnectionError):
             read_channels(["A"])
@@ -1211,7 +1211,7 @@ class TestReadChannels:
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError):
             read_channels(["A", "B", "C"], timeout=2.5)
         assert sorted(address for address, _ in connector.read_calls) == ["B", "C"]
-        assert all(kwargs == {"timeout": 2.5} for _, kwargs in connector.read_calls)
+        assert all(kwargs == {"timeout_s": 2.5} for _, kwargs in connector.read_calls)
 
     def test_read_channels_chains_the_first_failed_channel_in_request_order(self):
         denied = PermissionError("D denied")

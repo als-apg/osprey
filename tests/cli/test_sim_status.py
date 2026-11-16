@@ -213,8 +213,8 @@ class _StatusChannels:
         self.read: list[str] = []
         self.disconnected = False
 
-    async def read_channel(self, address: str, timeout: float | None = None):
-        del timeout
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
+        del timeout_s
         self.read.append(address)
         codes = [*self.values[address].encode("utf-8"), 0, 0]
         return SimpleNamespace(value=codes)

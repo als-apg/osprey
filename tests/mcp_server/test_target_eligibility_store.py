@@ -391,7 +391,7 @@ class TestSwitchingOntoASwitchedOffTarget:
         await manager.ensure_started()
         await manager.switch(VA)
 
-        value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
+        value = await manager.active_proxy().read_channel(VA_PROBE, timeout_s=10.0)
 
         assert isinstance(value, ChannelValue)
 

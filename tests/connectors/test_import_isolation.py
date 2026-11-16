@@ -196,7 +196,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
             connector = MockArchiverConnector()
             await connector.connect({"simulator_view": sys.argv[1]})
             df = await connector.get_data(
-                channels=["T:Q1:CUR:SP"],
+                addresses=["T:Q1:CUR:SP"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )

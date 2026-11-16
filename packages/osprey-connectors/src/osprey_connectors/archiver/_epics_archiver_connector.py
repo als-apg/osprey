@@ -281,7 +281,8 @@ class EPICSArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -295,7 +296,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 be a whole number of seconds (the Archiver Appliance's operator
                 syntax takes seconds); a finer width is rejected rather than
                 rounded. ``<= 0`` means full resolution.
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin, pushed
                 down to the appliance. One of "raw", "mean", "min", "max",
                 "median", "std", "count". Anything else raises ValueError.
@@ -312,7 +313,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 ``processing`` mode is requested for a channel whose values are
                 non-numeric
         """
-        timeout = timeout if timeout is not None else self._timeout
+        timeout_s = timeout_s if timeout_s is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("Archiver not connected")
@@ -348,7 +349,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             }
 
         try:
-            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
+            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout_s)
 
             # The appliance already binned server-side, so aggregate_series is
             # skipped — but its non-numeric check must run here: the appliance
@@ -363,7 +364,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(f"Archiver request timed out after {timeout}s") from e
+            raise TimeoutError(f"Archiver request timed out after {timeout_s}s") from e
         except ConnectionRefusedError as e:
             raise ConnectorUnavailableError(
                 "Cannot connect to the archiver. "

@@ -165,22 +165,23 @@ class DOOCSConnector(ControlSystemConnector):
             )
         return doocs4py
 
-    def _bound(self, timeout: float | None) -> float:
-        """The per-call ``timeout`` when one is given, else the block's ``timeout_s``."""
-        return timeout if timeout is not None else self._timeout_s
+    def _bound(self, timeout_s: float | None) -> float:
+        """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
+        return timeout_s if timeout_s is not None else self._timeout_s
 
     @override
     async def read_channel(
         self,
         address: str,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
     ) -> ChannelValue:
         """
         Read current value from a DOOCS property.
 
         Args:
             address: DOOCS address (e.g., 'FACILITY/DEVICE/LOCATION/PROPERTY')
-            timeout: Seconds the read is given; the block's ``timeout_s`` when omitted
+            timeout_s: Seconds the read is given; the block's ``timeout_s`` when omitted
 
         Returns:
             ChannelValue with current value, timestamp, and metadata
@@ -190,7 +191,7 @@ class DOOCSConnector(ControlSystemConnector):
             TimeoutError: If operation times out
         """
 
-        bound = self._bound(timeout)
+        bound = self._bound(timeout_s)
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(self._read_channel_sync, address), bound
@@ -260,7 +261,8 @@ class DOOCSConnector(ControlSystemConnector):
         self,
         address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
@@ -276,7 +278,7 @@ class DOOCSConnector(ControlSystemConnector):
         Args:
             address: DOOCS address
             value: Value to write
-            timeout: Seconds the send (limits check included) is given, and
+            timeout_s: Seconds the send (limits check included) is given, and
                 then the confirming read; the block's ``timeout_s`` when
                 omitted. A confirmed write can therefore take up to twice it.
             confirm: Whether to re-read the property and compare, or ``None``
@@ -323,7 +325,7 @@ class DOOCSConnector(ControlSystemConnector):
                 return _SendFailed(e)
             return None
 
-        bound = self._bound(timeout)
+        bound = self._bound(timeout_s)
         try:
             step = await asyncio.wait_for(asyncio.to_thread(_validate_and_set), bound)
         except TimeoutError:
@@ -371,7 +373,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         # Step 3: Confirm with one fresh read
         try:
-            readback = await self.read_channel(address, timeout=timeout)
+            readback = await self.read_channel(address, timeout_s=timeout_s)
         except Exception as e:
             logger.warning(f"DOOCS confirming read failed for {address}: {e}")
             return ChannelWriteResult(
@@ -402,10 +404,10 @@ class DOOCSConnector(ControlSystemConnector):
 
     @override
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout)
+        return await self._read_concurrently(addresses, timeout_s)
 
     @override
     async def subscribe(

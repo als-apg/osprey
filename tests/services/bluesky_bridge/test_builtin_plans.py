@@ -590,7 +590,7 @@ class _OffsetReadbackConnector:
         self.setpoints = {f"{name}:SP": value for name, value in setpoints.items()}
         self.writes: list[tuple[str, float]] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
         if address.endswith(":RB"):
             value = self.setpoints[address.removesuffix(":RB") + ":SP"] + _READBACK_OFFSET
         else:

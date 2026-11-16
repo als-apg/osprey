@@ -179,10 +179,10 @@ def test_the_pool_kills_a_child_whose_write_timed_out(project, monkeypatch):
 
 
 def test_the_bridge_backstop_outlasts_the_pools_own_deadline_and_kill():
-    from osprey_connectors.ipc import DEFAULT_CALL_DEADLINE_S, DEFAULT_PING_TIMEOUT_S
+    from osprey_connectors.ipc import DEFAULT_CALL_TIMEOUT_S, DEFAULT_PING_TIMEOUT_S
 
     # Deadline, then a ping, then SIGTERM grace and proxy settle on the kill.
-    assert iface_module.OP_TIMEOUT > DEFAULT_CALL_DEADLINE_S + DEFAULT_PING_TIMEOUT_S + 4.0
+    assert iface_module.OP_TIMEOUT > DEFAULT_CALL_TIMEOUT_S + DEFAULT_PING_TIMEOUT_S + 4.0
 
 
 def test_a_write_timeout_kill_is_a_timeout_not_a_refusal():

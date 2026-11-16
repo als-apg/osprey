@@ -178,7 +178,8 @@ class MockArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        *,
+        timeout_s: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -192,7 +193,7 @@ class MockArchiverConnector(ArchiverConnector):
                 full resolution: samples are generated at the connector's own
                 configured ``sample_rate_hz``. Either way the generator is
                 capped at 10,000 points.
-            timeout: Ignored for mock archiver
+            timeout_s: Ignored for mock archiver
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
                 client-side via pandas resampling. Anything else raises ValueError.

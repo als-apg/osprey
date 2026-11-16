@@ -344,7 +344,7 @@ class TestConnectorRows:
         await session.write(CHANNEL, 2.0, timeout=0.05)
         await session.write(CHANNEL, 3.0, timeout=30.0)
 
-        assert [kwargs["timeout"] for _a, _v, kwargs in calls] == [0.2, 0.05, 0.2]
+        assert [kwargs["timeout_s"] for _a, _v, kwargs in calls] == [0.2, 0.05, 0.2]
         await session.close()
 
     async def test_a_mismatch_names_the_whole_observed_value(self, va, monkeypatch):

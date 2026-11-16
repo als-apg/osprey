@@ -152,7 +152,7 @@ class FixtureConnector(VAInProcessConnector):
             os.environ.pop("EPICS_CA_NAME_SERVERS", None)
             self._epics_configured = True
 
-    async def read_channel(self, address, timeout=None):
+    async def read_channel(self, address, *, timeout_s=None):
         if os.environ.get("EPICS_CA_SERVER_PORT") == DEAD_WRITE_PORT:
             raise TimeoutError(
                 f"probe read of {address!r} timed out: nothing serves this gateway"
@@ -163,9 +163,9 @@ class FixtureConnector(VAInProcessConnector):
             )
         if address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
-        return await super().read_channel(address, timeout=timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, address, value, timeout=None, **kwargs):
+    async def write_channel(self, address, value, *, timeout_s=None, **kwargs):
         if self._gateway_role != WRITE_ROLE:
             return ChannelWriteResult(
                 address=address,
@@ -174,7 +174,7 @@ class FixtureConnector(VAInProcessConnector):
                 refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message="the read-only gateway refused the write",
             )
-        return await super().write_channel(address, value, timeout=timeout, **kwargs)
+        return await super().write_channel(address, value, timeout_s=timeout_s, **kwargs)
 
 
 class VirtualAcceleratorFixtureConnector(FixtureConnector):

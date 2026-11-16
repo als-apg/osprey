@@ -176,8 +176,8 @@ class StandInConnector:
         #: Seconds each write takes.
         self.write_delay = 0.0
 
-    async def read_multiple_channels(self, addrs, timeout=None):
-        self.reads.append((list(addrs), timeout))
+    async def read_multiple_channels(self, addrs, *, timeout_s=None):
+        self.reads.append((list(addrs), timeout_s))
         if self.hang:
             await asyncio.sleep(3600)
 
@@ -189,7 +189,7 @@ class StandInConnector:
         async def bounded(addr: str) -> Any:
             # The base class bounds each channel on its own and leaves out what times out.
             try:
-                return await asyncio.wait_for(one(addr), timeout)
+                return await asyncio.wait_for(one(addr), timeout_s)
             except TimeoutError:
                 return None
 
@@ -197,7 +197,7 @@ class StandInConnector:
         present = [a for a in addrs if a in self.values]
         return {a: v for a, v in zip(present, got, strict=True) if v is not None}
 
-    async def write_channel(self, addr, value, timeout=None, confirm=None):  # noqa: ARG002
+    async def write_channel(self, addr, value, *, timeout_s=None, confirm=None):  # noqa: ARG002
         self.writes.append((addr, value, confirm))
         if self.write_delay:
             await asyncio.sleep(self.write_delay)

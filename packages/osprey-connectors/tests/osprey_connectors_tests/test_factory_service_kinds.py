@@ -58,22 +58,22 @@ class _OutOfTreeBackend(ChannelDirectory):
         super().__init__(spec, project_dir=project_dir)
         self.seams = seams
 
-    async def search(self, query, deadline):
+    async def search(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def count(self, query, deadline):
+    async def count(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def describe(self, address, deadline):
+    async def describe(self, address, *, timeout_s):
         raise NotImplementedError
 
-    async def property_names(self, deadline):
+    async def property_names(self, *, timeout_s):
         raise NotImplementedError
 
-    async def property_values(self, property, *, prefix=None, deadline):
+    async def property_values(self, property, *, prefix=None, timeout_s):
         raise NotImplementedError
 
-    async def probe(self, deadline):
+    async def probe(self, *, timeout_s):
         raise NotImplementedError
 
 
@@ -246,7 +246,7 @@ async def test_transport_reaches_an_http_backend():
         _spec("directory", "channelfinder"), transport=transport
     )
 
-    assert await backend.property_names(1.0) == ["iocName", "recordType"]
+    assert await backend.property_names(timeout_s=1.0) == ["iocName", "recordType"]
     assert transport.sent
 
 

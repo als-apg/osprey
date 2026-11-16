@@ -66,8 +66,8 @@ and the proxy stays up.
 A call the child does not answer in time fails with
 :class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
 it is, so a generic timeout handler such as the MCP tool error mapping treats it
-as one — and leaves the proxy usable. The deadline is the call's own
-``timeout`` plus ``timeout_grace_s``, or ``deadline_s`` for a call that named
+as one — and leaves the proxy usable. The wait is the call's own
+``timeout_s`` plus ``timeout_grace_s``, or ``call_timeout_s`` for a call that named
 no timeout. That the child may be wedged is the supervisor's call to make.
 
 Draining, for the target switch
@@ -190,12 +190,12 @@ class ConnectorHostProxy:
             ``asyncio.subprocess.Process.stdin``. ``wait_closed()`` is used
             when present.
         timeout_grace_s: Extra time the proxy waits beyond a call's own
-            ``timeout`` before giving up locally. The child applies the timeout
+            ``timeout_s`` before giving up locally. The child applies the timeout
             to the control-system call itself and reports its own
             ``TimeoutError``, which is the more informative one; the local
             deadline exists only so a wedged child cannot hang a caller
             forever. Set it to ``0`` to make the local deadline the only one.
-        deadline_s: Local deadline for a call whose ``timeout`` is ``None``.
+        call_timeout_s: Local timeout for a call whose ``timeout_s`` is ``None``.
             Never sent to the child — the connector keeps its own default — and
             ``None`` (the default) means such a call waits as long as the child
             takes.
@@ -214,14 +214,14 @@ class ConnectorHostProxy:
         writer: ContractAny,
         *,
         timeout_grace_s: float = 1.0,
-        deadline_s: float | None = None,
+        call_timeout_s: float | None = None,
     ) -> None:
         # The parameters stay duck-typed (see the class docstring); the proxy's
         # own use of them is the shape these protocols name.
         self._reader: _Reader = reader
         self._writer: _Writer = writer
         self._timeout_grace_s = timeout_grace_s
-        self._deadline_s = deadline_s
+        self._call_timeout_s = call_timeout_s
         self._pending: dict[str, asyncio.Future[object]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         #: Set once the pipe is gone; every later call repeats it.
@@ -236,7 +236,7 @@ class ConnectorHostProxy:
         process: asyncio.subprocess.Process,
         *,
         timeout_grace_s: float = 1.0,
-        deadline_s: float | None = None,
+        call_timeout_s: float | None = None,
     ) -> ConnectorHostProxy:
         """Wrap an ``asyncio.subprocess.Process``'s stdin/stdout pipes.
 
@@ -248,7 +248,10 @@ class ConnectorHostProxy:
                 f"the {CHILD} must be spawned with stdin and stdout pipes for the proxy to use"
             )
         return cls(
-            process.stdout, process.stdin, timeout_grace_s=timeout_grace_s, deadline_s=deadline_s
+            process.stdout,
+            process.stdin,
+            timeout_grace_s=timeout_grace_s,
+            call_timeout_s=call_timeout_s,
         )
 
     @property
@@ -265,17 +268,17 @@ class ConnectorHostProxy:
     # Connector call surface (signatures mirror ControlSystemConnector)
     # ------------------------------------------------------------------
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         """Read one channel. Returns the ``ChannelValue`` the child produced."""
         reply = await self._call(
             "read_channel",
-            {"address": address, "timeout": timeout},
-            timeout=timeout,
+            {"address": address, "timeout_s": timeout_s},
+            timeout_s=timeout_s,
         )
         return _expect(reply, ChannelValue, "read_channel")
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read many channels in **one** request frame.
 
@@ -285,8 +288,8 @@ class ConnectorHostProxy:
         """
         reply = await self._call(
             "read_multiple_channels",
-            {"addresses": list(addresses), "timeout": timeout},
-            timeout=timeout,
+            {"addresses": list(addresses), "timeout_s": timeout_s},
+            timeout_s=timeout_s,
         )
         if not isinstance(reply, dict):
             raise _unexpected(reply, "read_multiple_channels")
@@ -299,7 +302,8 @@ class ConnectorHostProxy:
         self,
         address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write one channel. Returns the ``ChannelWriteResult`` from the child.
@@ -315,15 +319,16 @@ class ConnectorHostProxy:
         kwargs: dict[str, object] = {
             "address": address,
             "value": value,
-            "timeout": timeout,
+            "timeout_s": timeout_s,
         }
-        reply = await self._call("write_channel", _with_confirm(kwargs, confirm), timeout)
+        reply = await self._call("write_channel", _with_confirm(kwargs, confirm), timeout_s)
         return _expect(reply, ChannelWriteResult, "write_channel")
 
     async def write_multiple_channels(
         self,
         operations: Sequence[tuple[str, object]],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         """Write many channels in one request frame.
@@ -335,9 +340,11 @@ class ConnectorHostProxy:
         """
         kwargs: dict[str, object] = {
             "operations": [list(operation) for operation in operations],
-            "timeout": timeout,
+            "timeout_s": timeout_s,
         }
-        reply = await self._call("write_multiple_channels", _with_confirm(kwargs, confirm), timeout)
+        reply = await self._call(
+            "write_multiple_channels", _with_confirm(kwargs, confirm), timeout_s
+        )
         if not isinstance(reply, list):
             raise _unexpected(reply, "write_multiple_channels")
         return [_expect(item, ChannelWriteResult, "write_multiple_channels") for item in reply]
@@ -347,10 +354,10 @@ class ConnectorHostProxy:
 
     async def validate_channel(self, address: str) -> bool:
         """Whether the channel exists and is reachable, as the child's connector sees it."""
-        reply = await self._call("validate_channel", {"address": address}, timeout=None)
+        reply = await self._call("validate_channel", {"address": address}, timeout_s=None)
         return _expect(reply, bool, "validate_channel")
 
-    async def disconnect(self, *, ack_timeout: float = 2.0) -> None:
+    async def disconnect(self, *, ack_timeout_s: float = 2.0) -> None:
         """Ask the child to release its connector, then close the pipe.
 
         Idempotent and never raises: it is called from teardown paths and from
@@ -376,7 +383,7 @@ class ConnectorHostProxy:
                 # asyncio.wait, not wait_for(shield(...)): it leaves the future
                 # alone on timeout, where a cancelled shield would log the
                 # failure the reader later sets on it as an unhandled error.
-                await asyncio.wait({future}, timeout=ack_timeout)
+                await asyncio.wait({future}, timeout=ack_timeout_s)
             self._pending.pop(request_id, None)
 
         await self._shutdown(f"the {CHILD} was disconnected before this request completed")
@@ -386,7 +393,7 @@ class ConnectorHostProxy:
     # ------------------------------------------------------------------
 
     async def supervisor_request(
-        self, method: str, kwargs: Mapping[str, object], timeout: float
+        self, method: str, kwargs: Mapping[str, object], *, timeout_s: float
     ) -> object:
         """Send one supervisor request (``init``, ``ping``) and await its reply.
 
@@ -396,10 +403,10 @@ class ConnectorHostProxy:
         plumbing every other call uses. A typed error frame is raised as its
         real class (and :func:`raised_by_child` says so); a child that dies
         before answering fails the call with a ``ConnectionError`` this proxy
-        made; no answer within ``timeout`` plus the grace raises
+        made; no answer within ``timeout_s`` plus the grace raises
         :class:`ChildUnresponsiveError`.
         """
-        return await self._call(method, kwargs, timeout=timeout)
+        return await self._call(method, kwargs, timeout_s=timeout_s)
 
     # ------------------------------------------------------------------
     # Handoff surface consumed by the runtime target switch
@@ -416,7 +423,7 @@ class ConnectorHostProxy:
         if self._refusal is None:
             self._refusal = reason
 
-    async def drain(self, timeout: float) -> bool:
+    async def drain(self, *, timeout_s: float) -> bool:
         """Wait for outstanding requests to finish.
 
         Returns ``True`` when nothing is left in flight, ``False`` when the
@@ -425,7 +432,7 @@ class ConnectorHostProxy:
         whether to wait longer or to abandon the child.
         """
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(timeout, 0.0)
+        deadline = loop.time() + max(timeout_s, 0.0)
         while True:
             outstanding = [future for future in self._pending.values() if not future.done()]
             if not outstanding:
@@ -442,7 +449,7 @@ class ConnectorHostProxy:
     # ------------------------------------------------------------------
 
     async def _call(
-        self, method: str, kwargs: Mapping[str, object], timeout: float | None
+        self, method: str, kwargs: Mapping[str, object], timeout_s: float | None
     ) -> object:
         """Send one request and await its reply."""
         self._raise_if_unusable()
@@ -452,27 +459,27 @@ class ConnectorHostProxy:
         future = self._register(request_id)
         try:
             await self._send(frames.encode_request(request_id, method, kwargs))
-            return await self._await_reply(future, method, timeout)
+            return await self._await_reply(future, method, timeout_s)
         finally:
             self._pending.pop(request_id, None)
 
     async def _await_reply(
-        self, future: asyncio.Future[object], method: str, timeout: float | None
+        self, future: asyncio.Future[object], method: str, timeout_s: float | None
     ) -> object:
-        if timeout is not None:
-            deadline = timeout + max(self._timeout_grace_s, 0.0)
-        elif self._deadline_s is not None:
-            deadline = self._deadline_s
+        if timeout_s is not None:
+            wait_s = timeout_s + max(self._timeout_grace_s, 0.0)
+        elif self._call_timeout_s is not None:
+            wait_s = self._call_timeout_s
         else:
             return await future
         # asyncio.wait never cancels or wraps the future, so a reply that lands
         # at the deadline is still the answer — a result, or the child's own
         # error, which is the better one — and a future abandoned here can be
         # failed later without asyncio logging it as unhandled.
-        await asyncio.wait({future}, timeout=deadline)
+        await asyncio.wait({future}, timeout=wait_s)
         if future.done():
             return future.result()
-        raise ChildUnresponsiveError(f"the {CHILD} did not answer {method!r} within {deadline}s")
+        raise ChildUnresponsiveError(f"the {CHILD} did not answer {method!r} within {wait_s}s")
 
     def _register(self, request_id: str) -> asyncio.Future[object]:
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()

@@ -878,7 +878,11 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:
     """Internal async implementation for reading from a channel."""
     connector = await _get_connector()
-    channel_value = await connector.read_channel(channel_address, **kwargs)
+    # The public keyword is ``timeout``; the connector's is ``timeout_s``.
+    channel_value = await connector.read_channel(
+        channel_address,
+        **{("timeout_s" if key == "timeout" else key): value for key, value in kwargs.items()},
+    )
     return channel_value.value
 
 
@@ -893,7 +897,7 @@ async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None
         return []
 
     connector = await _get_connector()
-    result = await connector.read_multiple_channels(distinct, timeout=timeout)
+    result = await connector.read_multiple_channels(distinct, timeout_s=timeout)
 
     # A connector drops a channel whose read raised, and the EPICS family
     # reports a read timeout as a present ``None`` — both are a failed read.
@@ -917,7 +921,7 @@ async def _read_failure_causes(
     The re-read only explains the failure: a channel that answers this time is
     still reported as failed, since the batch it belongs to did not read it.
     """
-    kwargs = {} if timeout is None else {"timeout": timeout}
+    kwargs = {} if timeout is None else {"timeout_s": timeout}
     results = await asyncio.gather(
         *(connector.read_channel(address, **kwargs) for address in failed),
         return_exceptions=True,
@@ -957,8 +961,13 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
             _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
 
         try:
+            # The public keyword is ``timeout``; the connector's is ``timeout_s``.
             results = await connector.write_multiple_channels(
-                list(channel_values.items()), **kwargs
+                list(channel_values.items()),
+                **{
+                    ("timeout_s" if key == "timeout" else key): value
+                    for key, value in kwargs.items()
+                },
             )
         except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
             # A refusal raised partway names the one channel it refused; every

@@ -90,18 +90,18 @@ class ReplayAlarmState(AlarmState):
 
     @override
     async def state_for(
-        self, address: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> AlarmStateRecord | Unavailable | None:
-        await self._loading(deadline)
+        await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
         return state_record(snapshot, address, stale=self._stopped)
 
     @override
-    async def states(self, deadline: float) -> AlarmStates | Unavailable:
+    async def states(self, *, timeout_s: float) -> AlarmStates | Unavailable:
         """Every channel's state; ``last_contact`` is the load moment, the newest rebased time."""
-        await self._loading(deadline)
+        await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
@@ -109,26 +109,28 @@ class ReplayAlarmState(AlarmState):
         return AlarmStates(rows=rows, stale=self._stopped, last_contact=self._loaded_at)
 
     @override
-    async def config_for(self, address: str, deadline: float) -> AlarmConfigRecord | Unavailable:
-        await self._loading(deadline)
+    async def config_for(
+        self, address: str, *, timeout_s: float
+    ) -> AlarmConfigRecord | Unavailable:
+        await self._loading(timeout_s)
         snapshot = self._answering()
         return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, address)
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         snapshot = self._loaded()
         if isinstance(snapshot, Unavailable):
             return snapshot
         evidence = f"read {snapshot.messages} messages from the replay file"
         return f"{evidence}; the feed stopped" if self._stopped else evidence
 
-    async def _loading(self, deadline: float) -> None:
-        """Wait up to *deadline* seconds for a load that has begun and not ended."""
+    async def _loading(self, timeout_s: float) -> None:
+        """Wait up to *timeout_s* seconds for a load that has begun and not ended."""
         task = self._task
-        if task is None or task.done() or deadline <= 0:
+        if task is None or task.done() or timeout_s <= 0:
             return
         # wait, not wait_for: a deadline that runs out leaves the load running.
-        await asyncio.wait({task}, timeout=deadline)
+        await asyncio.wait({task}, timeout=timeout_s)
 
     def _answering(self) -> FeedSnapshot | Unavailable:
         snapshot = self._loaded()

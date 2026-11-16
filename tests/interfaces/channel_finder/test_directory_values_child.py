@@ -244,7 +244,7 @@ class _ScriptedFake(FakeConnector):
             reading.metadata = ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
         return reading
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         if address == "HANGS":
             await asyncio.Event().wait()
         if address.startswith("TOGETHER"):
@@ -253,10 +253,10 @@ class _ScriptedFake(FakeConnector):
         if address == "HUGE":
             return ChannelValue(value=[0.0] * 100_000, timestamp=datetime.now(UTC))
         if address == "NO_TIMESTAMP":
-            reading = await super().read_channel(address, timeout)
+            reading = await super().read_channel(address, timeout_s=timeout_s)
             reading.timestamp = None
             return reading
-        return await super().read_channel(address, timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
     async def write_channel(self, *args: Any, **kwargs: Any):
         type(self).writes += 1

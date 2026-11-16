@@ -509,15 +509,15 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
         pids = pool.pids()
         assert pids
 
-        refused = await live.write_channel(setpoint, 5.0, confirm=True, timeout=CA_TIMEOUT_S)
+        refused = await live.write_channel(setpoint, 5.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.error_message.endswith("[osprey-refusal: session_held]")
-        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == 1.0
+        assert (await live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == 1.0
 
         _release("f1")
-        landed = await live.write_channel(setpoint, 5.0, confirm=True, timeout=CA_TIMEOUT_S)
+        landed = await live.write_channel(setpoint, 5.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
-        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == 5.0
+        assert (await live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == 5.0
 
         again = await pool.connector("live")
         assert again.report["selected_role"] == "write_access"

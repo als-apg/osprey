@@ -141,7 +141,7 @@ async def teardown():
     for proxy, child in items:
         # Short ack: most fake children are not scripted to answer a disconnect,
         # and waiting the real default out in every teardown costs seconds.
-        await proxy.disconnect(ack_timeout=0.05)
+        await proxy.disconnect(ack_timeout_s=0.05)
         await child.stop()
 
 
@@ -160,7 +160,7 @@ async def test_read_channel_round_trips_a_real_channel_value(teardown):
     assert result.metadata.units == "A"
     assert len(child.requests) == 1
     assert child.requests[0].method == "read_channel"
-    assert child.requests[0].kwargs == {"address": "SR:BEND:1:CUR", "timeout": None}
+    assert child.requests[0].kwargs == {"address": "SR:BEND:1:CUR", "timeout_s": None}
 
 
 async def test_a_reply_of_the_wrong_type_is_refused(teardown):
@@ -190,11 +190,11 @@ async def test_read_multiple_channels_issues_exactly_one_request(teardown):
     proxy, child = await _proxy_with_child(_echo_handler([batch]))
     teardown.append((proxy, child))
 
-    result = await proxy.read_multiple_channels(addresses, timeout=2.0)
+    result = await proxy.read_multiple_channels(addresses, timeout_s=2.0)
 
     assert len(child.requests) == 1, "a batched read must not fan out into per-channel frames"
     assert child.requests[0].method == "read_multiple_channels"
-    assert child.requests[0].kwargs == {"addresses": addresses, "timeout": 2.0}
+    assert child.requests[0].kwargs == {"addresses": addresses, "timeout_s": 2.0}
     assert sorted(result) == addresses
     assert [result[address].value for address in addresses] == [0, 1, 2, 3]
 
@@ -220,7 +220,7 @@ async def test_write_channel_round_trips_a_write_result(teardown):
     assert child.requests[0].kwargs == {
         "address": "SR:BEND:1:SP",
         "value": 2.5,
-        "timeout": None,
+        "timeout_s": None,
         "confirm": True,
     }
 
@@ -488,19 +488,19 @@ async def test_per_request_timeout_raises_timeout_error_and_leaves_the_proxy_usa
     # The proxy's own deadline is a distinct TimeoutError subclass, and it
     # does not mark the child dead.
     with pytest.raises(ChildUnresponsiveError) as caught:
-        await proxy.read_channel("SR:SLOW", timeout=0.05)
+        await proxy.read_channel("SR:SLOW", timeout_s=0.05)
     assert "read_channel" in str(caught.value)
     assert proxy.dead_reason is None
 
     answer_now = True
-    assert (await proxy.read_channel("SR:FAST", timeout=5.0)).value == 3.5
+    assert (await proxy.read_channel("SR:FAST", timeout_s=5.0)).value == 3.5
 
 
 async def test_a_call_without_a_timeout_is_bounded_by_the_local_deadline(teardown):
     async def handler(_child, _frame):
         return None
 
-    proxy, child = await _proxy_with_child(handler, deadline_s=0.05)
+    proxy, child = await _proxy_with_child(handler, call_timeout_s=0.05)
     teardown.append((proxy, child))
 
     with pytest.raises(ChildUnresponsiveError, match="validate_channel"):
@@ -517,7 +517,7 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
     teardown.append((proxy, child))
 
     with pytest.raises(TimeoutError) as caught:
-        await proxy.read_channel("SR:GONE", timeout=5.0)
+        await proxy.read_channel("SR:GONE", timeout_s=5.0)
     # Exactly the child's TimeoutError, not re-wrapped: ChildUnresponsiveError
     # is a TimeoutError too, so the raises() above cannot tell them apart.
     assert type(caught.value) is TimeoutError
@@ -563,7 +563,7 @@ async def test_write_channel_checked_returns_a_confirmed_write(teardown):
     proxy, child = await _proxy_with_child(_echo_handler([confirmed]))
     teardown.append((proxy, child))
 
-    result = await proxy.write_channel_checked("SR:SP", 1.0, confirm=True, timeout=2.0)
+    result = await proxy.write_channel_checked("SR:SP", 1.0, confirm=True, timeout_s=2.0)
 
     assert result.outcome is WriteOutcome.CONFIRMED
     # It is a plain write_channel on the wire; the inspection is local.
@@ -631,7 +631,7 @@ async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):
     teardown.append((proxy, child))
 
     with pytest.raises(ConnectionError) as caught:
-        await proxy.read_channel("SR:GONE", timeout=2.0)
+        await proxy.read_channel("SR:GONE", timeout_s=2.0)
     assert raised_by_child(caught.value)
     assert proxy.dead_reason is None
 
@@ -661,7 +661,7 @@ async def test_a_dead_pipe_sets_dead_reason_and_is_not_the_childs_error(teardown
 
     await child.die()
     with pytest.raises(ConnectionError) as caught:
-        await proxy.read_channel("SR:DCCT", timeout=2.0)
+        await proxy.read_channel("SR:DCCT", timeout_s=2.0)
     assert not raised_by_child(caught.value)
     assert proxy.dead_reason and CHILD in proxy.dead_reason
 
@@ -679,9 +679,9 @@ async def test_a_reset_pipe_is_attributed_to_the_child():
     proxy = ConnectorHostProxy(_Resetting(), parent_writer)
     try:
         with pytest.raises(ConnectionError) as caught:
-            await proxy.read_channel("SR:DCCT", timeout=2.0)
+            await proxy.read_channel("SR:DCCT", timeout_s=2.0)
     finally:
-        await proxy.disconnect(ack_timeout=0.05)
+        await proxy.disconnect(ack_timeout_s=0.05)
         child_sock.close()
     assert not raised_by_child(caught.value)
     assert CHILD in str(caught.value) and "Connection reset by peer" in str(caught.value)
@@ -703,7 +703,7 @@ async def test_drain_returns_true_once_everything_completes(teardown):
     await _until(lambda: len(held) == 2)
     proxy.refuse_new_requests("switching to the live target")
 
-    drain = asyncio.ensure_future(proxy.drain(2.0))
+    drain = asyncio.ensure_future(proxy.drain(timeout_s=2.0))
     await asyncio.sleep(0)
     for frame in held:
         child.send_result(frame.request_id, _channel_value(0))
@@ -722,7 +722,7 @@ async def test_drain_returns_false_when_a_request_outlives_the_deadline(teardown
     call = asyncio.ensure_future(proxy.read_channel("SR:STUCK"))
     await _until(lambda: len(child.requests) == 1)
 
-    assert await proxy.drain(0.1) is False
+    assert await proxy.drain(timeout_s=0.1) is False
     call.cancel()
 
 
@@ -730,7 +730,7 @@ async def test_drain_of_an_idle_proxy_is_immediately_true(teardown):
     proxy, child = await _proxy_with_child(_echo_handler([]))
     teardown.append((proxy, child))
 
-    assert await proxy.drain(0.0) is True
+    assert await proxy.drain(timeout_s=0.0) is True
 
 
 async def test_refused_proxy_names_the_supplied_reason(teardown):
@@ -802,7 +802,7 @@ async def test_disconnect_gives_up_on_a_silent_child_without_hanging(teardown):
     proxy, child = await _proxy_with_child(handler)
     teardown.append((proxy, child))
 
-    await asyncio.wait_for(proxy.disconnect(ack_timeout=0.05), timeout=2.0)
+    await asyncio.wait_for(proxy.disconnect(ack_timeout_s=0.05), timeout=2.0)
 
 
 async def test_disconnect_fails_outstanding_requests(teardown):
@@ -814,7 +814,7 @@ async def test_disconnect_fails_outstanding_requests(teardown):
 
     call = asyncio.ensure_future(proxy.read_channel("SR:INFLIGHT"))
     await _until(lambda: len(child.requests) == 1)
-    await proxy.disconnect(ack_timeout=0.05)
+    await proxy.disconnect(ack_timeout_s=0.05)
 
     with pytest.raises(ConnectionError):
         await call

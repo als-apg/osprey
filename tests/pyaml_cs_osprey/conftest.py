@@ -182,8 +182,8 @@ class _Readbacks:
     def __init__(self, runtime: FakeRuntime) -> None:
         self._runtime = runtime
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> Any:
-        del timeout
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> Any:
+        del timeout_s
         return await self._runtime.poll(address)
 
 
@@ -234,7 +234,7 @@ class DictConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         if address not in self._state:
             raise ValueError(f"{address} is not served")
         return ChannelValue(
@@ -243,8 +243,8 @@ class DictConnector(ControlSystemConnector):
             metadata=ChannelMetadata(),
         )
 
-    async def read_multiple_channels(self, addresses, timeout=None):
-        return await self._read_concurrently(list(addresses), timeout)
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):
+        return await self._read_concurrently(list(addresses), timeout_s)
 
     def _put(self, address: str, value: Any) -> None:
         self._state[address] = value
@@ -253,7 +253,8 @@ class DictConnector(ControlSystemConnector):
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         try:

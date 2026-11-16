@@ -13,14 +13,14 @@ class MockDynamicConnector(ControlSystemConnector):
     async def disconnect(self):
         pass
 
-    async def read_channel(self, address, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         from datetime import datetime
 
         from osprey_connectors.control_system._base import ChannelValue
 
         return ChannelValue(value=42, timestamp=datetime.now())
 
-    async def write_channel(self, address, value, timeout=None, confirm=False):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def write_channel(self, address, value, *, timeout_s=None, confirm=False):  # noqa: ARG002 - the control-system connector interface fixes this signature
         """Declares its own ``confirm`` default, so a forwarded ``None`` would show."""
         from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 
@@ -31,7 +31,7 @@ class MockDynamicConnector(ControlSystemConnector):
             observed_value=value if confirm else None,
         )
 
-    async def read_multiple_channels(self, addresses, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return {}
 
     async def subscribe(self, address, callback):  # noqa: ARG002 - the control-system connector interface fixes this signature
@@ -66,7 +66,8 @@ class RecordingArchiver(ArchiverConnector):
         start_date,
         end_date,
         precision_ms=1000,
-        timeout=None,
+        *,
+        timeout_s=None,
         processing="raw",
     ):
         raise NotImplementedError

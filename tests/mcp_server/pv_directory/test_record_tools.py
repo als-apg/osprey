@@ -93,7 +93,7 @@ class FakeDirectory(FakeBackend):
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         hits = self._hits(query)
         rows = hits[query.page * query.page_size : (query.page + 1) * query.page_size]
         return DirectoryPage(
@@ -106,12 +106,12 @@ class FakeDirectory(FakeBackend):
             truncated=False,
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
-    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail or address in self.failing:
             return Unavailable(reason=self.fail or "connection refused")
         return self.records.get(address, Outcome.NOT_LISTED)
@@ -120,7 +120,7 @@ class FakeDirectory(FakeBackend):
 class FakePutLog(FakeBackend):
     failing: set[str] = set()
 
-    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         if address in self.failing:
             return Unavailable(reason="put log did not answer")
         return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])

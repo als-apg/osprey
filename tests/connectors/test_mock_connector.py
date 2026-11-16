@@ -575,10 +575,10 @@ class TestVAInProcessConnector:
     def _fail_read_of(connector, channel, error):
         real_read = connector.read_channel
 
-        async def read_channel(address, timeout=None):
+        async def read_channel(address, *, timeout_s=None):
             if address == channel:
                 raise error
-            return await real_read(address, timeout)
+            return await real_read(address, timeout_s=timeout_s)
 
         connector.read_channel = read_channel
 
@@ -965,7 +965,7 @@ class TestMockArchiverReproducibility:
                 c = MockArchiverConnector()
                 await c.connect({"simulator_view": sys.argv[1]})
                 df = await c.get_data(
-                    channels=["SR:UNKNOWN:PRESSURE"],
+                    addresses=["SR:UNKNOWN:PRESSURE"],
                     start_date=datetime(2024, 1, 15, 10, 0, 0),
                     end_date=datetime(2024, 1, 15, 10, 5, 0),
                 )

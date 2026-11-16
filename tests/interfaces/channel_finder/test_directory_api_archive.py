@@ -70,7 +70,7 @@ class FakeDirectory:
 
     field_properties: dict[str, str] = {}
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         rows = list(self.rows)[query.page * query.page_size :][: query.page_size]
         return DirectoryPage(
             outcome=Outcome.FOUND,
@@ -82,7 +82,7 @@ class FakeDirectory:
             truncated=False,
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return len(self.rows)
 
 

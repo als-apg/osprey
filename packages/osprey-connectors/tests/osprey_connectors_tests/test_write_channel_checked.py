@@ -59,7 +59,8 @@ class _FakeConnector(ControlSystemConnector):
         self,
         address: str,  # noqa: ARG002 - the control-system connector interface fixes this signature
         value: Any,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         if self._canned_exc is not None:
@@ -69,11 +70,11 @@ class _FakeConnector(ControlSystemConnector):
     # --- Unused abstract-method stubs -------------------------------------
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
@@ -307,7 +308,7 @@ class TestReturns:
         connector.write_channel = _capture  # type: ignore[method-assign]
 
         returned = await connector.write_channel_checked(
-            "TEST:PV", 42.0, confirm=False, timeout=3.0
+            "TEST:PV", 42.0, confirm=False, timeout_s=3.0
         )
 
         assert returned is result
@@ -315,5 +316,5 @@ class TestReturns:
             "address": "TEST:PV",
             "value": 42.0,
             "confirm": False,
-            "timeout": 3.0,
+            "timeout_s": 3.0,
         }

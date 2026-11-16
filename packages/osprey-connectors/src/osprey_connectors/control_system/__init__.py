@@ -32,17 +32,17 @@ from osprey_connectors.control_system._base import (
 if TYPE_CHECKING:
     from osprey_connectors.control_system._epics_connector import STALE_HOLD_DOWN_S
     from osprey_connectors.control_system._limits_validator import (
-        DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+        DEFAULT_STEP_READ_TIMEOUT_S,
         LIMITS_DATABASE_CONFIG_KEY,
         STEP_READ_TIMEOUT_KEY,
         ChannelLimitsConfig,
         LimitsValidator,
         mapping_config_lookup,
-        step_read_timeout_seconds,
+        step_read_timeout_s,
     )
 
 __all__ = [
-    "DEFAULT_STEP_READ_TIMEOUT_SECONDS",
+    "DEFAULT_STEP_READ_TIMEOUT_S",
     "LIMITS_DATABASE_CONFIG_KEY",
     "STALE_HOLD_DOWN_S",
     "STEP_READ_TIMEOUT_KEY",
@@ -57,20 +57,20 @@ __all__ = [
     "mark_long_lived_session",
     "raise_for_write_result",
     "raise_for_write_results",
-    "step_read_timeout_seconds",
+    "step_read_timeout_s",
     "values_match",
 ]
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
     "STALE_HOLD_DOWN_S": "osprey_connectors.control_system._epics_connector",
-    "DEFAULT_STEP_READ_TIMEOUT_SECONDS": "osprey_connectors.control_system._limits_validator",
+    "DEFAULT_STEP_READ_TIMEOUT_S": "osprey_connectors.control_system._limits_validator",
     "LIMITS_DATABASE_CONFIG_KEY": "osprey_connectors.control_system._limits_validator",
     "STEP_READ_TIMEOUT_KEY": "osprey_connectors.control_system._limits_validator",
     "ChannelLimitsConfig": "osprey_connectors.control_system._limits_validator",
     "LimitsValidator": "osprey_connectors.control_system._limits_validator",
     "mapping_config_lookup": "osprey_connectors.control_system._limits_validator",
-    "step_read_timeout_seconds": "osprey_connectors.control_system._limits_validator",
+    "step_read_timeout_s": "osprey_connectors.control_system._limits_validator",
 }
 
 

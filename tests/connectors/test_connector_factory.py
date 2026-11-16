@@ -103,19 +103,20 @@ class TestConnectorFactory:
             async def disconnect(self):
                 pass
 
-            async def read_channel(self, address, timeout=None):
+            async def read_channel(self, address, *, timeout_s=None):
                 pass
 
             async def write_channel(
                 self,
                 address,
                 value,
-                timeout=None,
+                *,
+                timeout_s=None,
                 confirm=None,
             ):
                 pass
 
-            async def read_multiple_channels(self, addresses, timeout=None):
+            async def read_multiple_channels(self, addresses, *, timeout_s=None):
                 pass
 
             async def subscribe(self, address, callback):

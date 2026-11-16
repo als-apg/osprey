@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 # Backstop on one bridged call (read, or write plus its confirming re-read).
 # Longer than the pool's own deadline for a call with no timeout
-# (osprey_connectors.ipc.DEFAULT_CALL_DEADLINE_S, 60 s) plus its ping and the
+# (osprey_connectors.ipc.DEFAULT_CALL_TIMEOUT_S, 60 s) plus its ping and the
 # kill that follows, so the pool's typed errors arrive first and its kill of a
 # child whose write timed out is never cut short by this one.
 OP_TIMEOUT: float = 75.0

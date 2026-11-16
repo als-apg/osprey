@@ -381,13 +381,13 @@ class TangoConnector(ControlSystemConnector):
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @override
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         """
         Read the current value of a TANGO device attribute.
 
         Args:
             address: ``domain/family/member/attribute``
-            timeout: Seconds the read is given; the block's ``timeout_s`` when
+            timeout_s: Seconds the read is given; the block's ``timeout_s`` when
                 omitted, which the device proxy also applies beneath it
 
         Returns:
@@ -399,7 +399,7 @@ class TangoConnector(ControlSystemConnector):
             TimeoutError: If the read does not answer within its ceiling
             ValueError: If the address does not name a device and an attribute
         """
-        ceiling = timeout if timeout is not None else self._timeout_s
+        ceiling = timeout_s if timeout_s is not None else self._timeout_s
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(self._read_channel_sync, address), ceiling
@@ -433,7 +433,8 @@ class TangoConnector(ControlSystemConnector):
         self,
         address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
@@ -454,7 +455,7 @@ class TangoConnector(ControlSystemConnector):
         Args:
             address: ``domain/family/member/attribute``
             value: Value to write
-            timeout: Seconds the write (limits check included) is given, and
+            timeout_s: Seconds the write (limits check included) is given, and
                 then the confirming read; the block's ``timeout_s`` when omitted.
                 A confirmed write can therefore take up to twice it.
             confirm: Whether to re-read and compare, or ``None`` to resolve the
@@ -505,7 +506,7 @@ class TangoConnector(ControlSystemConnector):
                 return _SendFailed(e)
             return None
 
-        ceiling = timeout if timeout is not None else self._timeout_s
+        ceiling = timeout_s if timeout_s is not None else self._timeout_s
         try:
             step = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
         except TimeoutError:
@@ -552,7 +553,7 @@ class TangoConnector(ControlSystemConnector):
 
         # Step 4: Confirm with one fresh read
         try:
-            readback = await self.read_channel(address, timeout=timeout)
+            readback = await self.read_channel(address, timeout_s=timeout_s)
         except Exception as e:
             logger.warning(f"TANGO confirming read failed for {address}: {e}")
             return ChannelWriteResult(
@@ -586,10 +587,10 @@ class TangoConnector(ControlSystemConnector):
 
     @override
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout)
+        return await self._read_concurrently(addresses, timeout_s)
 
     @override
     async def subscribe(

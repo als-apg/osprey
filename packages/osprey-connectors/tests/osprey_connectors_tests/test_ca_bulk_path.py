@@ -1370,7 +1370,7 @@ async def _scenario_repoint(args):
     # Another route to the same IOC: its connect() repoints the process's CA.
     second = await _connected(args, name_server=False)
     await _until(lambda: len(first_events) >= 5)
-    one_shot = (await first.read_channel(PLAIN, timeout=3.0)).value
+    one_shot = (await first.read_channel(PLAIN, timeout_s=3.0)).value
     await first.unsubscribe(sub_id)
     await first.disconnect()
 

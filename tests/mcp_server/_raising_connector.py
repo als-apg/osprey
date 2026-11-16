@@ -92,7 +92,8 @@ class RaisingConnector(ControlSystemConnector):
     async def read_channel(
         self,
         address: str,  # noqa: ARG002 - the connector interface fixes the signature
-        timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelValue:
         return ChannelValue(
             value=READ_VALUE,
@@ -101,15 +102,18 @@ class RaisingConnector(ControlSystemConnector):
         )
 
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
-        return {address: await self.read_channel(address, timeout=timeout) for address in addresses}
+        return {
+            address: await self.read_channel(address, timeout_s=timeout_s) for address in addresses
+        }
 
     async def write_channel(
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
         confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelWriteResult:
         if address == LIMITS_CHANNEL:

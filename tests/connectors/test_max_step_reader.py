@@ -19,10 +19,10 @@ import pytest
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._limits_validator import (
-    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    DEFAULT_STEP_READ_TIMEOUT_S,
     ChannelLimitsConfig,
     LimitsValidator,
-    step_read_timeout_seconds,
+    step_read_timeout_s,
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
@@ -208,7 +208,7 @@ async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, 
 )
 def test_an_unstated_or_unusable_budget_takes_the_default(block) -> None:
     """A typo in a tuning key must not be what takes writes down."""
-    assert step_read_timeout_seconds(block) == DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    assert step_read_timeout_s(block) == DEFAULT_STEP_READ_TIMEOUT_S
 
 
 def test_an_unusable_budget_is_warned_about_by_name(
@@ -217,8 +217,7 @@ def test_an_unusable_budget_is_warned_about_by_name(
     """A silent fallback leaves an operator with a key that reads as accepted."""
     with caplog.at_level("WARNING"):
         assert (
-            step_read_timeout_seconds({"step_read_timeout_s": -1}, "epics")
-            == DEFAULT_STEP_READ_TIMEOUT_SECONDS
+            step_read_timeout_s({"step_read_timeout_s": -1}, "epics") == DEFAULT_STEP_READ_TIMEOUT_S
         )
 
     assert "control_system.connector.epics.step_read_timeout_s" in caplog.text
@@ -230,20 +229,20 @@ def test_a_block_declaring_nothing_warns_about_nothing(
 ) -> None:
     """Unset is the shipped posture, not a misconfiguration."""
     with caplog.at_level("WARNING"):
-        step_read_timeout_seconds({"timeout": 5.0}, "epics")
+        step_read_timeout_s({"timeout": 5.0}, "epics")
 
     assert caplog.text == ""
 
 
 def test_a_declared_budget_is_read() -> None:
-    assert step_read_timeout_seconds({"step_read_timeout_s": 0.5}) == 0.5
-    assert step_read_timeout_seconds({"step_read_timeout_s": 10}) == 10.0
+    assert step_read_timeout_s({"step_read_timeout_s": 0.5}) == 0.5
+    assert step_read_timeout_s({"step_read_timeout_s": 10}) == 10.0
 
 
 def test_the_epics_connector_reads_with_the_budget_its_block_declares() -> None:
     """The connector's own block is where the budget comes from."""
     connector = _ca_connector_holding(CURRENT)
-    connector._step_read_timeout = step_read_timeout_seconds({"step_read_timeout_s": 0.5})
+    connector._step_read_timeout = step_read_timeout_s({"step_read_timeout_s": 0.5})
 
     connector.current_value_reader()("SR:CH")
 
@@ -252,4 +251,4 @@ def test_the_epics_connector_reads_with_the_budget_its_block_declares() -> None:
 
 def test_an_unconnected_connector_still_has_a_budget() -> None:
     """The reader is usable before connect, and fails closed just as quickly."""
-    assert EPICSConnector()._step_read_timeout == DEFAULT_STEP_READ_TIMEOUT_SECONDS
+    assert EPICSConnector()._step_read_timeout == DEFAULT_STEP_READ_TIMEOUT_S

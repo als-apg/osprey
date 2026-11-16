@@ -55,10 +55,10 @@ from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, ge
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
 from osprey_connectors.control_system._gateway_role import GatewayRole
 from osprey_connectors.control_system._limits_validator import (
-    DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    DEFAULT_STEP_READ_TIMEOUT_S,
     CurrentValueReader,
     c_numeral,
-    step_read_timeout_seconds,
+    step_read_timeout_s,
 )
 from osprey_connectors.errors import (
     ChannelUnreachableError,
@@ -895,7 +895,7 @@ class EPICSConnector(ControlSystemConnector):
         # config block on connect. Set here so the reader is usable on a
         # connector that has not connected — the fallback is the same number
         # the block's default resolves to.
-        self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_S
         # The `fresh_reads` key, kept readable; every CA read goes to the wire.
         self._fresh_reads = False
         self._subscriptions: dict[str, _ChannelSubscription] = {}
@@ -1125,7 +1125,7 @@ class EPICSConnector(ControlSystemConnector):
         # IOC on this host. Running out of budget answers None, which refuses
         # the write — raising it buys a slow channel more room, never a
         # weaker check.
-        self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
+        self._step_read_timeout = step_read_timeout_s(config, self._connector_type)
         # `fresh_reads` once made every read bypass pyepics' monitor cache.
         # Every Channel Access read now asks the IOC, so the key changes
         # nothing; it is still read, so a deployment that sets it keeps
@@ -1282,7 +1282,7 @@ class EPICSConnector(ControlSystemConnector):
         logger.info("EPICS connector disconnected")
 
     @override
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         """
         Read current value from EPICS channel.
 
@@ -1292,7 +1292,7 @@ class EPICSConnector(ControlSystemConnector):
 
         Args:
             address: EPICS channel address (e.g., 'BEAM:CURRENT')
-            timeout: Timeout in seconds (uses default if None)
+            timeout_s: Timeout in seconds (uses default if None)
 
         Returns:
             ChannelValue with current value, timestamp, and metadata
@@ -1303,15 +1303,16 @@ class EPICSConnector(ControlSystemConnector):
             ConnectorUnavailableError: The PVA client context is gone
             ValueError: If a PVA channel serves a compressed NTNDArray
         """
-        timeout = timeout or self._timeout
+        if timeout_s is None:
+            timeout_s = self._timeout
 
         if self._is_pva_channel(address):
             # p4p's thread client blocks, so it runs in a worker thread.
-            return await asyncio.to_thread(self._read_channel_pva, address, timeout)
+            return await asyncio.to_thread(self._read_channel_pva, address, timeout_s)
 
         name = normalise_address(address)
-        deadline = (time.time() + timeout,)
-        return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout))
+        deadline = (time.time() + timeout_s,)
+        return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout_s))
 
     # ------------------------------------------------------------------
     # Channel Access (aioca). Every coroutine here runs on the CA loop.
@@ -1340,7 +1341,7 @@ class EPICSConnector(ControlSystemConnector):
         return connected
 
     async def _read_channel_ca(
-        self, address: str, deadline: tuple[float], timeout: float, *, ctrl: str = "always"
+        self, address: str, deadline: tuple[float], timeout_s: float, *, ctrl: str = "always"
     ) -> ChannelValue:
         """Read a channel's value, alarm state and timestamp from the IOC, within ``deadline``.
 
@@ -1353,13 +1354,13 @@ class EPICSConnector(ControlSystemConnector):
         fields (units, precision, labels, limits) and write access;
         ``ctrl="enum"`` fetches them only for an enumeration, whose label a
         write confirmation compares -- the one thing it needs them for.
-        ``timeout`` is only quoted in the error.
+        ``timeout_s`` is only quoted in the error.
         """
         aioca = self._ca_client
         connected = await self._ca_connect(address, deadline)
         if not connected:
             raise ChannelUnreachableError(
-                address, f"Failed to connect to PV '{address}' (timeout after {timeout}s)"
+                address, f"Failed to connect to PV '{address}' (timeout after {timeout_s}s)"
             )
         reading = await aioca.caget(
             address, format=aioca.FORMAT_TIME, timeout=deadline, throw=False
@@ -1595,7 +1596,7 @@ class EPICSConnector(ControlSystemConnector):
             )
         return context
 
-    def _pva_get(self, address: str, timeout: float, request: str | None = None) -> object:
+    def _pva_get(self, address: str, timeout_s: float, request: str | None = None) -> object:
         """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
 
         Failures are raised through :meth:`_pva_failure`, the one funnel that
@@ -1611,7 +1612,7 @@ class EPICSConnector(ControlSystemConnector):
 
         Args:
             address: PVA channel to read.
-            timeout: Timeout in seconds.
+            timeout_s: Timeout in seconds.
             request: Optional pvRequest string (e.g. :data:`_PVA_METADATA_REQUEST`).
                 When omitted, the server's whole structure is fetched.
         """
@@ -1619,20 +1620,20 @@ class EPICSConnector(ControlSystemConnector):
 
         try:
             if request is None:
-                result = context.get(address, timeout=timeout)
+                result = context.get(address, timeout=timeout_s)
             else:
-                result = context.get(address, request=request, timeout=timeout)
+                result = context.get(address, request=request, timeout=timeout_s)
         except Exception as exc:
-            failure = self._pva_failure(address, exc, f"Read (timeout {timeout}s) of")
+            failure = self._pva_failure(address, exc, f"Read (timeout {timeout_s}s) of")
             if failure is exc:
                 raise
             raise failure from exc
 
         return getattr(result, "raw", result)
 
-    def _read_channel_pva(self, address: str, timeout: float) -> ChannelValue:
+    def _read_channel_pva(self, address: str, timeout_s: float) -> ChannelValue:
         """Synchronous PVAccess read (runs in a thread pool, like the CA read)."""
-        value = self._pva_get(address, timeout)
+        value = self._pva_get(address, timeout_s)
         return self._pva_channel_value(address, value)
 
     def _pva_channel_value(self, address: str, value: object) -> ChannelValue:
@@ -1950,7 +1951,8 @@ class EPICSConnector(ControlSystemConnector):
         self,
         address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
@@ -1965,7 +1967,7 @@ class EPICSConnector(ControlSystemConnector):
         Args:
             address: EPICS channel address
             value: Value to write
-            timeout: Timeout in seconds
+            timeout_s: Timeout in seconds
             confirm: Whether to confirm the write by re-reading the channel.
                 ``None`` means "no opinion" and resolves this channel's own
                 policy from the limits database.
@@ -1983,7 +1985,8 @@ class EPICSConnector(ControlSystemConnector):
         if refusal is not None:
             return refusal
 
-        timeout = timeout or self._timeout
+        if timeout_s is None:
+            timeout_s = self._timeout
 
         # Step 1: Resolve the channel's confirmation policy when the caller has
         # no opinion (cheap, on-loop). An explicit False is an answer and is
@@ -2018,10 +2021,10 @@ class EPICSConnector(ControlSystemConnector):
         if validation_error is not None:
             return self._validation_refusal(address, value, validation_error)
 
-        return await self._put_and_verify(address, value, timeout, confirm)
+        return await self._put_and_verify(address, value, timeout_s, confirm)
 
     async def _put_and_verify(
-        self, address: str, value: object, timeout: float, confirm: bool
+        self, address: str, value: object, timeout_s: float, confirm: bool
     ) -> ChannelWriteResult:
         """Put one value that passed every check, and confirm it when asked.
 
@@ -2033,12 +2036,12 @@ class EPICSConnector(ControlSystemConnector):
         # processing. A write nobody asked to confirm does not wait. The put
         # phase has one deadline T, set here so the wait for the CA loop is
         # charged to it as well.
-        put_deadline = (time.time() + timeout,)
+        put_deadline = (time.time() + timeout_s,)
         put = await self._ca_loop.run(
             self._put_ca(address, value, wait=bool(confirm), deadline=put_deadline)
         )
         if isinstance(put, _PutFault):
-            return self._put_fault_result(address, value, timeout, put)
+            return self._put_fault_result(address, value, timeout_s, put)
 
         if not confirm:
             # Nothing was checked, and nothing may be claimed: the result stays
@@ -2052,7 +2055,7 @@ class EPICSConnector(ControlSystemConnector):
 
         # Step 4: One fresh read of the channel that was just written.
         try:
-            observed = await self._confirming_read(address, timeout)
+            observed = await self._confirming_read(address, timeout_s)
         except Exception as e:
             logger.warning(f"EPICS confirming read failed for {address}: {e}")
             return ChannelWriteResult(
@@ -2103,7 +2106,7 @@ class EPICSConnector(ControlSystemConnector):
 
     @staticmethod
     def _put_fault_result(
-        address: str, value: object, timeout: float, put: _PutFault
+        address: str, value: object, timeout_s: float, put: _PutFault
     ) -> ChannelWriteResult:
         """The result of a put that was not sent, not acknowledged, or not taken."""
         payload = put.failure
@@ -2125,14 +2128,14 @@ class EPICSConnector(ControlSystemConnector):
         # The value was sent and its callback never came: nothing has said the
         # IOC took it, so the outcome is unknown and no re-read is made.
         if put.verdict == "unacknowledged":
-            logger.warning(f"EPICS put not acknowledged within {timeout}s: {address} = {value}")
+            logger.warning(f"EPICS put not acknowledged within {timeout_s}s: {address} = {value}")
             return ChannelWriteResult(
                 address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=(
                     f"Write to '{address}' could not be confirmed — the control "
-                    f"system did not acknowledge the put within {timeout}s"
+                    f"system did not acknowledge the put within {timeout_s}s"
                 ),
             )
 
@@ -2164,7 +2167,7 @@ class EPICSConnector(ControlSystemConnector):
             outcome=WriteOutcome.FAILED,
             error_message=(
                 f"Failed to write to channel '{address}': no value was sent "
-                f"within {timeout}s ({payload})"
+                f"within {timeout_s}s ({payload})"
             ),
         )
 
@@ -2207,7 +2210,7 @@ class EPICSConnector(ControlSystemConnector):
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
         batch: list[tuple[str, ContractAny]],
-        timeout: float | None,
+        timeout_s: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:
         """Put every write of a checked batch at once, and confirm each on its own.
@@ -2222,12 +2225,13 @@ class EPICSConnector(ControlSystemConnector):
         refused = self._send_refusal(batch)
         if refused is not None:
             return [_verdict_refusal(name, value, refused) for name, value in batch]
-        timeout = timeout or self._timeout
+        if timeout_s is None:
+            timeout_s = self._timeout
 
         async def send(name: str, value: object) -> ChannelWriteResult:
             confirmed = self._resolve_confirm(name) if confirm is None else confirm
             try:
-                return await self._put_and_verify(name, value, timeout, confirmed)
+                return await self._put_and_verify(name, value, timeout_s, confirmed)
             except Exception as exc:
                 return _batch_send_verdict(name, value, exc)
 
@@ -2241,7 +2245,7 @@ class EPICSConnector(ControlSystemConnector):
                 raise end
         return [end for end in ended if not isinstance(end, BaseException)]
 
-    async def _confirming_read(self, address: str, timeout: float) -> ChannelValue:
+    async def _confirming_read(self, address: str, timeout_s: float) -> ChannelValue:
         """Read the channel a write just touched, straight off the wire.
 
         The ordinary read path already asks the IOC every time, so a reading
@@ -2253,17 +2257,17 @@ class EPICSConnector(ControlSystemConnector):
         only for an enumeration, whose label the comparison uses, and under
         the same deadline.
         """
-        deadline = (time.time() + timeout,)
+        deadline = (time.time() + timeout_s,)
         return await self._ca_loop.run(
-            self._read_channel_ca(normalise_address(address), deadline, timeout, ctrl="enum")
+            self._read_channel_ca(normalise_address(address), deadline, timeout_s, ctrl="enum")
         )
 
     @override
     async def read_multiple_channels(
-        self, addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout)
+        return await self._read_concurrently(addresses, timeout_s)
 
     @override
     async def subscribe(
@@ -2577,7 +2581,7 @@ class EPICSConnector(ControlSystemConnector):
             slot.settle(waiters, None)
         logger.debug(f"EPICS subscription removed: {subscription_id}")
 
-    def _read_metadata_pva(self, address: str, timeout: float) -> ChannelMetadata:
+    def _read_metadata_pva(self, address: str, timeout_s: float) -> ChannelMetadata:
         """Metadata-only PVAccess get (runs in a thread pool, like the reads).
 
         Asks the server for :data:`_PVA_METADATA_REQUEST` only, so a metadata
@@ -2592,7 +2596,7 @@ class EPICSConnector(ControlSystemConnector):
         does not ask for, and the label for "the current value" is meaningless
         without a value anyway. Enum labels come from a read.
         """
-        value = self._pva_get(address, timeout, request=_PVA_METADATA_REQUEST)
+        value = self._pva_get(address, timeout_s, request=_PVA_METADATA_REQUEST)
         raw_metadata: dict[str, object] = {"nt_id": _pva_type_id(value)}
         raw_metadata.update(self._pva_alarm_metadata(value))
         return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
@@ -2686,12 +2690,12 @@ class EPICSConnector(ControlSystemConnector):
         Returns:
             True if channel can be accessed
         """
-        timeout = self._timeout
+        timeout_s = self._timeout
         try:
             if self._is_pva_channel(address):
-                await asyncio.to_thread(self._read_metadata_pva, address, timeout)
+                await asyncio.to_thread(self._read_metadata_pva, address, timeout_s)
             else:
-                await self.read_channel(address, timeout=timeout)
+                await self.read_channel(address, timeout_s=timeout_s)
             return True
         except Exception as e:
             logger.debug(f"Channel validation failed for {address}: {e}")

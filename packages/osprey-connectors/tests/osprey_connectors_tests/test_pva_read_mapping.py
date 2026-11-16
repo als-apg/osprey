@@ -386,7 +386,7 @@ class TestReadChannelDispatch:
 
         monkeypatch.setattr(connector, "_read_channel_ca", no_channel_access)
 
-        result = await connector.read_channel(PVA_ADDRESS, timeout=1.5)
+        result = await connector.read_channel(PVA_ADDRESS, timeout_s=1.5)
 
         assert get.calls == [{"name": PVA_ADDRESS, "timeout": 1.5}]
         assert result.value.dtype == np.uint16
@@ -480,7 +480,7 @@ class TestPvaErrorTranslation:
         connector = _pva_connector(get=get)
 
         with pytest.raises(ChannelUnreachableError) as excinfo:
-            await connector.read_channel(PVA_ADDRESS, timeout=2.0)
+            await connector.read_channel(PVA_ADDRESS, timeout_s=2.0)
 
         message = str(excinfo.value)
         assert PVA_ADDRESS in message

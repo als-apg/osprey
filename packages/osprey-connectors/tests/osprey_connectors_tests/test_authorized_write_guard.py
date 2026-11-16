@@ -59,17 +59,18 @@ class BaseBatchConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):
         raise NotImplementedError
 
     async def write_channel(
         self,
         address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes this signature
     ) -> ChannelWriteResult:
         if address == "LIMITED:SP":
@@ -100,7 +101,7 @@ class BaseBatchConnector(ControlSystemConnector):
 class StoppedAfterFirstWrite(BaseBatchConnector):
     """A person stops the run's grants while its first write is on the wire."""
 
-    async def write_channel(self, address, value, timeout=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
+    async def write_channel(self, address, value, *, timeout_s=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
         self.writes.append((address, value))
         if len(self.writes) == 1:
             revoke_grants(by="alice", targets=[TARGET])
@@ -112,7 +113,7 @@ class StoppedAfterFirstWrite(BaseBatchConnector):
 class StrayBatchConnector(RecordingConnector):
     """A batch of its own that also writes a channel the caller never asked for."""
 
-    async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the connector interface fixes this signature
+    async def write_multiple_channels(self, operations, *, timeout_s=None):  # noqa: ARG002 - the connector interface fixes this signature
         results = [await self.write_channel(addr, val) for addr, val in operations]
         results.append(await self.write_channel("A:SP", 1.0))
         return results
@@ -121,8 +122,10 @@ class StrayBatchConnector(RecordingConnector):
 class DelegatingBatchConnector(BaseBatchConnector):
     """A batch of its own that hands the whole batch to the base class's loop."""
 
-    async def write_multiple_channels(self, operations, timeout=None, confirm=None):
-        return await super().write_multiple_channels(operations, timeout=timeout, confirm=confirm)
+    async def write_multiple_channels(self, operations, *, timeout_s=None, confirm=None):
+        return await super().write_multiple_channels(
+            operations, timeout_s=timeout_s, confirm=confirm
+        )
 
 
 class ClosedRouteConnector(BaseBatchConnector):
