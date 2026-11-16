@@ -187,8 +187,8 @@ class DOOCSConnector(ControlSystemConnector):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ChannelUnreachableError: If the property cannot be read
-            TimeoutError: If operation times out
+            ChannelUnreachableError: If the property cannot be read, or does
+                not answer within the bound
         """
 
         bound = self._bound(timeout_s)
@@ -197,8 +197,8 @@ class DOOCSConnector(ControlSystemConnector):
                 asyncio.to_thread(self._read_channel_sync, address), bound
             )
         except TimeoutError:
-            raise TimeoutError(
-                f"DOOCS property '{address}' did not answer within {bound}s"
+            raise ChannelUnreachableError(
+                address, f"DOOCS property '{address}' did not answer within {bound}s"
             ) from None
 
     def _read_channel_sync(self, address: str) -> ChannelValue:
