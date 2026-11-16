@@ -14,7 +14,7 @@ import asyncio
 import os
 import urllib.parse
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, TypeGuard
 
 import pandas as pd
@@ -40,7 +40,7 @@ from osprey_connectors.archiver._timerange import (
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.archive import waveform_collection
+from osprey_connectors.simulation.archive import stored_date_utc, waveform_collection
 
 if TYPE_CHECKING:
     from pymongo import MongoClient
@@ -94,15 +94,6 @@ _VERIFY_OFF_OPTIONS = frozenset(
 )
 
 _ROUTE_LOGGED = False
-
-
-def _stored_instant(moment: datetime) -> datetime:
-    """A stored ``date`` as the UTC instant it is.
-
-    The store keeps UTC, and pymongo hands it back as a naive ``datetime`` unless
-    the client was opened timezone-aware; either way the answer is aware UTC.
-    """
-    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
@@ -666,9 +657,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     continue
                 newest = store.find_one(query, projection, sort=[("date", -1)])
                 if isinstance(oldest_at := oldest.get("date"), datetime):
-                    firsts.append(_stored_instant(oldest_at))
+                    firsts.append(stored_date_utc(oldest_at))
                 if isinstance(newest_at := (newest or {}).get("date"), datetime):
-                    lasts.append(_stored_instant(newest_at))
+                    lasts.append(stored_date_utc(newest_at))
             return min(firsts, default=None), max(lasts, default=None)
 
         try:
@@ -757,8 +748,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 if not isinstance(last_at := last.get("date"), datetime):
                     continue
                 if isinstance(first_at := first.get("date"), datetime):
-                    oldest.append(_stored_instant(first_at))
-                newest.append(_stored_instant(last_at))
+                    oldest.append(stored_date_utc(first_at))
+                newest.append(stored_date_utc(last_at))
                 for document in store.find({"date": last_at}):
                     channels.update(
                         _address_of(field) for field in document if field not in _RESERVED_FIELDS

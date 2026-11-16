@@ -1445,15 +1445,14 @@ def _archive_start(collection, manifest: dict, anchor_s: float, knobs: SeedKnobs
     archive reaches writes into the history that exists instead of describing
     history that does not.
     """
-    from osprey_connectors.simulation.archive import oldest_sample
+    from osprey_connectors.simulation.archive import oldest_sample, stored_date_utc
 
     oldest = oldest_sample(collection)
     if oldest is not None:
         return float(oldest.timestamp())
     seeded_at = manifest.get("seeded_at")
     if isinstance(seeded_at, datetime):
-        aware = seeded_at if seeded_at.tzinfo is not None else seeded_at.replace(tzinfo=UTC)
-        return float(aware.timestamp()) - knobs.retention_s
+        return float(stored_date_utc(seeded_at).timestamp()) - knobs.retention_s
     return anchor_s - knobs.retention_s
 
 
@@ -1532,10 +1531,9 @@ def _region_documents(collection, channels: Sequence[str], start: float, end: fl
 
 def _stamps(documents: Sequence[dict]) -> list[datetime]:
     """The instants a set of documents was sampled at, UTC-aware."""
-    return [
-        doc["date"] if doc["date"].tzinfo is not None else doc["date"].replace(tzinfo=UTC)
-        for doc in documents
-    ]
+    from osprey_connectors.simulation.archive import stored_date_utc
+
+    return [stored_date_utc(doc["date"]) for doc in documents]
 
 
 def _match_stored_type(existing, value):
@@ -1677,7 +1675,9 @@ def _expiry_update(document: Mapping[str, Any], protected: bool, expiry_s: float
         return {"$unset": {EXPIRE_FIELD_NAME: ""}} if held is not None else {}
     wanted = datetime.fromtimestamp(expiry_s, UTC)
     if isinstance(held, datetime):
-        aware = held if held.tzinfo is not None else held.replace(tzinfo=UTC)
+        from osprey_connectors.simulation.archive import stored_date_utc
+
+        aware = stored_date_utc(held)
         # The store keeps datetimes to the millisecond, so an exact compare
         # would report a change on every re-apply of an unchanged window.
         if abs((aware - wanted).total_seconds()) < 0.001:

@@ -115,6 +115,7 @@ __all__ = [
     "scenario_events",
     "seed_base",
     "seed_fingerprint",
+    "stored_date_utc",
     "tier_expiry",
     "waveform_collection",
     "waveform_document",
@@ -956,7 +957,7 @@ def compare_fingerprint(
         return FingerprintComparison(state=SeedState.ABSENT)
 
     stamp = stored.get("seeded_at")
-    seeded_at = _stored_instant(stamp) if isinstance(stamp, datetime) else None
+    seeded_at = stored_date_utc(stamp) if isinstance(stamp, datetime) else None
     held = stored.get("fingerprint") or {}
     if not isinstance(held, Mapping):
         # What reading a field off such a manifest raised before it was checked.
@@ -1253,14 +1254,15 @@ def oldest_sample(collection: Collection[dict[str, object]]) -> datetime | None:
     stamp = document.get(DATE_FIELD)
     if not isinstance(stamp, datetime):
         return None
-    return _stored_instant(stamp)
+    return stored_date_utc(stamp)
 
 
-def _stored_instant(stamp: datetime) -> datetime:
-    """A datetime read back from the store, aware.
+def stored_date_utc(moment: datetime) -> datetime:
+    """A ``date`` read back from the store, as the aware UTC instant it is.
 
-    BSON stores every date in UTC, and a client opened without ``tz_aware``
-    hands it back naive, so a naive value read from the store is UTC by the
-    store's own definition, not by a guess.
+    BSON keeps every date in UTC, and a client opened without ``tz_aware`` (as
+    ``mongo_client_kwargs`` opens one) hands it back naive, so a naive value
+    read from the store is UTC by the store's own definition, not by a guess.
+    An aware one is moved to UTC.
     """
-    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
