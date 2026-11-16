@@ -31,7 +31,7 @@ from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
-from osprey_connectors.model import MutableModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
 
@@ -53,7 +53,7 @@ _LIMIT_PAIRS = (
 )
 
 
-class ChannelMetadata(MutableModel):
+class ChannelMetadata(FrozenModel):
     """Metadata a control system reports about one of its channels.
 
     ``display_low`` / ``display_high`` are the range the control system suggests
@@ -87,8 +87,7 @@ class ChannelMetadata(MutableModel):
     system does not report one.
 
     Every limit pair, the display range included, passes through
-    :func:`normalise_limit_pair` on construction and on every assignment: a
-    missing, non-numeric or non-finite bound becomes ``None``, and a pair whose
+    :func:`normalise_limit_pair` on construction: a missing, non-numeric or non-finite bound becomes ``None``, and a pair whose
     low is not below its high (EPICS reports an unset range as ``0``/``0``)
     becomes ``None`` on both sides. A connector may therefore hand a limit over
     as whatever its transport reported. The normalisation is idempotent, so a
@@ -146,15 +145,23 @@ class ChannelMetadata(MutableModel):
         """A reported write-access right as ``bool``, or ``None`` when not reported."""
         return _writable_flag(value)
 
-    @model_validator(mode="after")
-    def _limit_pairs(self) -> Self:
-        """Each limit pair as one pair: a low not below its high leaves neither."""
+    @model_validator(mode="before")
+    @classmethod
+    def _limit_pairs(cls, data: object) -> object:
+        """Each limit pair as one pair: a low not below its high leaves neither.
+
+        Runs on the fields as given, before each bound is validated, so the
+        record is built once with the pair it keeps.
+        """
+        if not isinstance(data, Mapping):
+            return data
+        fields = dict(data)
         for low_name, high_name in _LIMIT_PAIRS:
-            low, high = getattr(self, low_name), getattr(self, high_name)
-            if normalise_limit_pair(low, high) != (low, high):
-                setattr(self, low_name, None)
-                setattr(self, high_name, None)
-        return self
+            if low_name in fields or high_name in fields:
+                fields[low_name], fields[high_name] = normalise_limit_pair(
+                    fields.get(low_name), fields.get(high_name)
+                )
+        return fields
 
 
 def _limit_bound(value: object) -> float | None:
@@ -200,7 +207,7 @@ def _writable_flag(value: object) -> bool | None:
     return None
 
 
-class ChannelValue(MutableModel):
+class ChannelValue(FrozenModel):
     """Value of a control system channel with metadata."""
 
     value: ContractAny
@@ -364,7 +371,7 @@ def as_number(value: object) -> float | None:
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
 
 
-class ChannelWriteResult(MutableModel):
+class ChannelWriteResult(FrozenModel):
     """What became of one channel write, and what the channel was seen to hold.
 
     The control-system-agnostic result type returned by every connector.
@@ -375,8 +382,8 @@ class ChannelWriteResult(MutableModel):
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``. Construction, and every assignment to a field, enforce
-    it: a result that breaks it raises ``ValueError``.
+    ``observed_value``. Construction enforces it: a result that breaks it
+    raises ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by

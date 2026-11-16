@@ -41,6 +41,7 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.types import TANGO
 
 logger = get_logger("tango_connector")
@@ -361,6 +362,7 @@ class TangoConnector(ControlSystemConnector):
             units="",
             precision=None,
             alarm_status=alarm_status,
+            alarm_severity=severity,
             timestamp=timestamp,
             enum_labels=enum_labels,
             enum_label=enum_label,
@@ -373,11 +375,6 @@ class TangoConnector(ControlSystemConnector):
                 else None,
             },
         )
-        # ChannelMetadata grows a first-class alarm_severity field
-        # independently of this connector; populate it where it exists rather
-        # than depending on it.
-        if hasattr(metadata, "alarm_severity"):
-            metadata.alarm_severity = severity
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @override
@@ -632,11 +629,10 @@ class TangoConnector(ControlSystemConnector):
             timestamp = _attribute_timestamp(attr, tz)
             metadata = ChannelMetadata(
                 alarm_status=alarm_status,
+                alarm_severity=severity,
                 timestamp=timestamp,
                 raw_metadata={"severity": severity},
             )
-            if hasattr(metadata, "alarm_severity"):
-                metadata.alarm_severity = severity
             channel_value = ChannelValue(value=attr.value, timestamp=timestamp, metadata=metadata)
             loop.call_soon_threadsafe(callback, channel_value)
 
@@ -684,21 +680,21 @@ class TangoConnector(ControlSystemConnector):
         unit = getattr(info, "unit", "") or ""
         if unit.lower() in ("no unit", "none"):  # TANGO's spellings of "unitless"
             unit = ""
-        metadata.units = unit
-        metadata.description = getattr(info, "description", None) or None
-        if metadata.description == "No description":
-            metadata.description = None
-        raw = metadata.raw_metadata or {}
-        raw.update(
-            {
+        description = getattr(info, "description", None) or None
+        if description == "No description":
+            description = None
+        return evolve(
+            metadata,
+            units=unit,
+            description=description,
+            raw_metadata={
+                **(metadata.raw_metadata or {}),
                 "min_value": getattr(info, "min_value", None),
                 "max_value": getattr(info, "max_value", None),
                 "format": getattr(info, "format", None),
                 "writable": str(getattr(info, "writable", None)),
-            }
+            },
         )
-        metadata.raw_metadata = raw
-        return metadata
 
     @override
     async def validate_channel(self, address: str) -> bool:

@@ -12,7 +12,7 @@ from typing import TypeGuard
 from pydantic import ValidationError
 
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
@@ -271,7 +271,7 @@ def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
     return lookup
 
 
-class ChannelLimitsConfig(MutableModel):
+class ChannelLimitsConfig(FrozenModel):
     """Configuration for a single channel's limits.
 
     A bound is a number, kept as the ``int`` or ``float`` it was given as, so a

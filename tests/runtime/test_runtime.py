@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from osprey.runtime import (
     _write_channel_async,
@@ -1340,7 +1341,7 @@ class TestChannelLimits:
         assert isinstance(other, ChannelLimitsConfig)
         assert (other.min_value, other.max_value, other.max_step) == (0.0, 10.0, None)
 
-    def test_channel_limits_returns_a_copy_the_caller_cannot_weaken(self, tmp_path):
+    def test_channel_limits_returns_a_record_the_caller_cannot_weaken(self, tmp_path):
         import osprey.runtime as runtime
         from osprey.runtime import channel_limits
 
@@ -1349,8 +1350,10 @@ class TestChannelLimits:
 
         cfg = channel_limits("MAG:QF:SP")
         assert cfg is not None
-        cfg.max_step = None
-        cfg.max_value = 1e9
+        with pytest.raises(ValidationError, match="frozen"):
+            cfg.max_step = None
+        with pytest.raises(ValidationError, match="frozen"):
+            cfg.max_value = 1e9
 
         held = validator.limits["MAG:QF:SP"]
         assert (held.max_value, held.max_step) == (5.0, 0.5)

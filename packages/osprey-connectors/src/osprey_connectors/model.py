@@ -16,9 +16,12 @@ such record is validated the same way, at the moment it is built:
 * **by name:** a field with an alias is also accepted under its own name, so
   :func:`evolve` can rebuild any model from its fields.
 
-:class:`FrozenModel` is a record that does not change once built;
-:class:`MutableModel` is one whose fields may be reassigned, each assignment
-validated like the construction was.
+:class:`FrozenModel` is a record that does not change once built, and every
+record is one unless its docstring says why it is not. :class:`MutableModel` is
+that exception: a record whose fields may be reassigned, each assignment
+validated like the construction was. A record a caller is handed is never
+one; a builder that needs a changed record makes a new one, with the
+constructor or :func:`evolve`.
 
 :func:`evolve` is how a caller, in the package or outside it, copies one of
 these records with some fields changed.
@@ -48,7 +51,12 @@ class FrozenModel(BaseModel):
 
 
 class MutableModel(BaseModel):
-    """A record whose fields may be reassigned, each assignment validated."""
+    """A record whose fields may be reassigned, each assignment validated.
+
+    Only for a record that states why it is not a :class:`FrozenModel`, such as
+    a file entry edited in place so that a rewrite keeps exactly the keys it
+    read (``model_dump(exclude_unset=True)``).
+    """
 
     model_config = ConfigDict(
         extra="forbid",

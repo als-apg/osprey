@@ -16,7 +16,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from types import ModuleType
@@ -67,6 +67,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
@@ -1652,17 +1653,27 @@ class EPICSConnector(ControlSystemConnector):
 
         raw_metadata.update(payload.pop("raw_metadata", {}))
 
-        metadata = self._pva_metadata(value, timestamp, raw_metadata)
-        # Only the enum branch contributes these; every other payload leaves the
-        # fields at their None default, which is what marks a channel as not
-        # enum-typed.
-        metadata.enum_labels = payload.get("enum_labels")
-        metadata.enum_label = payload.get("enum_label")
+        # Only the enum branch contributes the enum fields; every other payload
+        # leaves them at their None default, which is what marks a channel as
+        # not enum-typed.
+        metadata = self._pva_metadata(
+            value,
+            timestamp,
+            raw_metadata,
+            enum_labels=payload.get("enum_labels"),
+            enum_label=payload.get("enum_label"),
+        )
 
         return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
-        self, value: object, timestamp: datetime, raw_metadata: dict[str, object]
+        self,
+        value: object,
+        timestamp: datetime,
+        raw_metadata: dict[str, object],
+        *,
+        enum_labels: Sequence[str] | None = None,
+        enum_label: str | None = None,
     ) -> ChannelMetadata:
         """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
 
@@ -1712,6 +1723,8 @@ class EPICSConnector(ControlSystemConnector):
             warning_high=warning_high,
             alarm_low=alarm_low,
             alarm_high=alarm_high,
+            enum_labels=None if enum_labels is None else list(enum_labels),
+            enum_label=enum_label,
             raw_metadata=raw_metadata,
         )
 
@@ -2071,7 +2084,7 @@ class EPICSConnector(ControlSystemConnector):
         sent, as_text = put.sent, put.as_text
         if as_text:
             # Written to a char array as text, so it is read back as text.
-            observed.value = _char_text(observed.value)
+            observed = evolve(observed, value=_char_text(observed.value))
 
         alarm_status, alarm_severity = _readback_alarm_fields(observed)
         metadata = getattr(observed, "metadata", None)

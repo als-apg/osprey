@@ -82,7 +82,6 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import evolve
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
@@ -1294,19 +1293,16 @@ def channel_limits(address: str) -> "ChannelLimitsConfig | None":
         address: Channel address, spelled as it appears in the limits database.
 
     Returns:
-        A copy of the channel's ``ChannelLimitsConfig`` (``min_value``,
-        ``max_value``, ``max_step``, ``writable``) when a validator is injected
-        and lists the address; ``None`` when no validator is injected or the
-        address has no entry. Editing the copy leaves the limits the runtime
-        enforces unchanged.
+        The channel's ``ChannelLimitsConfig`` (``min_value``, ``max_value``,
+        ``max_step``, ``writable``) when a validator is injected and lists the
+        address; ``None`` when no validator is injected or the address has no
+        entry. The record is frozen, so a caller cannot weaken the limits the
+        runtime enforces through it.
     """
     if _limits_validator is None:
         return None
     config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
-    if config is None:
-        return None
-    # Rebuilt from its fields, and validated like a new one.
-    return evolve(config)
+    return config
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
