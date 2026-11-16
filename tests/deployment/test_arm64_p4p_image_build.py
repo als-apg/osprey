@@ -422,11 +422,7 @@ def _deps_layer_dockerfile(rendered: str) -> str:
     global_args = [text for text in instructions[:first_from] if text.startswith("ARG ")]
     args = [text for text in instructions[from_index:] if text.startswith("ARG ")]
 
-    return (
-        "# syntax=docker/dockerfile:1\n"
-        + "\n".join([*global_args, from_line, *args, apt_preamble, deps_copy, deps_run])
-        + "\n"
-    )
+    return "\n".join([*global_args, from_line, *args, apt_preamble, deps_copy, deps_run]) + "\n"
 
 
 @pytest.fixture(scope="module")
