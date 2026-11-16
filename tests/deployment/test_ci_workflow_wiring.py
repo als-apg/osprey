@@ -9920,6 +9920,25 @@ def test_the_tag_gate_requires_every_dispatch_stack_cell() -> None:
     assert gate.missing_lanes(skipped_job, lanes) == dict.fromkeys(lanes, "no such job in the run")
 
 
+RELEASE_FLOOR_JOB = "verify-connectors-floor"
+
+
+def test_the_floor_scan_blocks_the_publish_and_runs_as_a_release_scan() -> None:
+    """A tag is refused while the framework imports connectors code its floor
+    lacks. Without ``--release`` the scan forgives every such import that has a
+    stand-in, which is the case the job exists to refuse."""
+    release = yaml.safe_load(RELEASE_YML.read_text())
+    assert RELEASE_FLOOR_JOB in release["jobs"]["publish-to-pypi"]["needs"], (
+        f"publish-to-pypi does not wait for {RELEASE_FLOOR_JOB}"
+    )
+    runs = " ".join(step.get("run", "") for step in release["jobs"][RELEASE_FLOOR_JOB]["steps"])
+    assert "scan_framework_imports.py" in runs
+    assert "--release" in runs, "the floor scan forgives imports a stand-in covers"
+    assert "connectors_compat_matrix.py floor" in runs, "the scan is not held to the floor"
+    for package in ("osprey", "pyaml_cs_osprey"):
+        assert f"--package {package}" in runs, f"the floor scan does not read {package}"
+
+
 def test_the_tag_gate_blocks_the_publish() -> None:
     """The gate is only a gate if the jobs that build and publish wait on it."""
     release = yaml.safe_load(RELEASE_YML.read_text())
