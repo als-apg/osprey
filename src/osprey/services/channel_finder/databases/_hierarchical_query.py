@@ -30,7 +30,15 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
 
         Returns:
             List of options with name and description
+
+        Raises:
+            ValueError: ``previous_selections`` omit a required tree level above
+                ``level``. Options are offered only below a selection of every
+                required tree level above ``level``; instance levels and tree
+                levels declared ``optional`` may be omitted.
         """
+        self._require_selected_tree_levels(level, previous_selections)
+
         # Navigate to current position in tree (skipping instance levels)
         current_node = self._navigate_to_node(level, previous_selections)
 
@@ -46,18 +54,30 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
             # Direct children of current node
             return self._extract_tree_options(current_node)
 
-            # OPTIONAL LEVEL BEHAVIOR: For optional tree levels, INCLUDE both:
-            # 1. Containers (subdevices, subsystems, etc.) - these lead to deeper navigation
-            # 2. Leaf nodes (direct signals) - these skip this optional level
-            # This allows the LLM to naturally select either a subdevice (PSU, ADC, etc.)
-            # OR a direct signal (Heartbeat, Status, etc.) without needing to reason about
-            # "NOTHING_FOUND". The navigation logic will handle both cases appropriately.
-
         if level_type == "instances":
             # Find expansion definition for this level
             return self._get_expansion_options(current_node, level)
 
         return []
+
+    def _require_selected_tree_levels(
+        self, target_level: str, previous_selections: dict[str, Any]
+    ) -> None:
+        """Raise ``ValueError`` naming the first required tree level above ``target_level``
+        that ``previous_selections`` omit."""
+        for prev_level in self.hierarchy_levels:
+            if prev_level == target_level:
+                return
+            level_config = self.hierarchy_config["levels"][prev_level]
+            if (
+                level_config["type"] == "tree"
+                and not level_config.get("optional", False)
+                and prev_level not in previous_selections
+            ):
+                raise ValueError(
+                    f"selections name no {prev_level!r}; "
+                    f"get the {prev_level!r} options before the {target_level!r} options"
+                )
 
     def _navigate_to_node(
         self, target_level: str, previous_selections: dict[str, Any]
