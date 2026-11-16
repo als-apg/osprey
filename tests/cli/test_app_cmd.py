@@ -353,6 +353,24 @@ def test_the_reference_panel_passes_as_an_applications_panel(
     assert result.exit_code == 0, result.output
 
 
+def _skill_head() -> str:
+    """The first ``html`` block after the panel skill's Step 1 heading."""
+    skill = Path(__file__).parents[2] / "plugins" / "osprey" / "skills" / "panel" / "SKILL.md"
+    step_one = skill.read_text(encoding="utf-8").split("\n## Step 1", 1)[1]
+    return step_one.split("```html\n", 1)[1].split("\n```", 1)[0] + "\n"
+
+
+def test_the_panel_skills_head_passes_as_an_applications_panel(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "panel/index.html", _skill_head())
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
 @pytest.mark.usefixtures("js")
 def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
     runner: CliRunner, lifecycle_repo: Path
