@@ -50,7 +50,9 @@ async def artifact_register(
     conversation it is posted with your reply, as are your plots, documents and
     ``save_artifact()`` files. What a tool stored for you to read (an archived
     series, a large channel reading and its picture, a screenshot) is not
-    posted; to send one, register its file here.
+    posted. To send a stored picture, register its image file here. To send
+    data, write it to a CSV file in ``execute`` and register that file; a
+    registered JSON file arrives as a picture of its text, not as data.
 
     Exactly one of ``file_path`` or ``content`` must be provided.
 

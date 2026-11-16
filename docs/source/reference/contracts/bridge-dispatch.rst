@@ -105,7 +105,10 @@ The recent exchanges in this conversation, **oldest first**. This is what makes
        person: a plot, a document's PDF, a file the agent saved from its code
        or registered on purpose. Nothing else is: a script run's notebook and
        result record, a tool's data record such as an archiver read, and the
-       filed answer text stay in the artifact store.
+       filed answer text stay in the artifact store. The tool states it with
+       ``deliver=True`` on the store's save method
+       (``ArtifactEntry.deliver``); see "MCP server" in
+       :doc:`/contributing/extending-osprey`.
    * - ``asked_by``
      - Who asked this question, in the same shape as ``asker``. Absent when the
        bridge did not know, including every turn recorded before the field

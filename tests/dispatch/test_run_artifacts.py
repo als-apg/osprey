@@ -680,6 +680,26 @@ class TestABridgePostsOnlyWhatWasAskedFor:
         assert (data, mime) == (PNG_BYTES, "image/png")
         assert name.endswith(".png")
 
+    def test_data_is_posted_as_a_file_once_the_agent_registers_a_csv(
+        self, client, tmp_path, monkeypatch
+    ):
+        """The guidance for "send me the data": write a CSV, register it."""
+        from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
+
+        c, store, _ = client
+        table = tmp_path / "beam_current.csv"
+        table.write_text("time,current\n0,500.1\n1,500.2\n")
+
+        reply = _call_tool(
+            store, "run-3", artifact_register, title="Beam current", file_path=str(table)
+        )
+        fetched, uploads = _slack_delivery(c, "run-3", monkeypatch)
+
+        assert fetched == [reply["artifact_id"]]
+        [(_, _, name, data, mime)] = uploads
+        assert (data, mime) == (table.read_bytes(), "text/csv")
+        assert name.endswith(".csv")
+
 
 class TestResolveSingleRunArtifact:
     async def test_missing_file_is_none(self, tmp_path, monkeypatch):

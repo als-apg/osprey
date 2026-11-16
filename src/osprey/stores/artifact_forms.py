@@ -88,8 +88,9 @@ RUN_ROLES: frozenset[str] = frozenset({"preview", "code", "output", "result"})
 def is_run_record(entry: ArtifactEntry) -> bool:
     """Whether ``entry`` records a script run rather than holding its result.
 
-    The one rule for it: the sidebar and gallery listings, the activity strip
-    and a dispatch run's delivery list all read this verdict.
+    The one rule for it: the sidebar and gallery listings and the activity
+    strip all read this verdict. What a dispatch run delivers is a different
+    question with its own answer, :attr:`ArtifactEntry.deliver`.
 
     An entry that states its run part (``metadata.run_part``) is judged by that
     alone: a ``preview``, ``code`` or ``result`` part is a run record, an
