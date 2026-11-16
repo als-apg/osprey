@@ -30,7 +30,6 @@ __all__ = [
     "bundled_origin",
     "classify",
     "header_line",
-    "under_former_header",
 ]
 
 #: The suffixes of the files that carry the bundled-origin line.
@@ -76,14 +75,18 @@ def bundled_origin(path: Path) -> str | None:
 
 
 def _is_seeded(path: Path) -> bool:
-    """Whether a file opens with the header line the facility import seeds files under."""
-    from osprey.facility.layers import HEADER
+    """Whether a file opens with the facility import's seed header.
 
-    return path.suffix in HEADER_CAPABLE and _first_line(path) == HEADER
+    That is the header the facility import seeds files under, or the one it
+    seeded them under before.
+    """
+    from osprey.facility.layers import FORMER_HEADER, HEADER
+
+    return path.suffix in HEADER_CAPABLE and _first_line(path) in (HEADER, FORMER_HEADER)
 
 
-def under_former_header(path: Path) -> bool:
-    """Whether a file opens with the seed header an import wrote before the current one."""
+def _under_retired_header(path: Path) -> bool:
+    """Whether a file opens with the seed header the import wrote before the current one."""
     from osprey.facility.layers import FORMER_HEADER
 
     return path.suffix in HEADER_CAPABLE and _first_line(path) == FORMER_HEADER
@@ -99,6 +102,8 @@ class Classification:
         seeded: The files an import seeded.
         layer: The files under ``imported/``.
         authored: Every other file.
+        retired_header: The seeded files that open with the retired seed header;
+            a subset of ``seeded``.
     """
 
     name: str | None
@@ -106,6 +111,7 @@ class Classification:
     seeded: tuple[str, ...]
     layer: tuple[str, ...]
     authored: tuple[str, ...]
+    retired_header: tuple[str, ...] = ()
 
     @property
     def wholly_bundled(self) -> bool:
@@ -151,6 +157,7 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
     package = template_root / FACILITIES_DIRNAME / name if name is not None else None
 
     classes: dict[str, list[str]] = {"bundled": [], "seeded": [], "layer": [], "authored": []}
+    retired: list[str] = []
     for path, relative in files:
         if relative.parts[0] == LAYER_ROOT:
             found = "layer"
@@ -167,10 +174,13 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
         else:
             found = "authored"
         classes[found].append(relative.as_posix())
+        if found == "seeded" and _under_retired_header(path):
+            retired.append(relative.as_posix())
     return Classification(
         name=name,
         bundled=tuple(classes["bundled"]),
         seeded=tuple(classes["seeded"]),
         layer=tuple(classes["layer"]),
         authored=tuple(classes["authored"]),
+        retired_header=tuple(retired),
     )
