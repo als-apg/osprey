@@ -685,6 +685,7 @@ class TestStartJob:
                     "osprey_optimizer.api.optimization_lifecycle.initialize_results_dir",
                     return_value=tmp_path,
                 ),
+                patch("osprey_optimizer.api.job_control._start_launch_keep_alive"),
             ):
                 resp = test_client.post(
                     f"/jobs/{job_id}/start", params={"config_revision": draft_revision(draft)}
