@@ -40,15 +40,16 @@ own result types. So each connector's real reading is encoded into one IPC
 frame and decoded back once, and must come out equal to what went in.
 
 No call outlives its bound. On every connector whose transport call runs in a
-worker thread — DOOCS and TANGO — a read whose transport stalls raises
-``TimeoutError`` naming the channel, and a send whose transport stalls is
-``unconfirmed``, because the thread cannot be stopped and the value may still
-arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row
-here: each phase of its write runs under one aioca deadline that covers connect
-and call, which ``test_epics_write_deadlines.py`` pins against a fake aioca on
-a virtual clock, and a channel that never connects is the
-``ChannelUnreachableError`` the unreachable-channel class already pins. Mock has
-no transport to stall.
+worker thread — DOOCS and TANGO — a read whose transport stalls raises the same
+``ChannelUnreachableError`` naming the channel that EPICS raises for a get that
+timed out (``test_epics_connector.py`` pins that one), and a send whose
+transport stalls is ``unconfirmed``, because the thread cannot be stopped and
+the value may still arrive. EPICS (and the Virtual Accelerator, an EPICS
+subclass) has no row here: each phase of its write runs under one aioca
+deadline that covers connect and call, which ``test_epics_write_deadlines.py``
+pins against a fake aioca on a virtual clock, and a channel that never connects
+is the ``ChannelUnreachableError`` the unreachable-channel class already pins.
+Mock has no transport to stall.
 """
 
 from dataclasses import dataclass
@@ -685,14 +686,18 @@ _STALL_DRIVERS = {
 class TestStalledTransportParity:
     """A transport that never returns cannot hold a call past its bound."""
 
-    async def test_a_stalled_read_is_a_timeout_error_naming_the_channel(self, connector_name):
+    async def test_a_stalled_read_is_an_unreachable_channel_naming_it(self, connector_name):
         driver, channel = _STALL_DRIVERS[connector_name]
 
         run = await driver("read")
 
         assert run.answered_first
-        assert isinstance(run.outcome, TimeoutError)
-        assert not isinstance(run.outcome, ConnectionError)
+        # The same class every connector raises for a channel that did not
+        # answer: the connector stays in place, so no builtin connection or
+        # timeout class may stand in for it.
+        assert isinstance(run.outcome, ChannelUnreachableError)
+        assert not isinstance(run.outcome, (ConnectionError, TimeoutError))
+        assert run.outcome.address == channel
         assert channel in str(run.outcome)
         assert "within 0.2s" in str(run.outcome)
 
