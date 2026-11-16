@@ -141,7 +141,7 @@ class _DoorProbe(ControlSystemConnector):
     def _writes_enabled(self) -> bool:
         return self._armed
 
-    async def connect(self, config):
+    async def _open(self, config):
         pass
 
     async def disconnect(self):

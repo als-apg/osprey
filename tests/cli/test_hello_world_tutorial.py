@@ -23,6 +23,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
+from osprey_connectors.control_system import ConnectorContext
 from tests._builds import BuiltProject, init_project, run_build
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -151,7 +152,11 @@ class TestVAInProcessConnectorTutorialChannels:
 
         channel_names = ["SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB"]
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(served_tree(tmp_path, readings=channel_names)))
+        await connector.connect(
+            ConnectorContext(
+                settings=in_process_config(served_tree(tmp_path, readings=channel_names))
+            )
+        )
 
         for name in channel_names:
             result = await connector.read_channel(name)
@@ -165,7 +170,9 @@ class TestVAInProcessConnectorTutorialChannels:
         from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(hello_world_project / "data" / "simulator"))
+        await connector.connect(
+            ConnectorContext(settings=in_process_config(hello_world_project / "data" / "simulator"))
+        )
         try:
             result = await connector.read_channel("SR:BEAM:CURRENT")
         finally:

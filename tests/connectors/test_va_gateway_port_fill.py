@@ -26,6 +26,7 @@ import yaml
 import osprey.profiles
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _va_connector as va_connector
 from osprey_connectors.control_system._va_connector import (
     DEFAULT_VA_PORT,
@@ -273,21 +274,25 @@ def test_a_config_with_no_gateways_passes_through(config: dict[str, Any], monkey
 
 @pytest.mark.asyncio
 async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, monkeypatch) -> None:
-    """The derived port reaches EPICSConnector.connect, which configures CA.
+    """The derived port reaches EPICSConnector._open, which configures CA.
 
-    The real ``EPICSConnector.connect`` is stubbed: it imports aioca and
+    The real ``EPICSConnector._open`` is stubbed: it imports aioca and
     sets up a CA context against a soft-IOC that is not running here.
     """
     deployed_va_port(15064)
     captured: dict[str, Any] = {}
 
-    async def fake_epics_connect(_self, config):
+    async def fake_epics_open(_self, config):
         captured["config"] = config
 
-    monkeypatch.setattr(va_connector.EPICSConnector, "connect", fake_epics_connect, raising=True)
+    monkeypatch.setattr(va_connector.EPICSConnector, "_open", fake_epics_open, raising=True)
 
     connector = VirtualAcceleratorConnector()
-    await connector.connect({"timeout_s": 5.0, "gateways": {"read_only": {"address": "localhost"}}})
+    await connector.connect(
+        ConnectorContext(
+            settings={"timeout_s": 5.0, "gateways": {"read_only": {"address": "localhost"}}}
+        )
+    )
 
     assert captured["config"]["gateways"]["read_only"]["port"] == 15064
     assert captured["config"]["timeout_s"] == 5.0
@@ -313,7 +318,9 @@ async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeyp
     monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": {"read_only": {"address": "gw.example.org"}}})
+    await connector.connect(
+        ConnectorContext(settings={"gateways": {"read_only": {"address": "gw.example.org"}}})
+    )
 
     # 5064 is the EPICS connector's own generic default, not the VA's port.
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5064", (

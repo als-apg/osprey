@@ -64,13 +64,12 @@ raw_put_block.install("armed", **armed_contract(refuse_rpc=False))
 
 import aioca
 import yaml
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 
 async def main():
     with open(os.environ["CONFIG_FILE"]) as handle:
         section = yaml.safe_load(handle)["control_system"]
-    register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(
         section, control_target="live"
     )

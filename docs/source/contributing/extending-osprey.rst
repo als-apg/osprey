@@ -41,7 +41,11 @@ return the ``ChannelValue``, ``ChannelMetadata`` and ``ChannelWriteResult``
 models it defines. A write's result carries the ``outcome`` your connector
 determined. Use the shared ``values_match`` helper from the same module to
 compare what you read back against what was sent. That way your connector
-confirms a write exactly as every other one does. Register it with
+confirms a write exactly as every other one does. Implement ``_open(settings)``,
+which receives your connector's own block (``control_system.connector.<type>``),
+rather than ``connect()``: ``connect()`` is final. It takes the
+``ConnectorContext`` the factory builds, and it builds the limits validator from
+the deployment's loaded config before it calls ``_open``. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an
 ``osprey.registry.base.ConnectorRegistration`` passed to
 ``osprey.registry.helpers.extend_framework_registry``. Pinning test:

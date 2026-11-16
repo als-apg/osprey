@@ -45,6 +45,7 @@ from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import REASONS, refusal_phrase
@@ -1361,8 +1362,7 @@ class TestRunsAndTheSwitch:
     ):
         monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(ALLOWED))
         connector = RecordingConnector()
-        connector._connector_type = "epics"
-        connector._control_target = "va"
+        connector._context = ConnectorContext(connector_type="epics", control_target="va")
 
         refused = await connector.write_channel("VA:CORR:1:SP", 0.5)
         assert refused.outcome is WriteOutcome.REFUSED

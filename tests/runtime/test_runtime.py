@@ -90,7 +90,7 @@ class RecordingConnector(ControlSystemConnector):
         self.disconnect_called = True
 
     # --- Unused abstract-method stubs -------------------------------------
-    async def connect(self, config: dict[str, Any]) -> None: ...
+    async def _open(self, config: dict[str, Any]) -> None: ...
     async def read_multiple_channels(
         self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:

@@ -37,7 +37,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._by_path import load_module
 from tests._simulator_view import view_channel
 from tests.simulation.conftest import stage_built_simulator_view
@@ -65,7 +65,9 @@ def _no_model_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 async def _connected(view: Path) -> VAInProcessConnector:
     connector = VAInProcessConnector()
-    await connector.connect({"simulator_view": str(view), "response_delay_ms": 0})
+    await connector.connect(
+        armed_context(settings={"simulator_view": str(view), "response_delay_ms": 0})
+    )
     return connector
 
 

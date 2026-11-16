@@ -359,10 +359,7 @@ class ControlSystemContext:
         self._config = self._load_config()
         logger.info("ControlSystemContext: config loaded from %s", self._config.config_path)
 
-        # 2. Register connector types with ConnectorFactory
-        self._register_connector_types()
-
-        # 3. Pre-populate connector entries (not connected yet — lazy)
+        # 2. Pre-populate connector entries (not connected yet — lazy)
         self._connectors["control_system"] = ConnectorEntry(
             config=self._config.control_system,
             connector_type="control_system",
@@ -372,7 +369,7 @@ class ControlSystemContext:
             connector_type="archiver",
         )
 
-        # 4. Validate config: warnings for the misconfigurations a tool can
+        # 3. Validate config: warnings for the misconfigurations a tool can
         #    still work around, and one hard refusal for the pairing no tool can
         #    (see _validate).
         self._validate()
@@ -778,13 +775,6 @@ class ControlSystemContext:
             logger.warning("Config file not found: %s", config_path)
 
         return MCPServerConfig(raw=raw, config_path=config_path)
-
-    @staticmethod
-    def _register_connector_types() -> None:
-        """Register all connector types with ConnectorFactory."""
-        from osprey_connectors.factory import register_builtin_connectors
-
-        register_builtin_connectors()
 
     def _validate(self) -> None:
         """Warn about common misconfigurations, and refuse the one that lies.

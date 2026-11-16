@@ -57,9 +57,8 @@ async def _connect() -> ControlSystemConnector:
     name an address only the agent's own network reaches. With no gateway
     configured, ``connect()`` leaves the environment as it stands.
     """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
 
-    register_builtin_connectors()  # idempotent; the factory resolves "epics" through it
     return await ConnectorFactory.create_control_system_connector({"type": "epics"})
 
 

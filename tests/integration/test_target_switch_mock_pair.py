@@ -50,6 +50,7 @@ import contextlib
 import json
 import os
 import signal
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,7 +70,7 @@ from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
@@ -125,7 +126,7 @@ CALL_TIMEOUT_S = 10.0
 SITECUSTOMIZE = '''\
 """Register the pair's VA connector as this deployment's virtual accelerator.
 
-``register_builtin_connectors()`` never replaces an existing registration, so a
+``ConnectorFactory._ensure_builtins()`` never replaces an existing registration, so a
 child started with this directory on its PYTHONPATH builds the fixture
 connector for target 'va' and runs the whole real path — resolver, factory,
 connect() — with no EPICS anywhere.
@@ -634,10 +635,10 @@ def _config_reader(section: dict[str, Any], va_port: int):
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
-    last_config: dict[str, Any] | None = None
+    last_config: Mapping[str, Any] | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
-        type(self).last_config = config
+    async def connect(self, context: ConnectorContext) -> None:
+        type(self).last_config = context.settings
 
     async def disconnect(self) -> None:  # pragma: no cover - cleanup path
         return None

@@ -26,6 +26,7 @@ import os
 import pytest
 
 import osprey_connectors.control_system._epics_connector as epics_connector_module
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
@@ -43,6 +44,7 @@ from osprey_connectors_tests._write_fakes import (
     ARMED_SECTION,
     ARMED_TARGET,
     arm_switch,
+    armed_context,
     config_reader,
     turn_switch,
 )
@@ -78,7 +80,9 @@ def _armed(monkeypatch, root, *, on: bool, section: dict | None = None):
     """
     _serve(monkeypatch, dict(ARMED_SECTION) if section is None else section)
     arm_switch(monkeypatch, root, ARMED_TARGET if on else None)
-    monkeypatch.setattr(ControlSystemConnector, "_control_target", ARMED_TARGET)
+    monkeypatch.setattr(
+        ControlSystemConnector, "_context", ConnectorContext(control_target=ARMED_TARGET)
+    )
     if not on:
         write_control_context(root, target=ARMED_TARGET, owned_by=None)
 
@@ -96,7 +100,7 @@ async def test_write_access_gateway_used_when_the_verdict_allows(monkeypatch, re
     _armed(monkeypatch, record_root, on=True)
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5084"
@@ -108,7 +112,7 @@ async def test_read_only_gateway_used_while_the_switch_is_off(monkeypatch, recor
     _armed(monkeypatch, record_root, on=False)
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5064"
@@ -119,7 +123,7 @@ async def test_a_tier_that_never_writes_stays_on_read_only(monkeypatch, record_r
     _armed(monkeypatch, record_root, on=True, section={"writes": "never"})
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
 
@@ -130,7 +134,7 @@ async def test_readonly_run_stays_on_read_only_gateway(monkeypatch, record_root)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5064"
@@ -141,7 +145,7 @@ async def test_readwrite_run_uses_write_gateway(monkeypatch, record_root):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
 
@@ -149,10 +153,10 @@ async def test_readwrite_run_uses_write_gateway(monkeypatch, record_root):
 async def test_an_unstamped_connector_stays_on_read_only(monkeypatch, record_root):
     """No stamped machine: the verdict refuses ``target_unknown``."""
     _armed(monkeypatch, record_root, on=True)
-    monkeypatch.setattr(ControlSystemConnector, "_control_target", None)
+    monkeypatch.setattr(ControlSystemConnector, "_context", ConnectorContext(control_target=None))
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
 
@@ -161,9 +165,10 @@ async def test_va_connector_inherits_the_selection(monkeypatch, record_root):
     """The VA connector adds gateway-port filling, not a selection of its own."""
     _armed(monkeypatch, record_root, on=True)
     connector = VirtualAcceleratorConnector()
-    connector._connector_type = "virtual_accelerator"
 
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(
+        armed_context(connector_type="virtual_accelerator", settings={"gateways": _both_gateways()})
+    )
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
     assert os.environ["EPICS_CA_SERVER_PORT"] == "5084"
@@ -178,9 +183,12 @@ async def test_warns_when_the_verdict_allows_but_no_write_gateway(monkeypatch, r
         lambda msg, *a, **k: warnings.append(str(msg)),
     )
     connector = EPICSConnector()
-    connector._connector_type = "virtual_accelerator"
 
-    await connector.connect({"gateways": {"read_only": dict(READ)}})
+    await connector.connect(
+        armed_context(
+            connector_type="virtual_accelerator", settings={"gateways": {"read_only": dict(READ)}}
+        )
+    )
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
     assert connector._selected_role == "read_only"
@@ -197,7 +205,7 @@ async def test_a_write_gateway_only_machine_reads_through_it_while_off(
     _armed(monkeypatch, record_root, on=False)
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+    await connector.connect(armed_context(settings={"gateways": {"write_access": dict(WRITE)}}))
     reading = await connector.read_channel(SP)
     result = await connector.write_channel(SP, 2.0)
 
@@ -221,7 +229,7 @@ async def test_a_readonly_run_on_a_write_gateway_only_machine_refuses_to_connect
 
     connector = EPICSConnector()
     with pytest.raises(ConnectRefusedError) as caught:
-        await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+        await connector.connect(armed_context(settings={"gateways": {"write_access": dict(WRITE)}}))
 
     # A policy refusal, not a lost connector; still a ConnectionError, as it was.
     assert isinstance(caught.value, ConnectionError)
@@ -243,7 +251,7 @@ async def test_a_readonly_run_with_no_gateways_still_connects(monkeypatch, recor
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
     connector = EPICSConnector()
-    await connector.connect({"timeout_s": 5.0})
+    await connector.connect(armed_context(settings={"timeout_s": 5.0}))
 
     assert connector._selected_role is None
     assert connector._write_gateway_configured is False
@@ -253,7 +261,7 @@ async def test_a_write_gateway_only_machine_writes_once_on(monkeypatch, record_r
     _armed(monkeypatch, record_root, on=True)
 
     connector = EPICSConnector()
-    await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+    await connector.connect(armed_context(settings={"gateways": {"write_access": dict(WRITE)}}))
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
     assert result.outcome is not WriteOutcome.REFUSED, result.error_message
@@ -267,7 +275,7 @@ async def test_a_connector_lagging_the_switch_refuses_switching(monkeypatch, rec
     """Connected while off, then turned on: the read gateway cannot carry the write."""
     _armed(monkeypatch, record_root, on=False)
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     turn_switch(ARMED_TARGET, "asked")
     result = await connector.write_channel(SP, 2.0)
@@ -281,7 +289,7 @@ async def test_a_connector_lagging_the_switch_refuses_switching(monkeypatch, rec
 async def test_a_lagging_connector_turned_off_again_refuses_switch_off(monkeypatch, record_root):
     _armed(monkeypatch, record_root, on=False)
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     turn_switch(ARMED_TARGET, "asked")
     turn_switch(ARMED_TARGET, "off")
@@ -295,10 +303,10 @@ async def test_reconnecting_after_the_turn_on_selects_the_write_gateway(
 ):
     _armed(monkeypatch, record_root, on=False)
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     turn_switch(ARMED_TARGET, "asked")
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
     assert connector._selected_role == "write_access"
@@ -312,7 +320,7 @@ async def test_a_connector_on_the_write_gateway_refuses_after_turn_off(
 ):
     _armed(monkeypatch, record_root, on=True)
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     turn_switch(ARMED_TARGET, "off")
     result = await connector.write_channel(SP, 2.0)
@@ -325,7 +333,7 @@ async def test_no_write_gateway_is_never_refused_switching(monkeypatch, record_r
     """Connected while off on a read-only block, then turned on: it writes through what it has."""
     _armed(monkeypatch, record_root, on=False)
     connector = EPICSConnector()
-    await connector.connect({"gateways": {"read_only": dict(READ)}})
+    await connector.connect(armed_context(settings={"gateways": {"read_only": dict(READ)}}))
 
     turn_switch(ARMED_TARGET, "asked")
     result = await connector.write_channel(SP, 2.0, confirm=False)
@@ -339,7 +347,7 @@ async def test_a_batch_on_a_lagging_connector_refuses_every_operation(
 ):
     _armed(monkeypatch, record_root, on=False)
     connector = EPICSConnector()
-    await connector.connect({"gateways": _both_gateways()})
+    await connector.connect(armed_context(settings={"gateways": _both_gateways()}))
 
     turn_switch(ARMED_TARGET, "asked")
     results = await connector.write_multiple_channels([(SP, 1.0), (SP, 2.0)])

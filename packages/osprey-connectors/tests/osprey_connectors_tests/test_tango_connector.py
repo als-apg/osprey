@@ -25,8 +25,9 @@ from osprey_connectors.control_system._tango_connector import (
     _split_address,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
+from osprey_connectors.types import TANGO
 from osprey_connectors_tests._stall import Stall
-from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
@@ -37,7 +38,7 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+_LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 _TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 _ADDRESS = "sr/power_supply/ps01/Current"
@@ -137,7 +138,7 @@ async def connector():
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         yield conn, proxy
         await conn.disconnect()
 
@@ -210,7 +211,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._connected is True
             await conn.disconnect()
 
@@ -220,7 +221,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ImportError, match="PyTango"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_connect_raises_on_unreachable_database(self):
         mock_tango = _make_tango()
@@ -234,7 +235,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ConnectorUnavailableError, match="TANGO database"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_explicit_tango_host_reaches_that_database(self):
         mock_tango = _make_tango()
@@ -246,7 +247,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"tango_host": "db.example.org:10000"})
+            await conn.connect(armed_context(settings={"tango_host": "db.example.org:10000"}))
             mock_tango.Database.assert_called_once_with("db.example.org", "10000")
             # ...and unprefixed device names are qualified with it.
             conn._get_proxy("sr/power_supply/ps01")
@@ -266,7 +267,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._timeout_s == 5.0
             await conn.disconnect()
 
@@ -282,7 +283,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"timeout_s": 2.5})
+            await conn.connect(armed_context(settings={"timeout_s": 2.5}))
             conn._get_proxy("sr/power_supply/ps01")
             proxy.set_timeout_millis.assert_called_once_with(2500)
             await conn.disconnect()
@@ -333,7 +334,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ValueError, match=match):
-                await conn.connect(config)
+                await conn.connect(armed_context(connector_type=TANGO, settings=config))
 
         assert conn._connected is False
         mock_tango.Database.assert_not_called()
@@ -500,7 +501,7 @@ async def _write_with_validator(
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel(_ADDRESS, value, **kwargs)
         await conn.disconnect()
         return result, proxy
@@ -560,7 +561,7 @@ class TestWriteChannel:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             result = await conn.write_channel(_ADDRESS, 10.0)
             assert result.outcome is WriteOutcome.REFUSED
             assert result.refusal_reason == "WRITES_DISABLED"
@@ -679,7 +680,7 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
             write_task = asyncio.create_task(conn.write_channel(_ADDRESS, 10.0, confirm=False))
             try:
@@ -731,7 +732,7 @@ async def _bounded_tango(timeout):
     from osprey_connectors.control_system._tango_connector import TangoConnector
 
     conn = TangoConnector()
-    await conn.connect({"timeout_s": timeout})
+    await conn.connect(armed_context(settings={"timeout_s": timeout}))
     return conn
 
 

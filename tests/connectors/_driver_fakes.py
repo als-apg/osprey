@@ -13,20 +13,22 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-#: Each driver's import name, and the connector module that imports it.
-_CONNECTOR_OF = {
-    "doocs4py": "osprey_connectors.control_system._doocs_connector",
-    "tango": "osprey_connectors.control_system._tango_connector",
-}
+#: The drivers a fake can stand in for: the DOOCS and TANGO clients.
+_DRIVERS = frozenset({"doocs4py", "tango"})
+
+
+#: The limits validator's loader, which every connector's ``connect()`` calls.
+_FROM_CONFIG = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 
 
 @contextmanager
 def driven_through(driver: str, fake: Any) -> Iterator[None]:
     """Serve *fake* as the *driver* module (``doocs4py`` or ``tango``) to its connector."""
-    connector = _CONNECTOR_OF[driver]
+    if driver not in _DRIVERS:
+        raise KeyError(driver)
     with (
         patch.dict(sys.modules, {driver: fake}),
-        patch(f"{connector}.LimitsValidator.from_config", return_value=None),
+        patch(_FROM_CONFIG, return_value=None),
     ):
         yield
 

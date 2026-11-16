@@ -21,7 +21,6 @@ from click.testing import CliRunner
 from osprey_connectors import factory, types
 from osprey_connectors.factory import (
     ConnectorFactory,
-    register_builtin_connectors,
 )
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -93,12 +92,12 @@ class TestTypeConstants:
 
 
 class TestBuiltinRegistration:
-    """``register_builtin_connectors()`` mints each name."""
+    """``ConnectorFactory._ensure_builtins()`` mints each name."""
 
     @pytest.mark.parametrize("row", _ROWS, ids=_ids(_ROWS))
     def test_registers_as_builtin(self, row):
         with isolated_connector_registries(clear=True):
-            register_builtin_connectors()
+            ConnectorFactory._ensure_builtins()
 
             if row.kind == "control_system":
                 assert row.type_name in ConnectorFactory.list_control_systems()
@@ -117,7 +116,7 @@ class TestDirectoryBuiltins:
 
     def test_each_registers_under_its_kind(self):
         with isolated_connector_registries(clear=True):
-            register_builtin_connectors()
+            ConnectorFactory._ensure_builtins()
 
             for row in factory._SERVICE_BUILTINS:
                 registry = ConnectorFactory._service_backends[row.kind]

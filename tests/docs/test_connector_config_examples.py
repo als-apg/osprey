@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.types import archiver_settings_errors, incomplete_limits_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -160,19 +160,17 @@ def _with_section(section: str) -> list[Path]:
 
 @pytest.mark.parametrize("path", _with_section("control_system"), ids=lambda path: path.name)
 def test_the_factory_builds_the_control_system_connector(path):
-    register_builtin_connectors()
     for label, document in _documents(path).items():
         section = document["control_system"]
-        connector, type_config = ConnectorFactory.build_control_system_connector(section)
+        connector, context = ConnectorFactory.build_control_system_connector(section)
         assert connector is not None, label
         block = (section.get("connector") or {}).get(section["type"])
         if block is not None:
-            assert type_config == block, label
+            assert context.settings == block, label
 
 
 def test_the_archiver_appliance_settings_connect():
     """The one archiver whose ``connect()`` reads its settings without the server."""
-    register_builtin_connectors()
 
     async def connect(section: Mapping[str, Any]) -> None:
         archiver = await ConnectorFactory.create_archiver_connector(dict(section))

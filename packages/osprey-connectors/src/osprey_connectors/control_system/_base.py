@@ -21,13 +21,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Self, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Literal, Protocol, Self, TypeAlias, TypeGuard, final
 
 from pydantic import AwareDatetime, Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
@@ -514,44 +515,51 @@ class ChannelWriteResult(FrozenModel):
 #: ``sys.argv[0]`` to that package's ``__main__.py``).
 _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
 
-#: Set once by :func:`mark_long_lived_session`. A long-lived control session —
-#: a panel backend that holds one connector for hours — runs no script either,
-#: so a readonly refusal there is the deployment's, exactly as in an MCP server.
-#: Process-global by design: the mark describes the process, not one connector.
-_long_lived_session = False
+#: Which story a readonly refusal on a connector tells (see
+#: :func:`_readonly_is_deployment_wide`). ``script``: one run the executor was
+#: handed readonly, which can be resubmitted. ``deployment``: a long-lived
+#: control session the deployment started, which runs no script to resubmit.
+ReadonlyWording: TypeAlias = Literal["script", "deployment"]
 
 
-def mark_long_lived_session() -> None:
-    """Record that this process holds a long-lived control session.
+class ConnectorContext(FrozenModel):
+    """What a control-system connector is built for: the one argument of ``connect()``.
 
-    Called by :meth:`osprey.runtime.session.ControlSession.open`. From then on a
-    readonly refusal in this process uses the deployment-wide wording: the
-    process was started by the deployment, not submitted as one readonly
-    script, so "resubmit it with execution_mode='readwrite'" would send the
-    operator to a script that does not exist. Irreversible for the process.
+    :meth:`~osprey_connectors.factory.ConnectorFactory.build_control_system_connector`
+    builds it from a ``control_system`` section; a caller that builds a
+    connector by hand writes one. It holds no limits validator and none of the
+    section the reference monitor reads: every write is judged by the
+    deployment's loaded config, and :meth:`ControlSystemConnector.connect`
+    builds the validator from that config too, whatever a caller hands it.
     """
-    global _long_lived_session
-    _long_lived_session = True
+
+    #: The type the connector was built as: a registry key or a dotted path.
+    #: It selects the connector block (``control_system.connector.<type>``) the
+    #: write and limits postures are read from; ``None`` reads the
+    #: deployment-wide ones.
+    connector_type: str | None = None
+    #: The control target the connector serves, as the caller named it. Wide on
+    #: purpose: a target that does not resolve is carried as named, so the
+    #: write verdict refuses it ``target_unknown``. ``None``: no target.
+    control_target: str | None = None
+    #: The wire the connector speaks, from the type and the serving leaf.
+    transport: Transport | None = None
+    #: The connector's own block, ``control_system.connector.<type>``, handed to
+    #: :meth:`ControlSystemConnector._open`.
+    settings: ReadOnlyMapping[str, ContractAny] = Field(default_factory=empty_mapping)
+    #: How a readonly refusal on this connector is worded. Only the remedy
+    #: sentence changes; the refusal is the same either way.
+    readonly_wording: ReadonlyWording = "script"
 
 
-def _reset_long_lived_session_for_tests() -> None:
-    """Clear the :func:`mark_long_lived_session` mark. Tests only.
-
-    A test process opens many sessions; each test starts from an unmarked
-    process so the readonly wording does not depend on test order.
-    """
-    global _long_lived_session
-    _long_lived_session = False
-
-
-def _readonly_is_deployment_wide() -> bool:
+def _readonly_is_deployment_wide(wording: ReadonlyWording) -> bool:
     """Whether a readonly refusal here is the deployment's rather than one script's.
 
-    True in an OSPREY MCP server (:func:`_in_mcp_server_process`) and in a
-    process that holds a long-lived control session
-    (:func:`mark_long_lived_session`); everything else keeps the script wording.
+    True in an OSPREY MCP server (:func:`_in_mcp_server_process`) and on a
+    connector whose context says ``deployment`` (a long-lived control session
+    builds its connector so); everything else keeps the script wording.
     """
-    return _long_lived_session or _in_mcp_server_process()
+    return wording == "deployment" or _in_mcp_server_process()
 
 
 def _in_mcp_server_process() -> bool:
@@ -610,7 +618,7 @@ _READONLY_MARKER = "readonly execution mode"
 
 #: What a read-only refusal adds when the process is a script the executor ran
 #: for one readonly submission rather than an MCP server of a read-only
-#: deployment or a long-lived control session
+#: deployment or a connector of a long-lived control session
 #: (:func:`_readonly_is_deployment_wide`): that run alone can be resubmitted.
 _READONLY_SCRIPT_REMEDY = (
     "This script was submitted readonly; resubmit it with execution_mode='readwrite' "
@@ -675,7 +683,9 @@ def _refusing_verdict(connector: "ControlSystemConnector") -> "WriteVerdict":
     return connector._last_verdict or _monitor_verdict(connector._control_target)
 
 
-def _verdict_refusal(address: str, value: object, verdict: "WriteVerdict") -> ChannelWriteResult:
+def _verdict_refusal(
+    address: str, value: object, verdict: "WriteVerdict", *, wording: ReadonlyWording
+) -> ChannelWriteResult:
     """The REFUSED result the monitor returns for a write *verdict* refused.
 
     The operator's words are :func:`~osprey_connectors.refusals.refusal_text`
@@ -684,8 +694,9 @@ def _verdict_refusal(address: str, value: object, verdict: "WriteVerdict") -> Ch
     channel it concerns, with the verdict's own detail after the phrase. A
     read-only run's refusal also carries :data:`_READONLY_MARKER`, and in a script
     the executor ran for one readonly submission :data:`_READONLY_SCRIPT_REMEDY`
-    as well. A verdict that
-    allowed (an overriding subclass refused on its own) names no contract reason.
+    as well; *wording* is the connector's :attr:`ConnectorContext.readonly_wording`.
+    A verdict that allowed (an overriding subclass refused on its own) names no
+    contract reason.
     """
     from osprey_connectors.refusals import refusal_text
 
@@ -693,7 +704,7 @@ def _verdict_refusal(address: str, value: object, verdict: "WriteVerdict") -> Ch
     remedy = None
     if verdict.reason == "readonly_run":
         marker = f" ({_READONLY_MARKER})"
-        if not _readonly_is_deployment_wide():
+        if not _readonly_is_deployment_wide(wording):
             # One script submitted readonly, not the deployment: the same
             # refusal, and the one remedy that applies to it alone.
             remedy = _READONLY_SCRIPT_REMEDY
@@ -1099,31 +1110,46 @@ class ControlSystemConnector(ABC):
         >>>     await connector.disconnect()
     """
 
-    _limits_validator: "LimitsValidator | None" = None  # Initialized by subclasses in connect()
-    # The connector type this instance was built as. Stamped by
-    # ConnectorFactory.build_control_system_connector() between construction and
-    # connect(), so connect() can already read the posture
-    # (create_control_system_connector() is that build plus connect()). Stays
-    # None on an instance nobody built through the factory: no type, so no
-    # per-type block.
-    _connector_type: str | None = None
-    # The control target this instance was built for. Stamped by the same
-    # factory seam as _connector_type, from the target the *caller* named — the
-    # init payload's target, the sandbox's stamp, the deployment baseline, the
-    # bridge lane's own target. Stays None on an instance nobody built through
-    # the factory, and on a caller that has no target to name. A ``str`` and not
-    # a ``ControlTarget``: a target the caller named that does not resolve is
-    # carried as named, so the write verdict refuses it ``target_unknown``.
-    _control_target: str | None = None
-    # The wire this instance speaks, stamped by the same factory seam from the
-    # type and the serving leaf. Stays None on an instance nobody built through
-    # the factory.
-    _transport: Transport | None = None
+    #: What this connector was built for, set by :meth:`connect`. A connector
+    #: nobody connected holds the empty context: no type, no target, no wire.
+    _context: ConnectorContext = ConnectorContext()
+    #: The limits validator :meth:`connect` built from the deployment's loaded
+    #: config for this connector's type; ``None`` while limits checking is off
+    #: for that type, or before ``connect()``.
+    _limits_validator: "LimitsValidator | None" = None
+
+    @property
+    def context(self) -> ConnectorContext:
+        """What this connector was built for: the context :meth:`connect` was handed."""
+        return self._context
 
     @property
     def transport(self) -> Transport | None:
-        """The factory-stamped wire this instance speaks (``None`` off the factory)."""
-        return self._transport
+        """The wire this connector speaks (``None`` when its context names none)."""
+        return self._context.transport
+
+    @property
+    def _connector_type(self) -> str | None:
+        """The type this connector was built as; it keys the per-type write and limits postures."""
+        return self._context.connector_type
+
+    @property
+    def _control_target(self) -> str | None:
+        """The control target this connector serves; it indexes the session posture."""
+        return self._context.control_target
+
+    @property
+    def _call_timeout_s(self) -> float:
+        """The call bound this connector's block declares.
+
+        Read by :func:`~osprey_connectors.call_timeout.call_timeout_s` from the
+        context's settings, naming the context's type in a refusal.
+
+        Raises:
+            ConfigurationError: The block still carries ``timeout``, or its
+                ``timeout_s`` is not a positive, finite number.
+        """
+        return call_timeout_s(self._context.settings, self._context.connector_type)
 
     # The verdict the last :attr:`_writes_enabled` evaluation reached, so the
     # refusal it leads to is worded from the same answer without reading the
@@ -1246,6 +1272,10 @@ class ControlSystemConnector(ABC):
         takes the keyword and a facility's own connector keeps working.
         """
         super().__init_subclass__(**kwargs)
+        if "connect" in cls.__dict__:
+            raise TypeError(
+                f"{cls.__qualname__} defines connect(), which is final: implement _open(settings)"
+            )
 
         original_subscribe: _SubscribeFunction | None = cls.__dict__.get("subscribe")
         if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
@@ -1265,16 +1295,22 @@ class ControlSystemConnector(ABC):
                 if authorization is not None:
                     refused = _authorized_refusal(self, [(address, value)], authorization)
                     if refused is not None:
-                        return _verdict_refusal(address, value, refused)
+                        return _verdict_refusal(
+                            address, value, refused, wording=self.context.readonly_wording
+                        )
                     with open_door():
                         return await original_write(self, address, value, *args, **kwargs)
                 self._last_verdict = None
                 if not self._writes_enabled:
                     verdict = _refusing_verdict(self)
-                    return _verdict_refusal(address, value, verdict)
+                    return _verdict_refusal(
+                        address, value, verdict, wording=self.context.readonly_wording
+                    )
                 held = posture_store.session_hold_refusal()
                 if held is not None:
-                    return _verdict_refusal(address, value, held)
+                    return _verdict_refusal(
+                        address, value, held, wording=self.context.readonly_wording
+                    )
                 with open_door():
                     return await original_write(self, address, value, *args, **kwargs)
 
@@ -1306,10 +1342,16 @@ class ControlSystemConnector(ABC):
                     # whole batch was refused by one answer, and every result
                     # must tell the same story about why.
                     verdict = _refusing_verdict(self)
-                    return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
+                    return [
+                        _verdict_refusal(addr, val, verdict, wording=self.context.readonly_wording)
+                        for addr, val in operations
+                    ]
                 held = posture_store.session_hold_refusal()
                 if held is not None:
-                    return [_verdict_refusal(addr, val, held) for addr, val in operations]
+                    return [
+                        _verdict_refusal(addr, val, held, wording=self.context.readonly_wording)
+                        for addr, val in operations
+                    ]
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
@@ -1339,13 +1381,42 @@ class ControlSystemConnector(ABC):
             return True
         return bool(self._limits_validator.resolve_confirm(address))
 
-    @abstractmethod
-    async def connect(self, config: dict[str, ContractAny]) -> None:
-        """
-        Establish connection to control system.
+    @final
+    async def connect(self, context: ConnectorContext) -> None:
+        """Connect this connector for *context*.
+
+        Stores the context, builds the limits validator from the deployment's
+        loaded config for ``context.connector_type``
+        (:meth:`~osprey_connectors.control_system.LimitsValidator.from_config`),
+        then opens the connection with :meth:`_open`. Final: a subclass
+        implements :meth:`_open`, and defining ``connect`` raises ``TypeError``
+        when the class is created, so no connector can skip the validator.
 
         Args:
-            config: Control system-specific configuration
+            context: What the connector is built for, usually from
+                :meth:`~osprey_connectors.factory.ConnectorFactory.build_control_system_connector`.
+
+        Raises:
+            ConnectorUnavailableError: If connection cannot be established
+            ConnectRefusedError: If policy refuses the connection (a readonly
+                run with no gateway it may use, for instance)
+        """
+        from osprey_connectors.control_system._limits_validator import LimitsValidator
+
+        self._context = context
+        self._limits_validator = LimitsValidator.from_config(connector_type=context.connector_type)
+        await self._open(context.settings)
+
+    @abstractmethod
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
+        """Establish the connection to the control system.
+
+        Called by :meth:`connect` once the context is stored, so
+        :attr:`context` and the write verdict already answer for this
+        connector.
+
+        Args:
+            settings: The connector's own block, ``control_system.connector.<type>``.
 
         Raises:
             ConnectorUnavailableError: If connection cannot be established
@@ -1619,7 +1690,10 @@ class ControlSystemConnector(ABC):
                 if refused is not None:
                     break
         if refused is not None:
-            return [_verdict_refusal(address, value, refused) for address, value in batch]
+            return [
+                _verdict_refusal(address, value, refused, wording=self.context.readonly_wording)
+                for address, value in batch
+            ]
         if not batch:
             return []
         with open_door():
@@ -1770,7 +1844,10 @@ class ControlSystemConnector(ABC):
         for index, (address, value) in enumerate(batch):
             refused = self._send_refusal(batch)
             if refused is not None:
-                results.extend(_verdict_refusal(*held, refused) for held in batch[index:])
+                results.extend(
+                    _verdict_refusal(*held, refused, wording=self.context.readonly_wording)
+                    for held in batch[index:]
+                )
                 break
             try:
                 results.append(await write(self, address, value, **kwargs))

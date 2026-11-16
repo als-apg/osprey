@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from tests.facility.served_tree import in_process_config
 
@@ -36,7 +37,9 @@ async def test_a_composite_without_the_facility_file_matches_the_in_process_meta
     }
 
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(built_demo.build_dir / "data" / "simulator"))
+    await connector.connect(
+        ConnectorContext(settings=in_process_config(built_demo.build_dir / "data" / "simulator"))
+    )
     try:
         addresses = sorted(connector._served)
         assert addresses == sorted(composite.supported_variables)

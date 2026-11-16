@@ -59,7 +59,6 @@ from osprey.runtime.session import (
     SessionEnvironmentError,
 )
 from osprey_connectors import control_context, posture_store, session_hold, types
-from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ConnectorUnavailableError
@@ -294,8 +293,8 @@ class _TrackedFake(FakeConnector):
     connected = 0
     connects = 0
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         type(self).connected += 1
         type(self).connects += 1
 
@@ -557,7 +556,6 @@ def flip(deployment, monkeypatch):
     record's switch and the real hold store's records, set by each test.
     """
     directory, _ = deployment
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
 
     def get_config_value(path, default=None, _config_path=None):
         return ARMED_SECTION if path == "control_system" else default

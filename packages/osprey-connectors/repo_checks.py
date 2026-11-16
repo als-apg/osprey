@@ -43,6 +43,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
     "osprey_connectors.control_context.OwnerKind": "the record's owner names its kind in this type",
+    "osprey_connectors.control_system.ConnectorContext": (
+        "a connector built without the factory is connected with this type"
+    ),
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
     ),

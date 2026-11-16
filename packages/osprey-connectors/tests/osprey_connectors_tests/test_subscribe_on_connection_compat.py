@@ -28,7 +28,7 @@ def _value(v: float) -> ChannelValue:
 class _Stub(ControlSystemConnector):
     """The abstract surface, with nothing behind it."""
 
-    async def connect(self, config=None):
+    async def _open(self, config=None):
         pass
 
     async def disconnect(self):

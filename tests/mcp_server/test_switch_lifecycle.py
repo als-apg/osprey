@@ -2258,7 +2258,6 @@ class TestNonCapableDeploymentIsUntouched:
         context = ControlSystemContext()
         context._config = MCPServerConfig(raw=raw, config_path=None)
         # What initialize() does, minus reading the deployment's config.yml.
-        context._register_connector_types()
         context._connectors["control_system"] = ConnectorEntry(
             config=raw["control_system"], connector_type="control_system"
         )

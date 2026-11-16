@@ -48,10 +48,9 @@ from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import SessionWriteResult
 from osprey.services.python_executor.execution.wrapper import armed_contract
 from osprey_connectors import control_context, posture_store, session_hold, types
-from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.control_system._limits_validator import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
@@ -113,9 +112,9 @@ class _Machine(FakeConnector):
         cls.configs, cls.writes, cls.connected = [], [], 0
         cls.hold = cls.stale = None
 
-    async def connect(self, config):
+    async def _open(self, config):
         type(self).configs.append(dict(config))
-        await super().connect(config)
+        await super()._open(config)
         type(self).connected += 1
 
     async def disconnect(self):
@@ -210,7 +209,6 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     monkeypatch.chdir(tmp_path)
 
     def get_config_value(path, default=None, _config_path=None):

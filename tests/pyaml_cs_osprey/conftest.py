@@ -228,7 +228,7 @@ class DictConnector(ControlSystemConnector):
     def _writes_enabled(self) -> bool:
         return True
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:

@@ -1962,15 +1962,12 @@ def test_apply_never_leaves_the_plan_applying(client, app, computed, monkeypatch
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     seen: list[dict[str, Any]] = []
-    order: list[str] = []
 
     async def create(config, control_target):
-        order.append("create")
-        seen.append({"config": config, "target": control_target, "order": list(order)})
+        seen.append({"config": config, "target": control_target})
         return SimpleNamespace()
 
     monkeypatch.setattr(backend, "_ca_target", None)  # a fresh process: no Channel Access yet
-    monkeypatch.setattr(backend, "register_builtin_connectors", lambda: order.append("register"))
     monkeypatch.setattr(
         backend.ConnectorFactory, "create_control_system_connector", staticmethod(create)
     )
@@ -1986,12 +1983,11 @@ EPICS_SECTION = {
 }
 
 
-def test_bring_up_registers_the_connectors_before_the_factory(monkeypatch, captured) -> None:
+def test_bring_up_builds_the_target_through_the_factory(monkeypatch, captured) -> None:
     monkeypatch.delenv("EPICS_CA_NAME_SERVERS", raising=False)
     monkeypatch.setattr(backend, "_section", lambda: json.loads(json.dumps(EPICS_SECTION)))
     asyncio.run(backend.build_connector("live"))
     [call] = captured
-    assert call["order"] == ["register", "create"]
     assert call["target"] == "live"
     assert "gateways" in call["config"]["connector"]["epics"]
 

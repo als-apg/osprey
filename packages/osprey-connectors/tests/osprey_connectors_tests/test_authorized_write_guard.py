@@ -21,6 +21,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
@@ -53,7 +54,7 @@ class BaseBatchConnector(ControlSystemConnector):
     def __init__(self) -> None:
         self.writes: list[tuple[str, Any]] = []
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:
@@ -191,7 +192,7 @@ def steps(grant: Grant) -> int:
 
 def connector(cls: type[ControlSystemConnector] = BaseBatchConnector) -> Any:
     built = cls()
-    built._control_target = TARGET
+    built._context = ConnectorContext(control_target=TARGET)
     return built
 
 

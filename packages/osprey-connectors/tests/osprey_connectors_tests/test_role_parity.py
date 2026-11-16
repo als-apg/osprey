@@ -18,6 +18,7 @@ import os
 import pytest
 
 import osprey_connectors.control_system._epics_connector as epics_connector_module
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ConnectRefusedError
 from osprey_connectors.ipc import _host, _pool
@@ -137,12 +138,12 @@ async def test_connect_selects_the_selected_role(monkeypatch, shape, writes, rea
     connector = EPICSConnector()
 
     if gateways.get(expected):
-        await connector.connect({"gateways": gateways})
+        await connector.connect(ConnectorContext(settings={"gateways": gateways}))
         assert connector._selected_role == expected
         assert os.environ["EPICS_CA_ADDR_LIST"] == gateways[expected]["address"]
     else:
         with pytest.raises(ConnectRefusedError) as caught:
-            await connector.connect({"gateways": gateways})
+            await connector.connect(ConnectorContext(settings={"gateways": gateways}))
         assert "no read-only gateway" in str(caught.value)
         assert "deployment admin" in str(caught.value)
         # A connect error, not a write refusal: the chip cannot fix it.
@@ -189,7 +190,7 @@ def test_the_pool_restates_no_role():
 
 
 @pytest.mark.parametrize(
-    "caller", [_host._rule_role, EPICSConnector.connect], ids=["host-report", "connect"]
+    "caller", [_host._rule_role, EPICSConnector._open], ids=["host-report", "connect"]
 )
 def test_each_caller_delegates_to_the_selected_role(caller):
     source = inspect.getsource(caller)

@@ -42,6 +42,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import VIEW_RELPATH, Channel, SimulatorView
@@ -294,10 +295,12 @@ async def test_the_in_process_connector_replays_the_planted_journal(
     connector = VAInProcessConnector()
     with e2e_conftest.patched_config():
         await connector.connect(
-            {
-                "simulator_view": str(project.data_dir / VIEW_RELPATH.name),
-                "response_delay_ms": 0,
-            }
+            ConnectorContext(
+                settings={
+                    "simulator_view": str(project.data_dir / VIEW_RELPATH.name),
+                    "response_delay_ms": 0,
+                }
+            )
         )
         try:
             replayed = {

@@ -73,7 +73,7 @@ class FakeConnector(ControlSystemConnector):
 
     # -- lifecycle -----------------------------------------------------------
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         """Connect.
 
         Args:
@@ -84,10 +84,6 @@ class FakeConnector(ControlSystemConnector):
         """
         self._response_delay = float(config.get("response_delay_ms", 0)) / 1000.0
         self._never_connects = set(config.get("never_connects") or ())
-
-        from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         self._connected = True
 
     async def disconnect(self) -> None:

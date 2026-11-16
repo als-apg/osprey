@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
@@ -59,7 +60,7 @@ def _outcomes(results) -> list[tuple[str, WriteOutcome, RefusalReason | None]]:
 @pytest.fixture
 async def fake():
     connector = FakeConnector()
-    await connector.connect({})
+    await connector.connect(ConnectorContext())
     connector._limits_validator = _validator(
         A={"max_value": 10.0}, B={"max_value": 10.0}, C={"max_value": 10.0, "max_step": 3.0}
     )

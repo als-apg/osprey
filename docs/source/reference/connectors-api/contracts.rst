@@ -10,6 +10,11 @@ that carry it.
 
 .. automodule:: osprey_connectors.control_system
 
+A control-system connector implements this hook in place of the final
+``connect()``:
+
+.. automethod:: osprey_connectors.control_system.ControlSystemConnector._open
+
 .. automodule:: osprey_connectors.control_system.write_door
 
 .. automodule:: osprey_connectors.archiver

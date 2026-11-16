@@ -696,7 +696,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     through the connector the agent reads with.
     """
     from osprey_connectors import config as config_module
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.types import TARGET_VA
     from osprey_connectors_tests._write_fakes import arm_switch
 
@@ -728,7 +728,6 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     )
 
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
-        register_builtin_connectors()  # idempotent; must run before create
         control_system = await ConnectorFactory.create_control_system_connector(
             archiver_world.config["control_system"], control_target=TARGET_VA
         )

@@ -3,7 +3,7 @@
 Three independent tables name the built-in connectors, and each is load-bearing
 because a different consumer reads it:
 
-* ``register_builtin_connectors()`` walks the factory's own
+* ``ConnectorFactory._ensure_builtins()`` walks the factory's own
   ``_BUILTIN_CONTROL_SYSTEMS`` / ``_BUILTIN_ARCHIVERS`` tuples. The MCP
   control-system server, the health runtime and the queueserver startup all
   call it.
@@ -77,7 +77,7 @@ class TestBuiltinConnectorParity:
         The direction that bit: a type the factory registers but the provider
         omits is unreachable from ``initialize_registry()``. The other
         direction is a type the registry advertises and
-        ``register_builtin_connectors()`` never heals into a partially
+        ``ConnectorFactory._ensure_builtins()`` never heals into a partially
         populated factory.
         """
         assert _provider_names("control_system") == set(_BUILTIN_CONTROL_SYSTEMS)
@@ -107,16 +107,16 @@ class TestBuiltinConnectorParity:
 
     def test_the_provider_entry_loads_the_class_the_factory_registers(self) -> None:
         """The lazy module path/class name pair actually resolves, and to the
-        same class ``register_builtin_connectors()`` puts under that key."""
+        same class ``ConnectorFactory._ensure_builtins()`` puts under that key."""
         import importlib
 
         entry = _provider_entry(types.LIVE_STANDIN)
         loaded = getattr(importlib.import_module(entry.module_path), entry.class_name)
 
         with isolated_connector_registries(clear=True):
-            from osprey_connectors.factory import register_builtin_connectors
+            from osprey_connectors.factory import ConnectorFactory
 
-            register_builtin_connectors()
+            ConnectorFactory._ensure_builtins()
             assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
 
 
@@ -147,7 +147,7 @@ class TestChoiceListsMatchTheFactoryBuiltins:
 class TestRegistryInitializationRegistersTheStandIn:
     """The sandbox path: ``initialize_registry()`` and nothing else.
 
-    ``register_builtin_connectors()`` is deliberately not called here. It is
+    ``ConnectorFactory._ensure_builtins()`` is deliberately not called here. It is
     the other entry point, and calling it would register the stand-in for
     reasons that have nothing to do with the provider — which is the failure
     mode this class exists to catch.

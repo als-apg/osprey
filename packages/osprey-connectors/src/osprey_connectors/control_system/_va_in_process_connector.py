@@ -310,7 +310,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
     Example:
         >>> connector = VAInProcessConnector()
-        >>> await connector.connect({"response_delay_ms": 10})
+        >>> await connector.connect(ConnectorContext(settings={"response_delay_ms": 10}))
         >>> value = await connector.read_channel("SR:DIAG:BPM:01:POSITION:X")
     """
 
@@ -334,11 +334,11 @@ class VAInProcessConnector(ControlSystemConnector):
         self._holds_writes = False
 
     @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
         """Build the composite of the simulator view and start the tick.
 
         Args:
-            config: Connector settings:
+            settings: Connector settings:
                 - response_delay_ms: Simulated response delay (default: 10)
                 - simulator_view: The view directory to serve; absent serves
                   ``data/simulator/`` beside the loaded config.
@@ -352,16 +352,10 @@ class VAInProcessConnector(ControlSystemConnector):
         from osprey_connectors.simulation import resolve_tick_s
         from osprey_connectors.simulation.composite import Composite
 
-        delay_ms: float = config.get("response_delay_ms", 10)
+        delay_ms: float = settings.get("response_delay_ms", 10)
         self._response_delay = delay_ms / 1000.0
 
-        from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
-        if self._limits_validator:
-            logger.debug("In-process simulator: limits validator initialized")
-
-        view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
+        view = simulator_view_dir(settings.get(SIMULATOR_VIEW_SETTING))
         _config_path, rendered = _rendered_config(view.path)
         self._tick_s = resolve_tick_s(rendered)
         state_dir = simulation_state_dir(view.path)

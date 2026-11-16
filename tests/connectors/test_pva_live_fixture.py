@@ -47,6 +47,7 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors_tests._epics_fakes import (
@@ -203,17 +204,19 @@ def connector_factory(pva_server):
         connector = EPICSConnector()
         asyncio.run(
             connector.connect(
-                {
-                    "timeout_s": timeout,
-                    "pva_channels": [PVA_GLOB],
-                    "pva_gateway": {
-                        "address": "127.0.0.1",
-                        # The TCP port the isolated server listens on. Reached by
-                        # name-server lookup, so the client never broadcasts.
-                        "port": int(pva_server["EPICS_PVAS_SERVER_PORT"]),
-                        "use_name_server": True,
-                    },
-                }
+                ConnectorContext(
+                    settings={
+                        "timeout_s": timeout,
+                        "pva_channels": [PVA_GLOB],
+                        "pva_gateway": {
+                            "address": "127.0.0.1",
+                            # The TCP port the isolated server listens on. Reached by
+                            # name-server lookup, so the client never broadcasts.
+                            "port": int(pva_server["EPICS_PVAS_SERVER_PORT"]),
+                            "use_name_server": True,
+                        },
+                    }
+                )
             )
         )
         built.append(connector)

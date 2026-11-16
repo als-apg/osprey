@@ -21,7 +21,7 @@ from osprey.mcp_server.control_system.server_context import initialize_server_co
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.write_target import KIND_BANNERS
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import (
@@ -63,7 +63,7 @@ async def served(tmp_path, monkeypatch):
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     with (
         patch(
             "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",

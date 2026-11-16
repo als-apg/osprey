@@ -35,6 +35,7 @@ import aioca
 import pytest
 
 from osprey.runtime import read_channels
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
@@ -93,7 +94,7 @@ async def _in_process_connector(
     """A mock serving ``MOCK_ADDRESSES`` with ``VALUES``, whose middle read raises."""
     view = served_tree(tmp_path, readings=MOCK_ADDRESSES)
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(ConnectorContext(settings=in_process_config(view, response_delay_ms=0)))
 
     def reading(address, *, held):  # noqa: ARG001 - VAInProcessConnector._reading signature
         value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
@@ -156,7 +157,7 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(ConnectorContext())
         result = await conn.read_multiple_channels(DOOCS_ADDRESSES)
         await conn.disconnect()
 
@@ -189,7 +190,7 @@ async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(ConnectorContext())
         result = await conn.read_multiple_channels(TANGO_ADDRESSES)
         await conn.disconnect()
 

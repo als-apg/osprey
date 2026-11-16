@@ -24,8 +24,8 @@ what needs a deployment.
 
 ## Connectors
 
-A connector is built by `ConnectorFactory` from its registered type name, after
-`register_builtin_connectors()` has registered the built-in ones:
+A connector is built by `ConnectorFactory` from its registered type name; the
+built-in ones are registered on first use:
 
 | Kind | Type name | Talks to |
 | --- | --- | --- |

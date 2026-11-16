@@ -432,7 +432,7 @@ def _bounded_config(
         ValueError: The block's call bound cannot be read; its connector would
             refuse to connect alike.
     """
-    from osprey_connectors.control_system import STEP_READ_TIMEOUT_KEY
+    from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 
     blocks = section.get("connector")
     blocks = dict(blocks) if isinstance(blocks, Mapping) else {}
@@ -542,9 +542,10 @@ class ControlSession:
     ) -> ControlSession:
         """Bind this process to the deployment's control target.
 
-        Checks the environment, marks the process as a long-lived session,
-        drops inherited ``EPICS_*`` settings, reads the record once, builds and
-        connects the connector for its target, and warms it.
+        Checks the environment, drops inherited ``EPICS_*`` settings, reads
+        the record once, builds and connects the connector for its target
+        (worded as the deployment's when it refuses a readonly write), and
+        warms it.
 
         The connector is built from a copy of its block with ``timeout_s`` =
         T_b and the step-read ceiling = S_b (``osprey.runtime.budget``), so
@@ -573,13 +574,10 @@ class ControlSession:
                 ``unservable`` one.
         """
         from osprey_connectors import types
-        from osprey_connectors.control_system import mark_long_lived_session
-        from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+        from osprey_connectors.factory import ConnectorFactory
 
         check_environment(os.environ)
-        mark_long_lived_session()
         scrub_epics_environment()
-        register_builtin_connectors()
 
         section = _control_system_section()
         if budget is None:
@@ -598,8 +596,10 @@ class ControlSession:
         try:
             connector_type = types.resolve_target(section, target)
             config, call_bound_s, write_bound_s = _bounded_config(section, connector_type, budget)
+            # A long-lived session runs no script: a readonly refusal on its
+            # connector is the deployment's, worded as in an MCP server.
             connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=target
+                config=config, control_target=target, readonly_wording="deployment"
             )
         except Exception as exc:
             logger.warning(

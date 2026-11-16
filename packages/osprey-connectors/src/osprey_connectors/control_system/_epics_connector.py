@@ -16,7 +16,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import ModuleType
@@ -38,7 +38,7 @@ from typing import (
 from typing_extensions import Buffer, override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import call_timeout_s
+from osprey_connectors.call_timeout import DEFAULT_STEP_READ_TIMEOUT_S, step_read_timeout_s
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -54,12 +54,7 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
 from osprey_connectors.control_system._gateway_role import ROLE_WRITE_ACCESS, SelectedRole
-from osprey_connectors.control_system._limits_validator import (
-    DEFAULT_STEP_READ_TIMEOUT_S,
-    CurrentValueReader,
-    c_numeral,
-    step_read_timeout_s,
-)
+from osprey_connectors.control_system._limits_validator import CurrentValueReader, c_numeral
 from osprey_connectors.errors import (
     ChannelUnreachableError,
     ConnectorInternalError,
@@ -870,7 +865,7 @@ class EPICSConnector(ControlSystemConnector):
         >>>     }
         >>> }
         >>> connector = EPICSConnector()
-        >>> await connector.connect(config)
+        >>> await connector.connect(ConnectorContext(settings=config))
         >>> value = await connector.read_channel('BEAM:CURRENT')
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
 
@@ -886,7 +881,7 @@ class EPICSConnector(ControlSystemConnector):
         >>>     }
         >>> }
         >>> connector = EPICSConnector()
-        >>> await connector.connect(config)
+        >>> await connector.connect(ConnectorContext(settings=config))
         >>> value = await connector.read_channel('BEAM:CURRENT')
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
@@ -947,12 +942,12 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor_lock = threading.Lock()
 
     @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
         """
         Configure EPICS environment and test connection.
 
         Args:
-            config: Configuration with keys:
+            settings: The connector's block, with keys:
                 - timeout_s: Default timeout in seconds (default: 5.0)
                 - fresh_reads: (optional, no effect) Kept so existing configs
                   load. Every Channel Access read now asks the IOC.
@@ -1008,7 +1003,7 @@ class EPICSConnector(ControlSystemConnector):
 
         # Refused before the gateway selection below rewrites the process-wide
         # EPICS_CA_* environment, so an unusable bound never repoints CA.
-        self._timeout = call_timeout_s(config, self._connector_type)
+        self._timeout = self._call_timeout_s
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
@@ -1026,7 +1021,7 @@ class EPICSConnector(ControlSystemConnector):
             readonly_gateway_refusal,
         )
 
-        gateways: _Gateways = config.get("gateways") or _Gateways()
+        gateways: _Gateways = settings.get("gateways") or _Gateways()
         # The whole write verdict, the same one the reference monitor takes.
         try:
             writes_enabled = self._writes_enabled
@@ -1127,13 +1122,13 @@ class EPICSConnector(ControlSystemConnector):
         # IOC on this host. Running out of budget answers None, which refuses
         # the write — raising it buys a slow channel more room, never a
         # weaker check.
-        self._step_read_timeout = step_read_timeout_s(config, self._connector_type)
+        self._step_read_timeout = step_read_timeout_s(settings, self._connector_type)
         # `fresh_reads` once made every read bypass pyepics' monitor cache.
         # Every Channel Access read now asks the IOC, so the key changes
         # nothing; it is still read, so a deployment that sets it keeps
         # loading, and a misspelt value still refuses to connect.
         self._fresh_reads = config_flag(
-            config.get("fresh_reads"),
+            settings.get("fresh_reads"),
             key=f"control_system.connector.{self._connector_type}.fresh_reads",
         )
 
@@ -1141,7 +1136,7 @@ class EPICSConnector(ControlSystemConnector):
         # served by the p4p client; every other address keeps using Channel
         # Access. An absent or empty list is a hard no-op: no p4p import, no PVA
         # environment variable, no client context.
-        pva_channels: str | Iterable[object] = config.get("pva_channels") or []
+        pva_channels: str | Iterable[object] = settings.get("pva_channels") or []
         if isinstance(pva_channels, str):
             pva_channels = [pva_channels]
         self._pva_channel_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
@@ -1160,7 +1155,7 @@ class EPICSConnector(ControlSystemConnector):
                     "epics.pva_channels). Install with: pip install p4p"
                 ) from None
 
-            pva_gateway: _GatewayBlock = config.get("pva_gateway") or _GatewayBlock()
+            pva_gateway: _GatewayBlock = settings.get("pva_gateway") or _GatewayBlock()
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
                 pva_port = pva_gateway.get("port")
@@ -1208,13 +1203,6 @@ class EPICSConnector(ControlSystemConnector):
                     f"PVA client context could not be built: {exc}"
                 ) from exc
             logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
-
-        # Initialize limits validator for automatic validation and confirm policy
-        from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
-        if self._limits_validator:
-            logger.debug("EPICS connector: limits validator initialized")
 
         self._connected = True
         logger.debug("EPICS connector initialized")
@@ -1915,7 +1903,7 @@ class EPICSConnector(ControlSystemConnector):
             target=allowed.target if allowed is not None else self._control_target,
             kind=allowed.kind if allowed is not None else None,
         )
-        return _verdict_refusal(address, value, verdict)
+        return _verdict_refusal(address, value, verdict, wording=self.context.readonly_wording)
 
     @override
     def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
@@ -2233,7 +2221,10 @@ class EPICSConnector(ControlSystemConnector):
         """
         refused = self._send_refusal(batch)
         if refused is not None:
-            return [_verdict_refusal(name, value, refused) for name, value in batch]
+            return [
+                _verdict_refusal(name, value, refused, wording=self.context.readonly_wording)
+                for name, value in batch
+            ]
         if timeout_s is None:
             timeout_s = self._timeout
 

@@ -16,7 +16,11 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal, TypeVar, get_args
 
 from osprey_connectors import types
-from osprey_connectors.control_system._base import ControlSystemConnector
+from osprey_connectors.control_system._base import (
+    ConnectorContext,
+    ControlSystemConnector,
+    ReadonlyWording,
+)
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
@@ -42,7 +46,6 @@ __all__ = [
     "BUILTIN_CONNECTORS",
     "BuiltinConnector",
     "ConnectorFactory",
-    "register_builtin_connectors",
 ]
 
 logger = get_logger("connector_factory")
@@ -177,12 +180,14 @@ class ConnectorFactory:
     """
     Factory for control system and archiver connectors and the service backends.
 
-    Provides centralized management of available connectors. Connectors are
-    registered automatically through the Osprey registry system during
-    framework initialization. A control system or archiver is built from a
-    config dict and connected; a service backend (kind ``directory``,
-    ``alarm_state``, ``alarm_log`` or ``put_log``) is built from a ``BackendSpec``
-    by :meth:`create_service` and connects nothing.
+    Provides centralized management of available connectors. The connectors
+    this package ships are registered on first use, by every build, create and
+    list call, so no caller has to register them first; a framework or test
+    registers its own through ``register_control_system`` and its kin, and a
+    name registered that way is never replaced by a built-in. A control system
+    or archiver is built from a config dict and connected; a service backend
+    (kind ``directory``, ``alarm_state``, ``alarm_log`` or ``put_log``) is built
+    from a ``BackendSpec`` by :meth:`create_service` and connects nothing.
 
     Example:
         >>> # Using default config
@@ -247,14 +252,65 @@ class ConnectorFactory:
         logger.debug(f"Registered {kind} backend: {name}")
 
     @classmethod
+    def _ensure_builtins(cls) -> None:
+        """Register every built-in connector and service backend that is not registered yet.
+
+        Run by every build, create and list call. Convergent: each built-in
+        name missing from its registry is registered, and an existing
+        registration under one of those names is never replaced, so a registry
+        holding only part of the built-ins (one a test cleared and partially
+        repopulated) heals on the next call instead of keeping the truncated set.
+        """
+        missing_control_systems = [
+            name for name in _BUILTIN_CONTROL_SYSTEMS if name not in cls._control_system_connectors
+        ]
+        missing_archivers = [
+            name for name in _BUILTIN_ARCHIVERS if name not in cls._archiver_connectors
+        ]
+        missing_service_rows = [
+            row for row in _SERVICE_BUILTINS if row.name not in cls._service_backends[row.kind]
+        ]
+        if not missing_control_systems and not missing_archivers and not missing_service_rows:
+            return
+
+        # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
+        # pymongo) inside connect(), not at module scope, so they register
+        # unconditionally like any other built-in. A machine without the driver
+        # only finds out when it tries to connect — which is the point at which it
+        # would have failed anyway. Registering MongoDB conditionally instead used
+        # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
+        # holding the other built-ins satisfied the early return above and never
+        # healed the missing mongodb_archiver entry.
+        for builtin in BUILTIN_CONNECTORS:
+            if builtin.kind == "control_system":
+                if builtin.name not in cls._control_system_connectors:
+                    cls.register_control_system(
+                        builtin.name, _control_system_class(builtin.module_path, builtin.class_name)
+                    )
+            elif builtin.kind == "archiver":
+                if builtin.name not in cls._archiver_connectors:
+                    cls.register_archiver(
+                        builtin.name, _archiver_class(builtin.module_path, builtin.class_name)
+                    )
+            else:
+                raise ValueError(
+                    f"built-in connector {builtin.name!r} has unknown kind {builtin.kind!r}"
+                )
+
+        # Their optional client (aiokafka) is imported on start, not at module scope.
+        for row in missing_service_rows:
+            cls._service_backends[row.kind][row.name] = row.load()
+
+    @classmethod
     def build_control_system_connector(
         cls,
         config: Mapping[str, object] | None = None,
         *,
         control_target: str | None = None,
-    ) -> tuple[ControlSystemConnector, dict[str, object]]:
+        readonly_wording: ReadonlyWording = "script",
+    ) -> tuple[ControlSystemConnector, ConnectorContext]:
         """
-        Build a control system connector and its type config, without connecting.
+        Build a control system connector and the context it connects with, without connecting.
 
         Args:
             config: Control system configuration dict, or None to read the
@@ -268,19 +324,24 @@ class ConnectorFactory:
                   hardware.
                 - connector: Dict with connector-specific configs
             control_target: The control target this connector is being built
-                for — ``live``, ``va`` or ``standin``. Stamped on the instance
-                as ``_control_target`` and used to index the per-target
-                narrowing in the control-context record, and nothing else: the
+                for — ``live``, ``va`` or ``standin``. Carried in the context's
+                ``control_target`` and used to index the per-target narrowing
+                in the control-context record, and nothing else: the
                 deployment half of the write posture stays keyed on the
-                connector *type*. Callers
-                that have no target to name leave it ``None``, which is the
-                behaviour every caller had before the stamp existed.
+                connector *type*. Callers that have no target to name leave it
+                ``None``.
+            readonly_wording: How a readonly refusal on this connector is
+                worded: ``deployment`` for a long-lived control session the
+                deployment started, ``script`` (the default) otherwise.
 
         Returns:
-            ``(connector, type_config)`` — the stamped but *unconnected*
-            connector, and the type-specific config block ``connect()`` takes.
-            Both halves are needed to finish the build, and the second is not
-            derivable from the first, so they travel together.
+            ``(connector, context)`` — the *unconnected* connector, and the
+            :class:`~osprey_connectors.control_system.ConnectorContext` its
+            ``connect()`` takes: the type it was built as, the target, the wire
+            and the type's own block. A caller may connect with a context
+            changed by :func:`~osprey_connectors.model.evolve`; the limits
+            validator and the write verdict are still read from the loaded
+            config, never from the context.
 
         Raises:
             ConfigurationError: If connector type is unknown or config is invalid: a
@@ -291,8 +352,8 @@ class ConnectorFactory:
                 The error names where it looked; nothing is built in its place.
 
         Example:
-            >>> connector, type_config = ConnectorFactory.build_control_system_connector(config)
-            >>> await connector.connect(type_config)
+            >>> connector, context = ConnectorFactory.build_control_system_connector(config)
+            >>> await connector.connect(context)
         """
         # Load config if not provided. A config that cannot be loaded is the
         # caller's answer, not an empty section: the unset-type fallback below is
@@ -311,6 +372,7 @@ class ConnectorFactory:
         if not config.get("type"):
             logger.warning(types.UNSET_TYPE_WARNING)
 
+        cls._ensure_builtins()
         connector_class = cls._control_system_connectors.get(connector_type)
         # The venue is the factory's choice, made from the same function every
         # check reads the connector's wire from: the simulator served in process
@@ -344,23 +406,6 @@ class ConnectorFactory:
                     key="control_system.type",
                 )
 
-        # Create connector instance
-        connector = connector_class()
-        # The one seam between construction and connect(): the write posture and
-        # the limits posture are both per connector type, and connect() itself
-        # already consults the stamp to load them.
-        connector._connector_type = connector_type
-        # On the same seam, the wire this instance speaks: computed once from the
-        # type and the serving leaf, and echoed by a host child so its parent can
-        # refuse a child that built the other venue.
-        connector._transport = types.connector_transport(config, connector_type)
-        # Beside it, and for the same reason: the session half of the posture is
-        # per target, so the target has to be on the instance before connect()
-        # reads it. The two stamps answer different questions — the type selects
-        # the deployment's connector block, the target indexes the session
-        # posture store — so neither is derivable from the other.
-        connector._control_target = control_target
-
         # Get type-specific configuration
         connector_configs = _mapping_section(
             config.get("connector", {}), "control_system.connector"
@@ -373,8 +418,21 @@ class ConnectorFactory:
                 key=f"control_system.connector.{connector_type}",
             )
 
+        # The write posture and the limits posture are both per connector type,
+        # and the session half of the posture per target: the type selects the
+        # deployment's connector block, the target indexes the session posture
+        # store, so neither is derivable from the other. The wire is computed
+        # once from the type and the serving leaf, and echoed by a host child so
+        # its parent can refuse a child that built the other venue.
+        context = ConnectorContext(
+            connector_type=connector_type,
+            control_target=control_target,
+            transport=types.connector_transport(config, connector_type),
+            settings=type_config,
+            readonly_wording=readonly_wording,
+        )
         logger.debug(f"Built control system connector: {connector_type}")
-        return connector, type_config
+        return connector_class(), context
 
     @classmethod
     async def create_control_system_connector(
@@ -382,20 +440,21 @@ class ConnectorFactory:
         config: Mapping[str, object] | None = None,
         *,
         control_target: str | None = None,
+        readonly_wording: ReadonlyWording = "script",
     ) -> ControlSystemConnector:
         """
         Create, configure and connect a control system connector.
 
         The whole build in one call, and what almost every caller wants.
         :meth:`build_control_system_connector` is the same build stopped one
-        step short, for the one caller that has to reach the instance between
-        the type stamp and ``connect()``.
+        step short, for a caller that changes the context before ``connect()``.
 
         Args:
             config: Control system configuration dict, as
                 :meth:`build_control_system_connector` documents it.
             control_target: The control target this connector is being built
-                for, stamped on the instance as
+                for, as :meth:`build_control_system_connector` documents it.
+            readonly_wording: How a readonly refusal on it is worded, as
                 :meth:`build_control_system_connector` documents it.
 
         Returns:
@@ -417,11 +476,11 @@ class ConnectorFactory:
             >>> }
             >>> connector = await ConnectorFactory.create_control_system_connector(config)
         """
-        connector, type_config = cls.build_control_system_connector(
-            config, control_target=control_target
+        connector, context = cls.build_control_system_connector(
+            config, control_target=control_target, readonly_wording=readonly_wording
         )
-        await connector.connect(type_config)
-        logger.debug(f"Created control system connector: {connector._connector_type}")
+        await connector.connect(context)
+        logger.debug(f"Created control system connector: {context.connector_type}")
         return connector
 
     @classmethod
@@ -484,6 +543,7 @@ class ConnectorFactory:
                 f"Set archiver.type explicitly to select a connector."
             )
 
+        cls._ensure_builtins()
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
@@ -520,9 +580,7 @@ class ConnectorFactory:
     ) -> _ServiceBackend:
         """Build the service backend a spec names. Backends connect nothing here: no I/O.
 
-        The kind is ``spec.kind``. The builtins are registered first: the panel and
-        the directory MCP server never register them themselves, and registration
-        converges, so every create call can afford to.
+        The kind is ``spec.kind``.
 
         Args:
             spec: The backend to build, from ``service_targets`` or written by hand.
@@ -538,7 +596,7 @@ class ConnectorFactory:
         registry = cls._service_backends.get(spec.kind)
         if registry is None:
             raise _unknown_service_kind(spec.kind)
-        register_builtin_connectors()
+        cls._ensure_builtins()
         backend_class = registry.get(spec.type)
         if backend_class is None:
             if "." not in spec.type:
@@ -556,11 +614,13 @@ class ConnectorFactory:
     @classmethod
     def list_control_systems(cls) -> list[str]:
         """List available control system connector types."""
+        cls._ensure_builtins()
         return list(cls._control_system_connectors.keys())
 
     @classmethod
     def list_archivers(cls) -> list[str]:
         """List available archiver connector types."""
+        cls._ensure_builtins()
         return list(cls._archiver_connectors.keys())
 
 
@@ -623,8 +683,8 @@ BUILTIN_CONNECTORS: tuple[BuiltinConnector, ...] = (
     ),
     # The live stand-in is a soft IOC, so the EPICS connector is what reaches
     # it — but it registers under its own name rather than sharing 'epics'.
-    # The registry key is what build_control_system_connector() stamps onto
-    # the instance as its connector type, and that stamp is what selects the
+    # The registry key is what build_control_system_connector() names as the
+    # context's connector type, and that type is what selects the
     # connector block ('control_system.connector.live_standin') and the write
     # posture read from it. Registering the stand-in as 'epics' would give it
     # the facility's authored block and the facility's arming.
@@ -748,57 +808,3 @@ _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
         description="caPutLog put history service",
     ),
 )
-
-
-def register_builtin_connectors() -> None:
-    """Register all built-in control system and archiver connectors and service backends.
-
-    Safe to call multiple times and convergent: every call ensures each
-    built-in name is registered, and an existing registration under one of
-    those names is never replaced. A registry holding only part of the
-    built-ins (e.g., one that was cleared and then partially repopulated)
-    therefore heals on the next call instead of keeping the truncated set.
-    """
-    missing_control_systems = [
-        name
-        for name in _BUILTIN_CONTROL_SYSTEMS
-        if name not in ConnectorFactory._control_system_connectors
-    ]
-    missing_archivers = [
-        name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
-    ]
-    missing_service_rows = [
-        row
-        for row in _SERVICE_BUILTINS
-        if row.name not in ConnectorFactory._service_backends[row.kind]
-    ]
-    if not missing_control_systems and not missing_archivers and not missing_service_rows:
-        return
-
-    # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
-    # pymongo) inside connect(), not at module scope, so they register
-    # unconditionally like any other built-in. A machine without the driver
-    # only finds out when it tries to connect — which is the point at which it
-    # would have failed anyway. Registering MongoDB conditionally instead used
-    # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
-    # holding the other built-ins satisfied the early return above and never
-    # healed the missing mongodb_archiver entry.
-    for builtin in BUILTIN_CONNECTORS:
-        if builtin.kind == "control_system":
-            if builtin.name not in ConnectorFactory._control_system_connectors:
-                ConnectorFactory.register_control_system(
-                    builtin.name, _control_system_class(builtin.module_path, builtin.class_name)
-                )
-        elif builtin.kind == "archiver":
-            if builtin.name not in ConnectorFactory._archiver_connectors:
-                ConnectorFactory.register_archiver(
-                    builtin.name, _archiver_class(builtin.module_path, builtin.class_name)
-                )
-        else:
-            raise ValueError(
-                f"built-in connector {builtin.name!r} has unknown kind {builtin.kind!r}"
-            )
-
-    # Their optional client (aiokafka) is imported on start, not at module scope.
-    for row in missing_service_rows:
-        ConnectorFactory._service_backends[row.kind][row.name] = row.load()

@@ -1,8 +1,8 @@
 """The control-system connector contract.
 
-``ControlSystemConnector`` and the value, metadata and write-result models it
-returns, the write-outcome vocabulary, and the limits validator every connector
-checks a write against. A new control system subclasses the connector here; a
+``ControlSystemConnector``, the context it is connected with, the value,
+metadata and write-result models it returns, the write-outcome vocabulary, and
+the limits validator every connector checks a write against. A new control system subclasses the connector here; a
 configured one is built through :class:`osprey_connectors.factory.ConnectorFactory`
 from its type name. The concrete connectors are the ``_*_connector`` modules
 beside this one.
@@ -21,9 +21,9 @@ from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
+    ConnectorContext,
     ControlSystemConnector,
     WriteOutcome,
-    mark_long_lived_session,
     raise_for_write_result,
     raise_for_write_results,
     values_match,
@@ -32,45 +32,36 @@ from osprey_connectors.control_system._base import (
 if TYPE_CHECKING:
     from osprey_connectors.control_system._epics_connector import STALE_HOLD_DOWN_S
     from osprey_connectors.control_system._limits_validator import (
-        DEFAULT_STEP_READ_TIMEOUT_S,
         LIMITS_DATABASE_CONFIG_KEY,
-        STEP_READ_TIMEOUT_KEY,
         ChannelLimitsConfig,
         LimitsValidator,
         mapping_config_lookup,
-        step_read_timeout_s,
     )
 
 __all__ = [
-    "DEFAULT_STEP_READ_TIMEOUT_S",
     "LIMITS_DATABASE_CONFIG_KEY",
     "STALE_HOLD_DOWN_S",
-    "STEP_READ_TIMEOUT_KEY",
     "ChannelLimitsConfig",
     "ChannelMetadata",
     "ChannelValue",
     "ChannelWriteResult",
+    "ConnectorContext",
     "ControlSystemConnector",
     "LimitsValidator",
     "WriteOutcome",
     "mapping_config_lookup",
-    "mark_long_lived_session",
     "raise_for_write_result",
     "raise_for_write_results",
-    "step_read_timeout_s",
     "values_match",
 ]
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
     "STALE_HOLD_DOWN_S": "osprey_connectors.control_system._epics_connector",
-    "DEFAULT_STEP_READ_TIMEOUT_S": "osprey_connectors.control_system._limits_validator",
     "LIMITS_DATABASE_CONFIG_KEY": "osprey_connectors.control_system._limits_validator",
-    "STEP_READ_TIMEOUT_KEY": "osprey_connectors.control_system._limits_validator",
     "ChannelLimitsConfig": "osprey_connectors.control_system._limits_validator",
     "LimitsValidator": "osprey_connectors.control_system._limits_validator",
     "mapping_config_lookup": "osprey_connectors.control_system._limits_validator",
-    "step_read_timeout_s": "osprey_connectors.control_system._limits_validator",
 }
 
 

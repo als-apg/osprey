@@ -7,7 +7,7 @@ from osprey_connectors.control_system._base import ControlSystemConnector
 class MockDynamicConnector(ControlSystemConnector):
     """Minimal connector used by test_dynamic_connector.py."""
 
-    async def connect(self, config=None):
+    async def _open(self, config=None):
         pass
 
     async def disconnect(self):

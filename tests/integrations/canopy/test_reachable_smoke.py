@@ -33,6 +33,7 @@ from typing import Any
 import canopy  # noqa: F401
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 
 # xdist_group("soft-ioc"): its soft IOC probes ports free and binds them a moment
@@ -165,7 +166,7 @@ async def _client() -> dict[str, Any]:
     from osprey_connectors.posture_store import WriteVerdict
 
     connector = EPICSConnector()
-    await connector.connect({"timeout_s": 3.0})
+    await connector.connect(ConnectorContext(settings={"timeout_s": 3.0}))
     session = ControlSession(
         surface="canopy",
         binding=Binding("ioc", 1, "epics", "Soft IOC", STATE_BOUND),

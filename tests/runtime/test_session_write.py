@@ -30,7 +30,6 @@ from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import ControlSession
 from osprey_connectors import control_context, posture_store, types
-from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
@@ -138,7 +137,6 @@ def state_dir(tmp_path, monkeypatch, audit_dir):  # noqa: ARG001 - captures the 
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "_MARGIN_S", MARGIN_S)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     control_context.invalidate_cache()
     yield directory
     control_context.invalidate_cache()

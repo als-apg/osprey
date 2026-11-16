@@ -43,6 +43,7 @@ import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -1030,8 +1031,9 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
     the type and target the factory stamps on whatever it builds.
     """
     connector = VAInProcessConnector()
-    connector._connector_type = connector_type
-    connector._control_target = control_target
+    connector._context = ConnectorContext(
+        connector_type=connector_type, control_target=control_target
+    )
     connector._epics_configured = epics_configured
     return connector
 

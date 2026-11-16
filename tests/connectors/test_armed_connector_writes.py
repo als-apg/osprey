@@ -30,17 +30,17 @@ import pytest
 
 from osprey.runtime import raw_put_block
 from osprey.services.python_executor.write_surface import _ARMED_BLOCKED
-from osprey_connectors.control_system import _doocs_connector as doocs_connector
-from osprey_connectors.control_system import _tango_connector as tango_connector
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._ca_loop import CaLoop
 from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.control_system._tango_connector import TangoConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.control_system.write_door import door_is_open
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ChannelWriteBlockedError
+from osprey_connectors_tests._write_fakes import armed_context
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
@@ -236,13 +236,11 @@ def test_epics_family_connector_write_passes_and_raw_caput_is_refused(fakes, mon
 def test_tango_connector_write_passes_and_raw_write_attribute_is_refused(fakes, monkeypatch):
     tango = fakes["tango"]
     _writes_on(monkeypatch, TangoConnector)
-    monkeypatch.setattr(
-        tango_connector.LimitsValidator, "from_config", staticmethod(lambda **_kw: None)
-    )
+    monkeypatch.setattr(LimitsValidator, "from_config", staticmethod(lambda **_kw: None))
 
     async def main():
         connector = TangoConnector()
-        await connector.connect({})
+        await connector.connect(armed_context())
         result = await connector.write_channel("sr/ps/01/Current", 3.0, confirm=False)
         await connector.disconnect()
         return result
@@ -262,13 +260,11 @@ def test_tango_connector_write_passes_and_raw_write_attribute_is_refused(fakes, 
 def test_doocs_connector_write_passes_and_raw_set_is_refused(fakes, monkeypatch):
     doocs4py = fakes["doocs4py"]
     _writes_on(monkeypatch, DOOCSConnector)
-    monkeypatch.setattr(
-        doocs_connector.LimitsValidator, "from_config", staticmethod(lambda **_kw: None)
-    )
+    monkeypatch.setattr(LimitsValidator, "from_config", staticmethod(lambda **_kw: None))
 
     async def main():
         connector = DOOCSConnector()
-        await connector.connect({})
+        await connector.connect(armed_context())
         result = await connector.write_channel("FAC/DEV/LOC/PROP", 7, confirm=False)
         await connector.disconnect()
         return result
@@ -288,7 +284,9 @@ def test_mock_connector_writes_still_work_with_the_block_armed(fakes, monkeypatc
 
     async def main():
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
         result = await connector.write_channel("TEST:CHANNEL:SP", 4.25, confirm=False)
         read = await connector.read_channel("TEST:CHANNEL:SP")
         await connector.disconnect()

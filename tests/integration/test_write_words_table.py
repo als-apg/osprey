@@ -292,7 +292,7 @@ def test_writes_off_is_the_deny_lead():
 
 def _refused(reason: str | None, kind: str | None = None, allowed: bool = False) -> Any:
     verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind, detail=None)
-    return connector_base._verdict_refusal("SR:TEST:SP", 1.0, verdict)
+    return connector_base._verdict_refusal("SR:TEST:SP", 1.0, verdict, wording="script")
 
 
 def test_writes_disabled_is_the_refusal_contract():
