@@ -315,6 +315,7 @@ def _packages(app_dir: Path) -> list[Path]:
 
 
 _LINK = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_STYLE_BLOCK = re.compile(r"<style\b[^>]*>(.*?)</style\s*>", re.IGNORECASE | re.DOTALL)
 _HREF = re.compile(r"""\bhref\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _DESIGN_SYSTEM_CSS = re.compile(r"^/design-system/css/([\w.-]+\.css)$")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
@@ -377,17 +378,20 @@ def _stylesheet_links(html: str) -> set[str]:
 
 
 def _defined_classes(app_dir: Path, links: Iterable[str]) -> set[str]:
-    """The classes a selector names in the panel's CSS or a design-system sheet it links."""
+    """The classes a selector names in the panel's CSS files, the ``<style>`` blocks of its
+    HTML, or a design-system sheet it links."""
     sheets = [path for path in (app_dir / "panel").rglob("*.css") if path.is_file()]
     for href in links:
         if (match := _DESIGN_SYSTEM_CSS.match(href)) is not None:
             sheet = _DESIGN_SYSTEM_STATIC / "css" / match.group(1)
             if sheet.is_file():
                 sheets.append(sheet)
+    css = [sheet.read_text(encoding="utf-8") for sheet in sheets]
+    for rel in _authored((app_dir / "panel").rglob("*.html"), app_dir):
+        css += _STYLE_BLOCK.findall((app_dir / rel).read_text(encoding="utf-8"))
     defined: set[str] = set()
-    for sheet in sheets:
-        text = _CSS_STRING.sub("", _BLOCK_COMMENT.sub("", sheet.read_text(encoding="utf-8")))
-        defined.update(_CSS_CLASS.findall(text))
+    for text in css:
+        defined.update(_CSS_CLASS.findall(_CSS_STRING.sub("", _BLOCK_COMMENT.sub("", text))))
     return defined
 
 

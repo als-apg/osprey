@@ -327,6 +327,19 @@ def test_a_class_with_no_rule_fails_naming_it_and_its_file(
     assert "class knob-dial [undefined_class]" in result.output
 
 
+def test_a_class_a_style_block_of_the_page_defines_passes(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _app(lifecycle_repo)
+    page = _page("tokens.css", "base.css", "primitives.css", body='<p class="knob-dial"></p>')
+    page = page.replace("</head>", "<style>.knob-dial { display: grid; }</style>\n</head>")
+    _write(app_dir, "panel/index.html", page)
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
 @pytest.mark.usefixtures("js")
 def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
     runner: CliRunner, lifecycle_repo: Path
