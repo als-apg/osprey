@@ -1,8 +1,8 @@
 """Fake DOOCS and Tango drivers, and the seam their connectors are driven through.
 
-Both connectors import their driver inside ``connect()`` and read a limits file
-and the facility's timezone. :func:`driven_through` serves a fake driver under
-the driver's import name, with no limits file and a UTC facility clock.
+Both connectors import their driver inside ``connect()`` and read a limits
+file. :func:`driven_through` serves a fake driver under the driver's import
+name, with no limits file.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +27,6 @@ def driven_through(driver: str, fake: Any) -> Iterator[None]:
     with (
         patch.dict(sys.modules, {driver: fake}),
         patch(f"{connector}.LimitsValidator.from_config", return_value=None),
-        patch(f"{connector}.get_facility_timezone", return_value=UTC),
     ):
         yield
 
