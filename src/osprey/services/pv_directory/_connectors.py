@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -114,12 +115,14 @@ __all__ = [
     "PutRow",
     "Source",
     "SERVED_FIELD",
+    "SERVED_INSTANT_FIELD",
     "SERVED_QUERY_FIELD",
     "SERVED_ROW_FIELD",
     "Unavailable",
     "as_payload",
     "has_simulator",
     "logbook_source",
+    "served_instant",
     "service_targets",
     "severity_rank",
     "unavailable_payload",
@@ -142,6 +145,19 @@ SERVED_ROW_FIELD = {**SERVED_FIELD, "address": "name"}
 #: differently: the address glob is ``name``.
 SERVED_QUERY_FIELD = {"server": "ioc", "channel_type": "record_type", "address_pattern": "name"}
 
+#: The served name of each contract instant: the word the pages and tools have always
+#: read, whatever record holds it. Each is served as :func:`served_instant` text, or,
+#: where the record kept a stamp it could not place, as that ``recorded_stamp``'s text.
+SERVED_INSTANT_FIELD = {
+    "event_at": "time",
+    "last_contact_at": "last_contact",
+    "announced_at": "last_announced",
+    "put_at": "at",
+}
+
+#: The field a record keeps an unplaced stamp in; it is served as the record's instant.
+_RECORDED_STAMP = "recorded_stamp"
+
 #: The records whose fields are served under :data:`SERVED_FIELD`.
 _SERVED_RECORDS = tuple(record for record in (PutRow, AlarmStateRow) if record is not None)
 
@@ -151,6 +167,33 @@ def _served_names(result: Any) -> Mapping[str, str]:
     if DirectoryRow is not None and isinstance(result, DirectoryRow):
         return SERVED_ROW_FIELD
     return SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
+
+
+def served_instant(moment: datetime | None) -> str | None:
+    """*moment* as the services' served text: ISO-8601 in UTC to the millisecond, with ``Z``.
+
+    The text the alarm feeds have always served, so a page reads every service's
+    instants alike. ``None`` stays ``None``.
+    """
+    if moment is None:
+        return None
+    return moment.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _model_payload(result: BaseModel) -> dict[str, Any]:
+    """A contract record's fields as served: renamed, and an unplaced stamp as its instant."""
+    names = {**SERVED_INSTANT_FIELD, **_served_names(result)}
+    payload = {
+        names.get(name, name): as_payload(value)
+        for name, value in result
+        if name != _RECORDED_STAMP
+    }
+    stamp = getattr(result, _RECORDED_STAMP, None)
+    if stamp is not None:
+        for name in type(result).model_fields:
+            if name in SERVED_INSTANT_FIELD and payload[SERVED_INSTANT_FIELD[name]] is None:
+                payload[SERVED_INSTANT_FIELD[name]] = stamp
+    return payload
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -173,10 +216,11 @@ def as_payload(result: Any) -> Any:
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
     row names its fields by :data:`SERVED_ROW_FIELD`, a put row and an alarm-state row
-    by :data:`SERVED_FIELD`. Other
-    records (pydantic models, and dataclasses) become mappings field by field, enum
-    members their values, mappings and sequences their JSON forms; anything else is
-    returned as it is.
+    by :data:`SERVED_FIELD`, and every record its instants by
+    :data:`SERVED_INSTANT_FIELD`. Other records (pydantic models, and dataclasses)
+    become mappings field by field, enum members their values, a ``datetime`` its
+    :func:`served_instant` text, mappings and sequences their JSON forms; anything
+    else is returned as it is.
     """
     if Source is not None and isinstance(result, Source):
         return {
@@ -186,8 +230,9 @@ def as_payload(result: Any) -> Any:
             "rehearsal": result.rehearsal,
         }
     if isinstance(result, BaseModel):
-        names = _served_names(result)
-        return {names.get(name, name): as_payload(value) for name, value in result}
+        return _model_payload(result)
+    if isinstance(result, datetime):
+        return served_instant(result)
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         names = _served_names(result)
         return {

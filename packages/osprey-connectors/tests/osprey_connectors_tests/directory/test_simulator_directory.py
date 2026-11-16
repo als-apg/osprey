@@ -289,7 +289,8 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
         "channel_type": "ao",
         "server": "sim-SR",
         "host": "virtual-accelerator",
-        "last_announced": None,
+        "announced_at": None,
+        "recorded_stamp": None,
     }
 
 

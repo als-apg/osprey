@@ -343,18 +343,24 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    contract = {served: field for field, served in _connectors.SERVED_ROW_FIELD.items()}
-    rows = [
-        DirectoryRow(
-            **{
-                contract.get(k, k): v
-                for k, v in row.items()
-                if k not in ("origin", "alarm", "archived")
-            }
-        )
+    renamed = {**_connectors.SERVED_INSTANT_FIELD, **_connectors.SERVED_ROW_FIELD}
+    contract = {served: field for field, served in renamed.items()}
+    instants = set(_connectors.SERVED_INSTANT_FIELD.values())
+
+    def _fields(served: dict[str, Any]) -> dict[str, Any]:
+        """A served row's fields under their contract names, its instants as datetimes."""
+        return {
+            contract.get(k, k): datetime.fromisoformat(v) if k in instants and v else v
+            for k, v in served.items()
+            if k not in ("origin", "alarm", "archived")
+        }
+
+    rows = [DirectoryRow(**_fields(row)) for row in page["rows"]]
+    states = {
+        row["name"]: AlarmStateRecord(**_fields(row["alarm"]))
         for row in page["rows"]
-    ]
-    states = {row["name"]: AlarmStateRecord(**row["alarm"]) for row in page["rows"] if row["alarm"]}
+        if row["alarm"]
+    }
     held = frozenset(row["name"] for row in page["rows"] if row["archived"])
     served = page["source"]
     source = Source(

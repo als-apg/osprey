@@ -10,6 +10,7 @@ import importlib
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, timezone
 from enum import StrEnum
 from types import ModuleType
 
@@ -163,7 +164,9 @@ def test_a_source_is_served_with_the_label_the_framework_names() -> None:
 
 def test_rows_are_served_under_the_epics_words() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    put = _connectors.PutRow(at="t", address="SR:BPM1.HIHI", field=".HIHI", old="1", new="2")
+    put = _connectors.PutRow(
+        recorded_stamp="t", address="SR:BPM1.HIHI", field=".HIHI", old="1", new="2"
+    )
     row = _connectors.DirectoryRow(address="SR:BPM1", channel_type="ai", server="ioc-a")
 
     assert _connectors.as_payload(put) == {
@@ -184,6 +187,27 @@ def test_rows_are_served_under_the_epics_words() -> None:
         "host": None,
         "last_announced": None,
     }
+
+
+def test_instants_are_served_under_their_words_as_utc_text_to_the_millisecond() -> None:
+    pytest.importorskip("osprey_connectors.service_answers")
+    pacific = timezone(timedelta(hours=-7))
+    put = _connectors.PutRow(
+        put_at=datetime(2026, 10, 28, 14, 3, 11, 884366, tzinfo=pacific), address="SR:BPM1"
+    )
+    state = _connectors.AlarmStateRecord(
+        severity="MAJOR", event_at=datetime(2026, 11, 11, 6, tzinfo=UTC)
+    )
+    logged = _connectors.AlarmHistoryRow(event_at=None, severity="OK")
+    announced = _connectors.DirectoryRow(address="SR:BPM1", recorded_stamp="2026-10-30 08:12:44")
+
+    assert _connectors.as_payload(put)["at"] == "2026-10-28T21:03:11.884Z"
+    assert "recorded_stamp" not in _connectors.as_payload(put)
+    assert _connectors.as_payload(state)["time"] == "2026-11-11T06:00:00.000Z"
+    assert _connectors.as_payload(logged)["time"] is None
+    assert _connectors.as_payload(announced)["last_announced"] == "2026-10-30 08:12:44"
+    assert "recorded_stamp" not in _connectors.as_payload(announced)
+    assert _connectors.served_instant(None) is None
 
 
 def test_floor_binds_every_contract_name_to_none(floor: ModuleType) -> None:

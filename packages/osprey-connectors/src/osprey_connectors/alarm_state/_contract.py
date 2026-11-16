@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import SerializerFunctionWrapHandler, model_serializer
+from pydantic import AwareDatetime, SerializerFunctionWrapHandler, model_serializer
 
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import Unavailable, _Backend
@@ -25,14 +25,18 @@ def severity_rank(severity: object) -> int:
 
 
 class AlarmStateRecord(FrozenModel):
-    """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on."""
+    """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on.
+
+    ``event_at`` is when the alarm server says the state began, ``None`` when it
+    gave no time it could be placed by.
+    """
 
     severity: str | None = None
     status: str | None = None
     latched: bool = False
     acknowledged: bool = False
     message: str | None = None
-    time: str | None = None
+    event_at: AwareDatetime | None = None
     stale: bool = False
 
 
@@ -53,15 +57,15 @@ class AlarmStates(FrozenModel):
     """Every channel's alarm state now, and the counts per severity.
 
     ``counts`` is derived from the rows' severities, ``OK`` included and a ``None``
-    severity not counted, so it cannot disagree with them. ``last_contact`` is the
-    ISO-8601 UTC time the backend last heard from the feed (a message or an offset
+    severity not counted, so it cannot disagree with them. ``last_contact_at`` is
+    when, in UTC, the backend last heard from the feed (a message or an offset
     check), ``None`` when it never has; ``stale`` is the backend's flag. ``counts``
     is derived, never passed, and is part of the record's dump.
     """
 
     rows: tuple[AlarmStateRow, ...]
     stale: bool
-    last_contact: str | None
+    last_contact_at: AwareDatetime | None
 
     @property
     def counts(self) -> Mapping[str, int]:

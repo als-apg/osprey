@@ -42,6 +42,7 @@ from osprey.services.pv_directory._connectors import (
     SERVED_SIGNAL_PROPERTY,
     Unavailable,
     as_payload,
+    served_instant,
     severity_rank,
     unavailable_payload,
 )
@@ -83,6 +84,8 @@ _REPLAY_BACKEND = "alarm_replay"
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
 _FEED_LOADING = "alarm feed still loading"
+#: Where an alarm with no time sorts among those of its severity: after every timed one.
+_NO_TIME = datetime.min.replace(tzinfo=UTC)
 _LIVE_CONFIGURATION = CONFIG_LABELS["alarm_state"]
 _LOGGED_CONFIGURATION = CONFIG_LABELS["alarm_log"]
 #: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``,
@@ -308,7 +311,7 @@ class Facts:
             return _section(backend, "unavailable", reason=answer.reason)
         active = sorted(
             (row for row in answer.rows if row.state.severity not in ("OK", None)),
-            key=lambda row: (severity_rank(row.state.severity), row.state.time or ""),
+            key=_alarm_order,
             reverse=True,
         )
         if severities:
@@ -322,7 +325,7 @@ class Facts:
             rows=[_alarm_row(row) for row in served],
             truncated=len(served) < len(active),
             stale=answer.stale,
-            last_contact=answer.last_contact,
+            last_contact=served_instant(answer.last_contact_at),
             feed=_feed_kind(backend),
         )
 
@@ -669,6 +672,12 @@ def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
 def _feed_kind(backend: Any) -> str:
     """``replay`` for the replay backend, whose ``last_contact`` is its load moment; else ``live``."""
     return "replay" if backend.spec.type == _REPLAY_BACKEND else "live"
+
+
+def _alarm_order(row: Any) -> tuple[int, bool, datetime]:
+    """An active alarm's place, largest first: most severe, then newest, an untimed one last."""
+    event_at = row.state.event_at
+    return severity_rank(row.state.severity), event_at is not None, event_at or _NO_TIME
 
 
 def _alarm_row(row: Any) -> dict[str, Any]:

@@ -80,7 +80,7 @@ _PROBE_GRACE_S = 1.0
 
 #: The alarm filter's values, worst first: the severities, then ``none`` (OK or no state).
 _ALARM_VALUES = ("UNDEFINED", "INVALID", "MAJOR", "MINOR", "none")
-#: The fields of a feed state a row carries.
+#: The fields of a feed state a row carries, by their served names.
 _ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 #: The archive filter's values: the store records the PV, does not, or cannot say.
 _ARCHIVED_VALUES = ("yes", "no", "unknown")
@@ -922,9 +922,8 @@ def _served_row(
     served: dict[str, Any] = {"name": payload.pop("name"), "origin": origin}
     if alarm_states is not None:
         state = alarm_states.get(served["name"])
-        served["alarm"] = (
-            None if state is None else {key: getattr(state, key) for key in _ALARM_FIELDS}
-        )
+        alarm = None if state is None else as_payload(state)
+        served["alarm"] = None if alarm is None else {key: alarm[key] for key in _ALARM_FIELDS}
     if held is not None:
         served["archived"] = served["name"] in held if isinstance(held, frozenset) else None
     return {**served, **payload}
