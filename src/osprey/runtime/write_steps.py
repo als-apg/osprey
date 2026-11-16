@@ -100,10 +100,8 @@ async def checked_write(
     2. ``on_attempt(address)`` when given — immediately before the connector
        call, so an attempt ledger records exactly the writes that may reach the
        control system.
-    3. The connector's :meth:`write_channel_checked`. A connector-level limits
-       refusal becomes ``ChannelWriteBlockedError(reason='LIMITS')`` chained
-       from the violation (``__cause__``), and the result is held to
-       :func:`raise_for_write_result`: ``refused`` raises
+    3. The connector's :meth:`write_channel_checked`, which holds the result
+       to :func:`raise_for_write_result`: ``refused`` raises
        ``ChannelWriteBlockedError``; ``failed``, ``mismatch`` and
        ``unconfirmed`` raise ``ChannelWriteFailedError``; transport errors
        propagate.

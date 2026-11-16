@@ -427,12 +427,11 @@ def _tool_error_surface(monkeypatch) -> list[str]:
         TimeoutError("deadline"),
         ChannelNotFoundError("SR:NOPE"),
         RuntimeError("boom"),
-        ChannelWriteBlockedError("SR:TEST:SP", "CONTROL_SYSTEM_REFUSED", "denied"),
-        ChannelWriteBlockedError("SR:TEST:SP", "LIMITS", "over"),
-        ChannelWriteBlockedError("SR:TEST:SP", None, "refused"),
+        ChannelWriteBlockedError("SR:TEST:SP", "CONTROL_SYSTEM_REFUSED", message="denied"),
+        ChannelWriteBlockedError("SR:TEST:SP", "LIMITS", message="over"),
     ]
     errors += [
-        ChannelWriteBlockedError("SR:TEST:SP", "WRITES_DISABLED", message)
+        ChannelWriteBlockedError("SR:TEST:SP", "WRITES_DISABLED", message=message)
         for message in _monitor_refusals(monkeypatch)
     ]
     for banner in (*write_target.KIND_BANNERS.values(), None):

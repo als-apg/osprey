@@ -335,7 +335,7 @@ def test_limits_refusal_maps_to_write_refused(runtime: _Runtime) -> None:
 
 def test_write_failure_maps_to_write_failed(runtime: _Runtime, in_run: RunRecord) -> None:
     """A failed write becomes OspreyWriteFailed; the prior value stays recorded."""
-    err = ChannelWriteFailedError("QF_001:Cm:set", "FAILED")
+    err = ChannelWriteFailedError("QF_001:Cm:set", "failed")
     runtime.write_error = err
     with pytest.raises(OspreyWriteFailed) as info:
         _device(RW).set(3.0)

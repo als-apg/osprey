@@ -22,7 +22,6 @@ from osprey.runtime import (
     write_channels,
 )
 from osprey_connectors.control_system._base import (
-    ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
@@ -45,8 +44,9 @@ class RecordingConnector(ControlSystemConnector):
 
     A real ``ControlSystemConnector`` subclass so the runtime exercises the same
     denial contract (``write_channel_checked``) it uses against live connectors.
-    Writes are forced enabled; ``write_channel`` returns ``self.canned_result``
-    when one is set, otherwise a confirmed success.
+    Writes are forced enabled; past the guard, each write (:meth:`_write_one`,
+    single or batched) returns ``self.canned_result`` when one is set,
+    otherwise a confirmed success.
     """
 
     def __init__(self, canned_result: ChannelWriteResult | None = None):
@@ -59,8 +59,8 @@ class RecordingConnector(ControlSystemConnector):
     def _writes_enabled(self) -> bool:
         return True
 
-    async def write_channel(self, address: str, value, **kwargs):
-        """Mock write operation."""
+    async def _write_one(self, address: str, value, **kwargs):
+        """Mock write past the guard."""
         self.write_calls.append((address, value, kwargs))
         if self.canned_result is not None:
             return self.canned_result
@@ -71,12 +71,8 @@ class RecordingConnector(ControlSystemConnector):
             observed_value=value,
         )
 
-    async def write_multiple_channels(self, operations, **kwargs):
-        """Mock batch write — delegates to write_channel."""
-        results = []
-        for address, value in operations:
-            results.append(await self.write_channel(address, value, **kwargs))
-        return results
+    async def _send(self, address, value, *, timeout_s, wait):
+        raise NotImplementedError
 
     async def read_channel(self, address: str, **kwargs):
         """Mock read operation."""
@@ -96,15 +92,10 @@ class RecordingConnector(ControlSystemConnector):
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
-    async def subscribe(self, address, callback) -> str:
+    async def subscribe(self, address, callback, *, on_connection=None) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
-    async def get_metadata(self, address: str) -> ChannelMetadata:
-        raise NotImplementedError
-
-    async def validate_channel(self, address: str) -> bool:
-        raise NotImplementedError
 
 
 @pytest.fixture
@@ -166,7 +157,7 @@ def test_write_channel_failure():
         with pytest.raises(ChannelWriteFailedError, match="Write failed") as excinfo:
             write_channel("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "FAILED"
+        assert excinfo.value.outcome is WriteOutcome.FAILED
 
 
 class TestRuntimeWriteConfirmation:
@@ -199,7 +190,7 @@ class TestRuntimeWriteConfirmation:
             with pytest.raises(ChannelWriteFailedError) as excinfo:
                 write_channel("TEST:PV", 42.0)
 
-            assert excinfo.value.reason == "MISMATCH"
+            assert excinfo.value.outcome is WriteOutcome.MISMATCH
             assert excinfo.value.address == "TEST:PV"
             assert excinfo.value.observed_value == 0.0
             # Both numbers must be nameable from the exception alone.
@@ -226,7 +217,7 @@ class TestRuntimeWriteConfirmation:
             with pytest.raises(ChannelWriteFailedError) as excinfo:
                 write_channels({"TEST:PV1": 1.0, "TEST:PV2": 2.0})
 
-            assert excinfo.value.reason == "MISMATCH"
+            assert excinfo.value.outcome is WriteOutcome.MISMATCH
 
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_unconfirmed_raises(self):
@@ -248,7 +239,7 @@ class TestRuntimeWriteConfirmation:
             with pytest.raises(ChannelWriteFailedError) as excinfo:
                 write_channel("TEST:PV", 42.0)
 
-            assert excinfo.value.reason == "UNCONFIRMED"
+            assert excinfo.value.outcome is WriteOutcome.UNCONFIRMED
 
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_refused_write_raises_blocked(self):
@@ -355,18 +346,15 @@ def test_write_channels_raises_for_the_refused_write_not_one_it_held_back():
     """A checked batch raises for the write that refused it, wherever it stands."""
 
     class Refusing(RecordingConnector):
-        async def write_multiple_channels(self, operations, **kwargs):
+        async def _write_one(self, address, value, **kwargs):
             reasons = {"PV1": "BATCH_REFUSED", "PV2": "CHANNEL_NOT_FOUND", "PV3": "BATCH_REFUSED"}
-            return [
-                ChannelWriteResult(
-                    address=address,
-                    value_written=value,
-                    outcome=WriteOutcome.REFUSED,
-                    refusal_reason=reasons[address],
-                    error_message=f"{address}: {reasons[address]}",
-                )
-                for address, value in operations
-            ]
+            return ChannelWriteResult(
+                address=address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=reasons[address],
+                error_message=f"{address}: {reasons[address]}",
+            )
 
     with patch(
         "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -629,7 +617,7 @@ class PerChannelConnector(RecordingConnector):
         super().__init__()
         self.outcomes = outcomes
 
-    async def write_channel(self, address: str, value, **kwargs):
+    async def _write_one(self, address: str, value, **kwargs):
         self.write_calls.append((address, value, kwargs))
         outcome = self.outcomes.get(address, WriteOutcome.CONFIRMED)
         return ChannelWriteResult(
@@ -976,24 +964,17 @@ class TestRecordWrites:
         ]
         assert not any(phase in ("sent", "landed") for _address, phase in records)
 
-    @pytest.mark.parametrize("refusal", [ChannelLimitsViolationError, ChannelWriteBlockedError])
-    def test_a_refusal_the_connector_raises_midway_marks_only_the_named_channel_refused(
-        self, refusal
-    ):
+    def test_a_refusal_the_connector_raises_midway_marks_only_the_named_channel_refused(self):
         class RaisingConnector(RecordingConnector):
-            async def write_channel(self, address: str, value, **kwargs):
+            async def _write_one(self, address: str, value, **kwargs):
                 if address == "B:PV":
-                    if refusal is ChannelLimitsViolationError:
-                        raise ChannelLimitsViolationError(
-                            address, value, "MAX_EXCEEDED", "above max"
-                        )
                     raise ChannelWriteBlockedError(
                         address, "CONTROL_SYSTEM_REFUSED", message="refused"
                     )
-                return await super().write_channel(address, value, **kwargs)
+                return await super()._write_one(address, value, **kwargs)
 
         with _patched_factory(RaisingConnector()), record_writes() as records:
-            with pytest.raises(refusal):
+            with pytest.raises(ChannelWriteBlockedError):
                 write_channels({"A:PV": 1.0, "B:PV": 2.0, "C:PV": 3.0})
         assert records == [
             ("A:PV", "attempt"),

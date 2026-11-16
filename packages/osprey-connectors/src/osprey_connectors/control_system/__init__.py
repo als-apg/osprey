@@ -1,7 +1,8 @@
 """The control-system connector contract.
 
 ``ControlSystemConnector`` and the value, metadata and write-result models it
-returns, the write-outcome vocabulary, and the limits validator every connector
+returns, the send report a connector's ``_send`` answers with, the
+write-outcome vocabulary, and the limits validator every connector
 checks a write against. A new control system subclasses the connector here; a
 configured one is built through :class:`osprey_connectors.factory.ConnectorFactory`
 from its type name. The concrete connectors are the ``_*_connector`` modules
@@ -22,6 +23,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    SendReport,
     WriteOutcome,
     mark_long_lived_session,
     raise_for_write_result,
@@ -52,6 +54,7 @@ __all__ = [
     "ChannelWriteResult",
     "ControlSystemConnector",
     "LimitsValidator",
+    "SendReport",
     "WriteOutcome",
     "mapping_config_lookup",
     "mark_long_lived_session",

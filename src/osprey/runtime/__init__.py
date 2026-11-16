@@ -832,7 +832,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     #
     # Then the attempt observer, then write_channel_checked — the reference
     # monitor's denial contract: it raises on a refusal (a connector-level limits
-    # refusal normalised to ChannelWriteBlockedError 'LIMITS'), on a failed
+    # refusal is a ChannelWriteBlockedError 'LIMITS' carrying its violation), on a failed
     # write, AND on a write whose confirming re-read did not hold the setpoint.
     # Calling write_channel directly would let an unconfirmed write return
     # silently and get logged as "Wrote ...".
@@ -950,7 +950,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         _assert_target_pin()
 
         from osprey_connectors.control_system import raise_for_write_results
-        from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+        from osprey_connectors.errors import ChannelWriteBlockedError
 
         connector = await _get_connector()
 
@@ -973,7 +973,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
                     for key, value in kwargs.items()
                 },
             )
-        except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
+        except ChannelWriteBlockedError as exc:
             # A refusal raised partway names the one channel it refused; every
             # other channel's outcome stays unknown.
             if exc.address in channel_values:

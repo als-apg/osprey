@@ -304,7 +304,7 @@ CONNECTOR_ROWS = [
     ),
     (
         "14-failed-no-outcome",
-        raises(ChannelWriteFailedError(CHANNEL, "FAILED")),
+        raises(ChannelWriteFailedError(CHANNEL, "failed")),
         "unknown",
         "write_unconfirmed",
         "outcome unknown — check the readback",

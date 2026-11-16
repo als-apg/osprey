@@ -64,7 +64,8 @@ strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
 shape preserved), and the package's records:
 
 * the connector records a connector's calls return, ``ChannelValue``,
-  ``ChannelMetadata`` and ``ChannelWriteResult``, named by class name and
+  ``ChannelMetadata`` and ``ChannelWriteResult``, and the ``LimitsViolation`` a
+  limits refusal carries, named by class name and
   carried as their fields in declaration order. Each decodes as a real
   instance of its class, validated by the class itself. A subclass is
   refused: only the class the far side rebuilds crosses.
@@ -102,7 +103,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
 )
-from osprey_connectors.errors import ConnectorInternalError, ConnectorsError
+from osprey_connectors.errors import ConnectorInternalError, ConnectorsError, LimitsViolation
 from osprey_connectors.ipc._exceptions import (
     _registered_tag,
     exception_fields,
@@ -134,7 +135,11 @@ MAGIC = b"OSPF"
 #: Bumped only for an incompatible envelope change; decode refuses anything else.
 #: 2: a write result carries ``verdict_reason`` and a blocked write's error
 #: frame its typed reason, which a version-1 peer would drop.
-PROTOCOL_VERSION = 2
+#: 3: a limits refusal crosses as a write result carrying its
+#: ``LimitsViolation`` (a version-2 peer raised it as an error frame), a blocked
+#: write's error frame carries that violation, and a failed write's error frame
+#: carries its outcome alone, without the reason word.
+PROTOCOL_VERSION = 3
 
 #: Refuse absurd lengths rather than trying to allocate them. Generous enough
 #: for a detector image, small enough that a corrupt length cannot exhaust RAM.
@@ -213,7 +218,8 @@ class ErrorFrame(FrozenModel):
 #: rebuild only one of these, never an arbitrary class the far side happens to
 #: load.
 _RECORDS: dict[str, type[BaseModel]] = {
-    cls.__name__: cls for cls in (ChannelValue, ChannelMetadata, ChannelWriteResult)
+    cls.__name__: cls
+    for cls in (ChannelValue, ChannelMetadata, ChannelWriteResult, LimitsViolation)
 }
 
 

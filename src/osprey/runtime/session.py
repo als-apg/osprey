@@ -1013,9 +1013,9 @@ class ControlSession:
     ) -> SessionWriteResult:
         """The checked write on the bound connector, mapped to the write contract's outcomes."""
         from osprey_connectors.errors import (
-            ChannelLimitsViolationError,
             ChannelWriteBlockedError,
             ChannelWriteFailedError,
+            RefusalReason,
         )
 
         connector = self._connector
@@ -1037,21 +1037,16 @@ class ControlSession:
         except ChannelWriteBlockedError as exc:
             # The connector refused: its reason is a RefusalReason member and
             # its text the operator's words, trailer included. A limits refusal
-            # chains the violation as its cause, whose sentence is the one a
-            # person reads, without the wrapper. The monitor's own posture
-            # refusal means the verdict moved between admission and the door;
-            # it is logged beside the verdict the write was admitted under.
-            if exc.reason == REASON_LIMITS:
-                violation = exc.__cause__
-                text = (
-                    violation.violation_reason or ""
-                    if isinstance(violation, ChannelLimitsViolationError)
-                    else str(exc)
-                )
+            # carries its violation, whose sentence is the one a person reads,
+            # without the wrapper. The monitor's own posture refusal means the
+            # verdict moved between admission and the door; it is logged beside
+            # the verdict the write was admitted under.
+            if exc.reason is RefusalReason.LIMITS:
+                text = exc.violation.reason if exc.violation is not None else str(exc)
                 return SessionWriteResult(
                     outcome=OUTCOME_REFUSED, reason=REASON_LIMITS, message=text.strip()
                 )
-            if exc.reason == "WRITES_DISABLED":
+            if exc.reason is RefusalReason.WRITES_DISABLED:
                 logger.info(
                     "Write to %s refused by the reference monitor (admitted under %s): %s",
                     address,
@@ -1060,7 +1055,7 @@ class ControlSession:
                 )
             return SessionWriteResult(
                 outcome=OUTCOME_REFUSED,
-                reason=str(exc.reason or "VALIDATION_ERROR"),
+                reason=str(exc.reason),
                 message=str(exc).strip(),
             )
         except ChannelWriteFailedError as exc:

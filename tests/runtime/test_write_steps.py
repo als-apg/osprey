@@ -17,7 +17,6 @@ import pytest
 
 from osprey.runtime.write_steps import PinVerdict, checked_write, pin_verdict
 from osprey_connectors.control_system._base import (
-    ChannelMetadata,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
@@ -26,6 +25,8 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    LimitsViolation,
+    RefusalReason,
 )
 
 # ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ def _result(outcome=WriteOutcome.CONFIRMED, **overrides) -> ChannelWriteResult:
 
 
 class _Connector(ControlSystemConnector):
-    """Returns a canned result (or raises a canned error) and logs every step."""
+    """Returns a canned result (or raises a canned error) past its guard, and logs every step."""
 
     def __init__(self, events: list, result=None, exc: Exception | None = None):
         self.events = events
@@ -99,7 +100,7 @@ class _Connector(ControlSystemConnector):
     def _reader(address):
         return 0.0
 
-    async def write_channel(
+    async def _write_one(
         self,
         address: str,
         value: Any,
@@ -118,6 +119,9 @@ class _Connector(ControlSystemConnector):
             raise self.exc
         return self.result
 
+    async def _send(self, address, value, *, timeout_s, wait):
+        raise NotImplementedError
+
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
     async def read_channel(self, address: str, *, timeout_s: float | None = None):
@@ -130,11 +134,6 @@ class _Connector(ControlSystemConnector):
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
-    async def get_metadata(self, address: str) -> ChannelMetadata:
-        raise NotImplementedError
-
-    async def validate_channel(self, address: str) -> bool:
-        raise NotImplementedError
 
 
 def _violation(address="TEST:PV", value=999.0) -> ChannelLimitsViolationError:
@@ -294,12 +293,19 @@ class TestCheckedWriteDenialContract:
         with pytest.raises(TimeoutError):
             await _write(connector, None)
 
-    async def test_connector_limits_become_blocked_with_the_violation_as_cause(self):
-        violation = _violation()
-        connector = _Connector([], exc=violation)
+    async def test_connector_limits_become_blocked_carrying_the_violation(self):
+        violation = LimitsViolation.from_error(_violation())
+        refused = ChannelWriteResult.refused(
+            "TEST:PV",
+            999.0,
+            RefusalReason.LIMITS,
+            "Write to 'TEST:PV' refused by the limits",
+            limits=violation,
+        )
+        connector = _Connector([], result=refused)
 
         with pytest.raises(ChannelWriteBlockedError) as excinfo:
             await _write(connector, None)
 
         assert excinfo.value.reason == "LIMITS"
-        assert excinfo.value.__cause__ is violation
+        assert excinfo.value.violation == violation

@@ -908,9 +908,10 @@ class TestWriteFailClosed:
         )
         connector = _write_connector(limits=limits)
 
-        with pytest.raises(ChannelLimitsViolationError):
-            await connector.write_channel("SR:CH", 1.0, confirm=False)
+        result = await connector.write_channel("SR:CH", 1.0, confirm=False)
 
+        assert result.refusal_reason == "LIMITS"
+        assert result.limits_violation.reason == "too big"
         assert connector._aioca.puts == []
 
 

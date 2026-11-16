@@ -225,11 +225,11 @@ class _BatchConnector(DictConnector):
         super().__init__(BATCH_HOME)
         self.answer = answer
 
-    async def write_channel(self, address: str, value: Any, **kwargs: Any):
+    async def _write_one(self, address: str, value: Any, **kwargs: Any):
         result = self.answer(address, value)
         if result is not None:
             return result
-        return await super().write_channel(address, value, **kwargs)
+        return await super()._write_one(address, value, **kwargs)
 
 
 def _refused(address: str, value: Any, reason: str) -> ChannelWriteResult:
@@ -408,23 +408,17 @@ class TestMovedListsOnlyWhatMoved:
         self, serve: Any, guarded: RunRecord
     ) -> None:
         class _Renaming(_BatchConnector):
-            async def write_multiple_channels(
-                self, operations: list[tuple[str, Any]], **_kwargs: Any
-            ) -> list[ChannelWriteResult]:
-                results = []
-                for address, value in operations:
-                    if address == BATCH[1]:
-                        results.append(_refused(address, value, "CONTROL_SYSTEM_REFUSED"))
-                        continue
-                    self._state[address] = value
-                    results.append(
-                        ChannelWriteResult(
-                            address=address + ".VAL",
-                            value_written=value,
-                            outcome=WriteOutcome.UNREQUESTED,
-                        )
-                    )
-                return results
+            async def _write_one(
+                self, address: str, value: Any, **_kwargs: Any
+            ) -> ChannelWriteResult:
+                if address == BATCH[1]:
+                    return _refused(address, value, "CONTROL_SYSTEM_REFUSED")
+                self._state[address] = value
+                return ChannelWriteResult(
+                    address=address + ".VAL",
+                    value_written=value,
+                    outcome=WriteOutcome.UNREQUESTED,
+                )
 
         machine = serve(_Renaming(lambda _a, _v: None))
 

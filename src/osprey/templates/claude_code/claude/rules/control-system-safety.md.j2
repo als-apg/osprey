@@ -17,7 +17,7 @@ A raw client put is not a slower route to the same write: the Python executor
 (`execute`, `execute_file`) refuses it at runtime with `RAW_CLIENT_WRITE`, in
 readwrite runs too, and approving the run does not change that. A notebook
 kernel refuses the client library's import itself, for reads as for writes,
-with `RAW_CLIENT_IMPORT`. Write through `write_channel(address, value)`, or
+with `ClientLibraryRefusedError`. Write through `write_channel(address, value)`, or
 `write_channels({address: value, ...})` for several channels at once — those
 are the calls that carry limits checking, write confirmation, approval and the
 audit record.

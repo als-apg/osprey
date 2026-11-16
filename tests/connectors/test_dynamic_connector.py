@@ -131,22 +131,12 @@ class TestControlSystemContextValidation:
         assert "Unknown archiver.type: custom_archiver" in caplog.text
 
 
-class KeywordRecorder(MockDynamicConnector):
-    """The custom connector, keeping the keywords each of its writes was called with."""
+class TestCustomConnectorConfirm:
+    """A custom connector's writes resolve ``confirm`` through the base pipeline.
 
-    seen_kwargs: list[dict] = []
-
-    async def write_channel(self, address, value, **kwargs):
-        self.seen_kwargs.append(kwargs)
-        return await MockDynamicConnector._unguarded_write_channel(self, address, value, **kwargs)
-
-
-class TestCustomConnectorConfirmDefault:
-    """A custom connector keeps its own ``confirm`` default.
-
-    ``MockDynamicConnector`` declares ``confirm=False`` outright rather than
-    taking the omission sentinel. The batch path must leave the keyword off
-    rather than forward ``None``, or that default would be lost.
+    An omitted ``confirm`` is the channel's own policy (no limits database:
+    confirm), on a single write and on each write of a batch; an explicit
+    answer reaches every send unchanged.
     """
 
     @pytest.fixture
@@ -155,9 +145,9 @@ class TestCustomConnectorConfirmDefault:
         # target- and type-blind, so the deployment's allowed tier arms it.
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
-    async def _connector(self, connector_type=MockDynamicConnector):
+    async def _connector(self):
         config = {
-            "type": f"{connector_type.__module__}.{connector_type.__qualname__}",
+            "type": f"{MockDynamicConnector.__module__}.{MockDynamicConnector.__qualname__}",
             "connector": {},
         }
         # Built for the simulator target, whose switch the module's fixture
@@ -168,39 +158,33 @@ class TestCustomConnectorConfirmDefault:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")
-    async def test_omitted_confirm_leaves_connector_default_in_place(self):
-        """Single write with the keyword omitted: the connector's default applies."""
+    async def test_omitted_confirm_is_the_channels_own_policy(self):
         connector = await self._connector()
 
         result = await connector.write_channel("TEST:CH", 1.0)
 
-        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert connector.sends == [("TEST:CH", 1.0, True)]
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")
-    async def test_batch_omits_keyword_for_custom_connector(self, monkeypatch):
-        """Batch write with ``confirm`` omitted: no ``None`` reaches write_channel."""
-        seen_kwargs: list[dict] = []
-        monkeypatch.setattr(KeywordRecorder, "seen_kwargs", seen_kwargs)
-        connector = await self._connector(KeywordRecorder)
+    async def test_batch_resolves_each_channels_policy(self):
+        connector = await self._connector()
 
         results = await connector.write_multiple_channels([("TEST:CH1", 1.0), ("TEST:CH2", 2.0)])
 
         assert [r.address for r in results] == ["TEST:CH1", "TEST:CH2"]
-        for result in results:
-            assert result.outcome is WriteOutcome.UNREQUESTED
-        # The keyword is absent, not None — forwarding None would override the default.
-        assert seen_kwargs and all("confirm" not in kw for kw in seen_kwargs)
+        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")
     async def test_batch_forwards_an_explicit_confirm(self):
-        """An explicit answer still reaches a custom connector unchanged."""
+        """An explicit answer reaches every send unchanged, ``False`` as much as ``True``."""
         connector = await self._connector()
 
         results = await connector.write_multiple_channels(
-            [("TEST:CH1", 1.0), ("TEST:CH2", 2.0)], confirm=True
+            [("TEST:CH1", 1.0), ("TEST:CH2", 2.0)], confirm=False
         )
 
-        for result in results:
-            assert result.outcome is WriteOutcome.CONFIRMED
+        assert [r.outcome for r in results] == [WriteOutcome.UNREQUESTED] * 2
+        assert [wait for _, _, wait in connector.sends] == [False, False]

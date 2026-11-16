@@ -187,11 +187,11 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     reads: list[str] = []
     real_confirming_read = connector._confirming_read
 
-    async def counted_read(address):
+    async def counted_read(address, sent, *, timeout_s):
         reads.append(address)
         if scenario is READ_RAISES:
             raise RuntimeError(READ_ERROR)
-        return await real_confirming_read(address)
+        return await real_confirming_read(address, sent, timeout_s=timeout_s)
 
     monkeypatch.setattr(connector, "_confirming_read", counted_read)
 

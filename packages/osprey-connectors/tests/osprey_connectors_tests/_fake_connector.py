@@ -37,10 +37,8 @@ from typing import Any
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
-    ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
-    values_match,
+    SendReport,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 
@@ -172,7 +170,13 @@ class FakeConnector(ControlSystemConnector):
     def current_value_reader(self) -> Callable[[str], Any] | None:
         return lambda address: self._read_value(address).value
 
-    async def _confirming_read(self, address: str) -> ChannelValue:
+    async def _confirming_read(
+        self,
+        address: str,
+        sent: SendReport,  # noqa: ARG002 - the store holds what was put
+        *,
+        timeout_s: float,  # noqa: ARG002 - an in-memory read never blocks
+    ) -> ChannelValue:
         """Read a channel back to confirm a write (the seam a test patches to fail one)."""
         await asyncio.sleep(self._response_delay)
         self._require_up(address)
@@ -204,71 +208,31 @@ class FakeConnector(ControlSystemConnector):
 
     # -- writes --------------------------------------------------------------
 
-    async def write_channel(
+    async def _run_check(
+        self,
+        check: Callable[[], None],
+        *,
+        timeout_s: float,  # noqa: ARG002 - an in-memory read never blocks
+    ) -> None:
+        """Run the limits check inline: the store's reads never block."""
+        check()
+
+    async def _send(
         self,
         address: str,
         value: Any,
         *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the connector write signature
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        """Validate limits, put the value, and confirm it by re-reading unless told not to."""
-        if self._limits_validator:
-            from osprey_connectors.errors import ChannelLimitsViolationError
-
-            try:
-                self._limits_validator.validate(
-                    address, value, read_current=self.current_value_reader()
-                )
-            except ChannelLimitsViolationError:
-                raise
-            except Exception as e:
-                return self._validation_refusal(address, value, e)
-
-        if confirm is None:
-            confirm = self._resolve_confirm(address)
-
+        timeout_s: float,  # noqa: ARG002 - an in-memory put never blocks
+        wait: bool,  # noqa: ARG002 - the store holds the value once put
+    ) -> SendReport:
+        """Put the value into the store; a channel that is down raises ``ChannelUnreachableError``."""
         await asyncio.sleep(self._response_delay)
         self._require_up(address)
         try:
             self._put(address, value)
         except Exception as e:
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"Fake write failed: {e}",
-            )
-
-        if not confirm:
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNREQUESTED,
-                notes="Confirmation not requested (fake)",
-            )
-
-        try:
-            observed = await self._confirming_read(address)
-        except Exception as e:
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Fake confirming read failed: {e}",
-                notes=f"Confirming read raised: {e} (fake)",
-            )
-
-        outcome = (
-            WriteOutcome.CONFIRMED if values_match(value, observed.value) else WriteOutcome.MISMATCH
-        )
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=outcome,
-            observed_value=observed.value,
-            notes=f"Observed {observed.value}, sent {value} (fake)",
-        )
+            return SendReport(fault="not_taken", detail=f"Fake write failed: {e}")
+        return SendReport()
 
     # -- subscriptions -------------------------------------------------------
 

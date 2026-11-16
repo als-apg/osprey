@@ -118,7 +118,9 @@ class FakeRuntime:
                 current_value=self.values[address],
             )
         if error is None and address in self.fail:
-            error = ChannelWriteFailedError(address, "UNCONFIRMED", "readback did not follow")
+            error = ChannelWriteFailedError(
+                address, "unconfirmed", message="readback did not follow"
+            )
         _report_phases([address], error, lambda: self.values.update({address: value}))
 
     def write_channels(self, channel_values: dict[str, Any], **kwargs: Any) -> None:
@@ -217,7 +219,8 @@ class DictConnector(ControlSystemConnector):
 
     ``_state`` holds every channel's value; a read of an address it lacks fails, and
     every write lands in it through :meth:`_put`, which a subclass overrides to fail
-    one address.
+    one address. A write past the guard (:meth:`_write_one`, single or batched)
+    checks no limits and confirms nothing: it is ``unrequested`` once put.
     """
 
     def __init__(self, values: dict[str, Any] | None = None) -> None:
@@ -249,13 +252,16 @@ class DictConnector(ControlSystemConnector):
     def _put(self, address: str, value: Any) -> None:
         self._state[address] = value
 
-    async def write_channel(
+    async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool):
+        raise NotImplementedError
+
+    async def _write_one(
         self,
         address: str,
         value: Any,
         *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        timeout_s: float | None = None,  # noqa: ARG002 - the past-the-guard write fixes this signature
+        confirm: bool | None = None,  # noqa: ARG002 - the past-the-guard write fixes this signature
     ) -> ChannelWriteResult:
         try:
             self._put(address, value)
@@ -272,13 +278,10 @@ class DictConnector(ControlSystemConnector):
             outcome=WriteOutcome.UNREQUESTED,
         )
 
-    async def subscribe(self, address, callback):
+    async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id):
-        raise NotImplementedError
-
-    async def get_metadata(self, address):
         raise NotImplementedError
 
     async def validate_channel(self, address) -> bool:

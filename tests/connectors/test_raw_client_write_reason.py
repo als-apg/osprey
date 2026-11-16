@@ -34,7 +34,9 @@ def test_message_names_the_sanctioned_write_route():
 
 
 def test_message_usable_as_blocked_error_text():
-    err = ChannelWriteBlockedError("PV:X", "RAW_CLIENT_WRITE", raw_client_write_message("PV:X"))
+    err = ChannelWriteBlockedError(
+        "PV:X", "RAW_CLIENT_WRITE", message=raw_client_write_message("PV:X")
+    )
     assert err.reason == "RAW_CLIENT_WRITE"
     assert RAW_CLIENT_WRITE_MARKER in str(err)
     assert "PV:X" in str(err)

@@ -68,7 +68,7 @@ from osprey.apps.sdk import (
 )
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_config_value
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
@@ -776,10 +776,6 @@ async def _write_row(live: Any, row: dict[str, Any]) -> None:
     """Write one row with a confirmed write and record its outcome on it (R5 CC-1)."""
     try:
         result = await live.write_channel(row["setpoint_addr"], row["new"], confirm=True)
-    except ChannelLimitsViolationError as exc:
-        row["outcome"] = REFUSED
-        row["reason"] = f"{exc.violation_type}: {exc.violation_reason}"
-        return
     except ChannelWriteBlockedError as exc:
         row["outcome"] = REFUSED
         row["reason"] = str(exc)
@@ -789,8 +785,11 @@ async def _write_row(live: Any, row: dict[str, Any]) -> None:
         row["reason"] = f"the write raised: {exc}"
         return
     row["outcome"] = str(result.outcome)
+    violation = result.limits_violation
     message = getattr(result, "error_message", None)
-    if message:
+    if violation is not None:
+        row["reason"] = f"{violation.kind}: {violation.reason}"
+    elif message:
         row["reason"] = message
 
 

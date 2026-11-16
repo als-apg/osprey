@@ -263,9 +263,9 @@ class _ScriptedFake(FakeConnector):
             )
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, *args: Any, **kwargs: Any):
+    async def _write_one(self, *args: Any, **kwargs: Any):
         type(self).writes += 1
-        return await super().write_channel(*args, **kwargs)
+        return await super()._write_one(*args, **kwargs)
 
 
 @pytest.fixture

@@ -20,13 +20,8 @@ from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
-    ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
-    _CheckNotMade,
-    _SendFailed,
-    _SendStep,
-    values_match,
+    SendReport,
 )
 from osprey_connectors.control_system._limits_validator import (
     CurrentValueReader,
@@ -164,6 +159,7 @@ class DOOCSConnector(ControlSystemConnector):
             )
         return doocs4py
 
+    @override
     def _bound(self, timeout_s: float | None) -> float:
         """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
         return timeout_s if timeout_s is not None else self._timeout_s
@@ -255,150 +251,36 @@ class DOOCSConnector(ControlSystemConnector):
         return read_current
 
     @override
-    async def write_channel(
-        self,
-        address: str,
-        value: object,
-        *,
-        timeout_s: float | None = None,
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        """
-        Write a value to a DOOCS property, confirming it unless asked not to.
+    async def _send(
+        self, address: str, value: ContractAny, *, timeout_s: float, wait: bool
+    ) -> SendReport:
+        """Set the property, off the event loop and within *timeout_s*.
 
         DOOCS has no acknowledgement of its own — ``set()`` either returns or
-        raises — so a confirmed write is the value sent followed by one fresh
-        read of the same property, compared with
-        :func:`~osprey_connectors.control_system.values_match`. DOOCS
-        reports no enum labels and no alarm state, so the comparison gets no
-        label and the alarm fields stay unset.
-
-        Args:
-            address: DOOCS address
-            value: Value to write
-            timeout_s: Seconds the send (limits check included) is given, and
-                then the confirming read; the block's ``timeout_s`` when
-                omitted. A confirmed write can therefore take up to twice it.
-            confirm: Whether to re-read the property and compare, or ``None``
-                to resolve the policy for this channel from the limits database
-
-        Returns:
-            ChannelWriteResult carrying the outcome and what the property was
-            seen to hold
-
-        Raises:
-            ChannelLimitsViolationError: If limits validation fails (when enabled)
+        raises — so *wait* changes nothing, and a confirmed write is the set
+        followed by one fresh read of the same property. A set that raises is
+        one DOOCS did not take. One that outlives its bound is unacknowledged:
+        the worker thread cannot be stopped, so the set may still arrive.
         """
 
-        # Import here to avoid circular dependency
-        from osprey_connectors.errors import ChannelLimitsViolationError
-
-        # Step 1: Validate limits (FAIL CLOSED) and send the value in ONE thread
-        # offload, so a caller on the event loop is never stalled by the blocking
-        # `doocs4py.get()` that max_step validation performs, nor by the send.
-        #
-        # A limits violation propagates unchanged; any other validation error
-        # means the check could not be made, and an unmade check is not
-        # permission to write — the closure hands that case back as a
-        # _CheckNotMade and the refusal itself is built on the loop, by the base class's one
-        # helper, so all four connectors word it identically.
-        #
-        # The offload is bounded, and a send that outlives its bound is
-        # unconfirmed: the worker thread cannot be stopped, so the set may
-        # still arrive.
-        def _validate_and_set() -> _SendStep:
-            if self._limits_validator:
-                try:
-                    self._limits_validator.validate(
-                        address, value, read_current=self.current_value_reader()
-                    )
-                    logger.debug(f"✓ Limits validation passed: {address}={value}")
-                except ChannelLimitsViolationError:
-                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
-                except Exception as e:
-                    return _CheckNotMade(e)  # no set issued
+        def set_value() -> Exception | None:
             try:
                 self._doocs.set(address, value)
-            except Exception as e:
-                return _SendFailed(e)
+            except Exception as exc:
+                return exc
             return None
 
-        bound = self._bound(timeout_s)
         try:
-            step = await asyncio.wait_for(asyncio.to_thread(_validate_and_set), bound)
+            error = await asyncio.wait_for(asyncio.to_thread(set_value), timeout_s)
         except TimeoutError:
-            logger.warning(f"DOOCS set of {address} did not return within {bound}s")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=(
-                    f"Write to '{address}' could not be confirmed — "
-                    f"DOOCS did not return from the set within {bound}s"
-                ),
-                notes="The value may still arrive; what the property holds is unknown",
+            logger.warning(f"DOOCS set of {address} did not return within {timeout_s}s")
+            return SendReport(
+                fault="unacknowledged",
+                detail=f"DOOCS did not return from the set within {timeout_s}s",
             )
-
-        if isinstance(step, _CheckNotMade):
-            return self._validation_refusal(address, value, step.error)
-
-        if isinstance(step, _SendFailed):
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{address}': {step.error}",
-                notes="DOOCS did not take the value",
-            )
-
-        # Step 2: Resolve the confirmation policy, now that a value has actually
-        # gone out. An explicit confirm — False every bit as much as True — is an
-        # answer and is taken as given; only an omitted one is resolved from the
-        # limits database. `doocs4py.set` does not consume it and the lookup is a
-        # pure in-memory read, so resolving it after the send changes nothing an
-        # observer can see.
-        if confirm is None:
-            confirm = self._resolve_confirm(address)
-
-        if not confirm:
-            logger.debug(f"DOOCS write (unconfirmed by request): {address} = {value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNREQUESTED,
-                notes="No confirmation requested",
-            )
-
-        # Step 3: Confirm with one fresh read
-        try:
-            readback = await self.read_channel(address, timeout_s=timeout_s)
-        except Exception as e:
-            logger.warning(f"DOOCS confirming read failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Confirming read of '{address}' failed: {e}",
-                notes="The value was sent; what the property holds is unknown",
-            )
-
-        observed: object = readback.value
-        confirmed = values_match(value, observed)
-
-        logger.debug(
-            f"DOOCS write ({'confirmed' if confirmed else 'mismatch'}): "
-            f"{address} = {value!r}, observed {observed!r}"
-        )
-
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
-            observed_value=observed,
-            notes=(
-                f"Observed {observed!r}" if confirmed else f"Observed {observed!r}, sent {value!r}"
-            ),
-        )
+        if error is not None:
+            return SendReport(fault="not_taken", detail=f"DOOCS did not take the value: {error}")
+        return SendReport()
 
     @override
     async def read_multiple_channels(
@@ -473,27 +355,3 @@ class DOOCSConnector(ControlSystemConnector):
             self._doocs.unsubscribe(address)
             del self._subscriptions[subscription_id]
             logger.debug(f"DOOCS subscription removed: {subscription_id}")
-
-    @override
-    async def get_metadata(self, address: str) -> ChannelMetadata:
-        """Get metadata for a channel."""
-        channel_value = await self.read_channel(address)
-        return channel_value.metadata
-
-    @override
-    async def validate_channel(self, address: str) -> bool:
-        """
-        Check if property exists and is accessible.
-
-        Args:
-            address: DOOCS address
-
-        Returns:
-            True if channel can be accessed
-        """
-        try:
-            await self.read_channel(address)
-            return True
-        except Exception as e:
-            logger.debug(f"DOOCS property validation failed for {address}: {e}")
-            return False

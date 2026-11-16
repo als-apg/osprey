@@ -32,8 +32,8 @@ it, so the refusal has to be in place before the user code runs.
 ``install("no_client", ...)`` is the block of a process that may hold no
 control-system client at all, for reads and writes alike: its one route to the
 machine is ``osprey.runtime``, which reaches a connector in another process.
-Importing a client package raises ``ClientLibraryRefusedError`` with reason
-``RAW_CLIENT_IMPORT`` from a ``sys.meta_path`` finder placed first, so a
+Importing a client package raises ``ClientLibraryRefusedError`` from a
+``sys.meta_path`` finder placed first, so a
 framework that brings a client with it is refused at its own import while one
 that does not imports normally. Loading a client shared library raises the
 same error from the loaders every ``ctypes`` spelling funnels into
@@ -314,6 +314,7 @@ def _raw_write_refusal(marker: str, address: str) -> Exception:
     try:
         from osprey_connectors.errors import (
             ChannelWriteBlockedError,
+            RefusalReason,
             raw_client_write_message,
         )
     except Exception:
@@ -323,7 +324,9 @@ def _raw_write_refusal(marker: str, address: str) -> Exception:
             "osprey.runtime.write_channels({address: value, ...}) so limits and "
             "approval apply."
         )
-    return ChannelWriteBlockedError(address, "RAW_CLIENT_WRITE", raw_client_write_message(address))
+    return ChannelWriteBlockedError(
+        address, RefusalReason.RAW_CLIENT_WRITE, message=raw_client_write_message(address)
+    )
 
 
 def _client_refusal(*, package: str | None = None, library: str | None = None) -> Exception:
@@ -967,8 +970,8 @@ def install(mode: str, **contract: Any) -> None:
     ``"no_client"`` takes ``denied_packages``, ``library_names``,
     ``library_symbols`` and ``loader_targets``. Importing a
     module whose top-level package is in *denied_packages* raises
-    ``ClientLibraryRefusedError`` with reason ``RAW_CLIENT_IMPORT``, and so
-    does the install when one is already imported. Loading a shared library
+    ``ClientLibraryRefusedError``, and so does the install when one is already
+    imported. Loading a shared library
     raises the same error when its basename matches a stem in
     *library_names*, before it loads, or when it exports a symbol in
     *library_symbols*, after it loads and is closed again. The ``ctypes``

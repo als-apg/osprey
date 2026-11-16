@@ -20,8 +20,8 @@ the texture and one physics child per served model whose engine is not
   write a subscription fires for its channel when the held value changed or
   the channel moves under the active scenarios.
 
-**Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
-the limits validator and a successful put it appends ``[seq, address, value]``
+**Session writes.** Only a write's send (:meth:`VAInProcessConnector._send`) journals:
+after the limits validator and a successful put it appends ``[seq, address, value]``
 to ``<simulation state dir>/inprocess/writes.json``, a document
 ``{active_set_sha256, seq, writes}`` updated under ``flock`` on
 ``writes.json.lock`` and replaced atomically. Every operation reads the active
@@ -61,7 +61,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
+    SendReport,
     values_match,
 )
 from osprey_connectors.errors import (
@@ -679,7 +679,14 @@ class VAInProcessConnector(ControlSystemConnector):
         self._sync()
         return self._reading(address, held=False)
 
-    async def _confirming_read(self, address: str) -> ChannelValue:
+    @override
+    async def _confirming_read(
+        self,
+        address: str,
+        sent: SendReport,
+        *,
+        timeout_s: float,
+    ) -> ChannelValue:
         """Read a channel back to confirm a write: the held value, without motion.
 
         Confirmation reports what the simulated control system holds; the
@@ -725,12 +732,8 @@ class VAInProcessConnector(ControlSystemConnector):
 
     def _refused(self, address: str, value: object, message: str) -> ChannelWriteResult:
         logger.warning(f"In-process write refused: {address}: {message}")
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.REFUSED,
-            refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
-            error_message=message,
+        return ChannelWriteResult.refused(
+            address, value, RefusalReason.CONTROL_SYSTEM_REFUSED, message
         )
 
     def _coerce(self, address: str, value: object) -> object:
@@ -747,19 +750,15 @@ class VAInProcessConnector(ControlSystemConnector):
         return values.coerce(value, record.value_type, record.options, record.shape)
 
     @override
-    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
+    def _precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
         """Refuse an address outside the view and a channel that is no writable setpoint."""
         if self._composite is None:
             raise ConnectorUnavailableError(NOT_CONNECTED)
         if address not in self._served:
             unknown = ChannelNotFoundError(address)
             logger.warning(f"In-process write refused: {address}: {unknown}")
-            return address, ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=ChannelNotFoundError.reason,
-                error_message=str(unknown),
+            return address, ChannelWriteResult.refused(
+                address, value, RefusalReason.CHANNEL_NOT_FOUND, str(unknown)
             )
         self._sync()
         if self._composite.supported_variables[address].read_only:
@@ -780,72 +779,33 @@ class VAInProcessConnector(ControlSystemConnector):
         return held
 
     @override
-    async def write_channel(
+    async def _run_check(self, check: Callable[[], None], *, timeout_s: float) -> None:
+        """Run a write's limits check inline: an in-process read never blocks."""
+        check()
+
+    @override
+    async def _send(
         self,
         address: str,
-        value: object,
+        value: ContractAny,
         *,
-        timeout_s: float
-        | None = None,  # ControlSystemConnector.write_channel signature; an in-process write never blocks
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        """Write a value to a setpoint, confirming it unless asked not to.
+        timeout_s: float,
+        wait: bool,
+    ) -> SendReport:
+        """Put the value into the composite, journal it and fire the subscriptions.
 
-        In order: an address outside the view, or a channel that is not a
-        writable setpoint, is refused; the limits are validated; the value is
-        put into the composite, whose refusal is a refusal with its text; the
-        subscriptions fire; the channel is re-read and compared.
-
-        Args:
-            address: A writable setpoint of the view.
-            value: Value to write.
-            timeout_s: Ignored in process.
-            confirm: Whether to re-read the channel and compare, or ``None`` to
-                resolve the policy for this channel from the limits database.
-
-        Returns:
-            ChannelWriteResult carrying the outcome and what the channel was
-            seen to hold.
-
-        Raises:
-            ChannelLimitsViolationError: If limits validation fails (when enabled)
-            ConnectorUnavailableError: The connector is not connected.
+        A value the channel's ``value_type`` cannot hold, or a put the
+        composite raises on, is a write the simulator did not take; a put the
+        composite refuses (``ValueError``, ``ReadOnlyError``) is refused with
+        the composite's text.
         """
-        address, refusal = self._write_precheck(address, value)
-        if refusal is not None:
-            return refusal
-
-        # Validate limits (FAIL CLOSED). A limits violation propagates
-        # unchanged; any other error means the check could not be made, and an
-        # unmade check is not permission to write.
-        if self._limits_validator:
-            from osprey_connectors.errors import ChannelLimitsViolationError
-
-            try:
-                self._limits_validator.validate(
-                    address, value, read_current=self.current_value_reader()
-                )
-                logger.debug(f"✓ Limits validation passed: {address}={value}")
-            except ChannelLimitsViolationError:
-                raise
-            except Exception as e:
-                return self._validation_refusal(address, value, e)
-
-        if confirm is None:
-            confirm = self._resolve_confirm(address)
-
         await asyncio.sleep(self._response_delay)
 
         try:
             stored = self._coerce(address, value)
         except Exception as e:
             logger.warning(f"In-process write failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"In-process write failed: {e}",
-            )
+            return SendReport(fault="not_taken", detail=f"the simulator did not take it: {e}")
 
         before = self._subscribed_held()
         try:
@@ -854,18 +814,9 @@ class VAInProcessConnector(ControlSystemConnector):
             from lume.exceptions import ReadOnlyError
 
             if isinstance(e, ValueError | ReadOnlyError):
-                return self._refused(
-                    address,
-                    value,
-                    str(e) or f"Write to '{address}' refused by the simulator",
-                )
+                return SendReport(fault="cs_refused", detail=str(e) or "the simulator refused it")
             logger.warning(f"In-process write failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"In-process write failed: {e}",
-            )
+            return SendReport(fault="not_taken", detail=f"the simulator did not take it: {e}")
         try:
             self._append(address, stored)
         except OSError as exc:
@@ -874,45 +825,7 @@ class VAInProcessConnector(ControlSystemConnector):
             self._holds_writes = True
             logger.warning(f"{JOURNAL_NOT_UPDATED}: {exc}")
         await self._notify(before)
-
-        if not confirm:
-            logger.debug(f"In-process write (unconfirmed by policy): {address} = {value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNREQUESTED,
-                notes="Confirmation not requested (in process)",
-            )
-
-        try:
-            observed = await self._confirming_read(address)
-        except Exception as e:
-            logger.warning(f"In-process confirming read failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"In-process confirming read failed: {e}",
-                notes=f"Confirming read raised: {e} (in process)",
-            )
-
-        held: object = observed.value
-        outcome = (
-            WriteOutcome.CONFIRMED
-            if values_match(value, held, enum_label=observed.metadata.enum_label)
-            else WriteOutcome.MISMATCH
-        )
-        if outcome is WriteOutcome.MISMATCH:
-            logger.warning(f"In-process write mismatch: {address} sent {value}, observed {held}")
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=outcome,
-            observed_value=held,
-            alarm_status=observed.metadata.alarm_status,
-            alarm_severity=observed.metadata.alarm_severity,
-            notes=f"Observed {held}, sent {value} (in process)",
-        )
+        return SendReport()
 
     def _put(self, address: str, value: object) -> None:
         """Set ``value`` in the composite; raises whatever the composite raises."""

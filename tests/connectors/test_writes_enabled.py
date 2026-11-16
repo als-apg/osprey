@@ -14,7 +14,6 @@ from unittest.mock import patch
 import pytest
 
 from osprey_connectors.control_system._base import (
-    ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
@@ -57,17 +56,7 @@ class _StubConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
-    async def write_channel(
-        self,
-        address: str,
-        value: Any,
-        *,
-        timeout_s: float | None = None,
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        raise NotImplementedError
-
-    async def write_multiple_channels(self, operations, **kwargs):
+    async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool):
         raise NotImplementedError
 
     async def read_multiple_channels(
@@ -75,21 +64,21 @@ class _StubConnector(ControlSystemConnector):
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
-    async def subscribe(self, address: str, callback: Callable[[ChannelValue], None]) -> str:
+    async def subscribe(
+        self,
+        address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,
+    ) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None:
         pass
 
-    async def get_metadata(self, address: str) -> ChannelMetadata:
-        raise NotImplementedError
-
-    async def validate_channel(self, address: str) -> bool:
-        raise NotImplementedError
-
 
 class TestInitSubclassWrapping:
-    """Tests for __init_subclass__ write_channel wrapping."""
+    """Tests for the write guard of the final write methods."""
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("switch_on")

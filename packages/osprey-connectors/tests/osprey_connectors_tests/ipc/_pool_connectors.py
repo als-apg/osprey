@@ -54,14 +54,16 @@ class SlowInProcessConnector(VAInProcessConnector):
             await asyncio.sleep(3600)
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
+    async def _write_one(self, address, value, *, timeout_s, confirm):
+        # Past the write guard, before the connector's own checks: where a
+        # connector's write starts.
         log = os.environ.get(WRITE_LOG_ENV)
         if log:
             with open(log, "a", encoding="utf-8") as handle:
                 handle.write(f"{address} {value}\n")
         if address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
-        return await super().write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
+        return await super()._write_one(address, value, timeout_s=timeout_s, confirm=confirm)
 
 
 class FailingConnector(VAInProcessConnector):

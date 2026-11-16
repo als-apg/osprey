@@ -126,7 +126,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
@@ -142,13 +142,16 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
-    ChannelNotFoundError,
     ChannelWriteBlockedError,
+    RefusalReason,
 )
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors.types import baseline_target
 from osprey_connectors.workspace import load_osprey_config
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ChannelWriteResult
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -800,10 +803,10 @@ def _all_refused_headline(results: list[dict]) -> str:
     unattributed: list[str] = []
     for entry in results:
         reason = entry["refusal_reason"]
-        refuser = ChannelWriteBlockedError.refuser(reason)
+        refuser = reason.refuser if isinstance(reason, RefusalReason) else None
         if refuser is not None:
             by_refuser.setdefault(refuser, []).append(entry["channel"])
-        elif reason == ChannelNotFoundError.reason:
+        elif reason is RefusalReason.CHANNEL_NOT_FOUND:
             not_channels.append(entry["channel"])
         else:
             unattributed.append(entry["channel"])
@@ -822,6 +825,23 @@ def _all_refused_headline(results: list[dict]) -> str:
     if unattributed:
         clauses.append(f"refused: {', '.join(unattributed)}")
     return f"{head} — {'; '.join(clauses)}"
+
+
+def _limits_violation_error(result: "ChannelWriteResult") -> ChannelLimitsViolationError:
+    """The limits violation a refused write result carries, as the error the envelope renders."""
+    violation = result.limits_violation
+    if violation is None:
+        raise ValueError(f"the write to {result.address!r} was not refused by the limits")
+    return ChannelLimitsViolationError(
+        result.address,
+        result.value_written,
+        violation.kind,
+        violation.reason,
+        min_value=violation.min_value,
+        max_value=violation.max_value,
+        max_step=violation.max_step,
+        current_value=violation.current_value,
+    )
 
 
 @mcp.tool()
@@ -1113,6 +1133,11 @@ async def channel_write(
             # read, and the rows are the only place each write's own fate and
             # text are stated.
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
+            if len(connector_results) == 1 and connector_results[0].limits_violation:
+                # A single write the connector's own limits refused (the
+                # max_step check this tool cannot make) is answered with the
+                # limits_violation envelope the tool's pre-check gives.
+                raise _limits_violation_error(connector_results[0])
             if not failed:
                 # Every op was a refusal that put no value on a channel: the
                 # cause is a typed write refusal, not internal_error. Each row
@@ -1130,7 +1155,8 @@ async def channel_write(
                     (
                         entry
                         for entry in causes
-                        if ChannelWriteBlockedError.refuser(entry["refusal_reason"])
+                        if isinstance(entry["refusal_reason"], RefusalReason)
+                        and entry["refusal_reason"].refuser
                     ),
                     causes[0],
                 )

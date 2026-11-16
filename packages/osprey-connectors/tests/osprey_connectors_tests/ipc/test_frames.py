@@ -28,6 +28,7 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
+    LimitsViolation,
     RefusalReason,
 )
 from osprey_connectors.ipc import Endpoint
@@ -272,6 +273,12 @@ def test_write_result_carries_an_array_observed_value():
     assert frame.value.observed_value.tolist() == [1.0, 2.0, 3.0]
 
 
+#: What the limits said of a refused value, as a limits refusal carries it.
+_VIOLATION = LimitsViolation(
+    kind="MAX_EXCEEDED", reason="Value 2 above maximum 1.0", min_value=0.0, max_value=1.0
+)
+
+
 @pytest.mark.parametrize("reason", list(RefusalReason))
 def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
     """The parent rebuilds a refused result with the reason's member, not a bare string."""
@@ -281,6 +288,7 @@ def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
         outcome=WriteOutcome.REFUSED,
         refusal_reason=reason,
         error_message="refused",
+        limits_violation=_VIOLATION if reason is RefusalReason.LIMITS else None,
     )
     frame = _round_trip(frames.encode_result("req-rr", result))
 
@@ -302,6 +310,7 @@ def test_write_result_list_round_trips():
             outcome=WriteOutcome.REFUSED,
             refusal_reason="LIMITS",
             error_message="Write to 'SR:B' blocked: outside the configured limits.",
+            limits_violation=_VIOLATION,
         ),
         ChannelWriteResult(
             address="SR:C",
@@ -320,6 +329,7 @@ def test_write_result_list_round_trips():
     ]
     assert frame.value[0].observed_value == 1
     assert frame.value[1].refusal_reason == "LIMITS"
+    assert frame.value[1].limits_violation == _VIOLATION
     assert frame.value[1].error_message.startswith("Write to 'SR:B' blocked")
     assert frame.value[2].refusal_reason is None
     assert frame.value[2].observed_value is None
@@ -824,6 +834,11 @@ MALFORMED_FRAMES = [
         lambda: _doctored(_result(), _set("v", 1)),
         f"frame protocol version 1 != {frames.PROTOCOL_VERSION}",
         id="version-1-peer-without-verdict-reasons",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("v", 2)),
+        f"frame protocol version 2 != {frames.PROTOCOL_VERSION}",
+        id="version-2-peer-raising-limits-refusals",
     ),
     pytest.param(
         lambda: _doctored(_array_result(), lambda h: h.__setitem__("blobs", [h["blobs"][0] + 7])),

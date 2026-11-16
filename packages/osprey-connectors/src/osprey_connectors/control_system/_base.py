@@ -7,29 +7,26 @@ subscribing to changes, and retrieving metadata from various control systems.
 """
 
 import asyncio
-import functools
-import inspect
 import logging
 import math
 import numbers
 import sys
-import warnings
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Self, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Literal, Protocol, Self, TypeAlias, TypeGuard, final
 
 from pydantic import AwareDatetime, Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S
 from osprey_connectors.control_system.write_door import open_door
-from osprey_connectors.errors import RefusalReason
+from osprey_connectors.errors import LimitsViolation, RefusalReason
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
@@ -416,6 +413,16 @@ class ChannelWriteResult(FrozenModel):
     healthy value (``alarm_severity=0``). Mapping a protocol's raw codes to
     those names is the connector's job, so this shared module imports no
     control-system constants.
+
+    ``limits_violation`` is the
+    :class:`~osprey_connectors.errors.LimitsViolation` of a refusal whose
+    reason is ``LIMITS``, and is set **if and only if** that is the reason;
+    construction enforces it.
+
+    The base class's write pipeline builds every result through the named
+    constructors (:meth:`refused`, :meth:`failed`, :meth:`unconfirmed`,
+    :meth:`confirmed`, :meth:`mismatch`, :meth:`unrequested`), one per
+    outcome, each taking only what its outcome carries.
     """
 
     address: str  # Channel that was written
@@ -433,6 +440,8 @@ class ChannelWriteResult(FrozenModel):
     notes: str | None = None  # Display-only detail
     # The write verdict's reason, for a WRITES_DISABLED refusal that has one
     verdict_reason: str | None = None
+    # What the limits refused, set iff the refusal reason is LIMITS
+    limits_violation: LimitsViolation | None = None
 
     @field_validator("outcome", mode="before")
     @classmethod
@@ -501,12 +510,107 @@ class ChannelWriteResult(FrozenModel):
                 f"Write result for '{self.address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
             )
+        limits = self.refusal_reason is RefusalReason.LIMITS
+        if limits != (self.limits_violation is not None):
+            expected = "a LimitsViolation" if limits else "None"
+            raise ValueError(
+                f"Write result for '{self.address}' (refusal_reason "
+                f"{self.refusal_reason}): limits_violation must be {expected}, "
+                f"got {self.limits_violation!r}"
+            )
         return self
 
     @property
     def observed_number(self) -> float | None:
         """:attr:`observed_value` as a float, or ``None`` when it is not a number."""
         return as_number(self.observed_value)
+
+    @classmethod
+    def refused(
+        cls,
+        address: str,
+        value: ContractAny,
+        reason: RefusalReason,
+        message: str,
+        *,
+        verdict_reason: str | None = None,
+        limits: LimitsViolation | None = None,
+    ) -> Self:
+        """Nothing was written: *reason* says why, *message* tells the operator."""
+        return cls(
+            address=address,
+            value_written=value,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason=reason,
+            error_message=message,
+            verdict_reason=verdict_reason,
+            limits_violation=limits,
+        )
+
+    @classmethod
+    def failed(
+        cls, address: str, value: ContractAny, message: str, *, notes: str | None = None
+    ) -> Self:
+        """The value was sent, or its send attempted, and the control system did not take it."""
+        return cls(
+            address=address,
+            value_written=value,
+            outcome=WriteOutcome.FAILED,
+            error_message=message,
+            notes=notes,
+        )
+
+    @classmethod
+    def unconfirmed(
+        cls, address: str, value: ContractAny, message: str, *, notes: str | None = None
+    ) -> Self:
+        """The value was sent and what the channel holds is unknown."""
+        return cls(
+            address=address,
+            value_written=value,
+            outcome=WriteOutcome.UNCONFIRMED,
+            error_message=message,
+            notes=notes,
+        )
+
+    @classmethod
+    def confirmed(cls, address: str, value: ContractAny, observed: ChannelValue) -> Self:
+        """The confirming read *observed* holds the value sent.
+
+        The reading's alarm state is reported on the result.
+        """
+        return cls(
+            address=address,
+            value_written=value,
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=observed.value,
+            alarm_status=observed.metadata.alarm_status,
+            alarm_severity=observed.metadata.alarm_severity,
+        )
+
+    @classmethod
+    def mismatch(cls, address: str, value: ContractAny, observed: ChannelValue) -> Self:
+        """The confirming read *observed* holds a value other than the one sent.
+
+        No message: both values are on the result, and the raising path
+        composes "sent X, channel holds Y" from them.
+        """
+        return cls(
+            address=address,
+            value_written=value,
+            outcome=WriteOutcome.MISMATCH,
+            observed_value=observed.value,
+            alarm_status=observed.metadata.alarm_status,
+            alarm_severity=observed.metadata.alarm_severity,
+            notes=f"Channel holds {observed.value}, sent {value}",
+        )
+
+    @classmethod
+    def unrequested(cls, address: str, value: ContractAny, *, notes: str | None = None) -> Self:
+        """The value was sent and no confirmation was asked for: nothing was checked."""
+        return cls(
+            address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED, notes=notes
+        )
 
 
 #: Package path of the OSPREY MCP servers, as consecutive parts of the file
@@ -704,12 +808,11 @@ def _verdict_refusal(address: str, value: object, verdict: "WriteVerdict") -> Ch
             spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy or verdict.detail)
         except ValueError:
             spoken = _OVERRIDE_REFUSAL
-    return ChannelWriteResult(
-        address=address,
-        value_written=value,
-        outcome=WriteOutcome.REFUSED,
-        refusal_reason=RefusalReason.WRITES_DISABLED,
-        error_message=f"Write to '{address}' blocked{marker}: {spoken}",
+    return ChannelWriteResult.refused(
+        address,
+        value,
+        RefusalReason.WRITES_DISABLED,
+        f"Write to '{address}' blocked{marker}: {spoken}",
         verdict_reason=None if verdict.allowed else verdict.reason,
     )
 
@@ -797,8 +900,9 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
 
     Raises:
         ChannelWriteBlockedError: The outcome is ``refused``: no value was
-            written. ``refusal_reason`` names why;
-            :meth:`ChannelWriteBlockedError.refuser` says who refused.
+            written. Its ``reason`` is the result's ``refusal_reason``, whose
+            ``refuser`` says who refused, and its ``violation`` the result's
+            ``limits_violation``.
         ChannelWriteFailedError: The value was sent and the write did not come
             back confirmed — ``failed``, ``mismatch`` or ``unconfirmed``, each
             raising under its own word. The exception carries the outcome, the
@@ -807,24 +911,24 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
     """
     from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 
-    if result.outcome is WriteOutcome.REFUSED:
+    if result.outcome is WriteOutcome.REFUSED and result.refusal_reason is not None:
         raise ChannelWriteBlockedError(
             result.address,
             result.refusal_reason,
             message=result.error_message,
             verdict_reason=result.verdict_reason,
+            violation=result.limits_violation,
         )
     if result.outcome in _PROCEEDABLE_OUTCOMES:
         return result
-    # Everything else is a write the caller must not proceed on. The reason code
-    # is the outcome word uppercased, so the reason a caller branches on and the
-    # outcome a consumer reads stay one vocabulary by construction rather than by
-    # a table that a new outcome could be left out of.
+    # Everything else is a write the caller must not proceed on, raised under
+    # its own outcome, so the outcome a caller branches on and the one a
+    # consumer reads stay one vocabulary by construction rather than by a table
+    # that a new outcome could be left out of.
     raise ChannelWriteFailedError(
         result.address,
-        result.outcome.upper(),
+        result.outcome,
         message=result.error_message,
-        outcome=result.outcome,
         value_written=result.value_written,
         observed_value=result.observed_value,
     )
@@ -849,20 +953,20 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
 def _limits_refusal(
     address: str, value: object, error: "ChannelLimitsViolationError"
 ) -> ChannelWriteResult:
-    """The REFUSED result a batch answers for a write the limits refused.
+    """The REFUSED result for a write the limits refused, single or batched.
 
-    One line per channel, the violation's type and reason, where a single
-    write raises the violation with its banner.
+    One line, the violation's type and reason; the violation itself rides on
+    the result as its ``limits_violation``.
     """
     kind = error.violation_type
     reason = error.violation_reason
     said = f"({kind}): {reason}" if reason else f": {error}"
-    return ChannelWriteResult(
-        address=address,
-        value_written=value,
-        outcome=WriteOutcome.REFUSED,
-        refusal_reason=RefusalReason.LIMITS,
-        error_message=f"Write to '{address}' refused by the limits {said}",
+    return ChannelWriteResult.refused(
+        address,
+        value,
+        RefusalReason.LIMITS,
+        f"Write to '{address}' refused by the limits {said}",
+        limits=LimitsViolation.from_error(error),
     )
 
 
@@ -880,12 +984,8 @@ def _refused_batch(
     return [
         refusal
         if refusal is not None
-        else ChannelWriteResult(
-            address=name,
-            value_written=value,
-            outcome=WriteOutcome.REFUSED,
-            refusal_reason=RefusalReason.BATCH_REFUSED,
-            error_message=f"Write to '{name}' not sent: {why}",
+        else ChannelWriteResult.refused(
+            name, value, RefusalReason.BATCH_REFUSED, f"Write to '{name}' not sent: {why}"
         )
         for (name, value), refusal in zip(named, refusals, strict=True)
     ]
@@ -893,24 +993,21 @@ def _refused_batch(
 
 def _repeated_refusal(address: str, value: object, times: int) -> ChannelWriteResult:
     """The refusal of one write to a channel its batch names more than once."""
-    return ChannelWriteResult(
-        address=address,
-        value_written=value,
-        outcome=WriteOutcome.REFUSED,
-        refusal_reason=RefusalReason.VALIDATION_ERROR,
-        error_message=(
-            f"Write to '{address}' refused: the batch names this channel more than "
-            f"once ({times} writes). A batch writes a channel once; send the later value "
-            "in a batch of its own."
-        ),
+    return ChannelWriteResult.refused(
+        address,
+        value,
+        RefusalReason.VALIDATION_ERROR,
+        f"Write to '{address}' refused: the batch names this channel more than "
+        f"once ({times} writes). A batch writes a channel once; send the later value "
+        "in a batch of its own.",
     )
 
 
 def _batch_send_verdict(address: str, value: object, error: Exception) -> ChannelWriteResult:
     """The result of one write of a batch whose send raised, or the raise itself.
 
-    A limits refusal at send time is a ``LIMITS`` refusal. A channel that
-    could not be reached or did not answer in time is ``unconfirmed``: the
+    A limits refusal raised at send time is a ``LIMITS`` refusal. A channel
+    that could not be reached or did not answer in time is ``unconfirmed``: the
     others of the batch are not recalled, and what this one holds is unknown.
     Any other error is the connector's own and is raised.
     """
@@ -919,168 +1016,85 @@ def _batch_send_verdict(address: str, value: object, error: Exception) -> Channe
     if isinstance(error, ChannelLimitsViolationError):
         return _limits_refusal(address, value, error)
     if isinstance(error, ChannelUnreachableError | TimeoutError):
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.UNCONFIRMED,
-            error_message=(
-                f"Write to '{address}' could not be confirmed, its outcome is unknown: {error}"
-            ),
+        return ChannelWriteResult.unconfirmed(
+            address,
+            value,
+            f"Write to '{address}' could not be confirmed, its outcome is unknown: {error}",
         )
     raise error
 
 
-@dataclass(frozen=True)
-class _CheckNotMade:
-    """A write whose limits check could not be made, so nothing was sent.
+#: Why a send did not deliver its value, as :class:`SendReport` says it. Each
+#: word is one outcome of the write:
+#:
+#: * ``not_sent`` — nothing left this process: ``failed``.
+#: * ``not_taken`` — the control system answered the send and did not take the
+#:   value: ``failed``.
+#: * ``unacknowledged`` — the value went out and its acknowledgement did not
+#:   come in time, so it may still arrive: ``unconfirmed``.
+#: * ``cs_refused`` — the control system denied the write (access security):
+#:   ``refused``, ``CONTROL_SYSTEM_REFUSED``.
+#: * ``unwritable`` — the channel cannot hold the value as given, found before
+#:   anything was sent: ``refused``, ``VALIDATION_ERROR``.
+SendFault: TypeAlias = Literal[
+    "not_sent", "not_taken", "unacknowledged", "cs_refused", "unwritable"
+]
 
-    What a connector's validate-and-send worker hands back to the loop, which
-    builds the refusal (:meth:`ControlSystemConnector._validation_refusal`).
+
+class SendReport(FrozenModel):
+    """What a connector's :meth:`ControlSystemConnector._send` says about one send.
+
+    The connector reports and the base class's write pipeline decides: every
+    :class:`ChannelWriteResult` of a write is built there, from this report and
+    the confirming read, so every connector words the same situation the same
+    way.
+
+    ``fault`` is ``None`` when the value went out (and, when the send was asked
+    to wait, was acknowledged), else the :data:`SendFault` that says how it did
+    not. ``detail`` is the transport's own words for the fault, quoted in the
+    result's message. ``sent`` is the value as the wire took it, when the
+    connector changed its form on the way out (text read into a number for a
+    numeric field, say); the confirming read is compared with it, and with the
+    value written when it is ``None``.
     """
 
-    error: Exception
+    fault: SendFault | None = None
+    detail: str = ""
+    sent: ContractAny = None
 
 
-@dataclass(frozen=True)
-class _SendFailed:
-    """A write the control system did not take: the send itself raised."""
-
-    error: Exception
-
-
-#: What a validate-and-send worker answers: ``None`` when the value was sent.
-_SendStep: TypeAlias = _CheckNotMade | _SendFailed | None
-
-
-class _WriteChannelFunction(Protocol):
-    """A connector class's own ``write_channel`` as its ``__dict__`` holds it, unbound.
-
-    Called with the connector first; whatever follows the value is passed
-    through to it unread.
-    """
-
-    def __call__(
-        self,
-        connector: "ControlSystemConnector",
-        address: str,
-        value: object,
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[ChannelWriteResult]: ...
-
-
-class _BatchWriteFunction(Protocol):
-    """A connector class's own ``write_multiple_channels`` as its ``__dict__`` holds it, unbound."""
-
-    def __call__(
-        self,
-        connector: "ControlSystemConnector",
-        operations: list[tuple[str, object]],
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[list[ChannelWriteResult]]: ...
-
-
-class _SubscribeFunction(Protocol):
-    """A connector class's own ``subscribe`` as its ``__dict__`` holds it, unbound."""
-
-    def __call__(
-        self,
-        connector: "ControlSystemConnector",
-        address: str,
-        callback: Callable[[ChannelValue], None],
-        /,
-        *args: object,
-        **kwargs: object,
-    ) -> Awaitable[str]: ...
-
-
-class _ConnectionSubscribeFunction(Protocol):
-    """The ``subscribe`` :func:`_compat_subscribe_without_on_connection` installs.
-
-    Spelled with the parameter names of :meth:`ControlSystemConnector.subscribe`,
-    ``self`` included, so it stands in the class for that method; the
-    protocol's own instance is ``_protocol_self``.
-    """
-
-    def __call__(
-        _protocol_self,
-        self: "ControlSystemConnector",
-        address: str,
-        callback: Callable[[ChannelValue], None],
-        *args: object,
-        on_connection: Callable[[bool], None] | None = None,
-        **kwargs: object,
-    ) -> Coroutine[object, object, str]: ...
-
-
-def _accepts_on_connection(subscribe: _SubscribeFunction) -> bool:
-    """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
-    parameters = inspect.signature(subscribe).parameters.values()
-    return any(
-        parameter.name == "on_connection" or parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters
-    )
-
-
-def _compat_subscribe_without_on_connection(
-    owner: type, subscribe: _SubscribeFunction
-) -> _ConnectionSubscribeFunction:
-    """Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.
-
-    A connector that reports no connection state of its own still shows one
-    fact about it: a value arrived, so the channel is up. The wrapper tells
-    ``on_connection`` ``True`` before the first value and nothing after —
-    never ``False``, because such a connector never says a channel dropped.
-    Without ``on_connection`` the original runs untouched.
-
-    Wrapping ``owner`` emits one :class:`DeprecationWarning` naming it. This
-    compatibility wrapper is removed in osprey-connectors 2027.3.0; a connector's
-    ``subscribe`` should take ``on_connection`` itself.
-    """
-    warnings.warn(
-        f"{owner.__module__}.{owner.__qualname__}.subscribe does not take on_connection; "
-        "the base class wraps it for now, but the wrapper is deprecated and is removed "
-        "in osprey-connectors 2027.3.0. Add the on_connection keyword to subscribe().",
-        DeprecationWarning,
-        # this function, __init_subclass__, ABCMeta.__new__, the class statement
-        stacklevel=4,
-    )
-
-    async def _subscribe(
-        self: "ControlSystemConnector",
-        address: str,
-        callback: Callable[["ChannelValue"], None],
-        *args: object,
-        on_connection: Callable[[bool], None] | None = None,
-        **kwargs: object,
-    ) -> str:
-        if on_connection is None:
-            return await subscribe(self, address, callback, *args, **kwargs)
-        connected = False
-
-        def _deliver(value: "ChannelValue") -> None:
-            nonlocal connected
-            if not connected:
-                connected = True
-                on_connection(True)
-            callback(value)
-
-        return await subscribe(self, address, _deliver, *args, **kwargs)
-
-    functools.update_wrapper(_subscribe, subscribe)
-    # inspect.signature() reads __signature__ before following __wrapped__, so
-    # the wrapper reports the keyword it takes; mypy knows no such attribute.
-    signature = inspect.signature(subscribe)
-    _subscribe.__signature__ = signature.replace(  # type: ignore[attr-defined]
-        parameters=[
-            *signature.parameters.values(),
-            inspect.Parameter("on_connection", inspect.Parameter.KEYWORD_ONLY, default=None),
-        ]
-    )
-    return _subscribe
+def _fault_result(address: str, value: object, report: SendReport) -> ChannelWriteResult:
+    """The result of a send that reported a fault, worded the same for every connector."""
+    detail = report.detail
+    if report.fault == "cs_refused":
+        logger.warning(f"Control system refused write to {address}: {detail}")
+        return ChannelWriteResult.refused(
+            address,
+            value,
+            RefusalReason.CONTROL_SYSTEM_REFUSED,
+            f"Write to '{address}' refused by the control system; no value was written: {detail}",
+        )
+    if report.fault == "unwritable":
+        return ChannelWriteResult.refused(
+            address,
+            value,
+            RefusalReason.VALIDATION_ERROR,
+            f"Write to '{address}' refused: {detail}. No value was sent.",
+        )
+    if report.fault == "unacknowledged":
+        logger.warning(f"Write to {address} not acknowledged: {detail}")
+        return ChannelWriteResult.unconfirmed(
+            address,
+            value,
+            f"Write to '{address}' could not be confirmed — {detail}",
+            notes="The value may still arrive; what the channel holds is unknown",
+        )
+    if report.fault == "not_sent":
+        return ChannelWriteResult.failed(
+            address, value, f"Failed to write to '{address}': no value was sent ({detail})"
+        )
+    logger.warning(f"Control system did not take the write to {address}: {detail}")
+    return ChannelWriteResult.failed(address, value, f"Write to '{address}' failed: {detail}")
 
 
 class ControlSystemConnector(ABC):
@@ -1089,6 +1103,31 @@ class ControlSystemConnector(ABC):
 
     Implementations provide interfaces to different control systems
     (EPICS, LabVIEW, Tango, the simulator, etc.) using a unified API.
+
+    The write methods — :meth:`write_channel`, :meth:`write_multiple_channels`
+    and :meth:`write_channel_checked` — are final: they are the reference
+    monitor, and a subclass that defines one is refused when its class is
+    created. A connector writes by implementing :meth:`_send`, and adjusts the
+    pipeline through the protected hooks, each optional:
+
+    - :meth:`_precheck` — its own refusals that need no I/O, and the one name
+      a write uses for its channel;
+    - :meth:`_confirming_read` — the read a confirmed write is compared with
+      (default: :meth:`read_channel`);
+    - :meth:`_run_check` — where the limits check runs (default: a worker
+      thread, bounded by the write's timeout);
+    - :meth:`_bound` — the timeout a write's phases get when the caller gives
+      none;
+    - :meth:`_current_values` — what a batch's ``max_step`` checks measure
+      from, read together;
+    - :meth:`_send_batch` — how a checked batch is sent (default: one write
+      after the other);
+    - :meth:`current_value_reader` — the synchronous read a ``max_step`` check
+      measures through;
+    - :meth:`_write_route_open` — whether the gateway selected at connect can
+      carry a write;
+    - ``_writes_enabled`` — a connector's own write rule, on top of the
+      verdict.
 
     Example:
         >>> connector = await ConnectorFactory.create_control_system_connector()
@@ -1134,11 +1173,6 @@ class ControlSystemConnector(ABC):
     # refusal asks for a verdict itself.
     _last_verdict: "WriteVerdict | None" = None
 
-    # A subclass's own ``write_channel`` before the guard wrapped it, set by
-    # ``__init_subclass__``: what an authorized batch writes each operation
-    # through once the whole call was judged and its step spent.
-    _unguarded_write_channel: _WriteChannelFunction
-
     @property
     def _writes_enabled(self) -> bool:
         """Whether the write verdict allows a write to this connector's machine.
@@ -1183,138 +1217,48 @@ class ControlSystemConnector(ABC):
         value: ContractAny,
         error: BaseException,
     ) -> ChannelWriteResult:
-        """The REFUSED result a non-limits validation error owes the caller.
+        """The REFUSED result a write owes the caller when its check could not be made.
 
         Limits validation answers a write in one of two ways: a
-        :class:`ChannelLimitsViolationError`, which carries its own semantics
-        and propagates to the caller unchanged, or any other error — which
-        says the check could not be MADE. A check that could not be made is
-        not permission to write: a validator that never answered has not said
-        yes. So every connector turns that second case into this one REFUSED
-        result and sends nothing.
-
-        Spelled once, here, because the six-outcome contract is a promise
-        every connector makes with the same words
-        (``tests/connectors/test_cross_connector_parity.py``); four private
-        copies of it would be four chances to drift.
+        :class:`ChannelLimitsViolationError`, which is a ``LIMITS`` refusal, or
+        any other error — which says the check could not be MADE. A check that
+        could not be made is not permission to write: a validator that never
+        answered has not said yes. So that second case is this one REFUSED
+        result, and nothing is sent. A connector's :meth:`_precheck` answers
+        an address it cannot parse with it too.
         """
         logger.warning(f"Validation error - refusing write (fail-closed): {address}: {error}")
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.REFUSED,
-            refusal_reason=RefusalReason.VALIDATION_ERROR,
-            error_message=f"Write to '{address}' refused: validation error: {error}",
+        return ChannelWriteResult.refused(
+            address,
+            value,
+            RefusalReason.VALIDATION_ERROR,
+            f"Write to '{address}' refused: validation error: {error}",
         )
 
     @override
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Auto-wrap write methods with the write-verdict pre-check.
+        """Refuse a subclass that defines one of the final write methods.
 
-        Any subclass that defines ``write_channel()`` or
-        ``write_multiple_channels()`` gets them transparently wrapped.
-        The wrapper checks ``_writes_enabled`` before calling the original
-        method.  When the verdict refuses, returns ``REFUSED`` results worded
-        by :func:`_verdict_refusal` — no exception is raised.
+        :meth:`write_channel`, :meth:`write_multiple_channels` and
+        :meth:`write_channel_checked` are the reference monitor: the write
+        verdict, the session hold, the door, the limits and the six outcomes
+        live in them, once, for every connector. A connector changes how a
+        write is sent, read back or checked through the protected hooks the
+        class docstring lists, never by replacing one of them.
 
-        This fires before limits validation (intentional: fast-reject when
-        writes are disabled, avoiding unnecessary validation work).
-
-        Past that check the wrapper asks
-        :func:`~osprey_connectors.posture_store.session_hold_refusal`, kept out of
-        ``_writes_enabled`` because that property also chooses the gateway: a held
-        session's write is refused here while its connection stays as it is.
-
-        A process that names a program's write authorization
-        (:func:`~osprey_connectors.write_authorization.named_authorization`) is
-        judged instead by
-        :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`
-        on the call's channels and values, which spends the call's one step
-        before anything is put (:func:`_authorized_refusal`). A batch is the
-        base class's :meth:`write_multiple_channels` under an authorization,
-        a subclass's own batch included: judged whole and spent once, then each
-        operation written past the guard. A process naming none is judged
-        exactly as before.
-
-        Past both checks the original method runs inside
-        :func:`~osprey_connectors.control_system.write_door.open_door`, so the
-        raw-client guard attributes its put to a connector. A connector whose
-        writes are disabled never opens the door.
-
-        A ``subscribe()`` written before ``on_connection`` existed is wrapped
-        too (:func:`_compat_subscribe_without_on_connection`, deprecated), so every connector
-        takes the keyword and a facility's own connector keeps working.
+        Raises:
+            TypeError: The class body defines ``write_channel``,
+                ``write_multiple_channels`` or ``write_channel_checked``.
         """
         super().__init_subclass__(**kwargs)
-
-        original_subscribe: _SubscribeFunction | None = cls.__dict__.get("subscribe")
-        if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
-            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)  # type: ignore[method-assign]  # wraps the subclass's own method
-
-        original_write: _WriteChannelFunction | None = cls.__dict__.get("write_channel")
-        if original_write is not None:
-
-            async def _guarded_write(
-                self: "ControlSystemConnector",
-                address: str,
-                value: object,
-                *args: object,
-                **kwargs: object,
-            ) -> ChannelWriteResult:
-                authorization = write_authorization.named_authorization()
-                if authorization is not None:
-                    refused = _authorized_refusal(self, [(address, value)], authorization)
-                    if refused is not None:
-                        return _verdict_refusal(address, value, refused)
-                    with open_door():
-                        return await original_write(self, address, value, *args, **kwargs)
-                self._last_verdict = None
-                if not self._writes_enabled:
-                    verdict = _refusing_verdict(self)
-                    return _verdict_refusal(address, value, verdict)
-                held = posture_store.session_hold_refusal()
-                if held is not None:
-                    return _verdict_refusal(address, value, held)
-                with open_door():
-                    return await original_write(self, address, value, *args, **kwargs)
-
-            functools.update_wrapper(_guarded_write, original_write)
-            cls.write_channel = _guarded_write  # type: ignore[method-assign]  # wraps the subclass's own method
-            # The write past the guard, for an authorized batch that was judged
-            # and spent whole (:meth:`write_multiple_channels`).
-            cls._unguarded_write_channel = original_write
-
-        original_multi: _BatchWriteFunction | None = cls.__dict__.get("write_multiple_channels")
-        if original_multi is not None:
-
-            async def _guarded_multi(
-                self: "ControlSystemConnector",
-                operations: list[tuple[str, object]],
-                # The batch's own parameters, which the base class's batch takes too.
-                *args: ContractAny,
-                **kwargs: ContractAny,
-            ) -> list[ChannelWriteResult]:
-                if write_authorization.named_authorization() is not None:
-                    # Under an authorization a batch is the base class's: one
-                    # step for the call, then each operation past the guard.
-                    return await ControlSystemConnector.write_multiple_channels(
-                        self, operations, *args, **kwargs
-                    )
-                self._last_verdict = None
-                if not self._writes_enabled:
-                    # One verdict for the batch, not one per operation: the
-                    # whole batch was refused by one answer, and every result
-                    # must tell the same story about why.
-                    verdict = _refusing_verdict(self)
-                    return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
-                held = posture_store.session_hold_refusal()
-                if held is not None:
-                    return [_verdict_refusal(addr, val, held) for addr, val in operations]
-                with open_door():
-                    return await original_multi(self, operations, *args, **kwargs)
-
-            functools.update_wrapper(_guarded_multi, original_multi)
-            cls.write_multiple_channels = _guarded_multi  # type: ignore[method-assign]  # wraps the subclass's own method
+        defined = sorted(_FINAL_WRITE_METHODS & set(cls.__dict__))
+        if defined:
+            raise TypeError(
+                f"{cls.__module__}.{cls.__qualname__} defines {', '.join(defined)}: "
+                "the write methods of ControlSystemConnector are final. Implement _send "
+                "(and, where needed, _precheck, _confirming_read, _run_check, "
+                "_current_values or _send_batch) instead."
+            )
 
     def _write_route_open(self) -> bool:
         """Whether the route this connector selected at ``connect()`` can carry a write.
@@ -1331,13 +1275,32 @@ class ControlSystemConnector(ABC):
         """Whether a write to this channel must be confirmed by re-reading it.
 
         The limits database is the single home of write policy: the channel's
-        own ``confirm``, else ``True``. A connector with no validator has limits
-        checking disabled and no policy to read, so it takes the fleet default
-        and confirms.
+        own ``confirm``, else ``True``. With limits checking off there is no
+        policy to read, so the write takes the fleet default and confirms.
         """
-        if self._limits_validator is None:
-            return True
-        return bool(self._limits_validator.resolve_confirm(address))
+        return _confirm_policy(self._validator(), address)
+
+    def _validator(self) -> "LimitsValidator | None":
+        """The limits validator this connector's writes are checked against.
+
+        The one :meth:`connect` loaded, else one loaded now from the loaded
+        config for this connector's type
+        (:meth:`LimitsValidator.from_config`): a connector that never loaded
+        one is checked all the same. ``None`` when limits checking is off.
+        """
+        if self._limits_validator is not None:
+            return self._limits_validator
+        from osprey_connectors.control_system._limits_validator import LimitsValidator
+
+        return LimitsValidator.from_config(connector_type=self._connector_type)
+
+    def _bound(self, timeout_s: float | None) -> float:
+        """The seconds a write's phases are given: *timeout_s*, else this connector's own.
+
+        The default is :data:`~osprey_connectors.call_timeout.DEFAULT_TIMEOUT_S`; a
+        connector that reads its own ``timeout_s`` from its block answers it.
+        """
+        return DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
 
     @abstractmethod
     async def connect(self, config: dict[str, ContractAny]) -> None:
@@ -1378,7 +1341,7 @@ class ControlSystemConnector(ABC):
                 (a connector that holds the facility's address set)
         """
 
-    @abstractmethod
+    @final
     async def write_channel(
         self,
         address: str,
@@ -1390,10 +1353,32 @@ class ControlSystemConnector(ABC):
         """
         Write a value to a channel, confirming it unless asked not to.
 
+        Final: every connector writes through this one pipeline, in order —
+
+        1. the write guard: the write verdict (or, in a process that names a
+           program's write authorization, that authorization, which spends
+           the call's one step here) and the session hold;
+        2. the door (:func:`~osprey_connectors.control_system.write_door.open_door`);
+        3. :meth:`_precheck`, the connector's own refusals that need no I/O;
+        4. the confirmation policy, when ``confirm`` is omitted;
+        5. the limits (:meth:`_run_check`, bounded by ``timeout_s``): a
+           violation is a ``LIMITS`` refusal, and a check that raised anything
+           else or outlived its bound a ``VALIDATION_ERROR`` refusal — either
+           way nothing is sent;
+        6. :meth:`_send`, whose :class:`SendReport` fault decides a refused,
+           failed or unconfirmed write;
+        7. ``unrequested`` when no confirmation was asked for;
+        8. :meth:`_confirming_read`; a read that raises leaves the write
+           ``unconfirmed``;
+        9. :func:`values_match` of the value sent and the value read back:
+           ``confirmed`` or ``mismatch``.
+
         Args:
             address: Address/name of the channel
             value: Value to write
-            timeout_s: Optional timeout in seconds
+            timeout_s: Seconds each phase is given — the limits check, the
+                send and the confirming read — or ``None`` for the
+                connector's own (:meth:`_bound`)
             confirm: Whether to re-read the channel and compare, or ``None`` to
                 let the connector resolve the policy for this channel
 
@@ -1402,12 +1387,9 @@ class ControlSystemConnector(ABC):
             seen to hold
 
         Raises:
-            ChannelUnreachableError: This channel cannot be reached or did not
-                answer in time; the connector stays in place
+            ChannelUnreachableError: The send could not reach the channel and
+                its outcome is unknown; the connector stays in place
             ConnectorUnavailableError: The connector's own transport is gone
-            TimeoutError: If operation times out
-            ValueError: If value is invalid for this channel
-            PermissionError: If write access is not allowed
 
         Outcomes:
             The connector sets exactly one :class:`WriteOutcome` on the result,
@@ -1456,7 +1438,22 @@ class ControlSystemConnector(ABC):
             out of a mechanical refusal, and the approval layer cannot substitute for
             that refusal.
         """
+        authorization = write_authorization.named_authorization()
+        if authorization is not None:
+            refused = _authorized_refusal(self, [(address, value)], authorization)
+            if refused is not None:
+                return _verdict_refusal(address, value, refused)
+        else:
+            self._last_verdict = None
+            if not self._writes_enabled:
+                return _verdict_refusal(address, value, _refusing_verdict(self))
+            held = posture_store.session_hold_refusal()
+            if held is not None:
+                return _verdict_refusal(address, value, held)
+        with open_door():
+            return await self._write_one(address, value, timeout_s=timeout_s, confirm=confirm)
 
+    @final
     async def write_channel_checked(
         self,
         address: str,
@@ -1475,24 +1472,14 @@ class ControlSystemConnector(ABC):
         A scan device setter wraps this so any raise aborts the RunEngine, while a
         confirmed write returns and the scan proceeds; ``osprey.runtime.write_channel``
         routes through it for the same reason. ``timeout_s`` and ``confirm`` pass
-        straight through to write_channel, ``None`` as the omission it is there. The result inspection
-        itself lives in :func:`raise_for_write_result`, which the multi-channel paths
-        share.
+        straight through to write_channel, ``None`` as the omission it is there. The
+        result inspection itself is :func:`raise_for_write_result`, which the
+        multi-channel paths share; a limits refusal raises there like any other,
+        with its :class:`~osprey_connectors.errors.LimitsViolation`.
         """
-        from osprey_connectors.errors import (
-            ChannelLimitsViolationError,
-            ChannelWriteBlockedError,
+        return raise_for_write_result(
+            await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
         )
-
-        try:
-            result = await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
-        except ChannelLimitsViolationError as exc:
-            # A limits refusal is a REFUSAL — normalize it into the unified denial type
-            # so consumers key on one refusal signal. Connection failures and
-            # timeouts are not caught here, so they propagate unchanged.
-            raise ChannelWriteBlockedError(address, "LIMITS", message=str(exc)) from exc
-
-        return raise_for_write_result(result)
 
     async def _read_concurrently(
         self, addresses: list[str], timeout_s: float | None
@@ -1527,6 +1514,7 @@ class ControlSystemConnector(ABC):
             (May exclude channels that failed to read)
         """
 
+    @final
     async def write_multiple_channels(
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
@@ -1557,7 +1545,7 @@ class ControlSystemConnector(ABC):
 
         The promise covers what is known before the send. A refusal the control
         system gives only at the send (a connector with no
-        :meth:`_write_precheck`, a value the target coerces or a read-only
+        :meth:`_precheck`, a value the target coerces or a read-only
         channel it rejects) can come after earlier writes of the batch went
         out; each result still says what happened to its own channel.
 
@@ -1569,17 +1557,15 @@ class ControlSystemConnector(ABC):
         turned off, a hold or a stop that arrives while the batch is checked
         refuses every write not yet sent.
 
-        A batch never raises ``ChannelLimitsViolationError``: a limits refusal
-        is a ``refused`` result with reason ``LIMITS``. A channel whose send
-        raised ``ChannelUnreachableError`` or timed out is ``unconfirmed``. An
-        error of the connector itself (``ConnectorUnavailableError``) is
-        raised, and the batch's outcome is then unknown.
+        A limits refusal is a ``refused`` result with reason ``LIMITS``, as on a
+        single write. A channel whose send raised ``ChannelUnreachableError`` or
+        timed out is ``unconfirmed``. An error of the connector itself
+        (``ConnectorUnavailableError``) is raised, and the batch's outcome is
+        then unknown.
 
-        This method is the batch on every connector. A connector changes how a
-        batch is checked or sent through :meth:`_write_precheck`,
-        :meth:`_current_values` and :meth:`_send_batch`, not by overriding it.
-        A refusal a connector makes only inside its own :meth:`write_channel`
-        is not known before the send: it belongs in :meth:`_write_precheck`.
+        Final, like :meth:`write_channel`. A connector changes how a batch is
+        checked or sent through :meth:`_precheck`, :meth:`_current_values`
+        and :meth:`_send_batch`.
 
         Args:
             operations: List of (address, value) tuples
@@ -1628,7 +1614,7 @@ class ControlSystemConnector(ABC):
                 return _refused_batch(named, refusals)
             return await self._send_batch(named, timeout_s, confirm)
 
-    def _write_precheck(
+    def _precheck(
         self,
         address: str,
         # The value write_channel was given: the extension contract leaves it open.
@@ -1636,9 +1622,11 @@ class ControlSystemConnector(ABC):
     ) -> tuple[str, ChannelWriteResult | None]:
         """One write's name, and the refusal this connector answers before the limits.
 
-        The checks :meth:`write_channel` makes without touching the control
-        system, ahead of limits validation. The name is the one the limits,
-        the send and the result use for the channel.
+        The checks a write makes without touching the control system, ahead of
+        limits validation, on a single write and on every write of a batch. The
+        name is the one the limits, the send and the result use for the
+        channel. A refusal is built with :meth:`ChannelWriteResult.refused`
+        (or :meth:`_validation_refusal` for an address that does not parse).
         """
         return address, None
 
@@ -1670,7 +1658,7 @@ class ControlSystemConnector(ABC):
     ) -> tuple[list[tuple[str, object]], list[ChannelWriteResult | None]]:
         """Check every write of a batch; nothing is sent.
 
-        Returns the writes under the names :meth:`_write_precheck` gave them,
+        Returns the writes under the names :meth:`_precheck` gave them,
         and one entry per write: its refusal, or ``None`` when it passed.
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
@@ -1678,7 +1666,7 @@ class ControlSystemConnector(ABC):
         named: list[tuple[str, object]] = []
         refusals: list[ChannelWriteResult | None] = []
         for address, value in batch:
-            name, refusal = self._write_precheck(address, value)
+            name, refusal = self._precheck(address, value)
             named.append((name, value))
             refusals.append(refusal)
 
@@ -1687,8 +1675,15 @@ class ControlSystemConnector(ABC):
             if times[name] > 1 and refusals[index] is None:
                 refusals[index] = _repeated_refusal(name, value, times[name])
 
-        validator = self._limits_validator
-        if not validator:
+        try:
+            validator = self._validator()
+        except Exception as exc:
+            # No validator could be loaded, which is not permission to write.
+            return named, [
+                refusal if refusal is not None else self._validation_refusal(name, value, exc)
+                for (name, value), refusal in zip(named, refusals, strict=True)
+            ]
+        if validator is None:
             return named, refusals
 
         def measured(name: str) -> bool:
@@ -1755,17 +1750,14 @@ class ControlSystemConnector(ABC):
     ) -> list[ChannelWriteResult]:
         """Send a batch that passed every check: one result per write, in order.
 
-        The default sends one write after the other through the connector's
-        own :meth:`write_channel`, past the guard that already judged the
-        batch, and asks :meth:`_send_refusal` before each: once it refuses,
-        every write not yet sent is refused by that verdict. A connector whose
-        control system takes concurrent puts sends them together, and asks
-        once, immediately before the puts start.
+        The default writes one after the other as a single write does past its
+        guard, which already judged the batch — the precheck, the limits, the
+        send and the confirming read — and asks :meth:`_send_refusal` before
+        each: once it refuses, every write not yet sent is refused by that
+        verdict. A connector whose control system takes concurrent puts sends
+        them together through :meth:`_send_and_confirm`, and asks once,
+        immediately before the puts start.
         """
-        kwargs: dict[str, float | bool | None] = {"timeout_s": timeout_s}
-        if confirm is not None:
-            kwargs["confirm"] = confirm
-        write = type(self)._unguarded_write_channel
         results: list[ChannelWriteResult] = []
         for index, (address, value) in enumerate(batch):
             refused = self._send_refusal(batch)
@@ -1773,10 +1765,169 @@ class ControlSystemConnector(ABC):
                 results.extend(_verdict_refusal(*held, refused) for held in batch[index:])
                 break
             try:
-                results.append(await write(self, address, value, **kwargs))
+                results.append(
+                    await self._write_one(address, value, timeout_s=timeout_s, confirm=confirm)
+                )
             except Exception as exc:
                 results.append(_batch_send_verdict(address, value, exc))
         return results
+
+    async def _write_one(
+        self,
+        address: str,
+        # The value write_channel was given: the extension contract leaves it open.
+        value: ContractAny,
+        *,
+        timeout_s: float | None,
+        confirm: bool | None,
+    ) -> ChannelWriteResult:
+        """One write past its guard: steps 3 to 9 of :meth:`write_channel`.
+
+        The single write runs it inside the door its guard opened; the default
+        batch runs it for each write of a batch that was judged whole.
+        """
+        address, refusal = self._precheck(address, value)
+        if refusal is not None:
+            return refusal
+        bound = self._bound(timeout_s)
+        try:
+            validator = self._validator()
+        except Exception as exc:
+            # No validator could be loaded, which is not permission to write.
+            return self._validation_refusal(address, value, exc)
+        if confirm is None:
+            confirm = _confirm_policy(validator, address)
+        if validator is not None:
+            refusal = await self._limits_check(address, value, validator, bound)
+            if refusal is not None:
+                return refusal
+        return await self._send_and_confirm(address, value, timeout_s=bound, confirm=confirm)
+
+    async def _limits_check(
+        self, address: str, value: object, validator: "LimitsValidator", timeout_s: float
+    ) -> ChannelWriteResult | None:
+        """The refusal the limits answer one write with, or ``None`` when it passed.
+
+        The check runs through :meth:`_run_check` within *timeout_s*. A
+        violation is a ``LIMITS`` refusal. Any other error, a check that
+        outlived its bound among them, means the check could not be made, and a
+        check that could not be made is not permission to write: a
+        ``VALIDATION_ERROR`` refusal. Either way nothing is sent.
+        """
+        from osprey_connectors.errors import ChannelLimitsViolationError
+
+        reader = self.current_value_reader()
+
+        def check() -> None:
+            validator.validate(address, value, read_current=reader)
+
+        try:
+            await self._run_check(check, timeout_s=timeout_s)
+        except ChannelLimitsViolationError as exc:
+            return _limits_refusal(address, value, exc)
+        except TimeoutError:
+            return self._validation_refusal(
+                address,
+                value,
+                TimeoutError(f"the limits check did not finish within {timeout_s}s"),
+            )
+        except Exception as exc:
+            return self._validation_refusal(address, value, exc)
+        logger.debug(f"Limits validation passed: {address}={value}")
+        return None
+
+    async def _send_and_confirm(
+        self,
+        address: str,
+        # The value write_channel was given: the extension contract leaves it open.
+        value: ContractAny,
+        *,
+        timeout_s: float,
+        confirm: bool,
+    ) -> ChannelWriteResult:
+        """Send one checked write and confirm it when asked: steps 6 to 9 of :meth:`write_channel`.
+
+        What a batch that sends its writes together calls for each, once every
+        write of it was checked.
+        """
+        report = await self._send(address, value, timeout_s=timeout_s, wait=confirm)
+        if report.fault is not None:
+            return _fault_result(address, value, report)
+        if not confirm:
+            logger.debug(f"Write (unconfirmed by request): {address} = {value}")
+            return ChannelWriteResult.unrequested(address, value)
+        try:
+            observed = await self._confirming_read(address, report, timeout_s=timeout_s)
+        except Exception as exc:
+            logger.warning(f"Confirming read failed for {address}: {exc}")
+            return ChannelWriteResult.unconfirmed(
+                address,
+                value,
+                f"Write to '{address}' could not be confirmed — "
+                f"the read that followed it failed: {exc}",
+                notes="The value was sent; what the channel holds is unknown",
+            )
+        sent = value if report.sent is None else report.sent
+        if values_match(sent, observed.value, enum_label=observed.metadata.enum_label):
+            logger.debug(f"Write confirmed: {address} = {observed.value!r}")
+            return ChannelWriteResult.confirmed(address, value, observed)
+        logger.warning(
+            f"Write mismatch on {address}: sent {value!r}, channel holds {observed.value!r}"
+        )
+        return ChannelWriteResult.mismatch(address, value, observed)
+
+    @abstractmethod
+    async def _send(
+        self,
+        address: str,
+        # The value write_channel was given: the extension contract leaves it open.
+        value: ContractAny,
+        *,
+        timeout_s: float,
+        wait: bool,
+    ) -> SendReport:
+        """Put one value that passed every check, and say what became of it.
+
+        The one transport step a connector must write: the write guard, the
+        limits and every result are the base class's. *wait* is ``True`` when
+        the write will be confirmed: a transport with an acknowledgement of its
+        own (the Channel Access put-callback) waits for it then, so the
+        confirming read does not race the control system's processing.
+
+        Return a :class:`SendReport` — no fault when the value went out, else
+        the :data:`SendFault` and the transport's words — within *timeout_s*:
+        a send that outlives it is ``unacknowledged``, since the value may
+        still arrive. Raise only when the outcome is genuinely unknown and no
+        fault describes it: :class:`~osprey_connectors.errors.ChannelUnreachableError`
+        propagates from a single write and is ``unconfirmed`` in a batch.
+        """
+
+    async def _confirming_read(
+        self,
+        address: str,
+        sent: SendReport,  # noqa: ARG002 - what a connector's own read-back may need
+        *,
+        timeout_s: float,
+    ) -> ChannelValue:
+        """Read back the channel a write just sent *sent* to.
+
+        The default is :meth:`read_channel` within *timeout_s*. A connector
+        whose ordinary read is not a fresh one (a cached or moving value)
+        answers with what the control system now holds. A read that raises
+        leaves the write ``unconfirmed``.
+        """
+        return await self.read_channel(address, timeout_s=timeout_s)
+
+    async def _run_check(self, check: Callable[[], None], *, timeout_s: float) -> None:
+        """Run one write's limits check, *check*, which may block on a read.
+
+        The default runs it in a worker thread within *timeout_s*, so a
+        ``max_step`` read never stalls the event loop; a check that outlives its
+        bound raises ``TimeoutError`` and the write is refused with nothing
+        sent. A connector with an executor of its own for write work, or one
+        whose reads never block, runs it there.
+        """
+        await asyncio.wait_for(asyncio.to_thread(check), timeout_s)
 
     @abstractmethod
     async def subscribe(
@@ -1797,9 +1948,8 @@ class ControlSystemConnector(ABC):
                 connection), ``False`` when it drops. A channel that never
                 connects reports nothing. Called on the event loop, like
                 ``callback``. Connectors whose control system reports no
-                connection state (DOOCS, Tango) accept and ignore it. A
-                subclass whose ``subscribe`` does not take it is told ``True``
-                before its first value by the base class instead.
+                connection state (DOOCS, Tango) accept and ignore it; every
+                ``subscribe`` takes it.
 
         Returns:
             Subscription ID for later unsubscribe
@@ -1850,10 +2000,13 @@ class ControlSystemConnector(ABC):
         """
         return address.strip()
 
-    @abstractmethod
     async def get_metadata(self, address: str) -> ChannelMetadata:
         """
         Get metadata about a channel.
+
+        The default is the metadata of one :meth:`read_channel`; a connector
+        whose control system describes a channel beyond a reading (units, a
+        description, the drive range) overrides it.
 
         Args:
             address: Address/name of the channel
@@ -1867,11 +2020,14 @@ class ControlSystemConnector(ABC):
                 connector stays in place
             ConnectorUnavailableError: The connector's own transport is gone
         """
+        return (await self.read_channel(address)).metadata
 
-    @abstractmethod
     async def validate_channel(self, address: str) -> bool:
         """
         Check if channel exists and is accessible.
+
+        The default is a :meth:`read_channel` that does not raise; a connector
+        that can tell without reading overrides it.
 
         Args:
             address: Address/name of the channel
@@ -1879,7 +2035,25 @@ class ControlSystemConnector(ABC):
         Returns:
             True if channel is valid and accessible
         """
+        try:
+            await self.read_channel(address)
+        except Exception as exc:
+            logger.debug(f"Channel validation failed for {address}: {exc}")
+            return False
+        return True
 
 
 #: The base class's own ``_writes_enabled``, which a subclass may override.
 _BASE_WRITES_ENABLED: object = ControlSystemConnector.__dict__["_writes_enabled"]
+
+#: The write methods a subclass may not define (:meth:`ControlSystemConnector.__init_subclass__`).
+_FINAL_WRITE_METHODS = frozenset(
+    {"write_channel", "write_multiple_channels", "write_channel_checked"}
+)
+
+
+def _confirm_policy(validator: "LimitsValidator | None", address: str) -> bool:
+    """Whether a write to *address* is confirmed: the limits database's ``confirm``, else ``True``."""
+    if validator is None:
+        return True
+    return bool(validator.resolve_confirm(address))

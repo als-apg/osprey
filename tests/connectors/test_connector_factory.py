@@ -106,29 +106,16 @@ class TestConnectorFactory:
             async def read_channel(self, address, *, timeout_s=None):
                 pass
 
-            async def write_channel(
-                self,
-                address,
-                value,
-                *,
-                timeout_s=None,
-                confirm=None,
-            ):
+            async def _send(self, address, value, *, timeout_s, wait):
                 pass
 
             async def read_multiple_channels(self, addresses, *, timeout_s=None):
                 pass
 
-            async def subscribe(self, address, callback):
+            async def subscribe(self, address, callback, *, on_connection=None):
                 pass
 
             async def unsubscribe(self, subscription_id):
-                pass
-
-            async def get_metadata(self, address):
-                pass
-
-            async def validate_channel(self, address):
                 pass
 
         # Register it

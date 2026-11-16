@@ -28,11 +28,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
-    _CheckNotMade,
-    _SendFailed,
-    _SendStep,
-    values_match,
+    SendReport,
 )
 from osprey_connectors.control_system._limits_validator import (
     CurrentValueReader,
@@ -415,8 +411,13 @@ class TangoConnector(ControlSystemConnector):
         return read_current
 
     @override
-    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
-        """In a batch an address that names no device and attribute is a refusal."""
+    def _bound(self, timeout_s: float | None) -> float:
+        """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
+        return timeout_s if timeout_s is not None else self._timeout_s
+
+    @override
+    def _precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
+        """An address that names no device and attribute is a refusal, single or batched."""
         try:
             _split_address(address)
         except ValueError as exc:
@@ -424,161 +425,41 @@ class TangoConnector(ControlSystemConnector):
         return address, None
 
     @override
-    async def write_channel(
-        self,
-        address: str,
-        value: object,
-        *,
-        timeout_s: float | None = None,
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
+    async def _send(
+        self, address: str, value: ContractAny, *, timeout_s: float, wait: bool
+    ) -> SendReport:
+        """Write the attribute, off the event loop and within *timeout_s*.
+
+        ``write_attribute`` either returns or raises, so *wait* changes
+        nothing; every PyTango read is a device round trip, so the confirming
+        read that follows is fresh by construction, and on a ``DevEnum``
+        attribute a value written as text is compared against its resolved
+        label. A write that raises is one TANGO did not take. One that
+        outlives its bound is unacknowledged: the worker thread cannot be
+        stopped, so the value may still arrive. Creating a ``DeviceProxy`` is
+        itself a database round trip, so a cold cache is filled in the thread
+        too.
         """
-        Write a value to a TANGO attribute, confirming it unless asked not to.
-
-        A confirmed write is the value sent followed by one fresh read of the
-        same attribute — every PyTango read is a device round trip, so the
-        confirming read is fresh by construction — compared with
-        :func:`~osprey_connectors.control_system.values_match`. On a
-        ``DevEnum`` attribute a value written as text is compared against the
-        readback's resolved label, exactly as on EPICS.
-
-        The readback's attribute quality is reported on the result
-        (``alarm_status`` / ``alarm_severity``), never raised on — and
-        ``ATTR_CHANGING`` does not soften the verdict: a readback that does not
-        yet hold the value sent is a ``mismatch``, whatever its quality says.
-
-        Args:
-            address: ``domain/family/member/attribute``
-            value: Value to write
-            timeout_s: Seconds the write (limits check included) is given, and
-                then the confirming read; the block's ``timeout_s`` when omitted.
-                A confirmed write can therefore take up to twice it.
-            confirm: Whether to re-read and compare, or ``None`` to resolve the
-                policy for this channel from the limits database
-
-        Returns:
-            ChannelWriteResult carrying the outcome and what the attribute was
-            seen to hold
-
-        Raises:
-            ChannelLimitsViolationError: If limits validation fails (when enabled)
-            ValueError: If the address does not name a device and an attribute
-        """
-        # The address must parse before anything is validated or sent.
         device_name, attribute = _split_address(address)
 
-        # Import here to avoid circular dependency
-        from osprey_connectors.errors import ChannelLimitsViolationError
-
-        # Steps 1-2: Validate limits (FAIL CLOSED) and send the value in ONE
-        # thread offload, so a caller on the event loop is never stalled by the
-        # blocking read_attribute that max_step validation performs — nor by
-        # the two device round trips that follow it, which used to cost an
-        # offload each. The closure decides nothing: it hands back what became
-        # of the send (a _SendStep) and every result is built on the loop, in the words the
-        # cross-connector contract owns.
-        #
-        # The offload is bounded, and a write that outlives its bound is
-        # unconfirmed: the worker thread cannot be stopped, so the value may
-        # still arrive.
-        def _validate_and_write() -> _SendStep:
-            if self._limits_validator:
-                try:
-                    self._limits_validator.validate(
-                        address, value, read_current=self.current_value_reader()
-                    )
-                    logger.debug(f"✓ Limits validation passed: {address}={value}")
-                except ChannelLimitsViolationError:
-                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
-                except Exception as e:
-                    # An unmade check is not permission to write: nothing is sent.
-                    return _CheckNotMade(e)
+        def write() -> Exception | None:
             try:
-                # Creating a DeviceProxy is itself a database round trip, so a
-                # cold cache is filled in the thread too.
                 self._get_proxy(device_name).write_attribute(attribute, value)
-            except Exception as e:
-                return _SendFailed(e)
+            except Exception as exc:
+                return exc
             return None
 
-        ceiling = timeout_s if timeout_s is not None else self._timeout_s
         try:
-            step = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
+            error = await asyncio.wait_for(asyncio.to_thread(write), timeout_s)
         except TimeoutError:
-            logger.warning(f"TANGO write of {address} did not return within {ceiling}s")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=(
-                    f"Write to '{address}' could not be confirmed — "
-                    f"TANGO did not return from the write within {ceiling}s"
-                ),
-                notes="The value may still arrive; what the attribute holds is unknown",
+            logger.warning(f"TANGO write of {address} did not return within {timeout_s}s")
+            return SendReport(
+                fault="unacknowledged",
+                detail=f"TANGO did not return from the write within {timeout_s}s",
             )
-
-        if isinstance(step, _CheckNotMade):
-            return self._validation_refusal(address, value, step.error)
-
-        if isinstance(step, _SendFailed):
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{address}': {step.error}",
-                notes="TANGO did not take the value",
-            )
-
-        # Step 3: Resolve the confirmation policy, now that the value is away.
-        # An explicit confirm — False every bit as much as True — is an answer
-        # and is taken as given; only an omitted one is resolved from the limits
-        # database. Nothing in the send consumes it and the lookup is a pure
-        # in-memory read, so asking after the write is not observable.
-        if confirm is None:
-            confirm = self._resolve_confirm(address)
-
-        if not confirm:
-            logger.debug(f"TANGO write (unconfirmed by request): {address} = {value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNREQUESTED,
-                notes="No confirmation requested",
-            )
-
-        # Step 4: Confirm with one fresh read
-        try:
-            readback = await self.read_channel(address, timeout_s=timeout_s)
-        except Exception as e:
-            logger.warning(f"TANGO confirming read failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Confirming read of '{address}' failed: {e}",
-                notes="The value was sent; what the attribute holds is unknown",
-            )
-
-        observed: object = readback.value
-        confirmed = values_match(value, observed, enum_label=readback.metadata.enum_label)
-        severity: object = (readback.metadata.raw_metadata or {}).get("severity")
-
-        logger.debug(
-            f"TANGO write ({'confirmed' if confirmed else 'mismatch'}): "
-            f"{address} = {value!r}, observed {observed!r}"
-        )
-
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
-            observed_value=observed,
-            alarm_status=readback.metadata.alarm_status,
-            alarm_severity=severity if isinstance(severity, int) else None,
-            notes=(
-                f"Observed {observed!r}" if confirmed else f"Observed {observed!r}, sent {value!r}"
-            ),
-        )
+        if error is not None:
+            return SendReport(fault="not_taken", detail=f"TANGO did not take the value: {error}")
+        return SendReport()
 
     @override
     async def read_multiple_channels(
@@ -692,21 +573,3 @@ class TangoConnector(ControlSystemConnector):
                 "writable": str(getattr(info, "writable", None)),
             },
         )
-
-    @override
-    async def validate_channel(self, address: str) -> bool:
-        """
-        Check if the attribute exists and is readable.
-
-        Args:
-            address: ``domain/family/member/attribute``
-
-        Returns:
-            True if the channel can be read
-        """
-        try:
-            await self.read_channel(address)
-            return True
-        except Exception as e:
-            logger.debug(f"TANGO channel validation failed for {address}: {e}")
-            return False

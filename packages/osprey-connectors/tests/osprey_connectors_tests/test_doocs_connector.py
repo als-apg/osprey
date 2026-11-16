@@ -484,14 +484,15 @@ class TestNonBlockingOffload:
     """
 
     async def test_validate_and_send_run_off_the_event_loop(self):
-        """Validation and the send run on one thread, and it is not the loop's.
+        """Validation and the send each run off the loop, as two separate steps.
 
         A stand-in for ``max_step``'s blocking fresh read parks inside
         ``validate()`` until this test releases it. Regaining the loop while
         that call is still parked is possible only if it never ran there.
         The thread each fake records says the same thing a second way:
-        ``validate()`` and ``doocs4py.set`` report one thread, and it is not
-        the one the loop runs on.
+        neither ``validate()`` nor ``doocs4py.set`` reports the thread the loop
+        runs on. The check finishes before the set begins: they are two
+        offloads, so a check that outlives its bound sends nothing.
         """
         loop_thread = threading.get_ident()
         entered = threading.Event()  # validate() has begun
@@ -541,24 +542,27 @@ class TestNonBlockingOffload:
         assert still_parked, "the loop was regained only after validate() returned"
         assert threads.keys() == {"validate", "set"}
         assert loop_thread not in threads.values()
-        assert len(set(threads.values())) == 1, f"the offload was split: {threads}"
         # The check was still made, and the value still went out.
         validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
-    async def test_a_limits_refusal_raised_in_the_offload_sends_nothing(self):
-        """A refusal from the worker thread reaches the caller as itself.
+    async def test_a_limits_refusal_raised_in_the_check_sends_nothing(self):
+        """A refusal from the worker thread reaches the caller as a LIMITS refusal.
 
-        Validation and the send share one offload, so the refusal is raised off
-        the loop and has a thread boundary to cross. It must arrive carrying its
-        LIMITS meaning rather than flattened into a failed write, and the value
-        it refused must never reach ``doocs4py.set``.
+        The limits check runs off the loop, so the refusal has a thread
+        boundary to cross. It must arrive carrying its LIMITS meaning rather
+        than flattened into a failed write, and the value it refused must never
+        reach ``doocs4py.set``.
         """
-        from osprey_connectors.errors import ChannelLimitsViolationError
+        from osprey_connectors.errors import (
+            ChannelLimitsViolationError,
+            LimitsViolation,
+            RefusalReason,
+        )
 
         refusal = ChannelLimitsViolationError(
-            "FAC/DEV/LOC/PROP", 10.0, "max_value", "above the configured ceiling"
+            "FAC/DEV/LOC/PROP", 10.0, "MAX_EXCEEDED", "above the configured ceiling"
         )
         validator = _make_limits_validator()
         validator.validate = MagicMock(side_effect=refusal)
@@ -576,12 +580,12 @@ class TestNonBlockingOffload:
             conn = DOOCSConnector()
             await conn.connect({})
 
-            with pytest.raises(ChannelLimitsViolationError) as raised:
-                await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
 
             await conn.disconnect()
 
-        assert raised.value is refusal
+        assert result.refusal_reason is RefusalReason.LIMITS
+        assert result.limits_violation == LimitsViolation.from_error(refusal)
         mock_d4py.set.assert_not_called()
 
 
@@ -662,7 +666,12 @@ class TestBoundedCalls:
         assert result.observed_value is None
         assert mock_d4py.get.call_count == 0
 
-    async def test_a_stalled_limits_check_is_unconfirmed(self):
+    async def test_a_stalled_limits_check_is_refused_and_sends_nothing(self):
+        """A check that outlives its bound refuses the write: nothing is sent.
+
+        The check and the set are separate steps, so a check that does not
+        answer in time leaves no set in flight that could still land.
+        """
         validator = _make_limits_validator(confirm=True)
         mock_d4py = _make_doocs4py()
         with (
@@ -679,9 +688,11 @@ class TestBoundedCalls:
             set_calls_at_return = mock_d4py.set.call_count
 
         assert answered_first
-        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
         assert "within 0.2s" in result.error_message
         assert set_calls_at_return == 0
+        mock_d4py.set.assert_not_called()
 
     async def test_a_stalled_confirming_read_is_unconfirmed(self):
         mock_d4py = _make_doocs4py()

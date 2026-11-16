@@ -22,11 +22,17 @@ import pytest
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_system._base import (
+    ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    SendReport,
     WriteOutcome,
 )
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    RefusalReason,
+)
 from osprey_connectors.write_authorization import (
     Approver,
     ChannelRange,
@@ -47,11 +53,44 @@ CHANNELS = {"A:SP": ChannelRange(min=0.0, max=10.0), "B:SP": ChannelRange(min=-1
 FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
 
 
+class _LimitedChannel:
+    """A limits validator that refuses ``LIMITED:SP`` and passes every other write.
+
+    A batch checks every write before any is sent, and each write is checked
+    again as it is sent; ``refuse_from`` is the check of ``LIMITED:SP`` that
+    first refuses it (1 for the first). Refusing only the second models a
+    channel that moved between the batch's check and the send.
+    """
+
+    def __init__(self, refuse_from: int = 1) -> None:
+        self.refuse_from = refuse_from
+        self.checks = 0
+
+    def validate(self, address: str, value: Any, *, read_current: Any = None) -> None:  # noqa: ARG002 - the validator's signature
+        if address != "LIMITED:SP":
+            return
+        self.checks += 1
+        if self.checks >= self.refuse_from:
+            raise ChannelLimitsViolationError(
+                address=address,
+                value=value,
+                violation_type="MAX_EXCEEDED",
+                violation_reason="above the limits database's max",
+            )
+
+    def resolve_confirm(self, address: str) -> bool:  # noqa: ARG002 - the validator's signature
+        return True
+
+    def measures_step(self, address: str) -> bool:  # noqa: ARG002 - the validator's signature
+        return False
+
+
 class BaseBatchConnector(ControlSystemConnector):
     """A connector with no batch of its own: the base class's sequential loop runs."""
 
     def __init__(self) -> None:
         self.writes: list[tuple[str, Any]] = []
+        self._limits_validator = _LimitedChannel()  # type: ignore[assignment]
 
     async def connect(self, config: dict[str, Any]) -> None:
         pass
@@ -65,25 +104,12 @@ class BaseBatchConnector(ControlSystemConnector):
     async def read_multiple_channels(self, addresses, *, timeout_s=None):
         raise NotImplementedError
 
-    async def write_channel(
-        self,
-        address: str,
-        value: Any,
-        *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes this signature
-    ) -> ChannelWriteResult:
-        if address == "LIMITED:SP":
-            raise ChannelLimitsViolationError(
-                address=address,
-                value=value,
-                violation_type="MAX_EXCEEDED",
-                violation_reason="above the limits database's max",
-            )
+    async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool) -> SendReport:  # noqa: ARG002 - the send hook fixes this signature
         self.writes.append((address, value))
-        return ChannelWriteResult(
-            address=address, value_written=value, outcome=WriteOutcome.CONFIRMED
-        )
+        return SendReport()
+
+    async def _confirming_read(self, address, sent, *, timeout_s):  # noqa: ARG002 - the read-back hook fixes this signature
+        return ChannelValue(value=dict(self.writes)[address], sampled_at=datetime.now(UTC))
 
     async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError
@@ -91,41 +117,15 @@ class BaseBatchConnector(ControlSystemConnector):
     async def unsubscribe(self, subscription_id):
         raise NotImplementedError
 
-    async def get_metadata(self, address):
-        raise NotImplementedError
-
-    async def validate_channel(self, address) -> bool:  # noqa: ARG002 - the connector interface fixes this signature
-        return True
-
 
 class StoppedAfterFirstWrite(BaseBatchConnector):
     """A person stops the run's grants while its first write is on the wire."""
 
-    async def write_channel(self, address, value, *, timeout_s=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
-        self.writes.append((address, value))
+    async def _send(self, address, value, *, timeout_s, wait):
+        report = await super()._send(address, value, timeout_s=timeout_s, wait=wait)
         if len(self.writes) == 1:
             revoke_grants(by="alice", targets=[TARGET])
-        return ChannelWriteResult(
-            address=address, value_written=value, outcome=WriteOutcome.CONFIRMED
-        )
-
-
-class StrayBatchConnector(RecordingConnector):
-    """A batch of its own that also writes a channel the caller never asked for."""
-
-    async def write_multiple_channels(self, operations, *, timeout_s=None):  # noqa: ARG002 - the connector interface fixes this signature
-        results = [await self.write_channel(addr, val) for addr, val in operations]
-        results.append(await self.write_channel("A:SP", 1.0))
-        return results
-
-
-class DelegatingBatchConnector(BaseBatchConnector):
-    """A batch of its own that hands the whole batch to the base class's loop."""
-
-    async def write_multiple_channels(self, operations, *, timeout_s=None, confirm=None):
-        return await super().write_multiple_channels(
-            operations, timeout_s=timeout_s, confirm=confirm
-        )
+        return report
 
 
 class ClosedRouteConnector(BaseBatchConnector):
@@ -293,8 +293,11 @@ class TestSingleWrites:
     async def test_a_write_the_limits_refuse_has_spent_its_step(self, monkeypatch):
         grant = approve(monkeypatch, channels={"LIMITED:SP": ChannelRange(min=0.0, max=10.0)})
         conn = connector()
-        with pytest.raises(ChannelLimitsViolationError):
-            await conn.write_channel("LIMITED:SP", 5.0)
+        result = await conn.write_channel("LIMITED:SP", 5.0)
+        # A single write answers a limits refusal as a result, as a batch does.
+        assert result.refusal_reason is RefusalReason.LIMITS
+        assert result.limits_violation is not None
+        assert result.limits_violation.kind == "MAX_EXCEEDED"
         assert conn.writes == []
         assert steps(grant) == 1
 
@@ -427,31 +430,6 @@ class TestBatches:
         assert conn.writes == [("A:SP", 1.0)]
         assert steps(grant) == 1
 
-    async def test_a_batch_of_its_own_writes_only_what_it_was_judged_on(self, monkeypatch):
-        grant = approve(monkeypatch, steps=1)
-        conn = connector(StrayBatchConnector)
-        results = await conn.write_multiple_channels([("B:SP", 0.0)])
-        # Under an authorization the base class's batch runs: the stray write
-        # the connector's own batch would add is never made.
-        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED]
-        assert conn.writes == [("B:SP", 0.0)]
-        assert steps(grant) == 1
-
-    async def test_a_batch_of_its_own_runs_as_before_with_no_authorization(self):
-        turn_switch(TARGET, "allowed")
-        conn = connector(StrayBatchConnector)
-        results = await conn.write_multiple_channels([("B:SP", 0.0)])
-        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
-        assert conn.writes == [("B:SP", 0.0), ("A:SP", 1.0)]
-
-    async def test_a_batch_delegating_to_super_is_still_one_step(self, monkeypatch):
-        grant = approve(monkeypatch)
-        conn = connector(DelegatingBatchConnector)
-        results = await conn.write_multiple_channels([("A:SP", 1.0), ("B:SP", 0.5)])
-        assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
-        assert conn.writes == [("A:SP", 1.0), ("B:SP", 0.5)]
-        assert steps(grant) == 1
-
     async def test_a_limits_refusal_inside_a_batch_is_still_one_step(self, monkeypatch):
         grant = approve(
             monkeypatch,
@@ -461,8 +439,9 @@ class TestBatches:
             },
         )
         conn = connector()
-        # This connector refuses only inside its own write: a batch answers a
-        # limits refusal as a result, it does not raise it.
+        # The channel passes the batch's check and is refused at its send: a
+        # batch answers a limits refusal as a result, it does not raise it.
+        conn._limits_validator = _LimitedChannel(refuse_from=2)
         results = await conn.write_multiple_channels([("A:SP", 1.0), ("LIMITED:SP", 1.0)])
         assert [(r.outcome, r.refusal_reason) for r in results] == [
             (WriteOutcome.CONFIRMED, None),

@@ -507,7 +507,7 @@ class _HeldMachine(_TrackedFake):
     hold: asyncio.Event | None = None
     writes: list = []
 
-    async def write_channel(self, address, value, **kwargs):
+    async def _write_one(self, address, value, **kwargs):
         type(self).writes.append((address, value))
         hold = type(self).hold
         if hold is not None:

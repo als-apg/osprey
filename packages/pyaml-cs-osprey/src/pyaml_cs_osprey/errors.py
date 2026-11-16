@@ -106,25 +106,23 @@ def _banner_violation(text: str) -> str | None:
 def _write_reason(exc: BaseException) -> str:
     """Build the one-line reason for a write-side exception.
 
-    A refusal raised from a ``ChannelLimitsViolationError`` takes that error's
-    ``violation_reason``; one without that cause falls back to the ``Violation:``
-    line of the limits banner in its message.
+    A limits refusal takes its violation's ``reason``; a refusal that carries
+    none falls back to the ``Violation:`` line of a limits banner in its
+    message. A failed write's reason word is its outcome, uppercased.
     """
     if isinstance(exc, ChannelLimitsViolationError):
         return exc.violation_reason
     if isinstance(exc, ChannelWriteBlockedError | ChannelWriteFailedError):
         text = str(exc)
-        cause = exc.__cause__
-        violation = (
-            _first_line(cause.violation_reason)
-            if isinstance(cause, ChannelLimitsViolationError)
-            else _banner_violation(text)
-        )
+        carried = exc.violation if isinstance(exc, ChannelWriteBlockedError) else None
+        violation = _first_line(carried.reason) if carried is not None else _banner_violation(text)
         detail = violation or _first_line(text)
-        reason = exc.reason
+        reason = (
+            str(exc.reason) if isinstance(exc, ChannelWriteBlockedError) else exc.outcome.upper()
+        )
         if not detail:
-            return reason or type(exc).__name__
-        if reason is None or reason in detail:
+            return reason
+        if reason in detail:
             return detail
         return f"{reason}: {detail}"
     return _first_line(str(exc)) or type(exc).__name__
@@ -135,8 +133,9 @@ def map_write_error(
 ) -> OspreyWriteRefused | OspreyWriteFailed:
     """Map a connector write exception onto a pyAML exception.
 
-    Both limits-refusal shapes (a direct ``ChannelLimitsViolationError`` and a
-    ``ChannelWriteBlockedError`` with reason ``LIMITS`` carrying the banner),
+    Both limits-refusal shapes (a direct ``ChannelLimitsViolationError`` from a
+    pre-check and a ``ChannelWriteBlockedError`` with reason ``LIMITS`` carrying
+    its violation),
     any other ``ChannelWriteBlockedError`` and a ``ControlTargetChangedError``
     (including ``SwitchInProgressError``) become :class:`OspreyWriteRefused`.
     ``ChannelWriteFailedError`` and any other exception raised by the write

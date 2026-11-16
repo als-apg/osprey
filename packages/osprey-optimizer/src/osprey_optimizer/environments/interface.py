@@ -346,10 +346,9 @@ class ConnectorInterface:
         The first result that is not confirmed (or unrequested) raises, a
         refused write before the ones its batch held back.
         """
-        from osprey_connectors.control_system import raise_for_write_results
+        from osprey_connectors.control_system import WriteOutcome, raise_for_write_results
         from osprey_connectors.errors import (
             ChannelError,
-            ChannelLimitsViolationError,
             ChannelWriteBlockedError,
             ChannelWriteFailedError,
         )
@@ -362,12 +361,6 @@ class ConnectorInterface:
         try:
             results = self._bridge.run(connector.write_multiple_channels(operations))
             raise_for_write_results(results)
-        except ChannelLimitsViolationError as exc:
-            # The base batch loop lets a limits refusal out of the channel it
-            # concerns; it is a refusal like any other.
-            raise WriteRefusedError(
-                f"Write to {exc.address} refused [LIMITS]: {exc}", reason="LIMITS"
-            ) from exc
         except ChannelWriteBlockedError as exc:
             verdict = getattr(exc, "verdict_reason", None)
             if isinstance(verdict, str) and verdict.startswith("auth_"):
@@ -380,11 +373,13 @@ class ConnectorInterface:
                 verdict_reason=verdict,
             ) from exc
         except ChannelWriteFailedError as exc:
-            if exc.reason == "FAILED" and not self.check_connection(exc.address):
+            if exc.outcome is WriteOutcome.FAILED and not self.check_connection(exc.address):
                 raise OptimizerConnectionError(
                     f"Write connect failed for {exc.address}: {exc}"
                 ) from exc
-            raise EvaluationError(f"Write to {exc.address} failed [{exc.reason}]: {exc}") from exc
+            raise EvaluationError(
+                f"Write to {exc.address} failed [{exc.outcome.upper()}]: {exc}"
+            ) from exc
         except TimeoutError as exc:
             # Before ConnectionError: a ConnectorHostWriteTimeoutError is both,
             # and a write that may or may not have landed is a timeout.

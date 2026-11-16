@@ -158,10 +158,11 @@ _WIRE_DETAIL: dict[type[BaseException], _Detail] = {
         ),
         ctor_kwargs={"attempted_value": "value"},
     ),
-    ChannelWriteBlockedError: _Detail(fields=("reason", "verdict_reason"), message_kwarg="message"),
+    ChannelWriteBlockedError: _Detail(
+        fields=("reason", "verdict_reason", "violation"), message_kwarg="message"
+    ),
     ChannelWriteFailedError: _Detail(
-        fields=("reason", "outcome", "value_written", "observed_value"),
-        message_kwarg="message",
+        fields=("outcome", "value_written", "observed_value"), message_kwarg="message"
     ),
     ChannelNotFoundError: _Detail(),
     ChannelUnreachableError: _Detail(message_kwarg="message"),
