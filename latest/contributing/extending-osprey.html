@@ -521,6 +521,15 @@ an <code class="docutils literal notranslate"><span class="pre">osprey.registry.
 Pinning test: <code class="docutils literal notranslate"><span class="pre">tests/registry/test_mcp.py</span></code>, which resolves those definitions
 into the generated agent configuration — permissions, hooks and environment
 included.</p>
+<p>A tool that saves to the artifact store says, on each save, whether the file is
+for the person who asked: pass <code class="docutils literal notranslate"><span class="pre">deliver=True</span></code> to <code class="docutils literal notranslate"><span class="pre">save_file</span></code>,
+<code class="docutils literal notranslate"><span class="pre">save_object</span></code> or <code class="docutils literal notranslate"><span class="pre">save_from_path</span></code> for a plot, a document or anything else
+the tool makes as its answer. A dispatch run lists exactly those files and a
+chat bridge posts them into the conversation. Leave the argument out for what
+the tool keeps for the agent to read — a data record, a log, a source file:
+it stays in the store and the gallery and is never posted. Pinning test:
+<code class="docutils literal notranslate"><span class="pre">tests/stores/test_artifact_deliver.py</span></code>, which classifies every save in
+<code class="docutils literal notranslate"><span class="pre">src/osprey</span></code>.</p>
 </section>
 <section id="chat-bridge">
 <span id="extending-chat-bridge"></span><h2>Chat bridge<a class="headerlink" href="#chat-bridge" title="Link to this heading">#</a></h2>
