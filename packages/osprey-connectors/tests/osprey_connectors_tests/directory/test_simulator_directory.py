@@ -67,7 +67,7 @@ _CHANNELS = [
     ),
     _channel(READBACK, owner="SR", unit="A", description="Quadrupole current readback."),
     _channel(COOLING, description="Cavity cooling water flow."),
-    _channel(SOLO, role="monitor", value_type="bool", description="Water interlock OK"),
+    _channel(SOLO, role="none", value_type="bool", description="Water interlock OK"),
     _channel(ORPHAN, role="setpoint", owner="LN", description="Gun voltage setting."),
 ]
 
@@ -304,10 +304,10 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
         ("setpoint", "waveform", "waveform"),
         ("readback", "float", "ai"),
         ("readback", "int", "longin"),
-        ("monitor", "bool", "bi"),
-        ("monitor", "enum", "mbbi"),
-        ("output", "string", "stringin"),
-        ("output", "waveform", "waveform"),
+        ("none", "bool", "bi"),
+        ("none", "enum", "mbbi"),
+        ("none", "string", "stringin"),
+        ("readback", "waveform", "waveform"),
     ],
 )
 async def test_the_record_type_comes_from_role_and_value_type(

@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile_archiver import FRESHNESS_CONFIG_KEY, VAArchiverConfig
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.served import resolve_served
 from osprey.facility.settings import (
@@ -25,6 +25,7 @@ from osprey.facility.settings import (
     SERVED_PROBE_KEYS,
     fill_facility_settings,
 )
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.types import (
     LIVE_STANDIN,
     TARGET_STANDIN,

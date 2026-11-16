@@ -19,6 +19,12 @@ A record states an optional key by a default meaning "not stated". Where a
 reader tells a key the document leaves out apart from one it states, the
 reader asks the record's ``model_fields_set``.
 
+The closed vocabularies the records carry — a channel's :data:`ChannelRole`, a
+wiring record's :data:`Direction`, :data:`EngineRole`, :data:`Plane`,
+:data:`Refresh` and :data:`Mark`, a scenario's :data:`ChannelFaultKind` — are
+named here, the lowest module every reader of a view imports, and a word
+outside one refuses the view like any other shape it breaks.
+
 The module imports only the standard library, pydantic and the package's
 model bases.
 """
@@ -46,14 +52,21 @@ from osprey_connectors.model import FrozenModel
 __all__ = [
     "AddressesDocument",
     "ArchiverEvent",
+    "ChannelFaultKind",
     "ChannelRecord",
+    "ChannelRole",
     "CouplingTerm",
+    "Direction",
     "DriveRecord",
+    "EngineRole",
     "GateRecord",
     "LinearTerm",
+    "Mark",
     "ModelEntry",
     "NoiseRecord",
+    "Plane",
     "PulseRecord",
+    "Refresh",
     "ResolvedCoupling",
     "ScenarioRecord",
     "ScenariosDocument",
@@ -68,6 +81,32 @@ __all__ = [
 _T = TypeVar("_T")
 _K = TypeVar("_K")
 _V = TypeVar("_V")
+
+#: What a program does with a channel, the facility schema's ``role_enum``:
+#: written (``setpoint``), read (``readback``), or neither (``none``).
+ChannelRole = Literal["setpoint", "readback", "none"]
+
+#: Which way a wiring record moves its value, computed from its channel's role.
+Direction = Literal["read", "write"]
+
+#: What a model's engine says a wiring record is, the schema's ``engine_role_enum``.
+EngineRole = Literal["setpoint", "readback", "monitor", "output"]
+
+#: The transverse plane a wiring record steers or reads, the schema's ``plane_enum``.
+Plane = Literal["x", "y"]
+
+#: When a wiring record's value is recomputed, the schema's ``refresh_enum``:
+#: ``pass`` with each write's solve, ``periodic`` with the periodic solve alone,
+#: ``fast`` at the fast period, ``event`` with each event the engine raises.
+Refresh = Literal["pass", "periodic", "fast", "event"]
+
+#: A mark an engine sets on a wiring record, the schema's ``wiring_mark_enum``.
+Mark = Literal["command"]
+
+#: A fault of a simulated channel itself, the word a scenario's
+#: ``channel_faults`` maps an address to; its semantics are
+#: :data:`~osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS`.
+ChannelFaultKind = Literal["stuck", "frozen", "disconnected"]
 
 
 def _freeze(value: object) -> object:
@@ -153,7 +192,7 @@ class _WanderRecord(_Record):
 class DriveRecord(_Record):
     """A scenario driver's ``drive``, the shared latent signal its couplings read."""
 
-    kind: str
+    kind: Literal["wander"]
     amplitude: _Real
     period_s: _Real
 
@@ -230,7 +269,7 @@ class ChannelRecord(_Record):
     """
 
     address: str
-    role: str
+    role: ChannelRole
     pair: str | None
     value_type: str
     unit: str | None
@@ -260,14 +299,14 @@ class WiringRecord(_Record):
     slices: _Verbatim = None
     engine: _Verbatim = None
     calibration: _Verbatim = None
-    direction: str | None = None
+    direction: Direction | None = None
     unit: _Verbatim = None
     default: _Verbatim = None
     value_range: _Verbatim = None
-    engine_role: str | None = None
-    plane: str | None = None
-    refresh: str | None = None
-    marks: _Tuple[str] | None = None
+    engine_role: EngineRole | None = None
+    plane: Plane | None = None
+    refresh: Refresh | None = None
+    marks: _Tuple[Mark] | None = None
     value_type: str | None = None
     shape: _Tuple[int] | None = None
 
@@ -386,7 +425,7 @@ class ScenarioRecord(_Record):
     drivers: _ReadOnly[str, DriveRecord] = Field(default_factory=_empty)
     couple: _ReadOnly[str, _Tuple[CouplingTerm]] = Field(default_factory=_empty)
     noise: _ReadOnly[str, NoiseRecord] = Field(default_factory=_empty)
-    channel_faults: _ReadOnly[str, str] = Field(default_factory=_empty)
+    channel_faults: _ReadOnly[str, ChannelFaultKind] = Field(default_factory=_empty)
     still: tuple[str, ...] = ()
     faults: _ReadOnly[str, _FaultRecord] = Field(default_factory=_empty)
 

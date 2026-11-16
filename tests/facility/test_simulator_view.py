@@ -25,13 +25,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.view import (
     IOC_HEALTH_SIGNALS,
     SCENARIOS_SCHEMA,

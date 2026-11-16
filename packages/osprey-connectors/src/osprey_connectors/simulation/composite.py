@@ -117,7 +117,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, overload
+from typing import TYPE_CHECKING, Literal, Protocol, get_args, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -128,7 +128,7 @@ from typing_extensions import override
 
 from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation import values
+from osprey_connectors.simulation import TEXTURE, values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
 from osprey_connectors.simulation.records import ResolvedCoupling
 from osprey_connectors.simulation.state import (
@@ -141,7 +141,6 @@ from osprey_connectors.simulation.state import (
 )
 from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
 from osprey_connectors.simulation.texture import (
-    TEXTURE_OWNER,
     TextureModel,
     channel_value_type,
     channel_variable,
@@ -155,6 +154,7 @@ from osprey_connectors.simulation.view import (
     SETPOINT,
     UPTIME,
     VARIABLES_FILE,
+    IocHealthSignal,
     Model,
     SimulatorView,
     ViewSchemaError,
@@ -163,6 +163,7 @@ from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import (
+        ChannelFaultKind,
         ChannelRecord,
         CouplingTerm,
         DriveRecord,
@@ -172,6 +173,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "Composite",
+    "ServingInstance",
     "WriteRefusedError",
     "log_dir",
 ]
@@ -181,8 +183,12 @@ logger = get_logger("simulation_composite")
 #: The entry-point group every engine plug-in registers under.
 _ENGINE_GROUP = "osprey.simulation.engines"
 
-#: The serving instances a model log record names.
-_INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
+#: The serving instance a model log record names: the served virtual
+#: accelerator, the served live stand-in, or a composite in process.
+ServingInstance = Literal["virtual_accelerator", "live_standin", "inprocess"]
+
+#: Every :data:`ServingInstance`.
+_INSTANCES: tuple[ServingInstance, ...] = get_args(ServingInstance)
 
 #: The longest status text, in UTF-8 bytes.
 _STATUS_MAX_BYTES = 1023
@@ -261,7 +267,7 @@ def _for_variable(variable: Variable, value: object) -> object:
     return value
 
 
-def _ioc_health_variable(address: str, signal: str) -> Variable:
+def _ioc_health_variable(address: str, signal: IocHealthSignal) -> Variable:
     """The read-only variable of one IOC health address.
 
     Raises:
@@ -371,8 +377,8 @@ class Composite(LUMEModel):
             its directory, which is opened with :meth:`SimulatorView.open`.
         state_dir: The directory holding the ``active_scenarios`` file; ``None``
             serves ``nominal`` alone.
-        instance: The serving instance the model log names, one of
-            :data:`_INSTANCES`.
+        instance: The serving instance the model log names, a
+            :data:`ServingInstance`.
         clock: Returns the current instant in epoch seconds.
         model_log: ``False`` sends the model log records to the process logger
             only, for a composite no instance serves.
@@ -382,7 +388,7 @@ class Composite(LUMEModel):
             never calls it, so every channel holds its start state until written.
 
     Raises:
-        ValueError: ``instance`` is not one of :data:`_INSTANCES`.
+        ValueError: ``instance`` is not a :data:`ServingInstance`.
         NoSimulatorView: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
@@ -392,7 +398,7 @@ class Composite(LUMEModel):
         view: SimulatorView | Path | str,
         *,
         state_dir: Path | str | None = None,
-        instance: str = "inprocess",
+        instance: ServingInstance = "inprocess",
         clock: Callable[[], float] = time.time,
         model_log: bool = True,
         log_dir: Path | str | None = None,
@@ -432,7 +438,7 @@ class Composite(LUMEModel):
 
         self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
         self._owner: dict[str, str] = {
-            address: (owner if (owner := record.owner) in physics else TEXTURE_OWNER)
+            address: (owner if (owner := record.owner) in physics else TEXTURE)
             for address, record in self._channels.items()
         }
         children = {name: self._child(models[name]) for name in physics}
@@ -449,7 +455,7 @@ class Composite(LUMEModel):
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
-        self._ioc_health: dict[str, str] = {
+        self._ioc_health: dict[str, IocHealthSignal] = {
             address: signal
             for signals in view.ioc_health_by_model().values()
             for signal, address in signals.items()
@@ -457,7 +463,7 @@ class Composite(LUMEModel):
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
-            if self._owner[address] == TEXTURE_OWNER:
+            if self._owner[address] == TEXTURE:
                 self._variables[address] = self._texture.supported_variables[address]
             else:
                 child = self._children[self._owner[address]]
@@ -496,8 +502,7 @@ class Composite(LUMEModel):
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         takes = tuple(
-            (record, self._owner.get(str(record["address"]), TEXTURE_OWNER))
-            for record in source.inputs
+            (record, self._owner.get(str(record["address"]), TEXTURE)) for record in source.inputs
         )
         return _Child(
             name=name,
@@ -640,7 +645,7 @@ class Composite(LUMEModel):
 
     def _input_value(self, producer: str, address: str) -> tuple[bool, object]:
         """A producer's plain value of ``address``: ``(False, None)`` when it failed."""
-        if producer == TEXTURE_OWNER:
+        if producer == TEXTURE:
             return True, _plain(self._texture.get([address])[address])
         read = self._plain_get(self._children[producer], [address])
         if read is None:
@@ -768,7 +773,7 @@ class Composite(LUMEModel):
         couple: dict[str, list[CouplingTerm]] = {}
         noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
-        channel_faults: dict[str, str] = {}
+        channel_faults: dict[str, ChannelFaultKind] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
@@ -810,13 +815,13 @@ class Composite(LUMEModel):
             for address in self._owner
             if address in self._variables
             and self._texture.has_motion(address)
-            and (self._owner[address] == TEXTURE_OWNER or self._is_moving_readback(address))
+            and (self._owner[address] == TEXTURE or self._is_moving_readback(address))
         )
         self._texture.set_active(
             {
                 address: value
                 for address, value in overrides.items()
-                if self._owner.get(address) == TEXTURE_OWNER
+                if self._owner.get(address) == TEXTURE
                 and address in self._texture.supported_variables
             }
         )
@@ -851,7 +856,7 @@ class Composite(LUMEModel):
                 active[str(key)] = value
         return dict(sorted(active.items()))
 
-    def _apply_channel_faults(self, channel_faults: Mapping[str, str]) -> None:
+    def _apply_channel_faults(self, channel_faults: Mapping[str, ChannelFaultKind]) -> None:
         """Hold the active channel faults and the values their readings served at activation.
 
         A setpoint whose fault holds writes joins the held-write set; a
@@ -864,7 +869,7 @@ class Composite(LUMEModel):
         derived: dict[str, ChannelFault] = {}
         severity: dict[str, str] = {}
         for address, word in sorted(channel_faults.items()):
-            fault = CHANNEL_FAULTS.get(str(word))
+            fault = CHANNEL_FAULTS.get(word)
             channel = self._channels.get(str(address))
             if fault is None or channel is None:
                 logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
@@ -977,13 +982,13 @@ class Composite(LUMEModel):
                 statuses[name] = self._children[self._status[name]].status
             elif name in self._ioc_health:
                 statuses[name] = self._ioc_health_value(self._ioc_health[name])
-            elif self._owner[name] == TEXTURE_OWNER:
+            elif self._owner[name] == TEXTURE:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
 
-    def _ioc_health_value(self, signal: str) -> str | int | float:
+    def _ioc_health_value(self, signal: IocHealthSignal) -> str | int | float:
         """The value an IOC health signal serves at this instant."""
         if signal == ENGINEER:
             return _DEMO_ENGINEER
@@ -1053,7 +1058,7 @@ class Composite(LUMEModel):
             if name not in self._held_writes:
                 continue
             owner = self._owner[name]
-            if owner == TEXTURE_OWNER:
+            if owner == TEXTURE:
                 if name in self._texture_demands:
                     demands[name] = self._texture_demands[name]
             elif name in (inputs := self._children[owner].inputs):
@@ -1139,7 +1144,7 @@ class Composite(LUMEModel):
         """
         self._require([address])
         owner = self._owner[address]
-        if owner == TEXTURE_OWNER or not self._is_moving_readback(address):
+        if owner == TEXTURE or not self._is_moving_readback(address):
             return (address,)
         return self._children[owner].partners.get(address, (address,))
 
@@ -1179,7 +1184,7 @@ class Composite(LUMEModel):
         for name in names:
             level = np.broadcast_to(np.asarray(levels[name], dtype=np.float64), times.shape)
             owner = self._owner[name]
-            if owner == TEXTURE_OWNER:
+            if owner == TEXTURE:
                 moved = level + self._texture.motion(name, times, base=level)
                 out[name] = np.array(
                     [self._texture.clamp(name, float(value)) for value in moved],
@@ -1244,7 +1249,7 @@ class Composite(LUMEModel):
         self._refresh()
         severities: dict[str, dict[str, str]] = {}
         for name in names:
-            child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
+            child = self._children.get(self._owner.get(name, TEXTURE))
             if child is not None and child.model is None:
                 severities[name] = {"condition": _UDF}
             elif name in self._fault_severity:
@@ -1338,7 +1343,7 @@ class Composite(LUMEModel):
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
         forwarded: dict[str, dict[str, values.StoredValue]] = {}
-        texture = batches.get(TEXTURE_OWNER) or {}
+        texture = batches.get(TEXTURE) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
         writing: Mapping[str, values.StoredValue] = {}
         try:

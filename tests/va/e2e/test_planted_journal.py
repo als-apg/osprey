@@ -42,7 +42,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility import TEXTURE
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import VIEW_RELPATH, Channel, SimulatorView
 from osprey_connectors_tests._harness._ports import reserved_port

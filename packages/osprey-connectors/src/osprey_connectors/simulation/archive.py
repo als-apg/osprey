@@ -59,7 +59,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -89,7 +89,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.composite import Composite, ServingInstance
     from osprey_connectors.simulation.records import (
         ArchiverEvent,
         ChannelRecord,
@@ -149,8 +149,8 @@ _DEFAULT_CHUNK_SIZE = 2000
 _DEFAULT_WORKERS = 4
 
 
-class SeedState(Enum):
-    """What a store's manifest says about the seed it holds."""
+class SeedState(StrEnum):
+    """What a store's manifest says about the seed it holds; each member is its word."""
 
     ABSENT = "absent"
     """No manifest document: the store has never been seeded (or was wiped)."""
@@ -300,7 +300,7 @@ class SeedReport(MutableModel):
 # ---------------------------------------------------------------------------
 
 #: The serving instance the archive composite's log lines name.
-_ARCHIVE_INSTANCE = "virtual_accelerator"
+_ARCHIVE_INSTANCE: ServingInstance = "virtual_accelerator"
 
 _STEP = "step"
 

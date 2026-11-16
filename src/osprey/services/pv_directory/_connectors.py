@@ -71,7 +71,7 @@ except ImportError:
     severity_rank = None  # type: ignore[assignment]
     BackendSpec = None  # type: ignore[assignment,misc]
     ChannelDirectory = None  # type: ignore[assignment,misc]
-    ENGINEER = None  # type: ignore[assignment]
+    ENGINEER = None  # type: ignore[assignment,misc]
     IOC_HEALTH_SIGNALS = None  # type: ignore[assignment]
     DirectoryPage = None  # type: ignore[assignment,misc]
     DirectoryQuery = None  # type: ignore[assignment,misc]

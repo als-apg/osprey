@@ -21,7 +21,6 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import render_facility_outputs
@@ -37,6 +36,7 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
+from osprey_connectors.simulation import TEXTURE
 from tests._builds import init_machineless, run_build
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree

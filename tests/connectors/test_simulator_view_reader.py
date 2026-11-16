@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility import TEXTURE
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.records import ScenarioRecord, SeedRecord, WiringRecord
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,

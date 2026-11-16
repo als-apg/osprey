@@ -14,9 +14,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey_connectors.simulation import TEXTURE
 
 __all__ = ["CONFIG_SOURCE", "SIMULATION_MODELS_KEY", "resolve_served"]
 

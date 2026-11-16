@@ -35,10 +35,11 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
 from osprey.facility.validate import Validated, need, stating_files
+from osprey_connectors.simulation import TEXTURE
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
