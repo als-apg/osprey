@@ -287,15 +287,26 @@ def test_no_answer_carries_a_display_label(record):
 
 def _public_definitions(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    defined = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
-    } | {
-        node.target.id
-        for node in tree.body
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
-    }
+    defined = (
+        {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        }
+        | {
+            node.target.id
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+        | {
+            # A named closed set is a plain alias assignment.
+            target.id
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+    )
     return {name for name in defined if not name.startswith("_")}
 
 

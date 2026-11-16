@@ -23,6 +23,9 @@ from osprey_connectors.service_answers import (
     _require_reason,
 )
 
+#: Whether the directory lists a channel as announced now or no longer.
+DirectoryStatus = Literal["Active", "Inactive"]
+
 
 class DirectoryRow(FrozenModel):
     """One channel, as the directory lists it.
@@ -34,7 +37,7 @@ class DirectoryRow(FrozenModel):
     """
 
     address: str
-    status: Literal["Active", "Inactive"] | None = None
+    status: DirectoryStatus | None = None
     description: str | None = None
     channel_type: str | None = None
     server: str | None = None
@@ -61,7 +64,7 @@ class DirectoryQuery(FrozenModel):
     words: str = ""
     address_pattern: str | None = None
     properties: Mapping[str, str] = Field(default_factory=dict)
-    status: str | None = None
+    status: DirectoryStatus | None = None
     server: tuple[str, ...] = ()
     channel_type: tuple[str, ...] = ()
     page: int = 0

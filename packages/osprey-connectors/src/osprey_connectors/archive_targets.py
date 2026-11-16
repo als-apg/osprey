@@ -68,6 +68,7 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
+    ControlTarget,
     resolve_archiver_settings,
     resolve_archiver_type,
 )
@@ -93,13 +94,13 @@ _DEFAULT_ADDRESS_SETTING = "url"
 
 #: The targets the facility's archive serves: the real machine and the
 #: stand-in that rehearses it.
-APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
+APPLIANCE_TARGETS: frozenset[ControlTarget] = frozenset({TARGET_LIVE, TARGET_STANDIN})
 
 #: The targets the deployment's own store serves: the virtual accelerator.
-_STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
+_STORE_TARGETS: frozenset[ControlTarget] = frozenset({TARGET_VA})
 
 #: No archive for any target.
-_NO_TARGETS: frozenset[str] = frozenset()
+_NO_TARGETS: frozenset[ControlTarget] = frozenset()
 
 __all__ = [
     "APPLIANCE_TARGETS",
@@ -108,7 +109,7 @@ __all__ = [
 ]
 
 
-def archive_targets(config: object) -> frozenset[str]:
+def archive_targets(config: object) -> frozenset[ControlTarget]:
     """The control targets whose history this deployment's ``archiver`` block holds.
 
     Args:

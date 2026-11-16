@@ -12,6 +12,7 @@ from datetime import datetime
 import pandas as pd
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.archiver._timerange import ProcessingMode
 from osprey_connectors.model import FrozenModel, MutableModel
 
 
@@ -98,7 +99,7 @@ class ArchiverConnector(ABC):
         precision_ms: int = 1000,
         *,
         timeout_s: float | None = None,
-        processing: str = "raw",
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data for one or more channels.

@@ -43,9 +43,19 @@ __all__ = [
     "BackendSpec",
     "HistoryPage",
     "Outcome",
+    "ServiceKind",
     "Source",
+    "SourceKind",
     "Unavailable",
 ]
+
+#: A service kind this package builds a backend for, as ``BackendSpec.kind``
+#: spells it.
+ServiceKind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
+
+#: Every kind of service an answer can come from: a :data:`ServiceKind`, or one
+#: the framework answers from itself (the logbook, the archive).
+SourceKind = Literal[ServiceKind, "logbook", "archive"]
 
 
 class Outcome(StrEnum):
@@ -99,7 +109,7 @@ class Source(FrozenModel):
     ``service`` is the backend's type name; ``rehearsal`` is true on ``standin``.
     """
 
-    kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook", "archive"]
+    kind: SourceKind
     target: ControlTarget
     service: str
     rehearsal: bool
@@ -108,7 +118,7 @@ class Source(FrozenModel):
 class BackendSpec(FrozenModel):
     """One backend to build; ``service_targets`` makes these from the config."""
 
-    kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
+    kind: ServiceKind
     type: str
     target: ControlTarget
     settings: Mapping[str, object]

@@ -18,7 +18,7 @@ from osprey_connectors.archiver._mongo_client import (
     address_overrides,
     mongo_client_kwargs,
 )
-from osprey_connectors.archiver._timerange import PROCESSING_MODES
+from osprey_connectors.archiver._timerange import PROCESSING_MODES, ProcessingMode
 
 __all__ = [
     "ArchiveExtent",
@@ -26,6 +26,7 @@ __all__ = [
     "ArchiverMetadata",
     "CA_FILE_ERRORS",
     "PROCESSING_MODES",
+    "ProcessingMode",
     "address_overrides",
     "field_name",
     "mongo_client_kwargs",
