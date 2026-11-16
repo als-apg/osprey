@@ -13,6 +13,7 @@
  * boundary completes a frame.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { fetchJSON, withPrefix } from './api.js';
 import { endsTurn } from './chat-frames.js';
 
@@ -318,10 +319,9 @@ export const CHAT_MODEL_HEADER = 'X-Osprey-Chat-Model';
  */
 export function followChat(chatId, callbacks) {
   let closed = false;
-  let generation = 0;
+  const latest = createLatestRequest();
   let delay = 1000;
   let timer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
-  let controller = /** @type {AbortController | null} */ (null);
 
   /** @param {number} ms */
   function retry(ms) {
@@ -332,21 +332,19 @@ export function followChat(chatId, callbacks) {
 
   async function connect() {
     if (closed) return;
-    const mine = ++generation;
+    const token = latest.begin();
     // A reconnect supersedes any retry still waiting to fire.
     clearTimeout(timer ?? undefined);
     timer = null;
-    controller?.abort();
-    controller = new AbortController();
     let next = delay;
     try {
       const res = await fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/events`), {
-        signal: controller.signal,
+        signal: token.signal,
         cache: 'no-store',
       });
       if (res.status === 204) {
         next = 10000;
-        if (mine === generation && typeof callbacks.onNoAgent === 'function') {
+        if (token.isCurrent() && typeof callbacks.onNoAgent === 'function') {
           callbacks.onNoAgent(res.headers?.get(CHAT_MODEL_HEADER) || null);
         }
       } else if (res.ok && res.body) {
@@ -357,7 +355,7 @@ export function followChat(chatId, callbacks) {
     } catch {
       /* dropped or aborted — retried below unless superseded or closed */
     }
-    if (mine !== generation) return;
+    if (!token.isCurrent()) return;
     delay = Math.min(delay * 2, 10000);
     retry(next);
   }
@@ -366,9 +364,8 @@ export function followChat(chatId, callbacks) {
   return {
     close() {
       closed = true;
-      generation += 1;
       clearTimeout(timer ?? undefined);
-      controller?.abort();
+      latest.cancel();
     },
   };
 }
