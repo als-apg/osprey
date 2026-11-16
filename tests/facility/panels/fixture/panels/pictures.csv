@@ -1,0 +1,3 @@
+device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator
+Quadrupole,end,pole 1,pole,60.0,60.0,0.0,XR-LAYOUT,A,released,sheet 4
+Quadrupole,end,thermal switch 1,thermal_switch,120.0,-40.0,0.0,XR-LAYOUT,A,released,sheet 4
