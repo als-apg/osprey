@@ -2822,7 +2822,7 @@ _WARNED_ADDRESSES = 10
 
 
 def tolerance_warnings(
-    document: Mapping[str, Any], lanes: Sequence[tuple[str, bool, float]]
+    records: FacilityRecords, lanes: Sequence[tuple[str, bool, float]]
 ) -> list[str]:
     """What a render's Bluesky lanes should know about the declared tolerances.
 
@@ -2831,10 +2831,13 @@ def tolerance_warnings(
     time out while it is active; and, per lane that does not serve the
     simulator, the count of float setpoints that declare no ``tolerance`` and
     so settle within the lane's floor, the first line followed by up to
-    :data:`_WARNED_ADDRESSES` of their addresses, one per line.
+    :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
+    ``still`` counts as the simulator view writes it
+    (:func:`~osprey.facility.views.simulator.resolved_still`), so a reading
+    it stills, by ``all``, address or selection, moves nothing.
 
     Args:
-        document: The facility file.
+        records: The facility file's records.
         lanes: Each lane as ``(service key, serves the simulator, floor)``.
 
     Returns:
@@ -2843,6 +2846,7 @@ def tolerance_warnings(
     from osprey_connectors.simulation.envelope import active_envelopes
     from osprey_connectors.simulation.records import SeedRecord
 
+    document = records.document
     channels = _by_key(document.get("channels"), "id")
     seeds = {
         address: SeedRecord.model_validate(channel["simulation"])
@@ -2850,7 +2854,7 @@ def tolerance_warnings(
         if isinstance(channel.get("simulation"), Mapping)
     }
     scenarios = {
-        str(scenario["name"]): _motion_record(scenario)
+        str(scenario["name"]): _motion_record(records, scenario)
         for scenario in document.get("scenarios") or []
         if isinstance(scenario, Mapping) and "name" in scenario
     }
@@ -2892,19 +2896,19 @@ def tolerance_warnings(
     return lines
 
 
-def _motion_record(scenario: Mapping[str, object]) -> ScenarioRecord:
+def _motion_record(records: FacilityRecords, scenario: Mapping[str, object]) -> ScenarioRecord:
     """A facility scenario's motion blocks as the view's scenario record states them.
 
-    The ``drivers``, ``couple`` and ``noise`` blocks the scenario states, and the
-    addresses its ``still`` lists by address: ``all`` and a selection resolve
-    only when the render writes the view, and still nothing here.
+    The ``drivers``, ``couple`` and ``noise`` blocks the scenario states, and its
+    ``still`` as the simulator view writes it
+    (:func:`~osprey.facility.views.simulator.resolved_still`).
 
     Raises:
         FacilityBuildError: ``value-invalid``: a motion block breaks the record.
     """
     from osprey.facility.scenarios import view_scenario
+    from osprey.facility.views.simulator import resolved_still
 
-    still = scenario.get("still")
     return view_scenario(
         {
             "name": str(scenario["name"]),
@@ -2913,9 +2917,7 @@ def _motion_record(scenario: Mapping[str, object]) -> ScenarioRecord:
                 for block in ("drivers", "couple", "noise")
                 if scenario.get(block)
             },
-            "still": [entry for entry in still if isinstance(entry, str)]
-            if isinstance(still, list)
-            else [],
+            "still": [] if scenario.get("still") is None else resolved_still(records, scenario),
         }
     )
 

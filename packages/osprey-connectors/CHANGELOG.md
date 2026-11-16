@@ -20,6 +20,103 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.12] - 2026-11-16
+
+### Added
+
+- `osprey_connectors.errors.RecoveryRecord` names the `{"action", "text"}`
+  record that `ConnectorUnavailableError.recovery`, `Recovery.as_dict()` and the
+  connector-host errors carry.
+- `osprey_connectors.simulation.records` names the shapes of the records a
+  simulator view carries (channels, seeds, scenarios, archiver events, topoff
+  records and the documents that hold them). `SimulatorView.document()`,
+  `seed()` and `scenarios()` return them, and the simulation functions that read
+  those records take them.
+- Read-only connectors to the services beside a control system, one namespace and
+  contract each: `directory` (ChannelFinder, the simulator), `alarm_state` (Phoebus
+  alarm server over Kafka, a replay file; it also lists every channel's state with
+  its severity counts), `alarm_log` (Phoebus alarm logger), `put_log` (caPutLog);
+  shared answers in `service_answers`, which source answers on which target in
+  `service_targets`.
+
+  `osprey_connectors.archive_targets.APPLIANCE_TARGETS` is public again: the directory
+  gives the facility's services the same targets the facility's archive serves.
+
+  Built by `ConnectorFactory.create_service(spec)`; a backend of your own registers
+  with `register_service(kind, name, cls)`. The Phoebus alarm-server backend needs
+  the `alarm-state` extra.
+
+### Changed
+
+- Every archiver refuses `check_availability` with `RuntimeError` while it is not
+  connected; the DOOCS archiver answered every channel `False` and the EPICS
+  Archiver Appliance every channel unknown.
+- `ArchiverMetadata.is_archived` and `check_availability` answer `None` when the
+  archiver cannot say; the EPICS Archiver Appliance and DOOCS connectors no
+  longer claim every channel archived. New `ArchiverConnector.store_extent()`,
+  implemented by the MongoDB archiver.
+- `osprey_connectors.config.get_config_value` is annotated to return `object`
+  instead of `Any`. What it returns is unchanged, but code that type-checks
+  against it must narrow the result (for example with `isinstance`) before using
+  it as a specific type.
+- **Breaking change:** a dotted connector or service `type` must name a subclass
+  of its base (`ControlSystemConnector`, `ArchiverConnector`, or one of the four
+  service bases); one that does not is refused with `ValueError` when the
+  connector is built, instead of running duck-typed or failing on first use. A
+  control-system class that is not a subclass never had its writes go through
+  the write door.
+- Malformed input now fails with the error the code documents instead of a
+  stray `AttributeError`, `KeyError` or `TypeError`: a `control_system` or
+  `archiver` section, `connector` block or per-type block that is not a mapping
+  (an explicit `null` included) raises `ValueError` from the factory; a
+  `file_paths` that is not a mapping raises `TypeError` from `get_agent_dir`; an
+  Archiver Appliance reply of the wrong shape, a `retrieval_path` that is not a
+  string, and a mock archiver `sample_rate_hz` that is not a number raise
+  `ValueError`; and `model_status` on a connector whose simulator has no status
+  raises its `ValueError`. A connector-host frame whose `dict` pairs or `blobs`
+  list have the wrong shape is refused as a `FrameDecodeError`.
+- A DOOCS or TANGO connector, or an EPICS read through aioca, used before
+  `connect()` raises `ConnectorUnavailableError` instead of `AttributeError`; the
+  MYA and MongoDB archivers raise `RuntimeError` saying they are not connected. A
+  service row field of the wrong type reads as unset instead of passing through:
+  a time, severity, status, message, user or client that is not a string, and an
+  alarm `enabled` or `latching` that is not a boolean. An alarm replay file whose
+  message key is neither a string nor null fails to load, naming the line. A
+  MongoDB waveform document whose value is not a list is refused as no stored
+  trace, and a document date that is not a datetime counts as undated. A
+  connector host's `validate_channel` reply that is not a boolean is refused.
+- The archivers' time-range helpers raise `TypeError` naming the channel when
+  given a non-empty series that is not indexed by timestamps. An Archiver
+  Appliance sample whose `secs` or `nanos` is not a number raises the archiver's
+  `ValueError`, and a MongoDB document whose `date` is not a datetime is skipped
+  with a warning, as `stored_extent` already documented.
+- `resolve_tick_s` and `resolve_fast_tick_s` raise their documented `ValueError`
+  for a `simulation:` section that is not a mapping instead of an
+  `AttributeError`, and a simulator view channel whose `value_range` is not two
+  numbers is refused when the view is read instead of being kept with the wrong
+  length.
+- `osprey-connectors` now depends on `typing-extensions>=4.4.0`. A simulator
+  archive manifest whose `seeded_at` is not a timestamp reads as unseeded when
+  its fingerprint is compared, as the framework already reads it.
+- A call that misses its deadline in a connector-host child that still answers a
+  ping raises a `TimeoutError` subclass whose `recovery`, holding the `child_kept`
+  record, is set when it is made. An EPICS Channel Access call made
+  before `connect()` raises `ConnectorUnavailableError` instead of `AttributeError`.
+  `BackendSpec.target` and `Source.target` are typed as
+  `osprey_connectors.types.ControlTarget` (`"live"`, `"va"` or `"standin"`).
+
+### Fixed
+
+- `configure_logging()` applies the `logging.*` settings again on every call, so
+  an entry point that configures logging before it knows its deployment gets that
+  deployment's settings by calling once more. Settings that cannot be read are no
+  longer replaced by the defaults silently: the fallback is logged as one warning. (#2372)
+- A lookup that names no config, and the connector factory called with no
+  argument, read the config `resolve_config_path()` names: `OSPREY_CONFIG`, else
+  `build/config.yml` under the working directory, else `config.yml` in it. With
+  no config to find, the factory raises the error naming where it looked instead
+  of building the mock archiver or the in-process simulator. (#2770)
+
 ## [2026.11.11] - 2026-11-12
 
 ### Changed

@@ -2474,6 +2474,7 @@ def run_web(
     import uvicorn
     from uvicorn.main import STARTUP_FAILURE
 
+    from osprey.interfaces._log_offload import rendering_logs_off_thread
     from osprey.interfaces._serving import listening_socket
 
     owned = sock is None
@@ -2492,7 +2493,10 @@ def run_web(
                 app, host=host, port=port, log_level="info", ws_per_message_deflate=False
             )
         )
-        server.run(sockets=[sock])
+        # The event loop logs; a listener thread draws. A record that is slow
+        # to render then costs the terminal nothing.
+        with rendering_logs_off_thread():
+            server.run(sockets=[sock])
     finally:
         if owned:
             sock.close()

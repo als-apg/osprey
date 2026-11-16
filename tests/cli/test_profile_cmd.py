@@ -53,7 +53,7 @@ def test_profile_group_is_registered_on_the_cli() -> None:
 def test_profile_help_lists_the_three_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(profile, ["--help"])
     assert result.exit_code == 0, result.output
-    for name in ("presets", "validate", "artifacts"):
+    for name in ("presets", "validate", "artifacts", "panels"):
         assert name in result.output
 
 

@@ -277,6 +277,37 @@ class TestDeploymentResolution:
         assert "no build found" in result.output
         assert "osprey build" in result.output
 
+    def test_logging_follows_the_render_once_it_is_resolved(self, tmp_path, monkeypatch):
+        """The CLI configures logging before it knows which deployment `osprey web`
+        serves. Resolving the render applies that render's ``logging.*`` settings
+        to the handler already installed, so a launch from elsewhere honours them."""
+        import logging
+
+        from rich.logging import RichHandler
+
+        from osprey.cli.web_cmd import _resolve_render
+        from osprey_connectors.logger import configure_logging
+
+        repo = tmp_path / "repo"
+        (repo / "build").mkdir(parents=True)
+        (repo / "profile.yml").write_text("project_name: p\n")
+        (repo / "build" / "config.yml").write_text(
+            "project_name: p\nlogging:\n  rich_tracebacks: false\n"
+        )
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)  # _resolve_render moves into build/; this moves back
+        root = logging.getLogger()
+        root.handlers[:] = [h for h in root.handlers if not isinstance(h, RichHandler)]
+        configure_logging(logging.DEBUG)
+        (handler,) = (h for h in root.handlers if isinstance(h, RichHandler))
+        assert handler.rich_tracebacks is True
+
+        _resolve_render(repo)
+
+        assert handler.rich_tracebacks is False
+        assert root.level == logging.DEBUG
+
     @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)

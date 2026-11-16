@@ -40,8 +40,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.requests import ClientDisconnect, Request
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
@@ -182,12 +182,24 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
         return response
 
 
+#: The status a request is closed with when its client has already gone
+#: (nginx's "client closed request"); the standard registry has no code for it.
+_CLIENT_CLOSED_REQUEST = 499
+
+
 class ExceptionLoggingMiddleware(BaseHTTPMiddleware):
-    """Catch unhandled exceptions — log traceback + return structured JSON 500."""
+    """Catch unhandled exceptions — log traceback + return structured JSON 500.
+
+    A client that abandons its request is not a server error: it costs one
+    DEBUG line with no traceback and is answered ``499``, which nobody reads.
+    """
 
     async def dispatch(self, request: Request, call_next):
         try:
             return await call_next(request)
+        except ClientDisconnect:
+            logger.debug("Client disconnected on %s %s", request.method, request.url.path)
+            return Response(status_code=_CLIENT_CLOSED_REQUEST)
         except Exception as exc:
             logger.error(
                 "Unhandled exception on %s %s", request.method, request.url.path, exc_info=True
