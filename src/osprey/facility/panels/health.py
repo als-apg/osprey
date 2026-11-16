@@ -16,6 +16,7 @@ show "no rule here".
 from __future__ import annotations
 
 import functools
+import math
 import operator
 import re
 from collections.abc import Callable, Iterable, Mapping
@@ -29,15 +30,21 @@ State = Literal["normal", "warn", "bad", "unknown", "disagree"]
 _RANK: dict[str, int] = {"normal": 0, "unknown": 1, "disagree": 2, "warn": 3, "bad": 4}
 
 
-_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-_COMPARE = re.compile(rf"^(!=|<=|>=|<|>)\s*({_NUMBER})$")
-_BIT = re.compile(r"^bit(\d*)=(\d+)$")
-# a value that starts like an operator or a bit test but fits no form above is
-# unsupported; so is anything marked ``expr:``. Everything else is literal text.
-_LOOKS_LIKE_FORM = re.compile(r"^(expr:|[<>!=]|bit\d*=)")
-_DIGITS = re.compile(r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
+_NUMBER = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+_INTEGER = re.compile(r"[+-]?[0-9]+", re.ASCII)
+_NUMERIC = re.compile(_NUMBER, re.ASCII)
+_COMPARE = re.compile(rf"^(!=|<=|>=|<|>)\s*({_NUMBER})$", re.ASCII)
+_BIT = re.compile(r"^bit([0-9]*)\s*=\s*([0-9]+)$", re.ASCII)
+# A value that starts like an operator or a bit test but fits no form above is
+# unsupported, and so is anything marked ``expr:``. A row starting with ``<``,
+# ``>``, ``!`` or ``=`` therefore cannot be a literal label. Everything else is
+# literal text.
+_LOOKS_LIKE_FORM = re.compile(r"^(expr:|[<>!=]|bit[0-9]*\s*=)", re.ASCII)
+_DIGITS = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", re.ASCII)
 
-_COMPARE_OPS: dict[str, Callable[[float, float], bool]] = {
+Number = int | float
+
+_COMPARE_OPS: dict[str, Callable[[Number, Number], bool]] = {
     "!=": operator.ne,
     "<": operator.lt,
     "<=": operator.le,
@@ -46,23 +53,49 @@ _COMPARE_OPS: dict[str, Callable[[float, float], bool]] = {
 }
 
 
-def _number(value: Any) -> float | None:
-    """The live value as a number, or ``None`` (a bool is not a number here)."""
+def _parse_number(text: str) -> Number | None:
+    """A number from text: an integer stays an integer; NaN and infinities are not numbers."""
+    text = text.strip()
+    try:
+        if _INTEGER.fullmatch(text):
+            return int(text)
+        if _NUMERIC.fullmatch(text):
+            number = float(text)
+            return number if math.isfinite(number) else None
+    except (ValueError, OverflowError):
+        return None
+    return None
+
+
+def _number(value: Any) -> Number | None:
+    """The live value as a finite number, or ``None``.
+
+    An int, or a string that parses as an int, stays an int, so a large
+    integer keeps its precision. A bool, a NaN or an infinity is not a number.
+    """
     if isinstance(value, bool):
         return None
-    if isinstance(value, int | float):
-        return float(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        return _parse_number(value)
+    return None
+
+
+def _text(value: Any) -> str | None:
     try:
-        return float(str(value).strip())
-    except ValueError:
+        return str(value)
+    except Exception:
         return None
 
 
 def _literal(row_value: str) -> Callable[[Any], bool]:
-    expected = _number(row_value)
+    expected = _parse_number(row_value)
 
     def match(value: Any) -> bool:
-        if str(value) == row_value:
+        if _text(value) == row_value:
             return True
         live = _number(value)
         return expected is not None and live is not None and live == expected
@@ -70,7 +103,7 @@ def _literal(row_value: str) -> Callable[[Any], bool]:
     return match
 
 
-def _compare(op: str, limit: float) -> Callable[[Any], bool]:
+def _compare(op: str, limit: Number) -> Callable[[Any], bool]:
     compare = _COMPARE_OPS[op]
 
     def match(value: Any) -> bool:
@@ -99,9 +132,11 @@ def _parse(row_value: str) -> Callable[[Any], bool] | None:
     """
     text = row_value.strip()
     if found := _COMPARE.match(text):
-        return _compare(found.group(1), float(found.group(2)))
+        limit = _parse_number(found.group(2))
+        return None if limit is None else _compare(found.group(1), limit)
     if found := _BIT.match(text):
-        return _bit(int(found.group(1) or 0), int(found.group(2)))
+        wanted = int(found.group(2))
+        return _bit(int(found.group(1) or 0), wanted) if wanted in (0, 1) else None
     if _LOOKS_LIKE_FORM.match(text):
         return None
     return _literal(text)
@@ -113,7 +148,8 @@ def row_matches(row_value: str, value: Any) -> bool:
     The grammar of *row_value*: literal text or number (equal as text, or as
     numbers when both parse); ``!=N``, ``<N``, ``<=N``, ``>N``, ``>=N`` (numeric
     comparison; a live value that is not a number does not match); ``bit=N`` and
-    ``bitK=N`` (bit K of the live value as an integer, bit 0 for plain ``bit``).
+    ``bitK=N`` with N 0 or 1 (bit K of the live value as an integer, bit 0 for plain
+    ``bit``). A live value that is a NaN or an infinity is not a number for any form.
     Any other form, ``expr:`` rows among them, is unsupported and never matches.
     """
     test = _parse(row_value)
@@ -187,6 +223,8 @@ def rule_channels(graph: PanelGraph, node_id: str, kind: ThingKind | None = None
     if node.kind == "place":
         holders += graph.within(node.id, deep=True)
     elif node.kind == "group":
+        # The facility build refuses a group member that is not a device or a
+        # place, so a group cannot hold a group and no cycle can occur here.
         holders = []
         for member in graph.members(node.id):
             holders.append(member)

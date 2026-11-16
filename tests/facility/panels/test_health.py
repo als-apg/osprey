@@ -133,7 +133,7 @@ def test_bit_rows_on_a_channel(panel_graph):
 
 
 def test_unsupported_counts_forms_with_digits_replaced(panel_graph):
-    assert unsupported(panel_graph) == {"expr:a>N": 2}
+    assert unsupported(panel_graph) == {"expr:a>N": 2, "bitN=N": 1}
 
 
 def test_worst_orders_the_states():
@@ -249,3 +249,69 @@ def test_a_roll_up_over_a_large_place_is_linear():
     started = time.perf_counter()
     assert rollup(Big(), "P", values) == "normal"
     assert time.perf_counter() - started < 2
+
+
+BIG = 2**53 + 1
+NAN = float("nan")
+INF = float("inf")
+
+
+class _Odd:
+    def __str__(self):
+        raise RuntimeError("no text")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [NAN, INF, -INF, "nan", "inf", 10**400, -(10**400), None, "", [], [1], object(), _Odd()],
+)
+def test_no_live_value_can_raise(panel_graph, value):
+    names = [PUMP, SUPPLY, *PLACE_XR02, "XR02:BEND1:Current-RB"]
+    for name in names:
+        assert channel_state(panel_graph, name, value) in {
+            "unknown",
+            "normal",
+            "warn",
+            "bad",
+            "disagree",
+        }
+    assert rollup(panel_graph, "XR", dict.fromkeys(names, value)) is not None
+    for row in ("bit=1", "bit3=0", ">5", "<=5", "!=0", "0", "OPEN"):
+        assert row_matches(row, value) in {True, False}
+
+
+def test_a_big_integer_keeps_its_precision():
+    assert row_matches("bit0=1", BIG) is True
+    assert row_matches("bit0=1", str(BIG)) is True
+    assert row_matches("bit0=1", BIG - 1) is False
+    assert row_matches(">9007199254740992", BIG) is True
+    assert row_matches("<=9007199254740992", BIG) is False
+    assert row_matches("!=9007199254740993", BIG) is False
+    assert row_matches(f"{BIG}", BIG) is True
+    assert row_matches("9007199254740992", BIG) is False
+
+
+@pytest.mark.parametrize("row", ["!=0", "<5", "<=5", ">-5", ">=-5", "bit=0", "bit=1", "bit3=1"])
+@pytest.mark.parametrize("value", [NAN, INF, -INF, "nan", "inf", "-inf", "Infinity"])
+def test_a_non_finite_value_matches_no_operator_row(row, value):
+    assert row_matches(row, value) is False
+
+
+def test_a_non_finite_channel_is_unknown(panel_graph):
+    for value in (NAN, INF, -INF, "nan"):
+        assert channel_state(panel_graph, "XR02:IP1:Pressure-RB", value) == "unknown"
+        assert channel_state(panel_graph, "XR02:QD1:Current-RB", value) == "unknown"
+
+
+def test_a_bit_row_needs_zero_or_one():
+    for row in ("bit=2", "bit1=7"):
+        assert row_matches(row, 5) is False
+        assert row_matches(row, 2) is False
+
+
+def test_the_bit_form_tolerates_the_spaces_the_comparisons_do():
+    assert row_matches("bit1= 1", 2) is True
+    assert row_matches("bit1 =1", 2) is True
+    assert row_matches("bit1 = 1", 2) is True
+    assert row_matches(">= 5", 5) is True
+    assert row_matches("> 5", 6) is True
