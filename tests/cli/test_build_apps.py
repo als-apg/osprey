@@ -36,6 +36,7 @@ KNOB: dict[str, Any] = {
         "container": "knob",
         "launch_token": True,
         "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
+        "roster_grant": {},
     },
     "tools": {
         "module": "knob_app.tools",
@@ -234,6 +235,21 @@ def test_a_shared_person_card_on_an_arming_login_is_refused_naming_the_card(
     assert "alice" in output
     assert "knob" in output
     assert "is shared" in output
+
+
+def test_a_roster_card_showing_a_panel_with_no_roster_grant_is_refused(
+    lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    panel = {k: v for k, v in KNOB["panel"].items() if k != "roster_grant"}
+    _with_knob(lifecycle_repo, panel=panel)
+
+    result = invoke_build(lifecycle_repo)
+    output = result.output + caplog.text
+
+    assert result.exit_code != 0, output
+    assert "roster_grant" in output
+    assert "'knob'" in output
+    assert "'alice'" in output
 
 
 @pytest.mark.parametrize(
