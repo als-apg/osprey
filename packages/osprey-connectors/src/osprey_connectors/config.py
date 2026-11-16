@@ -1004,6 +1004,13 @@ _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, object] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
 
+#: Whether the default singleton was chosen by ``CONFIG_FILE``, which
+#: :func:`osprey_connectors.workspace.resolve_config_path` does not consult.
+#: :func:`osprey_connectors.workspace.load_osprey_config` then reads the file it
+#: resolves without making it the default, so the lookups that follow keep
+#: answering from the file the process was pointed at.
+_default_pinned = False
+
 
 def _get_config(config_path: str | None = None, set_as_default: bool = False) -> ConfigBuilder:
     """Get configuration instance (singleton pattern with optional explicit path).
@@ -1032,12 +1039,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
         >>> # Explicit path that becomes the default
         >>> config = _get_config("/path/to/config.yml", set_as_default=True)
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
     if config_path is None:
         if _default_config is None:
             config_file = os.environ.get("CONFIG_FILE")
             _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
+            _default_pinned = bool(config_file)
 
             _default_configurable = _default_config.configurable.copy()
 
@@ -1060,6 +1068,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if set_as_default:
         _default_config = _config_cache[resolved_path]
         _default_configurable = _default_config.configurable.copy()
+        _default_pinned = False
         logger.debug(f"Set explicit config as default: {resolved_path}")
 
     return _config_cache[resolved_path]

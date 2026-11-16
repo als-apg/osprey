@@ -22,7 +22,11 @@ import pytest
 from osprey_connectors import types
 from osprey_connectors.config import ConfigBuilder, default_config_path, get_config_value
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+from osprey_connectors.workspace import (
+    load_osprey_config,
+    resolve_config_path,
+    resolve_shared_data_root,
+)
 
 ARCHIVER_URL = "https://archiver.example.org:8443"
 
@@ -94,6 +98,32 @@ def test_config_file_outranks_the_resolved_path(project, tmp_path, monkeypatch):
     monkeypatch.setenv("CONFIG_FILE", str(handed))
 
     assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+
+
+def test_a_data_root_lookup_keeps_the_default_config_file_chose(project, tmp_path, monkeypatch):
+    """``load_osprey_config`` reads the file :func:`resolve_config_path` names,
+    which ignores ``CONFIG_FILE``; it must not repoint the lookups that follow."""
+    write_config(project / "build" / "config.yml", types.MOCK_ARCHIVER)
+    handed = write_config(tmp_path / "handed" / "config.yml")
+    monkeypatch.setenv("CONFIG_FILE", str(handed))
+    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+
+    resolve_shared_data_root()
+
+    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert Path(default_config_path()) == handed
+
+
+def test_a_data_root_lookup_still_settles_a_default_nothing_pinned(project, tmp_path, monkeypatch):
+    write_config(project / "build" / "config.yml", types.MOCK_ARCHIVER)
+    assert get_config_value("archiver.type") == types.MOCK_ARCHIVER
+    named = write_config(tmp_path / "named" / "config.yml")
+    monkeypatch.setenv("OSPREY_CONFIG", str(named))
+
+    resolve_shared_data_root()
+
+    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert Path(default_config_path()) == named
 
 
 def test_a_config_at_the_directory_root_is_still_found(project):
