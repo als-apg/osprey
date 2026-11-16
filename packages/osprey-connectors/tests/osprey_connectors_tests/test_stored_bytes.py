@@ -46,7 +46,7 @@ CONTEXT_FULL = ControlContext(
     switch={"standin": "asked", "live": "allowed"},
     switch_epoch=1700000000000000001,
 )
-CONTEXT_BARE = ControlContext(target="sandbox", generation=0)
+CONTEXT_BARE = ControlContext(target="va", generation=0)
 REPORT_DISPLAY = ServerReport(
     server_pid=4321,
     session="s-1",
@@ -140,7 +140,7 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
         b"""{
   "schema": 1,
   "owner": null,
-  "target": "sandbox",
+  "target": "va",
   "generation": 0,
   "posture": {
     "live": "sandbox",
