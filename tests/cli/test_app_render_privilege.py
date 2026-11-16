@@ -27,7 +27,7 @@ from osprey.deployment.web_terminals.roster import (
     PRIVILEGE_SETUP_TOOL,
     tier_privileges,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
 _CODE = "web_terminals.shared_render_holds_privilege"

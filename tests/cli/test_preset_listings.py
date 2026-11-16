@@ -24,7 +24,7 @@ from osprey.cli.build_profile_presets import (
     list_tiers,
 )
 from osprey.cli.profile_root import ProfileKind
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _expected_refusal(name: str, kind: str = "tier") -> str:

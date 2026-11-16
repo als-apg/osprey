@@ -28,10 +28,11 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, refusals, session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve
 from osprey_connectors.write_authorization import (
     Approver,
-    AuthorizationRefused,
+    AuthorizationRefusedError,
     ChannelRange,
     Grant,
     Ledger,
@@ -634,7 +635,7 @@ class TestFailClosedReads:
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
         grant = make_grant()
         _issue_grant(grant, directory=ledgers)
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             start_lease(grant.id)
         assert refused.value.reason == "auth_unreadable"
         assert verdict(grant.id).reason == "auth_unreadable"
@@ -873,7 +874,7 @@ class TestLease:
 
     def test_a_lease_is_started_once(self):
         grant = approve()
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             start_lease(grant.id)
         assert refused.value.reason == "auth_lease_lapsed"
 
@@ -888,7 +889,7 @@ class TestLease:
     def test_a_lease_is_not_started_on_a_grant_out_of_force(self, fields, reason):
         grant = make_grant(**fields)
         _issue_grant(grant)
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             start_lease(grant.id)
         assert refused.value.reason == reason
         assert not ledger_path(grant.id).exists()
@@ -1164,7 +1165,7 @@ class TestSelfIssue:
     def test_below_allowed_nothing_is_issued(self, position, reason):
         if position != "off":
             switch(position)
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             _self_issue()
         assert refused.value.reason == reason
         assert list_grants(grants_dir()) == ((), ())
@@ -1172,7 +1173,7 @@ class TestSelfIssue:
     def test_a_pinned_launch_issues_nothing(self, monkeypatch):
         switch("allowed")
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             _self_issue()
         assert refused.value.reason == "launch_pinned"
 
@@ -1187,7 +1188,7 @@ class TestSelfIssue:
             return path
 
         monkeypatch.setattr(wa, "_issue_grant", stop_after)
-        with pytest.raises(AuthorizationRefused):
+        with pytest.raises(AuthorizationRefusedError):
             _self_issue()
         assert list_grants(grants_dir()) == ((), ())
 
@@ -1263,7 +1264,7 @@ class TestOverlap:
         held = make_grant(holder="optimizer")
         _issue_grant(held)
         candidate = make_grant(holder="bluesky")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             _issue_grant(candidate)
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
@@ -1336,7 +1337,7 @@ class TestOverlap:
         )
         ledger_path(held.id).write_text(json.dumps(leased.to_payload()))
         candidate = make_grant(holder="bluesky")
-        with pytest.raises(AuthorizationRefused):
+        with pytest.raises(AuthorizationRefusedError):
             _issue_grant(candidate)
         lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
         ledger_path(held.id).write_text(json.dumps(lapsed.to_payload()))
@@ -1349,7 +1350,7 @@ class TestOverlap:
         grants_dir().mkdir(parents=True, exist_ok=True)
         grant_path(held.id).write_text(json.dumps(held.to_payload()))
         candidate = make_grant(holder="bluesky")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             _issue_grant(candidate)
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
@@ -1396,7 +1397,7 @@ class TestOverlap:
             )
             return wa.approve_request(request, surface="cli").id
 
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_candidate()
         assert refused.value.reason == "auth_overlap"
         lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
@@ -1413,8 +1414,10 @@ class TestOverlap:
 
     def test_an_id_is_issued_once(self):
         grant = approve()
-        with pytest.raises(FileExistsError):
+        with pytest.raises(AlreadyApprovedError) as caught:
             _issue_grant(grant)
+        assert caught.value.authorization == grant.id
+        assert isinstance(caught.value, FileExistsError)
 
     def test_ledgers_and_locks_are_not_grants(self):
         grant = approve()
@@ -1455,7 +1458,7 @@ ISSUER = textwrap.dedent(
     try:
         wa._issue_grant(grant, directory=directory)
         print("issued", flush=True)
-    except wa.AuthorizationRefused as refused:
+    except wa.AuthorizationRefusedError as refused:
         print("refused", refused.reason, flush=True)
     """
 )

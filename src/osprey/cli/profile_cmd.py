@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
+from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
 from osprey.utils.workspace import (
@@ -40,7 +41,6 @@ from osprey.utils.workspace import (
     PRESET_TRACKING_DIRNAME,
     TIERS_DIRNAME,
 )
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
 from .output import report, section

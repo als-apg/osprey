@@ -21,7 +21,7 @@ import yaml
 from osprey.cli.build_persistence import _persist_artifact_server
 from osprey.cli.build_profile import BuildProfile
 from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

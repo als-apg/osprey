@@ -25,7 +25,7 @@ from osprey.cli.build_profile_merge import (
 )
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.profile_root import ProfileKind
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 _ROOT = {

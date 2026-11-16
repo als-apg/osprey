@@ -32,8 +32,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir, resolve_service_template
 from osprey.cli.init_cmd import init
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
@@ -873,7 +873,7 @@ class TestBuildProfileChannelFinderModeValidation:
 
     def test_validate_rejects_channel_finder_mode_all(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import BuildProfile
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         profile = BuildProfile(name="t", channel_finder_mode="all")
         with pytest.raises(BuildProfileError) as exc:
@@ -883,7 +883,7 @@ class TestBuildProfileChannelFinderModeValidation:
 
     def test_validate_rejects_unknown_channel_finder_mode(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import BuildProfile
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         profile = BuildProfile(name="t", channel_finder_mode="bogus")
         with pytest.raises(BuildProfileError):

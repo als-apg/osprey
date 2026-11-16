@@ -19,6 +19,7 @@ import pytest
 
 import osprey_connectors.control_system._epics_connector as epics_connector_module
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.errors import ConnectRefusedError
 from osprey_connectors.ipc import _host, _pool
 from osprey_connectors.ipc._pool import ConnectorHostPool
 from osprey_connectors.ipc._verification import _selected_role, derive_endpoints
@@ -140,7 +141,7 @@ async def test_connect_selects_the_selected_role(monkeypatch, shape, writes, rea
         assert connector._selected_role == expected
         assert os.environ["EPICS_CA_ADDR_LIST"] == gateways[expected]["address"]
     else:
-        with pytest.raises(ConnectionError) as caught:
+        with pytest.raises(ConnectRefusedError) as caught:
             await connector.connect({"gateways": gateways})
         assert "no read-only gateway" in str(caught.value)
         assert "deployment admin" in str(caught.value)

@@ -395,8 +395,8 @@ class TangoConnector(ControlSystemConnector):
             attributes) the state labels
 
         Raises:
-            ChannelUnreachableError: If the device or its attribute cannot be reached
-            TimeoutError: If the read does not answer within its ceiling
+            ChannelUnreachableError: If the device or its attribute cannot be
+                reached, or the read does not answer within its ceiling
             ValueError: If the address does not name a device and an attribute
         """
         ceiling = timeout_s if timeout_s is not None else self._timeout_s
@@ -405,8 +405,8 @@ class TangoConnector(ControlSystemConnector):
                 asyncio.to_thread(self._read_channel_sync, address), ceiling
             )
         except TimeoutError:
-            raise TimeoutError(
-                f"TANGO attribute '{address}' did not answer within {ceiling}s"
+            raise ChannelUnreachableError(
+                address, f"TANGO attribute '{address}' did not answer within {ceiling}s"
             ) from None
 
     @override

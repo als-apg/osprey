@@ -152,6 +152,12 @@ from pydantic import (
 )
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.errors import (
+    AlreadyApprovedError,
+    ConnectorsError,
+    StateLockedError,
+    StateUnavailableError,
+)
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
@@ -171,7 +177,7 @@ __all__ = [
     "REQUESTS_DIR_NAME",
     "SELF_ISSUE_SURFACE",
     "Approver",
-    "AuthorizationRefused",
+    "AuthorizationRefusedError",
     "ChannelRange",
     "Grant",
     "GrantStanding",
@@ -575,7 +581,7 @@ class Ledger(FrozenModel):
         return self
 
 
-class AuthorizationRefused(Exception):
+class AuthorizationRefusedError(ConnectorsError):
     """A writer of this module refused, for one of the refusal reasons.
 
     Attributes:
@@ -1263,7 +1269,7 @@ def _locked(lock: Path) -> Iterator[None]:
 
     Raises:
         OSError: A link sits at *lock*, or it could not be opened.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
     """
     fd = _open_lock(lock)
     try:
@@ -1274,8 +1280,10 @@ def _locked(lock: Path) -> Iterator[None]:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(
-                        f"{lock} stayed locked for {_LOCK_TIMEOUT_S:g} s; nothing was written"
+                    raise StateLockedError(
+                        f"{lock} stayed locked for {_LOCK_TIMEOUT_S:g} s; nothing was written",
+                        path=lock,
+                        waited_s=_LOCK_TIMEOUT_S,
                     ) from None
                 time.sleep(_LOCK_POLL_S)
         try:
@@ -1305,14 +1313,14 @@ def _checked_ledger_place(authorization: str, *, create: bool = False) -> _Place
 
     Raises:
         ValueError: *authorization* is not an id.
-        AuthorizationRefused: ``auth_unreadable`` — no usable ledger directory.
+        AuthorizationRefusedError: ``auth_unreadable`` — no usable ledger directory.
     """
     _authorization_id(authorization)
     place = _ledger_place()
     if create and place is not None and place.segments and _dir_status(place) == "absent":
         _prepare_directory(place.path)
     if place is None or _dir_status(place) != "ok":
-        raise AuthorizationRefused(
+        raise AuthorizationRefusedError(
             "auth_unreadable", "This process has no usable write ledger directory."
         )
     return place
@@ -1471,25 +1479,25 @@ def _live_grant(owner: str | NoOwner | None, authorization: str, now_ns: int) ->
     """The grant this process holds, still in force (not revoked, epoch, expiry).
 
     Raises:
-        AuthorizationRefused: For the reason it is not.
+        AuthorizationRefusedError: For the reason it is not.
     """
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefused("owner_unknown")
+        raise AuthorizationRefusedError("owner_unknown")
     readable, record = _governing_record(resolved)
     if not readable:
-        raise AuthorizationRefused("record_unavailable")
+        raise AuthorizationRefusedError("record_unavailable")
     status, grant = _find_grant(resolved, authorization)
     if status == "absent":
-        raise AuthorizationRefused("switch_off", "No such authorization.")
+        raise AuthorizationRefusedError("switch_off", "No such authorization.")
     if status != "ok" or grant is None:
-        raise AuthorizationRefused("auth_unreadable")
+        raise AuthorizationRefusedError("auth_unreadable")
     if grant.owner != resolved or grant.holder != acting_identity():
-        raise AuthorizationRefused("auth_holder")
+        raise AuthorizationRefusedError("auth_holder")
     if grant.revoked is not None or record is None or record.switch_epoch != grant.switch_epoch:
-        raise AuthorizationRefused("auth_revoked")
+        raise AuthorizationRefusedError("auth_revoked")
     if now_ns >= grant.expires_at_ns:
-        raise AuthorizationRefused("auth_expired")
+        raise AuthorizationRefusedError("auth_expired")
     return grant
 
 
@@ -1504,11 +1512,11 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
 
     Raises:
         ValueError: *authorization* is not an id.
-        AuthorizationRefused: The grant is absent, unreadable, not this
+        AuthorizationRefusedError: The grant is absent, unreadable, not this
             holder's, revoked or expired (its reason), there is no usable
             ledger directory (``auth_unreadable``), or the ledger exists
             (``auth_lease_lapsed``).
-        RuntimeError: The ledger stayed locked past the bounded wait.
+        StateLockedError: The ledger stayed locked past the bounded wait.
         OSError: The write failed.
     """
     place = _checked_ledger_place(authorization, create=True)
@@ -1517,7 +1525,7 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
         grant = _live_grant(owner, authorization, now)
         status, _ledger = _read_ledger_at(place, authorization)
         if status != "absent":
-            raise AuthorizationRefused("auth_lease_lapsed", "A lease was already started.")
+            raise AuthorizationRefusedError("auth_lease_lapsed", "A lease was already started.")
         pid = os.getpid()
         ledger = Ledger(
             authorization=authorization,
@@ -1566,7 +1574,7 @@ def _grant_directory(directory: Path | None, owner: str) -> Path:
         return Path(directory)
     path = authorizations_dir(owner)
     if path is None:
-        raise RuntimeError(f"No authorizations directory is reachable for {owner!r}")
+        raise StateUnavailableError(f"No authorizations directory is reachable for {owner!r}")
     return path
 
 
@@ -1716,9 +1724,10 @@ def _issue_grant(
         ValueError: *grant* is not a grant this version can read back, or
             its budget, expiry or lease is past a ceiling
             (:func:`_within_ceilings`); nothing is written.
-        FileExistsError: A grant with this id exists.
-        AuthorizationRefused: ``auth_overlap``.
-        RuntimeError: No directory is reachable, or the lock was not acquired.
+        AlreadyApprovedError: A grant with this id exists.
+        AuthorizationRefusedError: ``auth_overlap``.
+        StateUnavailableError: No directory is reachable.
+        StateLockedError: The lock was not acquired.
         OSError: The directory is not a plain directory, or the write failed.
     """
     payload = grant.to_payload()
@@ -1729,7 +1738,7 @@ def _issue_grant(
     path = target_dir / f"{grant.id}{_GRANT_SUFFIX}"
     with _locked(target_dir / _DIRECTORY_LOCK_NAME):
         if os.path.lexists(path):
-            raise FileExistsError(errno.EEXIST, f"{path} exists; nothing was written")
+            raise AlreadyApprovedError(path, authorization=grant.id)
         existing, unreadable = list_grants(target_dir)
         if unreadable:
             logger.warning(
@@ -1742,7 +1751,7 @@ def _issue_grant(
             ledger_dirs=(target_dir, *peers),
         )
         if held is not None:
-            raise AuthorizationRefused(
+            raise AuthorizationRefusedError(
                 "auth_overlap", f"Held by {held.holder} under {held.id} ({held.label})."
             )
         _write_json(path, payload)
@@ -1766,7 +1775,8 @@ def revoke_grants(
     defaults to this process's own authorizations directory.
 
     Raises:
-        RuntimeError: No directory is reachable, or the lock was not acquired.
+        StateUnavailableError: No directory is reachable.
+        StateLockedError: The lock was not acquired.
         OSError: The directory is not a plain directory, or a write failed.
     """
     target_dir = _grant_directory(directory, acting_identity())
@@ -1829,28 +1839,28 @@ def self_issue(
     Raises:
         ValueError: The channels, steps, expiry or lease are malformed, or
             past a ceiling (:func:`_within_ceilings`).
-        AuthorizationRefused: The switch verdict's reason; ``auth_revoked``
+        AuthorizationRefusedError: The switch verdict's reason; ``auth_revoked``
             when it allows below ``allowed`` or moved during the issue;
             ``record_unavailable`` for a record with no epoch;
             ``auth_unreadable`` for no usable ledger directory.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
         OSError: The write failed.
     """
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefused("owner_unknown")
+        raise AuthorizationRefusedError("owner_unknown")
 
     def epoch_at_allowed() -> int:
         switch = posture_store.write_verdict(section, target, owner=resolved)
         if not switch.allowed:
-            raise AuthorizationRefused(switch.reason or "switch_off")
+            raise AuthorizationRefusedError(switch.reason or "switch_off")
         if switch.position != "allowed":
-            raise AuthorizationRefused("auth_revoked", "The switch is not at allowed.")
+            raise AuthorizationRefusedError("auth_revoked", "The switch is not at allowed.")
         readable, record = _governing_record(resolved)
         if not readable:
-            raise AuthorizationRefused("record_unavailable")
+            raise AuthorizationRefusedError("record_unavailable")
         if record is None or record.switch_epoch is None:
-            raise AuthorizationRefused("record_unavailable", "The switch has no epoch.")
+            raise AuthorizationRefusedError("record_unavailable", "The switch has no epoch.")
         return record.switch_epoch
 
     epoch = epoch_at_allowed()
@@ -1880,7 +1890,7 @@ def self_issue(
     path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
     try:
         if epoch_at_allowed() != epoch:
-            raise AuthorizationRefused("auth_revoked", "A stop came during the issue.")
+            raise AuthorizationRefusedError("auth_revoked", "A stop came during the issue.")
     except BaseException:
         with contextlib.suppress(OSError):
             path.unlink()
@@ -1977,7 +1987,7 @@ def prune_grants(
     none. Never removes a ledger, which is the holder's.
 
     Raises:
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
         OSError: The directory is not a plain directory, or a removal failed.
     """
     directory = Path(directory)
@@ -2098,14 +2108,14 @@ def approved_grant(authorization: str, *, owner: str | NoOwner | None = None) ->
 
     Raises:
         ValueError: *authorization* is not an id.
-        AuthorizationRefused: The grant is there and does not stand — unreadable,
+        AuthorizationRefusedError: The grant is there and does not stand — unreadable,
             another holder's, revoked or expired — or the owner's record
             cannot be read.
     """
     _authorization_id(authorization)
     try:
         return _live_grant(owner, authorization, _now_ns())
-    except AuthorizationRefused as refused:
+    except AuthorizationRefusedError as refused:
         if refused.reason == "switch_off":
             return None
         raise
@@ -2325,13 +2335,13 @@ def write_request(
         ValueError: The channels, steps, expiry, lease or completion are
             malformed, or the steps, expiry or lease are past a ceiling
             (:func:`_within_ceilings`); nothing is written.
-        AuthorizationRefused: ``owner_unknown``; ``auth_unreadable`` for no
+        AuthorizationRefusedError: ``owner_unknown``; ``auth_unreadable`` for no
             usable ledger directory.
         OSError: The write failed.
     """
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefused("owner_unknown")
+        raise AuthorizationRefusedError("owner_unknown")
     request = WriteRequest(
         id=uuid.uuid4().hex,
         owner=resolved,
@@ -2363,7 +2373,7 @@ def withdraw_request(request_id: str) -> bool:
 
     Raises:
         ValueError: *request_id* is not an id.
-        AuthorizationRefused: ``auth_unreadable`` for no usable ledger directory.
+        AuthorizationRefusedError: ``auth_unreadable`` for no usable ledger directory.
     """
     place = _checked_ledger_place(request_id)
     try:
@@ -2423,12 +2433,13 @@ def approve_request(
     Raises:
         ValueError: *surface* is not an approval surface, or the grant is
             past a ceiling (:func:`_within_ceilings`); nothing is written.
-        AuthorizationRefused: ``record_unavailable`` for an unreadable record;
+        AuthorizationRefusedError: ``record_unavailable`` for an unreadable record;
             ``auth_expired`` for a request whose expiry has passed;
             ``auth_overlap`` from the issue; ``owner_foreign``
             for no *record_file* and an owner who is not this process.
-        FileExistsError: The request is approved already.
-        RuntimeError: A lock was not acquired in time, or no record path resolves.
+        AlreadyApprovedError: The request is approved already.
+        StateLockedError: A lock was not acquired in time.
+        StateUnavailableError: No record path resolves.
         OSError: A write failed.
     """
     if surface not in _APPROVAL_SURFACES:
@@ -2436,17 +2447,17 @@ def approve_request(
     identity = approver or acting_identity()
     if record_file is None:
         if request.owner != acting_identity():
-            raise AuthorizationRefused("owner_foreign")
+            raise AuthorizationRefusedError("owner_foreign")
         record_file = control_context.record_path()
         if record_file is None:
-            raise RuntimeError("No agent-data root: there is no record to approve under")
+            raise StateUnavailableError("No agent-data root: there is no record to approve under")
     record_file = Path(record_file)
     directory = record_file.parent / AUTHORIZATIONS_DIR_NAME
     try:
         with control_context.held_epoch(record_file, request.target) as epoch:
             now = _now_ns()
             if now >= request.expires_at_ns:
-                raise AuthorizationRefused("auth_expired", "The request's expiry has passed.")
+                raise AuthorizationRefusedError("auth_expired", "The request's expiry has passed.")
             grant = request.grant(
                 switch_epoch=epoch,
                 approver=Approver(identity=identity, surface=surface, at_ns=now),
@@ -2457,7 +2468,7 @@ def approve_request(
                 directory=directory,
                 peers=self_issued_directories() if peers is None else peers,
             )
-    except control_context.RecordUnavailable as exc:
-        raise AuthorizationRefused("record_unavailable") from exc
+    except control_context.RecordUnavailableError as exc:
+        raise AuthorizationRefusedError("record_unavailable") from exc
     control_context.invalidate_cache()
     return grant

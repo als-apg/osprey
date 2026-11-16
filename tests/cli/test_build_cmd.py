@@ -21,7 +21,7 @@ from osprey.cli.build_profile import (
     load_profile,
 )
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
 from tests.cli._lifecycle_build import invoke_build
 
@@ -1540,7 +1540,7 @@ class TestResolveOspreySpec:
         wrote, with nothing saying the two differ.
         """
         from osprey.cli.build_cmd import _resolve_osprey_spec
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         fake = self._fake_dist(
             version="2026.5.0.post783+g83fda5e60",

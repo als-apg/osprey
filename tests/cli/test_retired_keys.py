@@ -32,7 +32,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_load import _parse_profile, manifest_rows
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.cli.config_cmd import packaged_manifest_path
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
 
 #: One leaf the tests spell under each retired key, and the text of its

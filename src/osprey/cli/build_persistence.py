@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from .build_profile_model import BuildProfile
     from .profile_conventions import ConventionCopy
 
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
 from .phase_reporter import report_step

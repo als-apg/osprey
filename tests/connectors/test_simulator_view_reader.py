@@ -29,7 +29,7 @@ from osprey_connectors.simulation.view import (
     Binding,
     Channel,
     Model,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
     ViewSchemaError,
 )
@@ -200,7 +200,7 @@ def test_a_wiring_record_without_its_description_asks_for_a_rebuild() -> None:
 
 
 def test_a_missing_view_is_no_view_and_find_says_none(tmp_path: Path) -> None:
-    with pytest.raises(NoSimulatorView, match="run osprey build"):
+    with pytest.raises(NoSimulatorViewError, match="run osprey build"):
         SimulatorView.open(tmp_path / "nowhere")
 
     assert SimulatorView.find(tmp_path) is None

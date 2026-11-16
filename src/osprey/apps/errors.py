@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 @dataclass(frozen=True)

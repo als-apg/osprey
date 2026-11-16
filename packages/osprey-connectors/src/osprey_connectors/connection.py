@@ -44,6 +44,7 @@ from typing import Literal
 from pydantic import Field
 from typing_extensions import override
 
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
 
 __all__ = [
@@ -175,7 +176,7 @@ class ConnectionSettings(FrozenModel):
         endpoint, in place of the default roots. Verification stays on either way.
 
         Raises:
-            ValueError: The CA file is missing, unreadable or holds no certificate.
+            ConfigurationError: The CA file is missing, unreadable or holds no certificate.
         """
         if self.ca_bundle is None:
             return ssl.create_default_context()
@@ -183,12 +184,19 @@ class ConnectionSettings(FrozenModel):
         try:
             return ssl.create_default_context(cafile=str(self.ca_bundle))
         except FileNotFoundError as e:
-            raise ValueError(f"{key} names {self.ca_bundle}, which does not exist.") from e
+            raise ConfigurationError(
+                f"{key} names {self.ca_bundle}, which does not exist.",
+                key=f"{self.where}.tls.ca_bundle",
+            ) from e
         except (IsADirectoryError, PermissionError) as e:
-            raise ValueError(f"{key} names {self.ca_bundle}, which cannot be read: {e}") from e
+            raise ConfigurationError(
+                f"{key} names {self.ca_bundle}, which cannot be read: {e}",
+                key=f"{self.where}.tls.ca_bundle",
+            ) from e
         except ssl.SSLError as e:
-            raise ValueError(
-                f"{key} names {self.ca_bundle}, which holds no PEM certificate: {e}"
+            raise ConfigurationError(
+                f"{key} names {self.ca_bundle}, which holds no PEM certificate: {e}",
+                key=f"{self.where}.tls.ca_bundle",
             ) from e
 
 
@@ -219,7 +227,7 @@ def read_connection_settings(
 
     Raises:
         TypeError: ``logins`` or ``tls`` is restricted without a reason.
-        ValueError: The block breaks the shape. The message starts with the key
+        ConfigurationError: The block breaks the shape. The message starts with the key
             and never repeats a value from under ``auth:`` or a url's userinfo.
     """
     if (logins != _ALL_LOGINS or not tls) and not unsupported_because:
@@ -227,13 +235,20 @@ def read_connection_settings(
     if block is None:
         block = {}
     if not isinstance(block, Mapping):
-        raise ValueError(f"`{where}` must be a mapping, got {type(block).__name__}")
+        raise ConfigurationError(
+            f"`{where}` must be a mapping, got {type(block).__name__}", key=where
+        )
 
     for old, new in _MOVED_KEYS.items():
         if old in block:
-            raise ValueError(f"`{where}.{old}` is spelled `{where}.{new}`")
+            raise ConfigurationError(
+                f"`{where}.{old}` is spelled `{where}.{new}`", key=f"{where}.{old}"
+            )
     if "headers" in block:
-        raise ValueError(f"`{where}.headers`: no free-form header map: name a login under `auth:`")
+        raise ConfigurationError(
+            f"`{where}.headers`: no free-form header map: name a login under `auth:`",
+            key=f"{where}.headers",
+        )
 
     return ConnectionSettings(
         where=where,
@@ -261,20 +276,26 @@ def read_credential_env_names(
         where: The block's dotted key, named in every message.
 
     Raises:
-        ValueError: The block or its ``auth:`` is not a mapping, or ``auth:``
+        ConfigurationError: The block or its ``auth:`` is not a mapping, or ``auth:``
             names two logins.
     """
     if block is None:
         return ()
     if not isinstance(block, Mapping):
-        raise ValueError(f"`{where}` must be a mapping, got {type(block).__name__}")
+        raise ConfigurationError(
+            f"`{where}` must be a mapping, got {type(block).__name__}", key=where
+        )
     auth = block.get("auth")
     if auth is None:
         return ()
     if not isinstance(auth, Mapping):
-        raise ValueError(f"`{where}.auth` must be a mapping of {_AUTH_SHAPE}")
+        raise ConfigurationError(
+            f"`{where}.auth` must be a mapping of {_AUTH_SHAPE}", key=f"{where}.auth"
+        )
     if "token_env" in auth and ("username" in auth or "password_env" in auth):
-        raise ValueError(f"`{where}.auth` names two logins: use {_AUTH_SHAPE}, not both")
+        raise ConfigurationError(
+            f"`{where}.auth` names two logins: use {_AUTH_SHAPE}, not both", key=f"{where}.auth"
+        )
     return tuple((f"auth.{key}", auth[key]) for key in ("token_env", "password_env") if key in auth)
 
 
@@ -292,14 +313,16 @@ def read_ca_bundle(block: Mapping[str, object] | None, *, where: str) -> Path | 
         where: The block's dotted key, named in every message.
 
     Raises:
-        ValueError: The block or its ``tls:`` is not a mapping, ``tls:`` holds a
+        ConfigurationError: The block or its ``tls:`` is not a mapping, ``tls:`` holds a
             key other than ``ca_bundle``, or the path is blank, ``~``-spelled or
             relative.
     """
     if block is None:
         return None
     if not isinstance(block, Mapping):
-        raise ValueError(f"`{where}` must be a mapping, got {type(block).__name__}")
+        raise ConfigurationError(
+            f"`{where}` must be a mapping, got {type(block).__name__}", key=where
+        )
     return _read_tls(block.get("tls"), where, True, "")
 
 
@@ -308,13 +331,16 @@ def _read_url(value: object, where: str) -> str | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
     if not isinstance(value, str):
-        raise ValueError(f"`{where}.url` must be a string")
+        raise ConfigurationError(f"`{where}.url` must be a string", key=f"{where}.url")
     try:
         password = urllib.parse.urlsplit(value).password
     except ValueError:
-        raise ValueError(f"`{where}.url` is not a valid url") from None
+        raise ConfigurationError(f"`{where}.url` is not a valid url", key=f"{where}.url") from None
     if password is not None:
-        raise ValueError(f"`{where}.url`: a url may not carry a password; name it under `auth:`")
+        raise ConfigurationError(
+            f"`{where}.url`: a url may not carry a password; name it under `auth:`",
+            key=f"{where}.url",
+        )
     return value
 
 
@@ -322,7 +348,10 @@ def _read_timeout(value: object, where: str) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
-        raise ValueError(f"`{where}.timeout_s` must be a number of seconds greater than 0")
+        raise ConfigurationError(
+            f"`{where}.timeout_s` must be a number of seconds greater than 0",
+            key=f"{where}.timeout_s",
+        )
     return float(value)
 
 
@@ -337,9 +366,11 @@ def _read_auth(
         return None
     key = f"`{where}.auth`"
     if not logins:
-        raise ValueError(f"{key} is not accepted here: {unsupported_because}")
+        raise ConfigurationError(
+            f"{key} is not accepted here: {unsupported_because}", key=f"{where}.auth"
+        )
     if not isinstance(value, Mapping):
-        raise ValueError(f"{key} must be a mapping of {_AUTH_SHAPE}")
+        raise ConfigurationError(f"{key} must be a mapping of {_AUTH_SHAPE}", key=f"{where}.auth")
     for k in value:
         if k not in _AUTH_KEYS and k not in extra_auth_keys:
             hint = (
@@ -347,35 +378,48 @@ def _read_auth(
                 if k in _SECRET_LIKE_KEYS
                 else ""
             )
-            raise ValueError(f"`{where}.auth.{k}` is not a login key (use {_AUTH_SHAPE}){hint}")
+            raise ConfigurationError(
+                f"`{where}.auth.{k}` is not a login key (use {_AUTH_SHAPE}){hint}",
+                key=f"{where}.auth.{k}",
+            )
     has_token = "token_env" in value
     has_user = "username" in value
     has_password = "password_env" in value
     if has_token and (has_user or has_password):
-        raise ValueError(f"{key} names two logins: use {_AUTH_SHAPE}, not both")
+        raise ConfigurationError(
+            f"{key} names two logins: use {_AUTH_SHAPE}, not both", key=f"{where}.auth"
+        )
     if not (has_token or has_user or has_password):
-        raise ValueError(f"{key} names no login: set {_AUTH_SHAPE}")
+        raise ConfigurationError(f"{key} names no login: set {_AUTH_SHAPE}", key=f"{where}.auth")
     if has_user != has_password:
         missing = "password_env" if has_user else "username"
-        raise ValueError(f"`{where}.auth.{missing}` is missing: a password login needs both keys")
+        raise ConfigurationError(
+            f"`{where}.auth.{missing}` is missing: a password login needs both keys",
+            key=f"{where}.auth.{missing}",
+        )
 
     for env_key in ("token_env", "password_env"):
         if env_key in value:
             name = value[env_key]
             if not isinstance(name, str) or not ENV_NAME_RE.match(name):
-                raise ValueError(
+                raise ConfigurationError(
                     f"`{where}.auth.{env_key}` must name an environment variable (letters, "
-                    "digits and underscores, not starting with a digit)"
+                    "digits and underscores, not starting with a digit)",
+                    key=f"{where}.auth.{env_key}",
                 )
 
     kind: LoginKind = "token" if has_token else "password"
     if kind not in logins:
-        raise ValueError(f"{key} is not accepted here: {unsupported_because}")
+        raise ConfigurationError(
+            f"{key} is not accepted here: {unsupported_because}", key=f"{where}.auth"
+        )
     if kind == "token":
         return Login(kind="token", token_env=value["token_env"])
     username = value["username"]
     if not isinstance(username, str) or not username.strip():
-        raise ValueError(f"`{where}.auth.username` must be a non-empty string")
+        raise ConfigurationError(
+            f"`{where}.auth.username` must be a non-empty string", key=f"{where}.auth.username"
+        )
     return Login(kind="password", username=username, password_env=value["password_env"])
 
 
@@ -384,30 +428,41 @@ def _read_tls(value: object, where: str, tls: bool, unsupported_because: str) ->
         return None
     key = f"`{where}.tls`"
     if not tls:
-        raise ValueError(f"{key} is not accepted here: {unsupported_because}")
+        raise ConfigurationError(
+            f"{key} is not accepted here: {unsupported_because}", key=f"{where}.tls"
+        )
     if not isinstance(value, Mapping):
-        raise ValueError(f"{key} must be a mapping whose only key is `ca_bundle`")
+        raise ConfigurationError(
+            f"{key} must be a mapping whose only key is `ca_bundle`", key=f"{where}.tls"
+        )
     for k in value:
         if k not in _TLS_KEYS:
             hint = (
                 "; no setting turns certificate verification off" if k in _VERIFY_OFF_KEYS else ""
             )
-            raise ValueError(f"`{where}.tls.{k}` is not a tls key (use `ca_bundle`){hint}")
+            raise ConfigurationError(
+                f"`{where}.tls.{k}` is not a tls key (use `ca_bundle`){hint}",
+                key=f"{where}.tls.{k}",
+            )
     raw = value.get("ca_bundle")
     if raw is None:
         return None
     if not isinstance(raw, str) or not raw.strip():
-        raise ValueError(f"`{where}.tls.ca_bundle` must be a non-empty path")
+        raise ConfigurationError(
+            f"`{where}.tls.ca_bundle` must be a non-empty path", key=f"{where}.tls.ca_bundle"
+        )
     if raw.startswith("~"):
-        raise ValueError(
+        raise ConfigurationError(
             f"`{where}.tls.ca_bundle` must be an absolute path, got {raw!r}: `~` expands "
-            "against each process's own home, so spell the full path"
+            "against each process's own home, so spell the full path",
+            key=f"{where}.tls.ca_bundle",
         )
     path = Path(raw)
     if not path.is_absolute():
-        raise ValueError(
+        raise ConfigurationError(
             f"`{where}.tls.ca_bundle` must be an absolute path, got {raw!r}: a connector "
-            "has no project root to anchor a relative one"
+            "has no project root to anchor a relative one",
+            key=f"{where}.tls.ca_bundle",
         )
     return path
 
@@ -452,12 +507,14 @@ def urllib_opener(
     requests for the configured origin only. Building it opens no socket.
 
     Raises:
-        ValueError: The block has no http(s) url, or its CA file cannot be loaded.
+        ConfigurationError: The block has no http(s) url, or its CA file cannot be loaded.
         ConnectionError: The login's variable is unset.
     """
     url = settings.url or ""
     if urllib.parse.urlsplit(url).scheme.lower() not in _DEFAULT_PORTS:
-        raise ValueError(f"`{settings.where}.url` must be an http or https url")
+        raise ConfigurationError(
+            f"`{settings.where}.url` must be an http or https url", key=f"{settings.where}.url"
+        )
     handlers: list[urllib.request.BaseHandler] = [
         urllib.request.HTTPSHandler(context=settings.ssl_context())
     ]

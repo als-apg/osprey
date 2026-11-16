@@ -35,10 +35,10 @@ from osprey.deployment.web_terminals.roster import (
     expand_login_principals,
     resolve_cards,
 )
+from osprey.errors import BuildProfileError
 from osprey.interfaces.web_auth import WebCredentials
 from osprey.interfaces.web_terminal.app import _load_panel_config
 from osprey.services.auth_sidecar.identity_headers import canonical_identity
-from osprey_connectors.errors import BuildProfileError
 from tests._renders import tier_render
 from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
 from tests.interfaces.web_terminal._proxy_fakes import panel_app

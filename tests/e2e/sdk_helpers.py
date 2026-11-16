@@ -678,7 +678,7 @@ def set_switch_in_record(
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
         stored = control_context.set_switch(names, position, epoch=epoch, path=path)
-    except control_context.StoppedSince as refused:
+    except control_context.StoppedSinceError as refused:
         if not refused.stamped or refused.epoch is None:
             raise
         stored = control_context.set_switch(names, position, epoch=refused.epoch, path=path)

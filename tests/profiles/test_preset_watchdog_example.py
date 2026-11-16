@@ -20,10 +20,10 @@ from osprey.cli import build_profile
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.init_cmd import _source_zone_prose, init
 from osprey.cli.profile_cmd import MATERIALIZED_SOURCE_ENTRIES
+from osprey.errors import BuildProfileError
 from osprey.services.watchdog.config import ENGINE_AGENT, ENGINE_DECISION
 from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
-from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests.cli._lifecycle_build import invoke_build, rendered_config

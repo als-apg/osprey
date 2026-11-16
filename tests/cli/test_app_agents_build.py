@@ -15,7 +15,7 @@ from osprey.apps.manifest import parse_manifest
 from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_cmd import _copy_app_agents
 from osprey.deployment.web_terminals.render_naming import render_project
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 

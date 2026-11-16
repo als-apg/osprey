@@ -25,8 +25,8 @@ import pytest
 
 from osprey.cli.build_lifecycle import _SHELL_METACHARACTERS, _run_lifecycle_phase
 from osprey.cli.build_profile_resolve import resolve_build_profile
+from osprey.errors import BuildProfileError
 from osprey.integrations.canopy import LIBRARY_SUBPATH, library
-from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture

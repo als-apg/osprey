@@ -43,6 +43,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
 
 # Free at module level: ``osprey_connectors.logger`` above already pulls
@@ -56,7 +57,6 @@ from osprey.utils.workspace import (
     RUNTIME_WRITE_PATH_KEYS,
     STATE_DIR_NAME,
 )
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 

@@ -15,9 +15,9 @@ from jinja2 import TemplateRuntimeError
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
+from osprey.errors import BuildProfileError
 from osprey.facility.views.facts import zero_source_facts
 from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import (
     RENDERED_CONFIG_RELPATH,
@@ -2078,7 +2078,7 @@ class TestPhoebusAgentAccessContextKey:
         assert derived["phoebus_agent_access"] == "read_write"
 
     def test_unknown_value_is_refused_by_name(self):
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         with pytest.raises(BuildProfileError) as exc_info:
             self._derive({"phoebus": {"agent_access": "write"}})

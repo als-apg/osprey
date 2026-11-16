@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.errors import BuildProfileError
 from osprey.services.watchdog.definitions import load_profile_watchdogs, load_watchdogs
-from osprey_connectors.errors import BuildProfileError
 
 _LOGGER = "osprey.services.watchdog.definitions"
 

@@ -25,6 +25,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    ConnectRefusedError,
     RecoveryRecord,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
@@ -56,6 +57,7 @@ def _vocabulary() -> list[type[BaseException]]:
 _SAMPLES: dict[str, Callable[[], BaseException]] = {
     "ConnectionError": lambda: ConnectionError("gateway unreachable"),
     "TimeoutError": lambda: TimeoutError("read timed out after 2.0s"),
+    "ConnectRefusedError": lambda: ConnectRefusedError("no read-only gateway to connect through"),
     "ChannelError": lambda: ChannelError("SR:Q", "SR:Q failed its own way"),
     "ChannelLimitsViolationError": lambda: ChannelLimitsViolationError(
         address="SR:Q",
@@ -87,7 +89,8 @@ _SAMPLES: dict[str, Callable[[], BaseException]] = {
 
 
 def test_the_registry_is_the_builtins_plus_the_vocabulary():
-    expected = {"ConnectionError", "TimeoutError"} | {cls.__name__ for cls in _vocabulary()}
+    builtins_and_kin = {"ConnectionError", "TimeoutError", "ConnectRefusedError"}
+    expected = builtins_and_kin | {cls.__name__ for cls in _vocabulary()}
     assert set(exceptions.EXCEPTION_SPECS) == expected
     for tag, spec in exceptions.EXCEPTION_SPECS.items():
         assert spec.cls.__name__ == tag
@@ -131,6 +134,13 @@ def test_every_vocabulary_class_round_trips(tag):
         for name in spec.fields:
             assert getattr(rebuilt, name) == getattr(original, name), name
             assert type(getattr(rebuilt, name)) is type(getattr(original, name)), name
+
+
+def test_a_connect_refusal_crosses_as_itself_and_stays_a_connection_error():
+    rebuilt = _round_trip(ConnectRefusedError("no read-only gateway"))
+    assert type(rebuilt) is ConnectRefusedError
+    assert isinstance(rebuilt, ConnectionError)
+    assert not isinstance(rebuilt, ConnectorUnavailableError)
 
 
 def test_the_contract_fault_is_no_connection_error():

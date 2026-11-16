@@ -113,7 +113,7 @@ def turn_switch(target: str, state: str) -> None:
         record = control_context.read_record()
         try:
             control_context.set_switch([target], state, epoch=record.switch_epoch)
-        except control_context.StoppedSince:
+        except control_context.StoppedSinceError:
             control_context.invalidate_cache()
             record = control_context.read_record()
             control_context.set_switch([target], state, epoch=record.switch_epoch)

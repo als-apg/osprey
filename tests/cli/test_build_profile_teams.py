@@ -23,7 +23,7 @@ from osprey.cli.build_profile import (
     TeamsBridgeProfileConfig,
     _parse_profile,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _TRIGGERS_YAML = """\
 dispatcher:

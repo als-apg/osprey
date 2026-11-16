@@ -326,6 +326,7 @@ def approve(
     """Approve REQUEST (a request file, or its id) as its owner."""
     from osprey import write_authorization as approval
     from osprey_connectors import write_authorization as wa
+    from osprey_connectors.errors import AlreadyApprovedError
     from osprey_connectors.identity import acting_identity
 
     scope = _scope(repo, config_option)
@@ -377,9 +378,9 @@ def approve(
         grant = wa.approve_request(
             wanted, surface="cli", record_file=scope.record_file(login), peers=peers
         )
-    except wa.AuthorizationRefused as exc:
+    except wa.AuthorizationRefusedError as exc:
         raise click.ClickException(f"Not approved ({exc.reason}): {exc}") from None
-    except FileExistsError:
+    except AlreadyApprovedError:
         raise click.ClickException(f"{wanted.id} is approved already.") from None
     except (OSError, RuntimeError, ValueError) as exc:
         fail("Not approved: nothing was written", str(exc))

@@ -58,7 +58,7 @@ from osprey_connectors.simulation.values import is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     VARIABLES_FILE,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
 )
 from osprey_connectors.simulator import virtual_accelerator_port
@@ -319,7 +319,7 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> ChannelSet:
     path = root / ADDRESSES_FILE
     try:
         view = SimulatorView.open(root)
-    except (NoSimulatorView, OSError, ValueError) as exc:
+    except (NoSimulatorViewError, OSError, ValueError) as exc:
         raise RecorderConfigError(
             f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
@@ -345,7 +345,7 @@ def _waveform_addresses(view: SimulatorView, addresses: Sequence[str], root: Pat
                 continue
             if is_waveform(channel.value_type):
                 waveforms.append(address)
-    except (OSError, ValueError, TypeError, KeyError) as exc:
+    except (NoSimulatorViewError, OSError, ValueError, TypeError, KeyError) as exc:
         raise RecorderConfigError(
             f"cannot record: the simulator view's {VARIABLES_FILE} ({root / VARIABLES_FILE}) "
             f"could not be read for the channels' value types: {exc}. "

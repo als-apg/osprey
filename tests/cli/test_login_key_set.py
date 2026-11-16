@@ -27,8 +27,8 @@ from osprey.cli.build_profile_load import (
     reject_unknown_kind_keys,
 )
 from osprey.cli.profile_root import ProfileKind
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import LAYER_DIR_KINDS
-from osprey_connectors.errors import BuildProfileError
 from tests.fixtures.lifecycle_repo import lay_preset_applications
 
 _PRESETS_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"

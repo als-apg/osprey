@@ -744,7 +744,7 @@ class TestBoundedCalls:
     No test reads a clock.
     """
 
-    async def test_a_stalled_read_raises_timeout_error_within_timeout(self):
+    async def test_a_stalled_read_raises_channel_unreachable_within_timeout(self):
         proxy = _make_proxy()
         with (
             Stall() as read,
@@ -755,14 +755,16 @@ class TestBoundedCalls:
         ):
             proxy.read_attribute.side_effect = read
             conn = await _bounded_tango(0.2)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel(_ADDRESS)
             answered_first = not read.returned
 
         assert answered_first
+        assert raised.value.address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
+        assert not isinstance(raised.value, TimeoutError)
 
     async def test_a_per_call_timeout_wins_over_the_block_timeout(self):
         proxy = _make_proxy()
@@ -775,7 +777,7 @@ class TestBoundedCalls:
         ):
             proxy.read_attribute.side_effect = read
             conn = await _bounded_tango(30)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel(_ADDRESS, timeout_s=0.2)
             answered_first = not read.returned
 

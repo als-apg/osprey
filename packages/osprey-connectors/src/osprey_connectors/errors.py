@@ -6,15 +6,60 @@ new ones is a minor version bump.
 
 This module is the connector failure vocabulary.
 
-Three contract roots partition what a connector raises when a call fails, and
-no class lies under two of them: :class:`ChannelError`, a failure about one
-named channel that leaves the connector in place; every single-channel failure
-(a limits violation, a refused write, a failed write, an address that is not a
-channel, an unreachable channel) is one, and its ``address`` names the
-channel. :class:`ConnectorUnavailableError`, the connector itself is gone and
-its supervisor replaces it. :class:`ConnectorInternalError`, a connector bug
-that nothing recovers from. :class:`ChannelReadFailedError` names several
-channels and lies under no root.
+:class:`ConnectorsError` is the one base: every public exception the package
+raises inherits it, so ``except ConnectorsError`` catches anything the package
+raised on purpose. A class keeps a builtin second base where callers read the
+builtin, and the base is part of what the class means: a lost connector is a
+``ConnectionError``, a missed deadline a ``TimeoutError``, a bad config value
+a ``ValueError``. The hierarchy, with each builtin second base::
+
+    ConnectorsError
+    ├── ChannelError                          a failure about one channel
+    │   ├── ChannelLimitsViolationError
+    │   ├── ChannelWriteBlockedError
+    │   ├── ChannelWriteFailedError
+    │   ├── ChannelNotFoundError              (LookupError)
+    │   └── ChannelUnreachableError
+    ├── ConnectorUnavailableError             (ConnectionError) the connector is gone
+    │   └── ipc.ConnectorHostError, its Start/Lost/Unresponsive/WriteTimeout kin
+    ├── ConnectorInternalError                (RuntimeError) a connector bug
+    ├── ChannelReadFailedError                several channels; settle.SettleReadError
+    ├── ConnectRefusedError                   (ConnectionError) connect refused by policy
+    ├── ClientLibraryRefusedError             (RuntimeError)
+    ├── ConfigurationError                    (ValueError) a config value, by its key
+    ├── StateUnavailableError                 (RuntimeError) no state directory
+    ├── StateLockedError                      (RuntimeError) a state lock stayed held
+    ├── AlreadyApprovedError                  (FileExistsError)
+    ├── write_authorization.AuthorizationRefusedError
+    ├── control_context.StoppedSinceError, control_context.RecordUnavailableError
+    ├── simulation.view.SimulatorViewError
+    │   ├── NoSimulatorViewError              (LookupError)
+    │   └── ViewSchemaError                   (ValueError)
+    ├── simulation.composite.WriteRefusedError (ValueError)
+    ├── settle.SettleTimeoutError             (TimeoutError)
+    ├── ipc.ChildUnresponsiveError            (TimeoutError)
+    ├── ipc.ConnectorHostSlowCallError        (TimeoutError)
+    ├── ipc.FrameDecodeError                  (ValueError)
+    └── ipc.FrameEncodeError                  (TypeError)
+
+Three contract roots classify what a connector call raises, and no class lies
+under two of them: :class:`ChannelError`, a failure about one named channel
+that leaves the connector in place; every single-channel failure (a limits
+violation, a refused write, a failed write, an address that is not a channel,
+an unreachable channel) is one, and its ``address`` names the channel.
+:class:`ConnectorUnavailableError`, the connector itself is gone and its
+supervisor replaces it. :class:`ConnectorInternalError`, a connector bug that
+nothing recovers from. They do not cover every failure a call can raise.
+:class:`ChannelReadFailedError` names several channels. Three timeouts lie
+under no root on purpose, because each is read by its ``TimeoutError`` base
+alone and a root would change what a supervisor does about it:
+``settle.SettleTimeoutError`` (a readback that did not settle),
+``ipc.ChildUnresponsiveError`` (the connector-host child missed the proxy's
+deadline) and ``ipc.ConnectorHostSlowCallError`` (it missed a call's deadline
+and still answers a ping, so it was kept; under
+:class:`ConnectorUnavailableError` it would read as a lost connection).
+:class:`ConnectRefusedError` is a policy refusal of ``connect()``, not a lost
+connector, and is read by its ``ConnectionError`` base as a bare one was.
 
 :class:`RefusalReason` names why a write was refused, who refused it and what
 to do about it. ``ChannelWriteFailedError``'s reason codes are the uppercased
@@ -26,7 +71,9 @@ The connector-host IPC registry is derived from this module: every class in
 with its channel, so a public failure needs no registry entry of its own.
 """
 
+import errno
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from osprey_connectors.model import FrozenModel
@@ -40,7 +87,7 @@ if TYPE_CHECKING:
 __all__ = [
     "NOT_A_CHANNEL",
     "RAW_CLIENT_WRITE_MARKER",
-    "BuildProfileError",
+    "AlreadyApprovedError",
     "ChannelError",
     "ChannelLimitsViolationError",
     "ChannelNotFoundError",
@@ -50,16 +97,29 @@ __all__ = [
     "ChannelWriteFailedError",
     "ClientLibraryRefusedError",
     "ConfigurationError",
+    "ConnectRefusedError",
     "ConnectorInternalError",
     "ConnectorUnavailableError",
+    "ConnectorsError",
     "RecoveryRecord",
     "RefusalReason",
-    "RegistryError",
+    "StateLockedError",
+    "StateUnavailableError",
     "raw_client_write_message",
 ]
 
 
-class ChannelError(Exception):
+class ConnectorsError(Exception):
+    """The base of every exception the package raises on purpose.
+
+    It carries nothing of its own; each subclass carries its context as
+    attributes. ``except ConnectorsError`` catches every package failure and
+    no builtin one, so a caller that means "anything the connectors reported"
+    names it rather than ``Exception``.
+    """
+
+
+class ChannelError(ConnectorsError):
     """A failure about one named channel; the connector that raised it stays in place.
 
     ``address`` names the channel, in process and across the
@@ -283,7 +343,7 @@ def raw_client_write_message(address: str) -> str:
     )
 
 
-class ClientLibraryRefusedError(RuntimeError):
+class ClientLibraryRefusedError(ConnectorsError, RuntimeError):
     """Raised when a process that may hold no control-system client loads one.
 
     reason is "RAW_CLIENT_IMPORT": user code imported a control-system client
@@ -376,7 +436,7 @@ class ChannelWriteFailedError(ChannelError):
         return f"Write to '{self.address}' failed ({self.reason})"
 
 
-class ChannelReadFailedError(Exception):
+class ChannelReadFailedError(ConnectorsError):
     """Raised when a batch read or a settle's readback read could not produce a value.
 
     A channel counts as failed when the connector's result leaves it out (a
@@ -458,7 +518,7 @@ class RecoveryRecord(FrozenModel):
     text: str
 
 
-class ConnectorUnavailableError(ConnectionError):
+class ConnectorUnavailableError(ConnectorsError, ConnectionError):
     """The connector itself is gone: its transport, context or process is lost.
 
     Every channel it serves fails alike until it is replaced, and the
@@ -473,7 +533,7 @@ class ConnectorUnavailableError(ConnectionError):
         super().__init__(message)
 
 
-class ConnectorInternalError(RuntimeError):
+class ConnectorInternalError(ConnectorsError, RuntimeError):
     """Raised in the parent for something the connector-host child sent outside the contract.
 
     It has two sources, and both fail one call only. A connector bug: the
@@ -496,21 +556,71 @@ class ConnectorInternalError(RuntimeError):
         super().__init__(message)
 
 
-class RegistryError(Exception):
-    """Exception for registry-related errors.
+class ConnectRefusedError(ConnectorsError, ConnectionError):
+    """``connect()`` refused to bring a connector up, on policy grounds.
 
-    Raised when issues occur with component registration, lookup, or
-    management within the framework's registry system.
+    A readonly run whose only configured Channel Access gateway is the write
+    gateway, for instance: connecting with no gateway would search the ambient
+    network, so the connector refuses instead. Nothing was lost, so it is not a
+    :class:`ConnectorUnavailableError`. It keeps the ``ConnectionError`` base
+    the bare refusal had, so every reader that answers a connection failure
+    (the recovery table, the framework's tool envelopes) answers it as before.
     """
 
 
-class ConfigurationError(Exception):
-    """Exception for configuration-related errors.
+class ConfigurationError(ConnectorsError, ValueError):
+    """A configuration value is missing, of the wrong shape, or refused.
 
-    Raised when configuration files are invalid, missing required settings,
-    or contain incompatible values that prevent proper system operation.
+    ``key`` is the dotted config key the value sits under (for example
+    ``control_system.connector.epics.timeout_s``), or ``None`` when the
+    refusal names no single key. A ``ValueError``, as the bare refusals it
+    replaces were, so a caller that catches ``ValueError`` still catches it.
     """
 
+    def __init__(self, message: str, *, key: str | None = None) -> None:
+        self.key = key
+        super().__init__(message)
 
-class BuildProfileError(ConfigurationError):
-    """Raised when a build profile is invalid or missing required files."""
+
+class StateUnavailableError(ConnectorsError, RuntimeError):
+    """There is no state directory for a write-path writer to write in.
+
+    No agent-data root resolves, or no authorizations directory is reachable,
+    so nothing was written: a file stored where no reader would look is worse
+    than none. ``path`` is the directory that was looked for, or ``None`` when
+    no path resolves at all. A ``RuntimeError``, as the bare refusal it
+    replaces was, so every ``except RuntimeError`` that answers "the store is
+    unavailable" still answers it.
+    """
+
+    def __init__(self, message: str, *, path: Path | None = None) -> None:
+        self.path = path
+        super().__init__(message)
+
+
+class StateLockedError(ConnectorsError, RuntimeError):
+    """A write-path lock stayed held past its bounded wait; nothing was written.
+
+    ``path`` is the file whose lock was waited on and ``waited_s`` the wait in
+    seconds. A ``RuntimeError``, as the bare refusal it replaces was.
+    """
+
+    def __init__(self, message: str, *, path: Path, waited_s: float) -> None:
+        self.path = path
+        self.waited_s = waited_s
+        super().__init__(message)
+
+
+class AlreadyApprovedError(ConnectorsError, FileExistsError):
+    """An authorization was approved already: its grant file exists.
+
+    ``authorization`` is the authorization's id and ``path`` the grant file
+    that exists. A ``FileExistsError`` (``errno.EEXIST``), as the bare refusal it
+    replaces was, so its text and every ``except FileExistsError`` stay as
+    they were.
+    """
+
+    def __init__(self, path: Path, *, authorization: str) -> None:
+        self.path = path
+        self.authorization = authorization
+        super().__init__(errno.EEXIST, f"{path} exists; nothing was written")

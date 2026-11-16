@@ -21,7 +21,7 @@ from osprey.cli.build_profile_schema import (
     headless_refused_flags,
 )
 from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build_in
 
 _READONLY = """\

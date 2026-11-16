@@ -214,7 +214,7 @@ class TestProfileServiceTemplateResolution:
         """An unknown ``osprey.<name>`` stops the build; no service is half-injected."""
         from osprey.cli.build_injectors import _inject_profile_services
         from osprey.cli.build_profile import ServiceDef
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         project_path = self._project(tmp_path)
         profile_dir = tmp_path / "profile"
@@ -246,7 +246,7 @@ class TestProfileServiceTemplateResolution:
         """A profile-local template with no compose template stops the build."""
         from osprey.cli.build_injectors import _inject_profile_services
         from osprey.cli.build_profile import ServiceDef
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         project_path = self._project(tmp_path)
         profile_dir = tmp_path / "profile"

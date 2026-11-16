@@ -40,8 +40,8 @@ from typing import Any
 
 from osprey.agent_record.contract import KINDS
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES, upstream_image
+from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port, resolve_port_base
-from osprey_connectors.errors import BuildProfileError
 
 #: The profile key, and the top-level key of the rendered ``config.yml``.
 AGENT_RECORD_BLOCK = "agent_record"

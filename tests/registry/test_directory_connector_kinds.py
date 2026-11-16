@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.errors import RegistryError
 from osprey.registry.base import ConnectorRegistration
 from osprey.registry.initializers import initialize_connectors
-from osprey_connectors.errors import RegistryError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
 

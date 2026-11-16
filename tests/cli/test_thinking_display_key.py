@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.templates.claude_code import _thinking_display, config_derived_context
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _config(thinking: object) -> dict:

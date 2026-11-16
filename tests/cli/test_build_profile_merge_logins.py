@@ -20,7 +20,7 @@ import yaml
 from osprey.cli.build_profile_load import load_profile_document
 from osprey.cli.build_profile_merge import render_document
 from osprey.cli.build_profile_resolve import resolve_build_document
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _WRITES = "control_system.writes"
 _PANEL = "web.config_panel.enabled"

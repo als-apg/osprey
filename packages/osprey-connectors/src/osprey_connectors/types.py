@@ -56,6 +56,7 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Final, Literal, TypeGuard
 
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
 
 __all__ = [
@@ -362,7 +363,7 @@ def resolve_serving(section: object) -> str:
     :data:`SERVED`: only the simulator has an in-process venue.
 
     Raises:
-        ValueError: when the leaf holds a value outside :data:`SERVING_MODES`.
+        ConfigurationError: when the leaf holds a value outside :data:`SERVING_MODES`.
     """
     if not _states_type(section):
         return IN_PROCESS
@@ -374,7 +375,9 @@ def resolve_serving(section: object) -> str:
     if value is None:
         return SERVED
     if value not in SERVING_MODES:
-        raise ValueError(f"{SERVING_KEY} is {value!r}; it is {SERVED!r} or {IN_PROCESS!r}.")
+        raise ConfigurationError(
+            f"{SERVING_KEY} is {value!r}; it is {SERVED!r} or {IN_PROCESS!r}.", key=SERVING_KEY
+        )
     return str(value)
 
 
@@ -393,7 +396,7 @@ def connector_transport(section: object, connector_type: str | None = None) -> s
         no row (a dotted custom connector).
 
     Raises:
-        ValueError: when the serving leaf holds an unknown value.
+        ConfigurationError: when the serving leaf holds an unknown value.
     """
     if connector_type is None:
         connector_type = resolve_control_system_type(section)
@@ -505,18 +508,18 @@ def resolve_archiver_settings(section: object) -> dict[str, object]:
     block when ``settings`` is absent. Absent, or a bare ``settings:``, is ``{}``.
 
     Raises:
-        ValueError: when both spellings are present, or the block is not a
+        ConfigurationError: when both spellings are present, or the block is not a
             mapping. :func:`archiver_settings_errors` refuses the same configs
             at build time, with the same words.
     """
     homes = _archiver_settings_homes(section)
     if len(homes) > 1:
-        raise ValueError(_two_homes(homes[1][0]))
+        raise ConfigurationError(_two_homes(homes[1][0]), key=f"archiver.{homes[1][0]}")
     if not homes or homes[0][1] is None:
         return {}
     key, value = homes[0]
     if not isinstance(value, dict):
-        raise ValueError(_not_a_block(key, value))
+        raise ConfigurationError(_not_a_block(key, value), key=f"archiver.{key}")
     return dict(value)
 
 
@@ -600,8 +603,9 @@ def resolve_target(section: object, target: object) -> str:
 
     Raises:
         ValueError: If *target* is not a known target (including ``None`` and
-            blank), or if it is ``live`` on a deployment with no single
-            derivable live control system.
+            blank).
+        ConfigurationError: If it is ``live`` on a deployment with no single
+            derivable live control system (``key`` ``control_system.connector``).
     """
     if target == TARGET_VA:
         return VIRTUAL_ACCELERATOR
@@ -1628,11 +1632,12 @@ def _live_type(section: object) -> str:
         return candidates[0]
 
     found = ", ".join(repr(name) for name in candidates) if candidates else "none"
-    raise ValueError(
+    raise ConfigurationError(
         f"Target {TARGET_LIVE!r} has no control system on this deployment: "
         f"'control_system.type' resolves to {baseline!r}, which is simulated, "
         f"and the live blocks under 'control_system.connector' are: {found}. "
         f"{_ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
         f"{DOOCS!r} block, say). It is not inferred, so that no session reaches "
-        "a real machine this config never described."
+        "a real machine this config never described.",
+        key="control_system.connector",
     )

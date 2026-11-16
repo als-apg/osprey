@@ -23,6 +23,7 @@ from osprey.cli.build_profile_merge import compute_profile_hash, layer_fold_labe
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.deployment.staleness import MATERIAL_PREFIX, profile_fingerprint
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
+from osprey.errors import BuildProfileError
 from osprey.utils import workspace
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -32,7 +33,6 @@ from osprey.utils.workspace import (
     TIERS_DIRNAME,
     layer_dir_kind,
 )
-from osprey_connectors.errors import BuildProfileError
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 

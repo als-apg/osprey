@@ -131,7 +131,7 @@ class TestLaptop:
         assert [(a["id"], a["in_force"]) for a in listed["authorizations"]] == [(request.id, True)]
         result = run("revoke", request.id)
         assert result.exit_code == 0, result.output
-        with pytest.raises(wa.AuthorizationRefused) as refused:
+        with pytest.raises(wa.AuthorizationRefusedError) as refused:
             wa.approved_grant(request.id)
         assert refused.value.reason == "auth_revoked"
         listed = json.loads(run("list", "--json").output)

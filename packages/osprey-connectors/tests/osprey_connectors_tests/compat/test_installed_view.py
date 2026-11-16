@@ -28,5 +28,5 @@ def test_a_release_with_the_writer_is_always_rendered(
     writer.touch()
     monkeypatch.setattr(contracts, "_osprey_cli", lambda: Path("osprey"))
     monkeypatch.setattr(contracts, "render_deployment", lambda workdir, cli: workdir / "build")
-    with pytest.raises(contracts.ContractError, match="NoSimulatorView"):
+    with pytest.raises(contracts.ContractError, match="NoSimulatorViewError"):
         contracts.check_installed_view(tmp_path, tmp_path, require_view=require_view)

@@ -23,7 +23,7 @@ from osprey.cli.build_profile import (
     _parse_profile,
 )
 from osprey.cli.build_profile_presets import resolve_triggers_path
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

@@ -32,6 +32,7 @@ from typing import Final, Literal, overload
 
 from pydantic import BaseModel, ValidationError
 
+from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.simulation.records import (
     AddressesDocument,
@@ -83,7 +84,8 @@ __all__ = [
     "Binding",
     "Channel",
     "Model",
-    "NoSimulatorView",
+    "NoSimulatorViewError",
+    "SimulatorViewError",
     "SimulatorView",
     "ViewSchemaError",
 ]
@@ -181,26 +183,76 @@ _NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 
 
-class NoSimulatorView(LookupError):
-    """The place holds no simulator view: it has no ``addresses.json``."""
+class SimulatorViewError(ConnectorsError):
+    """A simulator view could not be read.
+
+    Attributes:
+        path: The view file or directory at fault, or ``None`` when the refusal
+            is about one record and names no file.
+    """
+
+    def __init__(self, message: str, *, path: Path | None = None) -> None:
+        self.path = path
+        super().__init__(message)
 
 
-class ViewSchemaError(ValueError):
-    """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
+class NoSimulatorViewError(SimulatorViewError, LookupError):
+    """The place holds no simulator view, or the view lacks a file it lists.
+
+    ``path`` is the missing file: the place's ``addresses.json`` when there is
+    no view there at all.
+    """
+
+
+class ViewSchemaError(SimulatorViewError, ValueError):
+    """A view file is not JSON, its ``schema`` is not one this OSPREY reads, or its shape breaks it.
+
+    Attributes:
+        path: The view file, or ``None`` for a refusal of one record.
+        key: The dotted key refused, or ``None`` when the whole file is.
+        found: What the file holds there (``None`` when nothing could be read).
+        expected: What this OSPREY reads there, or ``None`` when the refusal
+            names no one value.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        path: Path | None = None,
+        key: str | None = None,
+        found: object = None,
+        expected: str | None = None,
+    ) -> None:
+        super().__init__(message, path=path)
+        self.key = key
+        self.found = found
+        self.expected = expected
 
 
 def _schema_error(path: Path, found: object, expected: str) -> ViewSchemaError:
     return ViewSchemaError(
-        f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build"
+        f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build",
+        path=path,
+        key="schema",
+        found=found,
+        expected=expected,
     )
 
 
 def _shape_error(where: object, refusal: ValidationError) -> ViewSchemaError:
-    """The first key a view file's model refuses, and why, as the view's error."""
+    """The first key a view file's model refuses, and why, as the view's error.
+
+    ``where`` is the view file, or a phrase naming the one record refused.
+    """
     error = refusal.errors()[0]
     key = ".".join(str(part) for part in error["loc"]) or "the document"
     return ViewSchemaError(
-        f"{where}: {key}: {error['msg']} (found {error['input']!r}): rebuild with osprey build"
+        f"{where}: {key}: {error['msg']} (found {error['input']!r}): rebuild with osprey build",
+        path=where if isinstance(where, Path) else None,
+        key=key if error["loc"] else None,
+        found=error["input"],
+        expected=error["msg"],
     )
 
 
@@ -317,13 +369,15 @@ class Binding(FrozenModel):
         if missing:
             raise ViewSchemaError(
                 f"wiring record {record.address!r} of model {model!r} lacks "
-                f"{', '.join(missing)}: rebuild with osprey build"
+                f"{', '.join(missing)}: rebuild with osprey build",
+                key=missing[0],
             )
         if record.engine_role is None or record.refresh is None:
+            absent = "engine_role" if record.engine_role is None else "refresh"
             raise ViewSchemaError(
                 f"wiring record {record.address!r} of model {model!r} states no "
-                f"{'engine_role' if record.engine_role is None else 'refresh'}: "
-                "rebuild with osprey build"
+                f"{absent}: rebuild with osprey build",
+                key=absent,
             )
         return cls(
             id=str(record.id),
@@ -387,7 +441,9 @@ class SimulatorView:
         self._channel_records: Mapping[str, Channel] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
-            raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
+            raise NoSimulatorViewError(
+                _NO_VIEW_MESSAGE.format(path=self.path), path=self.path / ADDRESSES_FILE
+            )
         self.document(ADDRESSES_FILE)
 
     @classmethod
@@ -395,7 +451,7 @@ class SimulatorView:
         """Open the view in ``view_dir``.
 
         Raises:
-            NoSimulatorView: ``view_dir`` has no ``addresses.json``.
+            NoSimulatorViewError: ``view_dir`` has no ``addresses.json``.
             ViewSchemaError: its ``addresses.json`` is not schema
                 :data:`ADDRESSES_SCHEMA`.
         """
@@ -435,7 +491,7 @@ class SimulatorView:
         """
         try:
             return cls.of_project(project_dir)
-        except NoSimulatorView:
+        except NoSimulatorViewError:
             return None
 
     # A file of the view reaches a reader only through :meth:`document`, which
@@ -470,13 +526,23 @@ class SimulatorView:
             :mod:`osprey_connectors.simulation.records` for the file.
 
         Raises:
-            ViewSchemaError: the file's ``schema`` is absent or neither
-                ``SCHEMAS[name]`` nor an older one this OSPREY still reads, or
-                its shape breaks the file's document model.
+            NoSimulatorViewError: the file is not there.
+            ViewSchemaError: the file is not JSON, its ``schema`` is absent or
+                neither ``SCHEMAS[name]`` nor an older one this OSPREY still
+                reads, or its shape breaks the file's document model.
         """
         if name not in self._documents:
             path = self.path / name
-            parsed: object = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                parsed: object = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                raise NoSimulatorViewError(
+                    f"no simulator view file at {path}: run osprey build", path=path
+                ) from None
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ViewSchemaError(
+                    f"{path} is not JSON ({exc}): rebuild with osprey build", path=path
+                ) from None
             expected = SCHEMAS[name]
             if not isinstance(parsed, dict):
                 raise _schema_error(path, None, expected)
@@ -571,7 +637,11 @@ class SimulatorView:
                 raise ViewSchemaError(
                     f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
-                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
+                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build",
+                    path=self.path / ADDRESSES_FILE,
+                    key="ioc_health",
+                    found=address,
+                    expected=f"{prefix}<model>:<signal>",
                 )
             by_model.setdefault(model, {})[signal] = address
         return MappingProxyType(

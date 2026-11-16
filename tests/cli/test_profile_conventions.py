@@ -60,8 +60,8 @@ from osprey.cli.profile_conventions import (
     validate_convention_sources,
     warn_unknown_root_entries,
 )
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 
 
 def _write(path: Path, content: str = "x\n") -> Path:

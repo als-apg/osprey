@@ -2209,7 +2209,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
         stored = await run_in_threadpool(
             partial(control_context.set_switch, targets, body.state, epoch=epoch)
         )
-    except control_context.StoppedSince as exc:
+    except control_context.StoppedSinceError as exc:
         if exc.epoch is None:  # the record went away after the status read
             raise _posture_not_taken(
                 session_id, gesture=gesture, state=body.state, record_missing=True

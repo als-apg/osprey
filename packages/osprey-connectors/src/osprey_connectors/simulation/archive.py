@@ -632,7 +632,7 @@ def build(
             state; the message names it and its engine's error. A model without
             a deck is unbuilt by design (``no deck``) and does not raise.
         ValueError: A ``pulse`` seed names a channel the view does not hold.
-        NoSimulatorView: The directory holds no simulator view.
+        NoSimulatorViewError: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
     from osprey_connectors.config import get_facility_timezone

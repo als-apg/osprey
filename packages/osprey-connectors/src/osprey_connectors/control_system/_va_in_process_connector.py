@@ -79,7 +79,7 @@ from osprey_connectors.simulation.view import (
     SETPOINT,
     VARIABLES_FILE,
     VIEW_RELPATH,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
     ViewSchemaError,
 )
@@ -177,7 +177,7 @@ def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
         path = Path(config_path).parent / VIEW_RELPATH
     try:
         return SimulatorView.open(path)
-    except NoSimulatorView:
+    except NoSimulatorViewError:
         raise RuntimeError(NO_VIEW_MESSAGE) from None
     except ViewSchemaError as error:
         raise RuntimeError(str(error)) from None

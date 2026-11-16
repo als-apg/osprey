@@ -19,7 +19,7 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_schema import BlueskyConfig
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject

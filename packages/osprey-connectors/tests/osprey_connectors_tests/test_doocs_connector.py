@@ -602,7 +602,7 @@ class TestBoundedCalls:
     names the bound that did. No test reads a clock.
     """
 
-    async def test_a_stalled_read_raises_timeout_error_within_timeout_s(self):
+    async def test_a_stalled_read_raises_channel_unreachable_within_timeout_s(self):
         mock_d4py = _make_doocs4py()
         with (
             Stall() as get,
@@ -613,14 +613,16 @@ class TestBoundedCalls:
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(0.2)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel("FAC/DEV/LOC/PROP")
             answered_first = not get.returned
 
         assert answered_first
+        assert raised.value.address == "FAC/DEV/LOC/PROP"
         assert "FAC/DEV/LOC/PROP" in str(raised.value)
         assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
+        assert not isinstance(raised.value, TimeoutError)
 
     async def test_a_per_call_timeout_wins_over_timeout_s(self):
         mock_d4py = _make_doocs4py()
@@ -633,7 +635,7 @@ class TestBoundedCalls:
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(30)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel("FAC/DEV/LOC/PROP", timeout_s=0.2)
             answered_first = not get.returned
 

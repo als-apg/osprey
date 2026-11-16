@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
+from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
     MCPServerConfig,
@@ -20,11 +21,7 @@ from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
     reset_server_context,
 )
-from osprey_connectors.errors import (
-    ChannelUnreachableError,
-    ConfigurationError,
-    ConnectorUnavailableError,
-)
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 
 # ---------------------------------------------------------------------------
 # Helpers

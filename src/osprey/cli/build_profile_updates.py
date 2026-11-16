@@ -41,6 +41,7 @@ from typing import Any
 
 import yaml
 
+from osprey.errors import BuildProfileError
 from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
     compute_providers_hash,
@@ -52,7 +53,6 @@ from osprey.utils.workspace import (
     PROFILE_FILENAME,
     TIERS_DIRNAME,
 )
-from osprey_connectors.errors import BuildProfileError
 
 from .application_material import app_build_output, application_dirs
 from .build_profile_document import _parse_profile_document

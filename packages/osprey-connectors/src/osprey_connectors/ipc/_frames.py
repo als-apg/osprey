@@ -102,7 +102,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
 )
-from osprey_connectors.errors import ConnectorInternalError
+from osprey_connectors.errors import ConnectorInternalError, ConnectorsError
 from osprey_connectors.ipc._exceptions import (
     _registered_tag,
     exception_fields,
@@ -155,11 +155,11 @@ _TAG = "__osprey_ipc__"
 _Json: TypeAlias = None | bool | int | float | str | list["_Json"] | dict[str, "_Json"]
 
 
-class FrameEncodeError(TypeError):
+class FrameEncodeError(ConnectorsError, TypeError):
     """A value was handed to the codec that the wire format cannot carry."""
 
 
-class FrameDecodeError(ValueError):
+class FrameDecodeError(ConnectorsError, ValueError):
     """A frame could not be parsed: bad magic, bad version, or unknown tag."""
 
 

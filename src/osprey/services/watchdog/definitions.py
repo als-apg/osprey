@@ -115,7 +115,7 @@ def load_profile_watchdogs(profile_dir: Path) -> tuple[WatchdogDefinition, ...]:
     from osprey.cli.build_profile_document import _read_profile_document
     from osprey.cli.build_profile_merge import resolve_profile_document
     from osprey.cli.repo_resolver import PROFILE_FILENAME
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     path = profile_dir / PROFILE_FILENAME
     if not path.exists():

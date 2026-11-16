@@ -68,6 +68,7 @@ from osprey.interfaces.web_terminal.config_view import (
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
 
@@ -489,13 +490,13 @@ async def approve_write_authorization(body: ApproveRequest, request: Request):
 
     try:
         grant = await run_in_threadpool(lambda: wa.approve_request(wanted, surface="chip"))
-    except wa.AuthorizationRefused as exc:
+    except wa.AuthorizationRefusedError as exc:
         status = {"auth_overlap": 409, "auth_expired": 410}.get(exc.reason, 503)
         phrase = refusal_phrase(exc.reason)
         raise refuse(
             status, exc.reason, phrase=f"{phrase} {exc.detail}" if exc.detail else phrase
         ) from exc
-    except FileExistsError as exc:
+    except AlreadyApprovedError as exc:
         raise refuse(409, REASON_ALREADY_APPROVED) from exc
     except (OSError, RuntimeError, ValueError) as exc:
         logger.warning("The approval %s was not taken", gesture, exc_info=True)

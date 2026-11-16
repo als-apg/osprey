@@ -26,7 +26,7 @@ import yaml
 
 from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
 from tests.cli.test_build_cmd import _create_project, _ship_declared_pre_hook
 from tests.fixtures.lifecycle_repo import (

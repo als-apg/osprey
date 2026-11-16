@@ -23,8 +23,8 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
+from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
-from osprey_connectors.errors import BuildProfileError
 
 
 def _write_config(project_path: Path) -> None:

@@ -21,8 +21,8 @@ from osprey.cli.templates.claude_code import (
     config_derived_context,
 )
 from osprey.cli.templates.manager import TemplateManager
+from osprey.errors import BuildProfileError
 from osprey.registry.mcp import FRAMEWORK_SERVERS, resolve_agents, resolve_servers
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 INCLUDE = "claude_code/claude/agents/_shared/attachments.md.j2"

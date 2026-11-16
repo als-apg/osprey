@@ -295,11 +295,15 @@ def resolve_model_request(
             fault; the message names which.
     """
     chosen_kind = _kind(kind)
-    from osprey_connectors.simulation.view import NoSimulatorView, SimulatorView, ViewSchemaError
+    from osprey_connectors.simulation.view import (
+        NoSimulatorViewError,
+        SimulatorView,
+        ViewSchemaError,
+    )
 
     try:
         view = SimulatorView.of_render(render_root)
-    except (NoSimulatorView, ViewSchemaError) as exc:
+    except (NoSimulatorViewError, ViewSchemaError) as exc:
         _refuse(str(exc), "Run `osprey build`; the simulator view is written by the build.")
     chosen = _model(view, model)
     delta = _corrector_delta(Path(render_root), chosen.name)
