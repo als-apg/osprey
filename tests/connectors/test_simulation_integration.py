@@ -127,7 +127,7 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
@@ -144,7 +144,7 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
@@ -172,8 +172,8 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
-        mode = df.loc[df["channel"] == "T:MODE", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
+        mode = df.loc[df["address"] == "T:MODE", "value"]
 
         assert len(sp) > 0
         assert len(mode) > 0

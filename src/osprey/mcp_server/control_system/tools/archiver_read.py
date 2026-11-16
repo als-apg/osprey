@@ -594,7 +594,7 @@ async def archiver_read(
         per_channel: dict[str, dict[str, Any]] = {}
         total_points = 0
 
-        by_channel = dict(tuple(df.groupby("channel", sort=False)))
+        by_channel = dict(tuple(df.groupby("address", sort=False)))
         no_samples = df.iloc[:0]
 
         # A channel whose samples are sequences is a waveform. The budget is

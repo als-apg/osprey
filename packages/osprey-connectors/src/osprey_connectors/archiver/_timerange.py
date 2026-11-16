@@ -40,7 +40,7 @@ PROCESSING_MODES: tuple[ProcessingMode, ...] = (
 SampleSeries: TypeAlias = "pd.Series[ContractAny]"
 
 # The canonical long-format columns every archiver connector returns.
-LONG_COLUMNS = ("timestamp", "channel", "value")
+LONG_COLUMNS = ("timestamp", "address", "value")
 
 # EPICS Archiver Appliance operator names, keyed by our canonical mode. "raw"
 # maps to lastSample so a binned raw query keeps its long-standing behavior.
@@ -183,11 +183,11 @@ def long_frame(series: dict[str, SampleSeries]) -> pd.DataFrame:
     coerced — the input series' dtypes flow through ``concat`` promotion.
 
     Args:
-        series: Mapping of channel name to its sample series, each with a
+        series: Mapping of channel address to its sample series, each with a
             UTC-aware ``DatetimeIndex`` and values of any dtype.
 
     Returns:
-        A frame with :data:`LONG_COLUMNS`, sorted by channel then timestamp. An
+        A frame with :data:`LONG_COLUMNS`, sorted by address then timestamp. An
         empty mapping (or a mapping of only empty series) yields the empty frame
         with the same columns, ``value`` defaulting to ``float64``.
     """
@@ -198,17 +198,17 @@ def long_frame(series: dict[str, SampleSeries]) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
-                "channel": pd.Series(dtype=str),
+                "address": pd.Series(dtype=str),
                 "value": pd.Series(dtype="float64"),
             }
         )
     # Series in, Series out; with the element type unknown the stubs cannot
     # tell the Series overload of `concat` from the DataFrame one.
-    stacked: SampleSeries = pd.concat(live, names=["channel", "timestamp"])
+    stacked: SampleSeries = pd.concat(live, names=["address", "timestamp"])
     frame = stacked.rename("value").reset_index()
     # Real samples can arrive at any datetime64 resolution; the contract is ns.
     frame["timestamp"] = frame["timestamp"].astype("datetime64[ns, UTC]")
-    frame = frame.sort_values(["channel", "timestamp"], ignore_index=True)
+    frame = frame.sort_values(["address", "timestamp"], ignore_index=True)
     return frame[list(LONG_COLUMNS)]
 
 

@@ -54,7 +54,7 @@ async def _sr07_window(view: Path):
 
 def _sr07_rows(df):
     """SR07's own rows from the long-format frame, as a channel-only slice."""
-    return df.loc[df["channel"] == SR07]
+    return df.loc[df["address"] == SR07]
 
 
 def _assert_spike_at_center(df, center: datetime, box: str) -> None:

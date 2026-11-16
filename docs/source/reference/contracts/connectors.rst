@@ -690,7 +690,7 @@ answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
 newest sample); the default answers every part unknown, with a reason.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
-with exactly three columns, sorted by ``channel`` then ``timestamp``:
+with exactly three columns, sorted by ``address`` then ``timestamp``:
 
 .. list-table::
    :header-rows: 1
@@ -703,9 +703,10 @@ with exactly three columns, sorted by ``channel`` then ``timestamp``:
      - ``datetime64[ns, UTC]``
      - When the sample -- or, under a ``processing`` mode, the bin's aggregate --
        occurred.
-   * - ``channel``
+   * - ``address``
      - ``str``
-     - The channel/PV name the row belongs to.
+     - The address of the channel the row belongs to -- the same string passed
+       in ``addresses``.
    * - ``value``
      - not dtype-constrained
      - ``float64`` when every requested channel's samples are numeric; pandas'

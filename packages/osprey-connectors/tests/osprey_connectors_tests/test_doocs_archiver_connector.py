@@ -206,8 +206,8 @@ class TestGetDataSinglePV:
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
 
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["timestamp", "channel", "value"]
-        assert set(df["channel"]) == {"FAC/DEV/LOC/PROP"}
+        assert list(df.columns) == ["timestamp", "address", "value"]
+        assert set(df["address"]) == {"FAC/DEV/LOC/PROP"}
         assert len(df) == 20
 
     async def test_unreadable_history_raises_runtime_error(self, archiver):
@@ -698,7 +698,7 @@ class TestProcessingSparseData:
 
         # Naive 1 s resampling of ~1-hour-apart data would inflate this to
         # ~21,601 mostly-NaN rows.
-        values = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"]
+        values = df.loc[df["address"] == "FAC/DEV/LOC/P", "value"]
         assert len(values) <= 10
         assert not values.isna().any()
 
@@ -767,8 +767,8 @@ class TestProcessingGenuineAggregation:
             )
             await conn.disconnect()
 
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == pytest.approx(expected)
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == pytest.approx(expected)
+        assert df.loc[df["address"] == "FAC/DEV/LOC/A", "value"].tolist() == pytest.approx(expected)
+        assert df.loc[df["address"] == "FAC/DEV/LOC/B", "value"].tolist() == pytest.approx(expected)
 
     async def test_multi_pv_raw_output_is_each_channels_own_decimated_series(self):
         """Raw keeps each 1s bin's own last real sample, at its own real
@@ -801,7 +801,7 @@ class TestProcessingGenuineAggregation:
 
         assert len(df) == 6  # exactly 3 rows per channel, no more, no fewer
         for channel in ("FAC/DEV/LOC/A", "FAC/DEV/LOC/B"):
-            rows = df.loc[df["channel"] == channel]
+            rows = df.loc[df["address"] == channel]
             assert rows["value"].tolist() == pytest.approx(expected_values)
             assert list(rows["timestamp"]) == list(expected_times)
 
@@ -864,8 +864,8 @@ class TestProcessingGenuineAggregation:
             )
             await conn.disconnect()
 
-        fast_values = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
-        slow_values = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
+        fast_values = df.loc[df["address"] == "FAC/DEV/LOC/FAST", "value"].tolist()
+        slow_values = df.loc[df["address"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
 
         assert fast_values == pytest.approx(fast_expected)
         assert slow_values == pytest.approx(slow_expected)
@@ -902,8 +902,8 @@ class TestProcessingGenuineAggregation:
             )
             await conn.disconnect()
 
-        fast_counts = df.loc[df["channel"] == "FAST", "value"].tolist()
-        slow_counts = df.loc[df["channel"] == "SLOW", "value"].tolist()
+        fast_counts = df.loc[df["address"] == "FAST", "value"].tolist()
+        slow_counts = df.loc[df["address"] == "SLOW", "value"].tolist()
 
         # All 4 of FAST's true 1s bins survive with their true counts.
         assert fast_counts == [10, 10, 10, 10]

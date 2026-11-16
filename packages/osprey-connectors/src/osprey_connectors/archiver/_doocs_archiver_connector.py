@@ -82,7 +82,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         >>> connector = DOOCSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['FACILITY/DEVICE/LOCATION/PROPERTY'],
+        >>>     addresses=['FACILITY/DEVICE/LOCATION/PROPERTY'],
         >>>     start_date=datetime(2026, 7, 1),
         >>>     end_date=datetime(2026, 7, 2)
         >>> )

@@ -150,7 +150,7 @@ class TestLongFrame:
         frame = long_frame(series)
         assert list(frame.columns) == list(LONG_COLUMNS)
         assert frame["timestamp"].dtype == "datetime64[ns, UTC]"
-        assert is_string_dtype(frame["channel"])
+        assert is_string_dtype(frame["address"])
         assert frame["value"].dtype == np.float64
 
     def test_two_channels_of_different_lengths_produce_one_row_per_sample(self):
@@ -163,7 +163,7 @@ class TestLongFrame:
         frame = long_frame(series)
         assert len(frame) == 4
         # Sorted by channel then timestamp.
-        assert frame["channel"].tolist() == ["A:PV", "A:PV", "A:PV", "B:PV"]
+        assert frame["address"].tolist() == ["A:PV", "A:PV", "A:PV", "B:PV"]
         assert frame["value"].tolist() == [1.0, 2.0, 3.0, 2.0]
         assert frame["timestamp"].tolist() == list(idx_a) + list(idx_b)
 
@@ -174,7 +174,7 @@ class TestLongFrame:
             "EMPTY:PV": pd.Series(dtype=float, name="EMPTY:PV"),
         }
         frame = long_frame(series)
-        assert frame["channel"].tolist() == ["A:PV"]
+        assert frame["address"].tolist() == ["A:PV"]
         assert len(frame) == 1
 
     @pytest.mark.parametrize(
@@ -193,7 +193,7 @@ class TestLongFrame:
         assert list(frame.columns) == list(LONG_COLUMNS)
         assert len(frame) == 0
         assert frame["timestamp"].dtype == "datetime64[ns, UTC]"
-        assert is_string_dtype(frame["channel"])
+        assert is_string_dtype(frame["address"])
         assert frame["value"].dtype == np.float64
 
     def test_non_numeric_channel_is_not_coerced_or_dropped(self):
@@ -213,8 +213,8 @@ class TestLongFrame:
         frame = long_frame(series)
         assert len(frame) == 2
         assert frame["value"].dtype == object
-        num_row = frame.loc[frame["channel"] == "A:NUM", "value"]
-        str_row = frame.loc[frame["channel"] == "B:STR", "value"]
+        num_row = frame.loc[frame["address"] == "A:NUM", "value"]
+        str_row = frame.loc[frame["address"] == "B:STR", "value"]
         assert num_row.tolist() == [1.5]
         assert str_row.tolist() == ["CW"]
 
@@ -461,7 +461,7 @@ class TestBinsAreAnchoredOnTheWindow:
         # The instant both channels recorded must fall in the same bin for both.
         bins_holding_shared = {
             channel: max(t for t in group["timestamp"] if t <= shared)
-            for channel, group in frame.groupby("channel")
+            for channel, group in frame.groupby("address")
         }
         assert len(set(bins_holding_shared.values())) == 1, bins_holding_shared
 

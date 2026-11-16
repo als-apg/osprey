@@ -726,7 +726,7 @@ class TestConnectorRoundtrip:
 
         frame = await read_back([pv], window_start, window_end)
 
-        rows = frame[frame["channel"] == pv]
+        rows = frame[frame["address"] == pv]
         assert len(rows) > 0
         stamps = epoch_seconds_array(list(rows["timestamp"]))
         expected = archive.series(pv, stamps)

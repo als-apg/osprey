@@ -57,7 +57,7 @@ class MockArchiverConnector(ArchiverConnector):
         >>> connector = MockArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['SR:DIAG:BPM:01:POSITION:X'],
+        >>>     addresses=['SR:DIAG:BPM:01:POSITION:X'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )

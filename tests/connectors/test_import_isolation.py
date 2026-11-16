@@ -200,7 +200,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
-            values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+            values = df.loc[df["address"] == "T:Q1:CUR:SP", "value"].tolist()
             assert values and all(math.isfinite(v) for v in values), values
             await connector.disconnect()
 

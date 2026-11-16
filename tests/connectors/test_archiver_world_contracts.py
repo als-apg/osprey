@@ -492,7 +492,7 @@ def _documents_between(collection, start_s: float, end_s: float) -> list[dict]:
 
 def _series(frame: pd.DataFrame, channel: str) -> pd.Series:
     """One channel's samples out of a canonical long frame, indexed by time."""
-    rows = frame[frame["channel"] == channel]
+    rows = frame[frame["address"] == channel]
     return pd.Series(rows["value"].to_numpy(), index=pd.DatetimeIndex(rows["timestamp"]))
 
 

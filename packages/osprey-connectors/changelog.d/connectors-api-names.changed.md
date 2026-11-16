@@ -9,7 +9,8 @@ fields `ChannelWriteResult.address`, `ChannelLimitsConfig.address`,
 its subclasses carry `.address` instead of `.channel_address`.
 `DirectoryQuery.name` is `address_pattern`, and
 `property_values(property, *, prefix=None, timeout_s=...)` takes the prefix by
-keyword. The archiver's DataFrame keeps its `channel` column.
+keyword. The archiver's long-format DataFrame names its `channel` column
+`address`, the same word its parameters use.
 
 Every per-call time budget is a keyword-only `timeout_s` in seconds: the
 control-system methods and `write_channel_checked` (which now takes `timeout_s`

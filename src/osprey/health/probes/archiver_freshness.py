@@ -199,7 +199,7 @@ def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, object]
     through ``to_pydatetime()``, which discards nanoseconds and warns. A frame
     missing the long-format columns is a connector bug and is left to raise.
     """
-    sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
+    sub = frame.loc[frame["address"] == channel].dropna(subset=["value"])
     if sub.empty:
         return None
     row = sub.iloc[sub["timestamp"].argmax()]

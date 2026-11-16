@@ -89,7 +89,7 @@ def _frame(newest_age_s: float, value: float = 1.5) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "timestamp": pd.to_datetime(stamps),
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [value - 0.1, value],
         }
     )
@@ -101,7 +101,7 @@ def _empty_long_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
-            "channel": pd.Series(dtype=str),
+            "address": pd.Series(dtype=str),
             "value": pd.Series(dtype="float64"),
         }
     )
@@ -198,7 +198,7 @@ async def test_all_null_column_is_warning() -> None:
             "timestamp": pd.to_datetime(
                 [datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]
             ),
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [float("nan"), float("nan")],
         }
     )
@@ -245,7 +245,7 @@ async def test_nanosecond_timestamps_are_not_truncated_with_a_warning() -> None:
     frame = pd.DataFrame(
         {
             "timestamp": stamps,
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [1.4, 1.5],
         }
     )

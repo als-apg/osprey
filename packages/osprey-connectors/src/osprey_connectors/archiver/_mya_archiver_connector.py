@@ -362,8 +362,8 @@ class MYAArchiverConnector(ArchiverConnector):
                 computes no median; ``raw`` decimates real events locally.
 
         Returns:
-            The canonical long frame -- ``timestamp``/``channel``/``value``,
-            sorted by channel then timestamp.
+            The canonical long frame -- ``timestamp``/``address``/``value``,
+            sorted by address then timestamp.
 
         Raises:
             RuntimeError: If the archiver is not connected, or the client

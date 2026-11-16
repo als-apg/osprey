@@ -372,7 +372,7 @@ class TestTheSeededArchive:
             precision_ms=0,
         )
 
-        (value,) = frame.loc[frame["channel"] == SEK, "value"].tolist()
+        (value,) = frame.loc[frame["address"] == SEK, "value"].tolist()
         assert np.array_equal(np.asarray(value, dtype=np.float64), live_trace(texture))
 
 
@@ -456,7 +456,7 @@ async def test_a_live_hour_records_sixty_traces_each_the_pulse_of_its_minute(
     frame = await connector.get_data(
         addresses=[SEK], start_date=T, end_date=hour_end, precision_ms=0
     )
-    rows = frame.loc[frame["channel"] == SEK]
+    rows = frame.loc[frame["address"] == SEK]
     assert abs(len(rows) - 60) <= 1
     for stamp, value in zip(rows["timestamp"], rows["value"], strict=True):
         instant = stamp.to_pydatetime().timestamp()

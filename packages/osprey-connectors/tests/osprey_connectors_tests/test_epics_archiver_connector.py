@@ -135,10 +135,10 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert list(df.columns) == ["timestamp", "address", "value"]
             assert df["timestamp"].dtype == "datetime64[ns, UTC]"
             assert df["value"].dtype == "float64"
-            assert (df["channel"] == "PV:X").all()
+            assert (df["address"] == "PV:X").all()
             assert list(df["value"]) == [1.0, 2.0, 3.0]
 
             await connector.disconnect()
@@ -160,7 +160,7 @@ class TestGetDataMethod:
                 end_date=datetime(2024, 1, 1, 1),
             )
 
-            assert (df["channel"] == "RF:MODE").all()
+            assert (df["address"] == "RF:MODE").all()
             assert list(df["value"]) == ["CW", "CW", "STANDBY"]
 
             await connector.disconnect()
@@ -189,10 +189,10 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert list(df.columns) == ["timestamp", "channel", "value"]
-            assert set(df["channel"]) == {"PV:1", "PV:2"}
-            assert (df["channel"] == "PV:1").sum() == 5
-            assert (df["channel"] == "PV:2").sum() == 5
+            assert list(df.columns) == ["timestamp", "address", "value"]
+            assert set(df["address"]) == {"PV:1", "PV:2"}
+            assert (df["address"] == "PV:1").sum() == 5
+            assert (df["address"] == "PV:2").sum() == 5
 
             await connector.disconnect()
 
@@ -218,7 +218,7 @@ class TestGetDataMethod:
 
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
-            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert list(df.columns) == ["timestamp", "address", "value"]
             assert df["timestamp"].dtype == "datetime64[ns, UTC]"
             assert df["value"].dtype == "float64"
 
@@ -295,15 +295,15 @@ class TestMultiPVLongFormat:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert list(df.columns) == ["timestamp", "address", "value"]
             assert len(df) == 4
-            assert set(df["channel"]) == {"PV:A", "PV:B"}
+            assert set(df["address"]) == {"PV:A", "PV:B"}
 
             expected_a = list(pd.to_datetime([base, base + 2], unit="s", utc=True))
             expected_b = list(pd.to_datetime([base + 1, base + 3], unit="s", utc=True))
 
-            a_timestamps = list(df.loc[df["channel"] == "PV:A", "timestamp"])
-            b_timestamps = list(df.loc[df["channel"] == "PV:B", "timestamp"])
+            a_timestamps = list(df.loc[df["address"] == "PV:A", "timestamp"])
+            b_timestamps = list(df.loc[df["address"] == "PV:B", "timestamp"])
 
             assert a_timestamps == expected_a
             assert b_timestamps == expected_b

@@ -98,7 +98,7 @@ def _reader(view: Path) -> Reader:
         finally:
             await connector.disconnect()
         return {
-            channel: frame.loc[frame["channel"] == channel, "value"].to_numpy(dtype=float)
+            channel: frame.loc[frame["address"] == channel, "value"].to_numpy(dtype=float)
             for channel in channels
         }
 

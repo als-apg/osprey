@@ -123,7 +123,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         >>> connector = EPICSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['BEAM:CURRENT'],
+        >>>     addresses=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )

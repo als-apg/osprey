@@ -19,7 +19,7 @@ class ArchiverMetadata(MutableModel):
     """Archiving metadata for one channel.
 
     ``address`` is the same protocol-agnostic channel address the control-system
-    connectors take, and the same value that appears in the ``channel`` column of
+    connectors take, and the same value that appears in the ``address`` column of
     :meth:`ArchiverConnector.get_data`.
 
     ``is_archived`` is ``None`` when this archiver cannot say whether it archives
@@ -135,8 +135,8 @@ class ArchiverConnector(ABC):
 
         Returns:
             A long-format DataFrame with columns ``timestamp``
-            (datetime64[ns, UTC]), ``channel`` (str), and ``value`` (``float64``
-            unless a channel is non-numeric or a waveform), sorted by channel
+            (datetime64[ns, UTC]), ``address`` (str), and ``value`` (``float64``
+            unless a channel is non-numeric or a waveform), sorted by address
             then timestamp. Each channel contributes only its own real samples or per-bin
             aggregates — no forward-fill, no shared grid, no bin for a period
             with no samples. A channel with no data in range contributes no rows; an

@@ -737,7 +737,7 @@ class TestMockArchiverConnector:
 
         assert df is not None
         assert len(df) > 0
-        assert set(df["channel"]) == set(channels)
+        assert set(df["address"]) == set(channels)
 
         with pytest.raises(ChannelNotFoundError) as refusal:
             await connector.get_data(
@@ -763,10 +763,10 @@ class TestMockArchiverConnector:
         import pandas as pd
 
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         assert df["timestamp"].dtype == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
-        assert (df["channel"] == "BEAM:CURRENT").all()
+        assert (df["address"] == "BEAM:CURRENT").all()
 
         await connector.disconnect()
 
@@ -813,7 +813,7 @@ class TestMockArchiverConnector:
         )
 
         # Check that values vary (not all the same)
-        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"].to_numpy()
+        values = df.loc[df["address"] == "BEAM:CURRENT", "value"].to_numpy()
         assert len(set(values)) > 1
         assert values.std() > 0
 
@@ -838,10 +838,10 @@ class TestMockArchiverConnector:
             precision_ms=1000,
         )
 
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         # Every row belongs to a requested channel, and every channel has rows.
-        assert set(df["channel"]) == set(channels)
-        assert (df["channel"].value_counts() >= 1).all()
+        assert set(df["address"]) == set(channels)
+        assert (df["address"].value_counts() >= 1).all()
 
         await connector.disconnect()
 

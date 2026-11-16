@@ -228,9 +228,9 @@ class TestGetDataMethod:
         )
 
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         # All PVs should be represented as channels, long-format
-        assert set(df["channel"]) == set(channels)
+        assert set(df["address"]) == set(channels)
         assert len(df) > 0
 
         await connector.disconnect()
@@ -253,7 +253,7 @@ class TestGetDataMethod:
 
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 0
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
 
@@ -459,8 +459,8 @@ class TestDottedChannelAddresses:
         finally:
             await connector.disconnect()
 
-        assert set(df["channel"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
-        dotted = df[df["channel"] == "BEAM:REC.RBV"]
+        assert set(df["address"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
+        dotted = df[df["address"] == "BEAM:REC.RBV"]
         assert list(dotted["value"]) == [0.0, 1.0, 2.0]
         assert metadata.is_archived is True
         assert metadata.address == "BEAM:REC.RBV"
@@ -650,7 +650,7 @@ class TestQueryShapeWithoutDocker:
         )
 
         # Six 1-second samples binned at 2 s, i.e. three bins of two samples.
-        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == expected
+        assert df.loc[df["address"] == "BEAM:CURRENT", "value"].tolist() == expected
 
     @pytest.mark.asyncio
     async def test_raw_processing_decimates_to_last_real_sample_per_bin(self):
@@ -670,7 +670,7 @@ class TestQueryShapeWithoutDocker:
             precision_ms=2000,
         )
 
-        rows = df.loc[df["channel"] == "BEAM:CURRENT"]
+        rows = df.loc[df["address"] == "BEAM:CURRENT"]
         assert rows["value"].tolist() == [1.0, 3.0, 5.0]
         # Real archived timestamps (t=1,3,5s), not the bin edges (t=0,2,4s).
         assert rows["timestamp"].tolist() == [
@@ -696,7 +696,7 @@ class TestQueryShapeWithoutDocker:
             precision_ms=0,
         )
 
-        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == [
+        assert df.loc[df["address"] == "BEAM:CURRENT", "value"].tolist() == [
             0.0,
             1.0,
             2.0,
@@ -719,7 +719,7 @@ class TestQueryShapeWithoutDocker:
             processing=processing,
         )
 
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         assert df.empty
         assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
@@ -756,7 +756,7 @@ class TestQueryShapeWithoutDocker:
 
         # Documents are 1 hour apart; naive 1 s resampling would reindex onto
         # an 18,001-row grid.
-        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        values = df.loc[df["address"] == "BEAM:CURRENT", "value"]
         assert len(values) == 6
         assert values.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -781,7 +781,7 @@ class TestQueryShapeWithoutDocker:
             processing=processing,
         )
 
-        assert set(df["channel"]) == {"BEAM:CURRENT"}
+        assert set(df["address"]) == {"BEAM:CURRENT"}
 
     @pytest.mark.asyncio
     async def test_document_missing_date_is_skipped(self):
@@ -831,8 +831,8 @@ class TestQueryShapeWithoutDocker:
             processing="mean",
         )
 
-        fast_values = df.loc[df["channel"] == "FAST", "value"].tolist()
-        slow_values = df.loc[df["channel"] == "SLOW", "value"].tolist()
+        fast_values = df.loc[df["address"] == "FAST", "value"].tolist()
+        slow_values = df.loc[df["address"] == "SLOW", "value"].tolist()
 
         # FAST: the true per-1s-bin means.
         assert fast_values == pytest.approx([4.5, 14.5, 24.5, 34.5])
@@ -1620,7 +1620,7 @@ class TestWaveformReadWithoutDocker:
             end_date=WAVEFORM_T0 + timedelta(minutes=1),
         )
 
-        assert list(df["channel"]) == [WAVEFORM_CHANNEL] * 3
+        assert list(df["address"]) == [WAVEFORM_CHANNEL] * 3
         for sample, document in zip(df["value"], documents, strict=True):
             assert isinstance(sample, list)
             assert len(sample) == 500
@@ -1696,8 +1696,8 @@ class TestWaveformReadWithoutDocker:
             end_date=WAVEFORM_T0 + timedelta(hours=4),
         )
 
-        scalar = df[df["channel"] == "BEAM:CURRENT"]["value"]
-        waveform = df[df["channel"] == WAVEFORM_CHANNEL]["value"]
+        scalar = df[df["address"] == "BEAM:CURRENT"]["value"]
+        waveform = df[df["address"] == WAVEFORM_CHANNEL]["value"]
         assert list(scalar) == [100.0, 101.0, 102.0, 103.0]
         assert [len(sample) for sample in waveform] == [500, 500]
 
