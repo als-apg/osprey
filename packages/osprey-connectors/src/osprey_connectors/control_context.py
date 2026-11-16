@@ -141,14 +141,15 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generic, Literal, TypeVar
+from typing import Final, Generic, Literal, TypeVar, get_args
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ConnectorsError, StateLockedError, StateUnavailableError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
@@ -156,7 +157,7 @@ from osprey_connectors.safety_file import (
     atomic_replace,
     ensure_shared_dir,
 )
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.types import CONTROL_TARGETS, ControlTarget, MachineKind, is_control_target
 
 logger = logging.getLogger("osprey_connectors.control_context")
 
@@ -167,6 +168,7 @@ __all__ = [
     "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
     "OWNER_WEB_TERMINAL",
+    "OwnerKind",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
@@ -225,9 +227,10 @@ STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 
 #: The two kinds of process that can own the record. A web terminal outranks a
 #: controls server — it is the one an operator is looking at.
-OWNER_WEB_TERMINAL = "web_terminal"
-OWNER_CONTROLS_SERVER = "controls_server"
-_OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
+OwnerKind = Literal["web_terminal", "controls_server"]
+OWNER_WEB_TERMINAL: Final = "web_terminal"
+OWNER_CONTROLS_SERVER: Final = "controls_server"
+_OWNER_KINDS: frozenset[OwnerKind] = frozenset(get_args(OwnerKind))
 
 #: The two termini a switch request can reach in the record. ``applied`` moved
 #: the target and minted a generation; ``refused`` moved nothing.
@@ -265,14 +268,14 @@ _Parsed = TypeVar("_Parsed")
 
 #: A machine's three positions. ``off`` is never stored: it is a target absent
 #: from the map.
-_SWITCH_OFF: Literal["off"] = "off"
-_SWITCH_ASKED: Literal["asked"] = "asked"
-_SWITCH_ALLOWED: Literal["allowed"] = "allowed"
+_SWITCH_OFF: Final = "off"
+_SWITCH_ASKED: Final = "asked"
+_SWITCH_ALLOWED: Final = "allowed"
 
 #: The word a record written before the three positions arms a machine with.
 #: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
 #: carries under ``switch`` is dropped on parse (rule 2).
-_SWITCH_LEGACY_ON = "on"
+_SWITCH_LEGACY_ON: Final = "on"
 
 #: The record lock's file, beside the record: ``<record path>`` plus this.
 #: Rule 3. Not one of the PID-named families, so :func:`sweep_dead` never
@@ -295,7 +298,7 @@ class Owner(FrozenModel):
     """The process currently allowed to write the record.
 
     Attributes:
-        kind: One of :data:`_OWNER_KINDS`.
+        kind: An :data:`OwnerKind`.
         pid: The owning process's PID — how every other process decides
             whether the owner is still alive.
         port: The web terminal's port, so a follower can name where the owner
@@ -303,7 +306,7 @@ class Owner(FrozenModel):
             server, which serves nothing an operator can open.
     """
 
-    kind: str
+    kind: OwnerKind
     pid: int
     port: int | None = None
 
@@ -337,19 +340,29 @@ class ControlContext(FrozenModel):
         switch: The position the person has put each machine at,
             ``{target: "asked" | "allowed"}``; an absent target is off, and
             :func:`switch_position` is how it is read. :func:`write_record`
-            never changes it — it keeps whatever the file on disk says.
+            never changes it — it keeps whatever the file on disk says. Built
+            through rule 2's filter (:func:`_parse_switch`) whatever it is
+            handed, so a value that arms nothing is off rather than a
+            validation error, and the legacy ``"on"`` is ``"asked"``. Keys are
+            any string, not only a :data:`~osprey_connectors.types.ControlTarget`:
+            a key no target names is kept so a stop of every machine clears it.
         switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
             of the record, or ``None`` for a record written before epochs
             existed. Kept by :func:`write_record` like ``switch``.
     """
 
-    target: str
+    target: ControlTarget
     generation: int
     owner: Owner | None = None
-    posture: dict[str, str] = Field(default_factory=dict)
+    posture: dict[str, Posture] = Field(default_factory=dict)
     last_switch: dict[str, object] | None = None
-    switch: Mapping[str, str] = Field(default_factory=dict)
+    switch: Mapping[str, ArmedPosition] = Field(default_factory=dict)
     switch_epoch: int | None = None
+
+    @field_validator("switch", mode="before")
+    @classmethod
+    def _switch_words(cls, value: object) -> dict[str, ArmedPosition]:
+        return _parse_switch(dict(value) if isinstance(value, Mapping) else value)
 
     def to_payload(self) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
@@ -372,7 +385,7 @@ class ControlContext(FrozenModel):
         }
 
 
-def _posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
+def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
@@ -392,14 +405,12 @@ def _posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def switch_position(
-    record: ControlContext | None, target: str
-) -> Literal["off", "asked", "allowed"]:
+def switch_position(record: ControlContext | None, target: str) -> SwitchPosition:
     """Where the person has put *target* — the one reader of the ``switch`` map.
 
-    Never raises. No record, a target absent from the map and an unknown value
-    all read as off; a hand-built record still spelling ``"on"`` reads as asked,
-    as a parsed one does.
+    Never raises. No record and a target absent from the map read as off; the
+    map holds only :data:`~osprey_connectors.posture_store.ArmedPosition` words
+    (a parsed ``"on"`` is already ``"asked"``).
 
     Args:
         record: The record, or ``None`` when there is none.
@@ -407,10 +418,10 @@ def switch_position(
     """
     if record is None:
         return _SWITCH_OFF
-    return _switch_word(record.switch.get(target)) or _SWITCH_OFF
+    return record.switch.get(target) or _SWITCH_OFF
 
 
-def claimed(record: ControlContext, baseline: str) -> ControlContext:
+def claimed(record: ControlContext, baseline: ControlTarget) -> ControlContext:
     """*record* as a process claiming it holds it, given the deployment's *baseline*.
 
     A record nobody has switched follows the deployment's baseline; every
@@ -488,12 +499,16 @@ def _parse_owner(value: object) -> Owner | None:
         return None
     kind = value.get("kind")
     pid = _positive_int(value.get("pid"))
-    if kind not in _OWNER_KINDS or pid is None:
+    if pid is None:
         return None
-    return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
+    if kind == OWNER_WEB_TERMINAL:
+        return Owner(kind=OWNER_WEB_TERMINAL, pid=pid, port=_positive_int(value.get("port")))
+    if kind == OWNER_CONTROLS_SERVER:
+        return Owner(kind=OWNER_CONTROLS_SERVER, pid=pid, port=_positive_int(value.get("port")))
+    return None
 
 
-def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
+def _switch_word(value: object) -> ArmedPosition | None:
     """One stored ``switch`` value as the word it arms with, or ``None`` for off.
 
     Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
@@ -510,7 +525,7 @@ def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
     return None
 
 
-def _parse_switch(value: object) -> dict[str, str]:
+def _parse_switch(value: object) -> dict[str, ArmedPosition]:
     """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
@@ -556,7 +571,7 @@ def parse_record(raw: object) -> ControlContext | None:
         # Identity comparison, so a JSON ``true`` cannot pass for schema 1.
         return None
     target = raw.get("target")
-    if target not in CONTROL_TARGETS:
+    if not is_control_target(target):
         return None
     generation = raw.get("generation")
     if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
@@ -898,11 +913,7 @@ _ALL_TARGETS = "all"
 #: A machine's three positions, narrowest first: a later one widens an earlier
 #: one. The gesture's words and every reader's order. ``"off"`` is not stored
 #: (rule 2).
-SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = (
-    _SWITCH_OFF,
-    _SWITCH_ASKED,
-    _SWITCH_ALLOWED,
-)
+SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
 
 
 class StoppedSinceError(ConnectorsError):
@@ -934,7 +945,9 @@ class StoppedSinceError(ConnectorsError):
         super().__init__(refusal_phrase(self.reason))
 
 
-def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> list[str] | None:
+def _gesture_targets(
+    targets: Sequence[str] | Literal["all"], state: SwitchPosition
+) -> list[str] | None:
     """*targets* checked as named machines, or ``None`` for ``"all"``.
 
     Raises:
@@ -963,14 +976,14 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
     return names
 
 
-def _widens(state: str, position: str) -> bool:
+def _widens(state: SwitchPosition, position: SwitchPosition) -> bool:
     """Whether moving a machine at *position* to *state* widens it."""
     return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
 
 
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: Literal["off", "on", "asked", "allowed"],
+    state: SwitchPosition | Literal["on"],
     *,
     epoch: int | None = None,
     path: Path | None = None,
@@ -1117,7 +1130,7 @@ class RecordUnavailableError(ConnectorsError):
 
 
 @contextlib.contextmanager
-def held_epoch(path: Path, target: str) -> Iterator[int]:
+def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
     """Hold the record lock at *path* and yield the record's ``switch_epoch``. Rule 3.
 
     For a writer that issues something standing on the epoch — an approval of a
@@ -1491,7 +1504,7 @@ class ServerReport(FrozenModel):
 
     server_pid: int
     session: str | None = None
-    applied_target: str | None = None
+    applied_target: ControlTarget | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
     reachability: dict[str, object] = Field(default_factory=dict)
@@ -1584,8 +1597,8 @@ _REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
 #: The keys of a statement's ``writes``: the execution verdict's own terms.
 _WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
 
-_WRITE_POSITIONS: tuple[str | None, ...] = (None, "asked", "allowed")
-_MACHINE_KINDS: tuple[str | None, ...] = (None, "real", "rehearsal", "simulator")
+_WRITE_POSITIONS: tuple[ArmedPosition | None, ...] = (None, *get_args(ArmedPosition))
+_MACHINE_KINDS: tuple[MachineKind | None, ...] = (None, *get_args(MachineKind))
 
 
 def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, object]:
@@ -1678,7 +1691,7 @@ def _parse_report(raw: object) -> ServerReport | None:
     return ServerReport(
         server_pid=server_pid,
         session=_text(raw.get("session")),
-        applied_target=applied_target if applied_target in CONTROL_TARGETS else None,
+        applied_target=applied_target if is_control_target(applied_target) else None,
         applied_generation=_non_negative_int(raw.get("applied_generation")),
         children=_child_pids(raw.get("children")),
         reachability=_mapping(raw.get("reachability")),

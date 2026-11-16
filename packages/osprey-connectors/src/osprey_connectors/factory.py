@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar, get_args
 
 from osprey_connectors import types
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.service_answers import ServiceKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,9 +47,7 @@ __all__ = [
 
 logger = get_logger("connector_factory")
 
-#: A service kind's name, as ``BackendSpec.kind`` spells it.
-_ServiceKind = Literal["directory", "alarm_state", "alarm_log", "put_log"]
-_SERVICE_KINDS: tuple[_ServiceKind, ...] = ("directory", "alarm_state", "alarm_log", "put_log")
+_SERVICE_KINDS: tuple[ServiceKind, ...] = get_args(ServiceKind)
 
 
 def _unknown_service_kind(kind: str) -> ValueError:
@@ -197,7 +196,7 @@ class ConnectorFactory:
     _control_system_connectors: dict[str, type[ControlSystemConnector]] = {}
     _archiver_connectors: dict[str, type[ArchiverConnector]] = {}
     #: Service backend classes by kind, then by the type name a spec selects them by.
-    _service_backends: dict[str, dict[str, type[_ServiceBackend]]] = {
+    _service_backends: dict[ServiceKind, dict[str, type[_ServiceBackend]]] = {
         kind: {} for kind in _SERVICE_KINDS
     }
 
@@ -228,7 +227,9 @@ class ConnectorFactory:
         logger.debug(f"Registered archiver connector: {name}")
 
     @classmethod
-    def register_service(cls, kind: str, name: str, backend_class: type[_ServiceBackend]) -> None:
+    def register_service(
+        cls, kind: ServiceKind, name: str, backend_class: type[_ServiceBackend]
+    ) -> None:
         """Register a service backend under the type name a ``BackendSpec`` selects it by.
 
         Args:
@@ -247,7 +248,10 @@ class ConnectorFactory:
 
     @classmethod
     def build_control_system_connector(
-        cls, config: Mapping[str, object] | None = None, *, control_target: str | None = None
+        cls,
+        config: Mapping[str, object] | None = None,
+        *,
+        control_target: str | None = None,
     ) -> tuple[ControlSystemConnector, dict[str, object]]:
         """
         Build a control system connector and its type config, without connecting.
@@ -374,7 +378,10 @@ class ConnectorFactory:
 
     @classmethod
     async def create_control_system_connector(
-        cls, config: Mapping[str, object] | None = None, *, control_target: str | None = None
+        cls,
+        config: Mapping[str, object] | None = None,
+        *,
+        control_target: str | None = None,
     ) -> ControlSystemConnector:
         """
         Create, configure and connect a control system connector.
@@ -680,7 +687,7 @@ class _ServiceBuiltin(FrozenModel):
 
     #: The type name a ``BackendSpec`` selects it by, and the key it registers under.
     name: str
-    kind: _ServiceKind
+    kind: ServiceKind
     module_path: str
     class_name: str
     description: str

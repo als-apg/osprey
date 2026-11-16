@@ -69,7 +69,7 @@ from lume.variables import (
 )
 from typing_extensions import override
 
-from osprey_connectors.simulation import pulse, series, topoff, values
+from osprey_connectors.simulation import TEXTURE, pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
 from osprey_connectors.simulation.records import LinearTerm
 from osprey_connectors.simulation.view import SETPOINT
@@ -88,15 +88,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     )
 
 __all__ = [
-    "TEXTURE_OWNER",
     "TextureModel",
     "channel_value_type",
     "channel_variable",
     "is_float_channel",
 ]
-
-#: The ``owner`` the simulator view writes for a channel no model wires.
-TEXTURE_OWNER = "texture"
 
 _MS_PER_S = 1000.0
 _GAIN_WANDER_SUBKEY = b":gain_wander:"
@@ -277,7 +273,7 @@ class TextureModel(LUMEModel):
         owned = sorted(
             address
             for address, channel in self._channels.items()
-            if channel.owner in (TEXTURE_OWNER, *unserved)
+            if channel.owner in (TEXTURE, *unserved)
         )
         self._echo: dict[str, str] = {
             address: pair

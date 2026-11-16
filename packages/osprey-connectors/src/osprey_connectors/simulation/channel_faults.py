@@ -1,6 +1,7 @@
 """The faults of a simulated channel itself, applied by the composite's channel layer.
 
-A scenario's ``channel_faults`` maps an address to one word of
+A scenario's ``channel_faults`` maps an address to one
+:data:`~osprey_connectors.simulation.records.ChannelFaultKind`, each a key of
 :data:`CHANNEL_FAULTS`. A fault acts on the channel whether a physics model
 wires it or the texture holds it, while its scenario is active:
 
@@ -20,8 +21,8 @@ wires it or the texture holds it, while its scenario is active:
 
 No fault withholds a reply: a read always answers.
 
-The module imports only the standard library and the package's model base, so
-the build's validator and the composite share one table.
+The module imports only the standard library, the package's model base and the
+view's records, so the build's validator and the composite share one table.
 """
 
 from __future__ import annotations
@@ -29,26 +30,28 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
+from typing import Final
 
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.simulation.view import READBACK, SETPOINT
+from osprey_connectors.simulation.records import ChannelFaultKind, ChannelRole
 
 __all__ = [
     "CHANNEL_FAULTS",
+    "DISCONNECTED",
+    "FROZEN",
     "STUCK",
     "ChannelFault",
 ]
 
 #: Holds a setpoint's writes.
-STUCK = "stuck"
+STUCK: Final = "stuck"
 
 #: Holds a reading at the value it served when the fault became active.
-_FROZEN = "frozen"
+FROZEN: Final = "frozen"
 
 #: Reads not-a-number, or the activation value, with the ``udf`` condition.
-_DISCONNECTED = "disconnected"
+DISCONNECTED: Final = "disconnected"
 
-_NONE = "none"
 _FLOAT = "float"
 _UNDEFINED = "udf"
 
@@ -75,21 +78,22 @@ class ChannelFault(FrozenModel):
         severity: The condition a faulted reading reports, or ``None``.
     """
 
-    roles: frozenset[str]
+    roles: frozenset[ChannelRole]
     write: bool
     read: Callable[[str, object], object] | None
     severity: str | None
 
 
-#: Every channel fault, by its word.
-CHANNEL_FAULTS: Mapping[str, ChannelFault] = MappingProxyType(
+#: Every channel fault, by its word: one entry per
+#: :data:`~osprey_connectors.simulation.records.ChannelFaultKind`, in its order.
+CHANNEL_FAULTS: Mapping[ChannelFaultKind, ChannelFault] = MappingProxyType(
     {
-        STUCK: ChannelFault(roles=frozenset({SETPOINT}), write=True, read=None, severity=None),
-        _FROZEN: ChannelFault(
-            roles=frozenset({READBACK, _NONE}), write=False, read=_snapshot, severity=None
+        STUCK: ChannelFault(roles=frozenset({"setpoint"}), write=True, read=None, severity=None),
+        FROZEN: ChannelFault(
+            roles=frozenset({"readback", "none"}), write=False, read=_snapshot, severity=None
         ),
-        _DISCONNECTED: ChannelFault(
-            roles=frozenset({SETPOINT, READBACK, _NONE}),
+        DISCONNECTED: ChannelFault(
+            roles=frozenset({"setpoint", "readback", "none"}),
             write=True,
             read=_not_a_number,
             severity=_UNDEFINED,

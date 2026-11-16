@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TypeGuard
+from typing import Final, TypeGuard
 
 from pydantic import ValidationError
 
@@ -68,7 +68,7 @@ STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
 
 #: The ``violation_type`` of a write refused because its value is not a finite
 #: real number while the channel has a numeric limit to hold it to.
-INVALID_NUMERIC_VALUE = "INVALID_NUMERIC_VALUE"
+INVALID_NUMERIC_VALUE: Final = "INVALID_NUMERIC_VALUE"
 
 
 #: C's ``isspace`` set: what EPICS's C conversion skips around a numeral.

@@ -54,7 +54,9 @@ import json
 import logging
 import os
 from collections.abc import Callable, Mapping
-from typing import Final, Literal, TypeGuard
+from typing import Final, Literal, TypeGuard, get_args
+
+from typing_extensions import TypeIs
 
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
@@ -76,16 +78,19 @@ __all__ = [
     "LIMITS_MODE_EXCLUSIVE",
     "LIMITS_MODE_OPTIONAL",
     "LIVE_STANDIN",
+    "LimitsMode",
     "LimitsPosture",
     "MOCK_ARCHIVER",
     "MONGODB_ARCHIVER",
     "MYA_ARCHIVER",
+    "MachineKind",
     "RETIRED_CONTROL_SYSTEM_TYPES",
     "SERVED",
     "SERVING_KEY",
     "SERVING_LEAF",
     "SERVING_MODES",
     "SET_CONTROL_SYSTEM_TYPES",
+    "Serving",
     "SIMULATED_TYPES",
     "STANDIN_TYPES",
     "TANGO",
@@ -96,6 +101,7 @@ __all__ = [
     "TierWord",
     "TRANSPORT_CA",
     "TRANSPORT_IN_PROCESS",
+    "Transport",
     "UNSET_TYPE_WARNING",
     "VIRTUAL_ACCELERATOR",
     "WRITES_KEY",
@@ -105,6 +111,7 @@ __all__ = [
     "configured_targets",
     "connector_transport",
     "incomplete_limits_blocks",
+    "is_control_target",
     "is_simulated",
     "limits_database_required",
     "machine_kind",
@@ -159,27 +166,31 @@ DEFAULT_VA_PORT = 5064
 #: where the simulator runs: ``served`` from its container over Channel Access,
 #: or ``in_process`` inside the process that asks, with no network at all.
 SERVING_LEAF = "serving"
-SERVED = "served"
-IN_PROCESS = "in_process"
-SERVING_MODES = (SERVED, IN_PROCESS)
+#: The two venues the simulator runs in: one word of :data:`SERVING_LEAF`.
+Serving = Literal["served", "in_process"]
+SERVED: Final = "served"
+IN_PROCESS: Final = "in_process"
+#: Every :data:`Serving` word, ``served`` first.
+SERVING_MODES: tuple[Serving, ...] = get_args(Serving)
 SERVING_KEY = f"control_system.connector.{VIRTUAL_ACCELERATOR}.{SERVING_LEAF}"
 
 # -- Transports: the wire a connector speaks --
-TRANSPORT_IN_PROCESS = "in_process"
-TRANSPORT_CA = "ca"
-_TRANSPORT_DOOCS = "doocs"
-_TRANSPORT_TANGO = "tango"
+#: The wire a connector speaks: Channel Access (``ca``, which carries PVAccess
+#: beside it), nothing at all (``in_process``), or a facility protocol.
+Transport = Literal["ca", "in_process", "doocs", "tango"]
+TRANSPORT_IN_PROCESS: Final = "in_process"
+TRANSPORT_CA: Final = "ca"
 
 #: The wire each built-in type speaks when it is served over a network. There
 #: is no PVAccess row: the EPICS-family connectors carry PVAccess channels beside
 #: Channel Access, behind the same gateway gate, so ``ca`` covers both. A
 #: connector that speaks only PVAccess adds its own row.
-_TRANSPORTS = {
+_TRANSPORTS: dict[str, Transport] = {
     EPICS: TRANSPORT_CA,
     VIRTUAL_ACCELERATOR: TRANSPORT_CA,
     LIVE_STANDIN: TRANSPORT_CA,
-    DOOCS: _TRANSPORT_DOOCS,
-    TANGO: _TRANSPORT_TANGO,
+    DOOCS: "doocs",
+    TANGO: "tango",
 }
 
 # -- Retired type names --
@@ -230,7 +241,20 @@ ControlTarget = Literal["live", "va", "standin"]
 TARGET_LIVE: Final = "live"
 TARGET_VA: Final = "va"
 TARGET_STANDIN: Final = "standin"
-CONTROL_TARGETS: list[ControlTarget] = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+#: Every :data:`ControlTarget`, in the order every render, roster and state
+#: file lists them.
+CONTROL_TARGETS: list[ControlTarget] = list(get_args(ControlTarget))
+
+
+def is_control_target(value: object) -> TypeIs[ControlTarget]:
+    """Whether *value* is one of the three target words, spelled exactly.
+
+    The parse point for a target a caller read from somewhere untyped — an
+    environment variable, a request, a file — so a refusal that records
+    whatever was asked can still hand a resolver a :data:`ControlTarget`.
+    """
+    return isinstance(value, str) and value in CONTROL_TARGETS
+
 
 #: The topology those three names bound, spelled once and quoted by every
 #: answer that runs into it. One deployment describes one real machine: the
@@ -259,20 +283,12 @@ WRITES_KEY = "control_system.writes"
 #: :data:`WRITES_KEY`'s leaf inside the ``control_system:`` section.
 _WRITES_LEAF = "writes"
 
-#: The two values of :data:`WRITES_KEY` that arm anything, and the refusing word.
-_TIER_ALLOWED: Literal["allowed"] = "allowed"
-_TIER_ASKED: Literal["asked"] = "asked"
-_TIER_NEVER: Literal["never"] = "never"
-
-#: One tier word, as a type: a member of :data:`TIER_WORDS`.
+#: One tier word, as a type: the three values of :data:`WRITES_KEY`, narrowest
+#: first — every answer :func:`tier_writes` gives.
 TierWord = Literal["never", "asked", "allowed"]
 
-#: The three tier words, narrowest first: every answer :func:`tier_writes` gives.
-TIER_WORDS: tuple[Literal["never"], Literal["asked"], Literal["allowed"]] = (
-    _TIER_NEVER,
-    _TIER_ASKED,
-    _TIER_ALLOWED,
-)
+#: The three tier words, narrowest first: a rank, read by ``.index``.
+TIER_WORDS: tuple[TierWord, ...] = get_args(TierWord)
 
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
@@ -353,7 +369,7 @@ def _states_type(section: object) -> TypeGuard[dict[object, object]]:
     return isinstance(section, dict) and bool(section.get("type"))
 
 
-def resolve_serving(section: object) -> str:
+def resolve_serving(section: object) -> Serving:
     """Where the simulator a ``control_system:`` section selects runs.
 
     A section that states no type is the fail-safe default, the simulator in
@@ -372,16 +388,16 @@ def resolve_serving(section: object) -> str:
     connector = section.get("connector")
     block: object = connector.get(VIRTUAL_ACCELERATOR) if isinstance(connector, dict) else None
     value: object = block.get(SERVING_LEAF) if isinstance(block, dict) else None
-    if value is None:
+    if value is None or value == SERVED:
         return SERVED
-    if value not in SERVING_MODES:
-        raise ConfigurationError(
-            f"{SERVING_KEY} is {value!r}; it is {SERVED!r} or {IN_PROCESS!r}.", key=SERVING_KEY
-        )
-    return str(value)
+    if value == IN_PROCESS:
+        return IN_PROCESS
+    raise ConfigurationError(
+        f"{SERVING_KEY} is {value!r}; it is {SERVED!r} or {IN_PROCESS!r}.", key=SERVING_KEY
+    )
 
 
-def connector_transport(section: object, connector_type: str | None = None) -> str | None:
+def connector_transport(section: object, connector_type: str | None = None) -> Transport | None:
     """The wire a connector built from *section* speaks.
 
     Computed once, here, from the type and the serving leaf, so every check that
@@ -763,7 +779,7 @@ def configured_targets(section: object) -> list[ControlTarget]:
     ]
 
 
-def tier_writes(section: object) -> Literal["never", "asked", "allowed"]:
+def tier_writes(section: object) -> TierWord:
     """The write ceiling this deployment's login tier sets: ``never``, ``asked`` or ``allowed``.
 
     :data:`WRITES_KEY` decides when the section carries it, and then only the
@@ -781,12 +797,11 @@ def tier_writes(section: object) -> Literal["never", "asked", "allowed"]:
     Never raises. A section that is not a mapping answers ``never``.
     """
     value = section.get(_WRITES_LEAF) if isinstance(section, dict) else None
-    if isinstance(value, str):
-        if value == _TIER_ASKED:
-            return _TIER_ASKED
-        if value == _TIER_ALLOWED:
-            return _TIER_ALLOWED
-    return _TIER_NEVER
+    if value == "asked":
+        return "asked"
+    if value == "allowed":
+        return "allowed"
+    return "never"
 
 
 def tier_allows(section: object) -> bool:
@@ -795,15 +810,20 @@ def tier_allows(section: object) -> bool:
     This reads the ceiling only: ``asked`` and ``allowed`` both answer true, so
     whether a write prompts is not decided here.
     """
-    return tier_writes(section) != _TIER_NEVER
+    return tier_writes(section) != "never"
 
+
+#: The kind of machine a control target is: the facility's own (``real``), the
+#: deployment's stand-in once the controls server reports it so
+#: (``rehearsal``), or the simulator.
+MachineKind = Literal["real", "rehearsal", "simulator"]
 
 #: What kind of machine each control target names by its name alone, for the
 #: words a refusal uses about it. ``standin`` is ``real`` here: a name cannot
 #: tell this deployment's stand-in container from a ``standin`` target pointed at
 #: anything else, so only the published report (:func:`published_machine_kind`)
 #: may call it the rehearsal machine.
-_MACHINE_KINDS: dict[str, Literal["real", "rehearsal", "simulator"]] = {
+_MACHINE_KINDS: dict[ControlTarget, MachineKind] = {
     TARGET_LIVE: "real",
     TARGET_STANDIN: "real",
     TARGET_VA: "simulator",
@@ -811,15 +831,13 @@ _MACHINE_KINDS: dict[str, Literal["real", "rehearsal", "simulator"]] = {
 
 #: The kind a published report may claim for ``standin``. Anything else it says
 #: about that target, or nothing at all, reads as the real machine.
-_REHEARSAL: Literal["rehearsal"] = "rehearsal"
+_REHEARSAL: Final = "rehearsal"
 
 #: The report key the controls server publishes each target's kind under.
 _MACHINE_KIND_KEY = "machine_kind"
 
 
-def machine_kind(
-    section: object, target: object
-) -> Literal["real", "rehearsal", "simulator"] | None:
+def machine_kind(section: object, target: object) -> MachineKind | None:
     """The kind of machine *target* names by its name: ``real`` or ``simulator``.
 
     ``live`` and ``standin`` are the real machine, ``va`` the simulator. The
@@ -834,8 +852,7 @@ def machine_kind(
         resolve_target(section, target)
     except ValueError:
         return None
-    # A target that resolved is one of the three names, so a string.
-    return _MACHINE_KINDS.get(target) if isinstance(target, str) else None
+    return _MACHINE_KINDS.get(target) if is_control_target(target) else None
 
 
 def _published_targets(directory: str) -> dict[str, object]:
@@ -879,7 +896,7 @@ def _published_targets(directory: str) -> dict[str, object]:
 
 def published_machine_kind(
     target: object, *, state_dir: str | os.PathLike[str] | None = None
-) -> Literal["real", "rehearsal", "simulator"]:
+) -> MachineKind:
     """The kind of machine *target* is, as this deployment's controls server publishes it.
 
     The one source every surface reads (C-KIND). ``standin`` is ``rehearsal``
@@ -901,7 +918,7 @@ def published_machine_kind(
         ``real``, ``rehearsal`` or ``simulator``. Never raises.
     """
     if target != TARGET_STANDIN:
-        return _MACHINE_KINDS.get(target, "real") if isinstance(target, str) else "real"
+        return _MACHINE_KINDS.get(target, "real") if is_control_target(target) else "real"
     try:
         if state_dir is None:
             # Imported here: posture_store imports this module.
@@ -942,9 +959,11 @@ LIMITS_LEAVES = ("enabled", "mode")
 #: list of writable channels, and a channel with no record is refused.
 #: ``optional``: a channel with a record is checked against it, and a channel
 #: with no record is written with no limits.
-LIMITS_MODE_EXCLUSIVE = "exclusive"
-LIMITS_MODE_OPTIONAL = "optional"
-LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
+LimitsMode = Literal["exclusive", "optional"]
+LIMITS_MODE_EXCLUSIVE: Final = "exclusive"
+LIMITS_MODE_OPTIONAL: Final = "optional"
+#: Every :data:`LimitsMode` word, ``exclusive`` first.
+LIMITS_MODES: tuple[LimitsMode, ...] = get_args(LimitsMode)
 
 #: Every leaf the deployment-wide ``limits_checking`` block defines: the posture
 #: pair plus the database path, which is deployment-wide only. A per-type block
@@ -974,7 +993,7 @@ class LimitsPosture(FrozenModel):
 
     Attributes:
         enabled: Whether limits checking is on, or ``None`` when unstated.
-        mode: One of :data:`LIMITS_MODES`, or ``None`` when unstated. Write
+        mode: A :data:`LimitsMode`, or ``None`` when unstated. Write
             paths write a channel with no record only on ``optional``.
         connector_type: The connector type whose block answered, or ``None``
             when the deployment-wide block did. It selects the key spelling and
@@ -992,7 +1011,7 @@ class LimitsPosture(FrozenModel):
     """
 
     enabled: bool | None
-    mode: str | None
+    mode: LimitsMode | None
     connector_type: str | None
     incomplete: tuple[str, ...] = ()
 
@@ -1543,7 +1562,7 @@ def _limits_leaf(value: object) -> bool | None:
     return None
 
 
-def _limits_mode(value: object) -> str | None:
+def _limits_mode(value: object) -> LimitsMode | None:
     """The ``mode`` leaf as one of :data:`LIMITS_MODES`, or ``None`` for anything else.
 
     The two spellings and nothing else are readable: a boolean, a different
@@ -1551,8 +1570,10 @@ def _limits_mode(value: object) -> str | None:
     is one :func:`_unstated_limits_leaves` reports rather than one a reader
     guesses at.
     """
-    if isinstance(value, str) and value in LIMITS_MODES:
-        return value
+    if value == LIMITS_MODE_EXCLUSIVE:
+        return LIMITS_MODE_EXCLUSIVE
+    if value == LIMITS_MODE_OPTIONAL:
+        return LIMITS_MODE_OPTIONAL
     return None
 
 

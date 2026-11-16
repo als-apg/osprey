@@ -44,7 +44,7 @@ import logging
 import math
 import threading
 from collections.abc import Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey_optimizer.environments.write_authority import (
     NO_AUTHORIZATION,
@@ -62,6 +62,9 @@ from osprey_optimizer.models.exceptions import TimeoutError as OptimizerTimeoutE
 from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import PVValues, VariableInputs
 
+if TYPE_CHECKING:
+    from osprey_connectors.types import ControlTarget
+
 logger = logging.getLogger(__name__)
 
 # Backstop on one bridged call (read, or write plus its confirming re-read).
@@ -70,8 +73,6 @@ logger = logging.getLogger(__name__)
 # kill that follows, so the pool's typed errors arrive first and its kill of a
 # child whose write timed out is never cut short by this one.
 OP_TIMEOUT: float = 75.0
-
-CONTROL_TARGETS = ("va", "standin", "live")
 
 
 def _to_native(value: Any) -> Any:
@@ -170,7 +171,7 @@ class _PoolBridge:
 
     def connector(
         self,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         *,
         owner: str | None = None,
@@ -246,9 +247,11 @@ class ConnectorInterface:
     def __init__(
         self, target: str, execution_mode: str | None = None, *, bridge: _PoolBridge | None = None
     ) -> None:
-        if target not in CONTROL_TARGETS:
+        from osprey_connectors.types import CONTROL_TARGETS, is_control_target
+
+        if not is_control_target(target):
             raise InterfaceError(
-                f"Unknown control target {target!r}; expected one of {CONTROL_TARGETS}"
+                f"Unknown control target {target!r}; expected one of {tuple(CONTROL_TARGETS)}"
             )
         if execution_mode not in (None, "readonly"):
             raise InterfaceError(

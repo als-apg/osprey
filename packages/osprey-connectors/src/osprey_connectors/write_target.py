@@ -25,15 +25,16 @@ import logging
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Literal
 
 from typing_extensions import override
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import (
-    CONTROL_TARGETS,
     TARGET_LIVE,
+    ControlTarget,
+    MachineKind,
     baseline_target,
+    is_control_target,
     published_machine_kind,
 )
 
@@ -48,7 +49,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 #: The banner an owner reads beside each kind of machine (C-WORDS).
-KIND_BANNERS: dict[str, str] = {
+KIND_BANNERS: dict[MachineKind, str] = {
     "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
@@ -228,7 +229,7 @@ def _rendered_lanes(config: object) -> list[tuple[str, str]]:
     return lanes
 
 
-def _lane_machine(config: object, tool_input: object) -> str | Unresolved:
+def _lane_machine(config: object, tool_input: object) -> ControlTarget | Unresolved:
     """The target the call's lane serves, or :data:`UNRESOLVED`."""
     lanes = _rendered_lanes(config)
     lane = tool_input.get("lane") if isinstance(tool_input, Mapping) else None
@@ -236,12 +237,12 @@ def _lane_machine(config: object, tool_input: object) -> str | Unresolved:
         target = lanes[0][1] if len(lanes) == 1 else None
     else:
         target = next((served for key, served in lanes if key == lane), None)
-    return target if target in CONTROL_TARGETS else UNRESOLVED
+    return target if is_control_target(target) else UNRESOLVED
 
 
 def _session_machine(
     config: object, record_path: Path | None, stamped: bool | None
-) -> str | Unresolved:
+) -> ControlTarget | Unresolved:
     """The target the session is pointed at, or :data:`UNRESOLVED`.
 
     The record's target when it is readable. With no record at all, the
@@ -271,7 +272,7 @@ def write_target_for_tool(
     short_name: str | None = None,
     record_path: Path | None = None,
     stamped: bool | None = None,
-) -> str | None | Unresolved:
+) -> ControlTarget | None | Unresolved:
     """The machine a call writes to, placed as the hooks place it. Never raises.
 
     * ``None`` for a call that writes nothing: a tool outside the render's
@@ -321,7 +322,7 @@ def write_target_for_tool(
 
 
 def frame_target(
-    target: str | None | Unresolved,
+    target: ControlTarget | None | Unresolved,
     *,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, str] | None:
@@ -335,9 +336,7 @@ def frame_target(
         target: An answer of :func:`write_target_for_tool`.
         state_dir: The servers' report directory; ``None`` reads this process's.
     """
-    if not isinstance(target, str):
+    if not is_control_target(target):
         return None
-    kind: Literal["real", "rehearsal", "simulator"] = published_machine_kind(
-        target, state_dir=state_dir
-    )
+    kind = published_machine_kind(target, state_dir=state_dir)
     return {"key": target, "machine_kind": kind, "kind_words": KIND_BANNERS[kind]}

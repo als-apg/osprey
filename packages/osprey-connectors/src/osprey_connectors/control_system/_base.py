@@ -34,6 +34,7 @@ from osprey_connectors.errors import RefusalReason
 from osprey_connectors.model import MutableModel
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.types import Transport
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (
@@ -843,7 +844,7 @@ def _limits_refusal(
     """
     kind = error.violation_type
     reason = error.violation_reason
-    said = f"({kind}): {reason}" if kind and reason else f": {error}"
+    said = f"({kind}): {reason}" if reason else f": {error}"
     return ChannelWriteResult(
         address=address,
         value_written=value,
@@ -1098,15 +1099,17 @@ class ControlSystemConnector(ABC):
     # factory seam as _connector_type, from the target the *caller* named — the
     # init payload's target, the sandbox's stamp, the deployment baseline, the
     # bridge lane's own target. Stays None on an instance nobody built through
-    # the factory, and on a caller that has no target to name.
+    # the factory, and on a caller that has no target to name. A ``str`` and not
+    # a ``ControlTarget``: a target the caller named that does not resolve is
+    # carried as named, so the write verdict refuses it ``target_unknown``.
     _control_target: str | None = None
     # The wire this instance speaks, stamped by the same factory seam from the
     # type and the serving leaf. Stays None on an instance nobody built through
     # the factory.
-    _transport: str | None = None
+    _transport: Transport | None = None
 
     @property
-    def transport(self) -> str | None:
+    def transport(self) -> Transport | None:
         """The factory-stamped wire this instance speaks (``None`` off the factory)."""
         return self._transport
 

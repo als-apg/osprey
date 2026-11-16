@@ -20,11 +20,11 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import BuiltProject, init_project
 

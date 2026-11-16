@@ -33,6 +33,7 @@ from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.composite import ServingInstance
     from osprey_connectors.simulation.records import ScenarioRecord
 
 __all__ = [
@@ -332,7 +333,9 @@ def composed_set(
     return list(names), []
 
 
-def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, str | int]:
+def overlap_record(
+    overlap: Overlap, *, instance: ServingInstance, pid: int
+) -> dict[str, str | int]:
     """The log record a process writes when it serves without a scenario.
 
     Args:

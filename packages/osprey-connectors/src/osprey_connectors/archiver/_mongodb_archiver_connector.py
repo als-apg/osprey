@@ -30,6 +30,7 @@ from osprey_connectors.archiver._mongo_client import (
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
+    ProcessingMode,
     SampleSeries,
     aggregate_series,
     long_frame,
@@ -483,7 +484,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         precision_ms: int = 1000,
         *,
         timeout_s: float | None = None,
-        processing: str = "raw",
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from MongoDB collection.

@@ -59,7 +59,7 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import add_defaults, build_provenance
@@ -76,6 +76,7 @@ from osprey.facility.sources import (
     keyed_clashes,
     keyed_order,
 )
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
 __all__ = [

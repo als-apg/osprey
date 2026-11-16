@@ -721,9 +721,10 @@ contributes no rows; it never appears as an all-NaN column. If a custom
 connector finds itself building a shared ``DatetimeIndex`` and reindexing
 per-channel series onto it, that is the bug.
 
-**Per-channel aggregation.** ``get_data`` takes ``processing: str = "raw"`` --
-one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``, ``count`` --
-applied independently to each channel's own samples:
+**Per-channel aggregation.** ``get_data`` takes ``processing: ProcessingMode =
+"raw"`` -- one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``,
+``count`` (``osprey_connectors.archiver.ProcessingMode``) -- applied
+independently to each channel's own samples:
 
 - ``raw`` decimates each ``precision_ms`` bin to its **last real sample**,
   keeping that sample's own true timestamp (the Archiver Appliance's

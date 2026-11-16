@@ -28,16 +28,23 @@ import json
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Final, Literal, overload
+from typing import Final, Literal, get_args, overload
 
 from pydantic import BaseModel, ValidationError
 
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.records import (
     AddressesDocument,
     ChannelRecord,
+    ChannelRole,
+    Direction,
+    EngineRole,
+    Mark,
     ModelEntry,
+    Plane,
+    Refresh,
     ScenarioRecord,
     ScenariosDocument,
     SeedRecord,
@@ -58,6 +65,7 @@ __all__ = [
     "ENGINE_ROLES",
     "HEARTBEAT",
     "IOC_HEALTH_SIGNALS",
+    "IocHealthSignal",
     "MARKS",
     "MONITOR",
     "OUTPUT",
@@ -139,39 +147,37 @@ _ALSO_READ: Mapping[str, frozenset[str]] = MappingProxyType(
     {VARIABLES_FILE: frozenset({"osprey.facility.simulator/3"})}
 )
 
-#: The engine of the model that serves every channel no physics model wires.
-_TEXTURE = "texture"
-
-SETPOINT = "setpoint"
-READBACK = "readback"
-MONITOR = "monitor"
-OUTPUT = "output"
-#: The engine roles a wiring record's description names. A channel's facility role
-#: is ``setpoint`` or ``readback``.
-ENGINE_ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
+SETPOINT: Final = "setpoint"
+READBACK: Final = "readback"
+MONITOR: Final = "monitor"
+OUTPUT: Final = "output"
+#: The engine roles a wiring record's description names, every
+#: :data:`~osprey_connectors.simulation.records.EngineRole`. A channel's
+#: facility role is a :data:`~osprey_connectors.simulation.records.ChannelRole`.
+ENGINE_ROLES: tuple[EngineRole, ...] = get_args(EngineRole)
 #: The planes a wiring record's description names; ``None`` is no plane.
-PLANES = ("x", "y")
-PERIODIC = "periodic"
-#: The refresh a wiring record's description names: ``pass`` with each
-#: write's solve, ``periodic`` with the periodic solve alone, ``fast`` at the
-#: fast period, ``event`` with each event the engine raises.
-REFRESH = ("pass", PERIODIC, "fast", "event")
+PLANES: tuple[Plane, ...] = get_args(Plane)
+PERIODIC: Final = "periodic"
+#: The refresh a wiring record's description names, every
+#: :data:`~osprey_connectors.simulation.records.Refresh`.
+REFRESH: tuple[Refresh, ...] = get_args(Refresh)
 #: The mark of a record whose write is a command; only a ``write`` record
 #: carries it.
-COMMAND_MARK = "command"
+COMMAND_MARK: Final = "command"
 #: The marks a wiring record's description may set.
-MARKS = (COMMAND_MARK,)
+MARKS: tuple[Mark, ...] = get_args(Mark)
 
 #: The signal of a physics model's status address, ``<code>:SIM:<model>:STATUS``.
 STATUS_SIGNAL = "STATUS"
-HEARTBEAT = "HEARTBEAT"
-UPTIME = "UPTIME"
-ENGINEER = "ENGINEER"
-#: The signals of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``,
-#: in the order a view lists them.
-IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
+#: The signal of one of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``.
+IocHealthSignal = Literal["HEARTBEAT", "UPTIME", "ENGINEER"]
+HEARTBEAT: Final = "HEARTBEAT"
+UPTIME: Final = "UPTIME"
+ENGINEER: Final = "ENGINEER"
+#: Every :data:`IocHealthSignal`, in the order a view lists them.
+IOC_HEALTH_SIGNALS: tuple[IocHealthSignal, ...] = get_args(IocHealthSignal)
 #: The IOC health signals each periodic pass publishes.
-PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
+PERIODIC_IOC_HEALTH: tuple[IocHealthSignal, ...] = (HEARTBEAT, UPTIME)
 #: The directory property the simulator sets on each status and IOC health row,
 #: valued with that row's signal; channel rows carry none.
 SERVED_SIGNAL_PROPERTY = "signal"
@@ -279,7 +285,7 @@ class Channel(FrozenModel):
     """
 
     address: str
-    role: str
+    role: ChannelRole
     pair: str | None
     value_type: str
     unit: str | None
@@ -348,13 +354,13 @@ class Binding(FrozenModel):
     id: str
     model: str
     address: str
-    direction: str
-    engine_role: str
-    plane: str | None
-    refresh: str
+    direction: Direction
+    engine_role: EngineRole
+    plane: Plane | None
+    refresh: Refresh
     element: str | None
     record: _ReadOnly[str, object]
-    marks: frozenset[str] = frozenset()
+    marks: frozenset[Mark] = frozenset()
 
     @classmethod
     def from_record(cls, model: str, record: WiringRecord) -> Binding:
@@ -362,8 +368,8 @@ class Binding(FrozenModel):
 
         Raises:
             ViewSchemaError: the record lacks ``engine_role``, ``plane`` or
-                ``refresh``, or states ``None`` for ``engine_role`` or
-                ``refresh``.
+                ``refresh``, or states ``None`` for ``engine_role``,
+                ``refresh`` or ``direction``.
         """
         missing = [key for key in _DESCRIPTION_KEYS if key not in record.model_fields_set]
         if missing:
@@ -372,21 +378,23 @@ class Binding(FrozenModel):
                 f"{', '.join(missing)}: rebuild with osprey build",
                 key=missing[0],
             )
-        if record.engine_role is None or record.refresh is None:
-            absent = "engine_role" if record.engine_role is None else "refresh"
+        engine_role, refresh, direction = record.engine_role, record.refresh, record.direction
+        if engine_role is None or refresh is None or direction is None:
+            stated = {"engine_role": engine_role, "refresh": refresh, "direction": direction}
+            unstated = next(key for key, value in stated.items() if value is None)
             raise ViewSchemaError(
                 f"wiring record {record.address!r} of model {model!r} states no "
-                f"{absent}: rebuild with osprey build",
-                key=absent,
+                f"{unstated}: rebuild with osprey build",
+                key=unstated,
             )
         return cls(
             id=str(record.id),
             model=model,
             address=record.address,
-            direction=str(record.direction),
-            engine_role=record.engine_role,
+            direction=direction,
+            engine_role=engine_role,
             plane=record.plane,
-            refresh=record.refresh,
+            refresh=refresh,
             element=record.element,
             record=record.model_dump(mode="json", exclude_unset=True),
             marks=frozenset(record.marks or ()),
@@ -575,7 +583,7 @@ class SimulatorView:
             settings={key: _thaw(value) for key, value in entry.settings.items()},
             deck=self.path / entry.deck if entry.deck else None,
             bindings=()
-            if entry.engine == _TEXTURE
+            if entry.engine == TEXTURE
             else tuple(Binding.from_record(entry.name, record) for record in entry.wiring),
             inputs=entry.inputs,
         )
@@ -597,7 +605,7 @@ class SimulatorView:
 
     def physics_models(self) -> tuple[Model, ...]:
         """The served models whose engine is not ``texture``, sorted by name."""
-        return tuple(model for model in self.models() if model.served and model.engine != _TEXTURE)
+        return tuple(model for model in self.models() if model.served and model.engine != TEXTURE)
 
     def channels(self) -> tuple[str, ...]:
         """Every channel address of the facility file, sorted."""
@@ -614,7 +622,7 @@ class SimulatorView:
             }
         )
 
-    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+    def ioc_health_by_model(self) -> Mapping[str, Mapping[IocHealthSignal, str]]:
         """Each listed model's IOC health addresses by signal, ``{model: {signal: address}}``.
 
         An address is ``<code>:SIM:<model>:<signal>`` with ``<signal>`` one of
@@ -630,10 +638,11 @@ class SimulatorView:
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
-        by_model: dict[str, dict[str, str]] = {}
+        by_model: dict[str, dict[IocHealthSignal, str]] = {}
         for address in listed:
-            model, _, signal = address.removeprefix(prefix).rpartition(":")
-            if not model or not address.startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
+            model, _, word = address.removeprefix(prefix).rpartition(":")
+            signal = next((known for known in IOC_HEALTH_SIGNALS if known == word), None)
+            if not model or not address.startswith(prefix) or signal is None:
                 raise ViewSchemaError(
                     f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
@@ -671,8 +680,8 @@ class SimulatorView:
         self,
         *,
         model: str | None = None,
-        engine_role: str | None = None,
-        plane: str | None = None,
+        engine_role: EngineRole | None = None,
+        plane: Plane | None = None,
         node: str | None = None,
         served_only: bool = True,
     ) -> tuple[Binding, ...]:
@@ -698,7 +707,7 @@ class SimulatorView:
 
     def _all_bindings(self, served_only: bool) -> Iterator[Binding]:
         for model in self.models():
-            if model.engine == _TEXTURE or (served_only and not model.served):
+            if model.engine == TEXTURE or (served_only and not model.served):
                 continue
             yield from model.bindings
 

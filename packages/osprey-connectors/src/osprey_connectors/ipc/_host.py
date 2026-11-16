@@ -207,7 +207,7 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, get_args
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
@@ -227,6 +227,7 @@ __all__ = [
     "PROXY_METHODS",
     "START_MARKS_FD_ENV",
     "START_PHASES",
+    "StartPhase",
     "main",
     "scrub_epics_env",
 ]
@@ -248,8 +249,11 @@ INIT_METHOD = "init"
 #: Names the inherited descriptor a child writes its start marks to.
 START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
 
+#: One start mark a child writes (see "Start marks" above).
+StartPhase = Literal["main", "init", "imports", "connected"]
+
 #: The start marks a child writes, in the order it reaches them.
-START_PHASES = ("main", "init", "imports", "connected")
+START_PHASES: tuple[StartPhase, ...] = get_args(StartPhase)
 
 
 class _StartMarks:
@@ -269,7 +273,7 @@ class _StartMarks:
             if stat.S_ISFIFO(os.fstat(int(raw)).st_mode):
                 self._fd = int(raw)
 
-    def mark(self, phase: str) -> None:
+    def mark(self, phase: StartPhase) -> None:
         if self._fd is None:
             return
         try:
@@ -712,9 +716,12 @@ async def _build_connector(
     from osprey_connectors import types
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
+    if not types.is_control_target(target):
+        raise ValueError(
+            f"Unknown control target {target!r} in the connector host init frame; "
+            f"valid targets are {', '.join(types.CONTROL_TARGETS)}."
+        )
     connector_type = types.resolve_target(section, target)
-    # resolve_target refuses anything but one of the target names.
-    target = str(target)
     register_builtin_connectors()
     if marks is not None:
         marks.mark("imports")
@@ -732,9 +739,8 @@ async def _build_connector(
         if types.resolve_control_system_type(section) == connector_type
         else {**section, "type": connector_type}
     )
-    # The target the parent pointed this child at — already validated by
-    # resolve_target above, which refuses anything that is not one of the three
-    # literals — is what indexes the per-target narrowing the reference monitor
+    # The target the parent pointed this child at — already validated above as
+    # one of the three literals — is what indexes the per-target narrowing the reference monitor
     # reads. This child serves exactly one target, so the stamp is the payload's.
     connector = await ConnectorFactory.create_control_system_connector(
         config, control_target=target

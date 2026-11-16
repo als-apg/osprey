@@ -1,15 +1,16 @@
 """The simulated machine behind OSPREY's simulator connectors.
 
 The package root holds only what every reader needs without loading a model:
-the tick period and the fast period of timed passes, char-waveform decoding,
-the gated and labelled value types and the model status lookups. It imports
+the texture model's name, the tick period and the fast period of timed
+passes, char-waveform decoding, the gated and labelled value types and the
+model status lookups. It imports
 neither numpy nor lume; the active-scenario state, value coercion, the
 composite, the texture engine, the archive and the series primitives are
 imported from their own modules.
 """
 
 from collections.abc import Iterable, Mapping
-from typing import SupportsInt, TypeGuard
+from typing import Final, SupportsInt, TypeGuard
 
 from osprey_connectors.simulation.status import model_status, read_model_status
 from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
@@ -20,6 +21,7 @@ __all__ = [
     "FAST_TICK_KEY",
     "GATED_TYPES",
     "LABELLED_TYPES",
+    "TEXTURE",
     "TICK_KEY",
     "decode_char_waveform",
     "model_status",
@@ -29,6 +31,10 @@ __all__ = [
 ]
 
 #: The config key holding the simulated machine's tick period, in seconds.
+#: The built-in model, and its engine, that serves every channel no physics
+#: model wires: a channel's ``owner`` in the view when no model wires it.
+TEXTURE: Final = "texture"
+
 TICK_KEY = "simulation.tick_s"
 
 #: The tick period when the config does not set one, in seconds.

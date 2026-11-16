@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.services.graph_store.seeder import ttl_sha256
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation import composite as composite_module
 
 if TYPE_CHECKING:

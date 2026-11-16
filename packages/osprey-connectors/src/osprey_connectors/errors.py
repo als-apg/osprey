@@ -74,7 +74,7 @@ with its channel, so a public failure needs no registry entry of its own.
 import errno
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from osprey_connectors.model import FrozenModel
 
@@ -101,6 +101,7 @@ __all__ = [
     "ConnectorInternalError",
     "ConnectorUnavailableError",
     "ConnectorsError",
+    "LimitsViolationKind",
     "RecoveryRecord",
     "RefusalReason",
     "StateLockedError",
@@ -140,6 +141,20 @@ class ChannelError(ConnectorsError):
         super().__init__(message)
 
 
+#: Why the limits refused a write: the ``violation_type`` of
+#: :class:`ChannelLimitsViolationError`.
+LimitsViolationKind = Literal[
+    "MIN_EXCEEDED",
+    "MAX_EXCEEDED",
+    "MAX_STEP_EXCEEDED",
+    "STEP_CHECK_FAILED",
+    "READ_ONLY_CHANNEL",
+    "UNLISTED_CHANNEL",
+    "LIMITS_DATABASE_UNAVAILABLE",
+    "INVALID_NUMERIC_VALUE",
+]
+
+
 class ChannelLimitsViolationError(ChannelError):
     """Raised when a channel write violates configured safety limits.
 
@@ -151,7 +166,7 @@ class ChannelLimitsViolationError(ChannelError):
         self,
         address: str,
         value: object,
-        violation_type: str,
+        violation_type: LimitsViolationKind,
         violation_reason: str,
         min_value: float | None = None,
         max_value: float | None = None,

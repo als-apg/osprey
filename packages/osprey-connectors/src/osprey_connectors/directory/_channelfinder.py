@@ -42,6 +42,7 @@ from osprey_connectors.directory._contract import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    DirectoryStatus,
 )
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable, _Recorded
@@ -65,7 +66,7 @@ _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
 )
 
 #: The ``pvStatus`` values a row reports; any other value reports no status.
-_STATUSES: Mapping[str, Literal["Active", "Inactive"]] = MappingProxyType(
+_STATUSES: Mapping[str, DirectoryStatus] = MappingProxyType(
     {"Active": "Active", "Inactive": "Inactive"}
 )
 

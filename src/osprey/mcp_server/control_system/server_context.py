@@ -97,7 +97,7 @@ from osprey_connectors.errors import RecoveryRecord as Recovery
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.model import evolve
 from osprey_connectors.recovery import RecoveryAction
-from osprey_connectors.types import configured_targets, tier_allows
+from osprey_connectors.types import ControlTarget, configured_targets, tier_allows
 
 __all__ = [
     "ConnectorEntry",
@@ -142,7 +142,7 @@ def launch_target_from_record() -> str | None:
 
 
 def claim_control_context(
-    *, baseline: str, server_pid: int | None = None
+    *, baseline: ControlTarget, server_pid: int | None = None
 ) -> control_context.ControlContext | None:
     """Own the control-context record when nothing alive already owns it.
 
@@ -428,7 +428,7 @@ class ControlSystemContext:
         return value
 
     @property
-    def baseline(self) -> str:
+    def baseline(self) -> ControlTarget:
         """The target this deployment's own config selects.
 
         Derived from the config through

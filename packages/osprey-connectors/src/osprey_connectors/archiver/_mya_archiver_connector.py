@@ -345,7 +345,7 @@ class MYAArchiverConnector(ArchiverConnector):
         precision_ms: int = 1000,
         *,
         timeout_s: float | None = None,
-        processing: str = "raw",
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """Retrieve historical data for one or more channels.
 

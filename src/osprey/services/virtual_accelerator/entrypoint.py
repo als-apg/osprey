@@ -56,7 +56,7 @@ import contextlib
 import os
 import signal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.simulation.view import (
     SERVED_MODELS_FILE,
@@ -67,12 +67,15 @@ from osprey_connectors.simulation.view import (
     ViewSchemaError,
 )
 
+if TYPE_CHECKING:
+    from osprey_connectors.simulation.composite import ServingInstance
+
 #: The data root the view is read under when ``VA_DATA_DIR`` is unset.
 DEFAULT_DATA_DIR = "/data"
 
 #: The instances a process may serve as; the composite's own list names one
 #: more, ``inprocess``, which is never a served instance.
-VA_INSTANCES = ("virtual_accelerator", "live_standin")
+VA_INSTANCES: tuple[ServingInstance, ...] = ("virtual_accelerator", "live_standin")
 
 #: The directory the model logs are appended in: the mount target of every
 #: virtual accelerator compose block, whose host side is ``var/simulator/`` for
@@ -104,19 +107,19 @@ def view_dir() -> Path:
     return Path(data_dir) / VIEW_RELPATH.name
 
 
-def _resolve_instance() -> str:
+def _resolve_instance() -> ServingInstance:
     """Read ``VA_INSTANCE``, one of :data:`VA_INSTANCES`.
 
     Raises:
         SystemExit: The variable is unset, empty or names no served instance.
     """
     raw = os.environ.get("VA_INSTANCE", "").strip()
-    if raw not in VA_INSTANCES:
-        raise SystemExit(
-            f"FATAL: VA_INSTANCE={raw!r} names no instance. Set it to one of "
-            f"{', '.join(VA_INSTANCES)}."
-        )
-    return raw
+    for instance in VA_INSTANCES:
+        if raw == instance:
+            return instance
+    raise SystemExit(
+        f"FATAL: VA_INSTANCE={raw!r} names no instance. Set it to one of {', '.join(VA_INSTANCES)}."
+    )
 
 
 def _resolve_tick_interval() -> float:

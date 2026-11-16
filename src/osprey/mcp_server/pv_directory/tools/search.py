@@ -16,6 +16,7 @@ from osprey.mcp_server.pv_directory.server import (
     panel_link,
     refuse_unavailable,
 )
+from osprey_connectors.directory import DirectoryStatus
 
 logger = logging.getLogger("osprey.mcp_server.pv_directory.tools.search")
 
@@ -38,7 +39,7 @@ async def directory_search(
     words: str = "",
     name: str | None = None,
     properties: dict[str, str] | None = None,
-    status: str | None = None,
+    status: DirectoryStatus | None = None,
     page: int = 0,
 ) -> str:
     """Search the control system's own directory of channel addresses.

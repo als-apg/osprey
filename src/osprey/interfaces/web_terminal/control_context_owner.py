@@ -89,6 +89,7 @@ from osprey_connectors.control_context import (
     write_record,
 )
 from osprey_connectors.model import evolve
+from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
 
@@ -555,7 +556,7 @@ class ControlContextOwnerTask:
             )
         self._follows = follows
 
-    def _baseline(self) -> str:
+    def _baseline(self) -> ControlTarget:
         """The target this deployment's own config selects.
 
         Read from :meth:`_rendered_config`. A render that cannot be read raises

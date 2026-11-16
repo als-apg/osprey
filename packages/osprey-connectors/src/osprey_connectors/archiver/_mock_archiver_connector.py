@@ -17,6 +17,7 @@ from typing_extensions import override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
+    ProcessingMode,
     aggregate_long_frame,
     resolve_processing,
     utc_window,
@@ -180,7 +181,7 @@ class MockArchiverConnector(ArchiverConnector):
         precision_ms: int = 1000,
         *,
         timeout_s: float | None = None,
-        processing: str = "raw",
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         The archived history of channels of the simulator view.

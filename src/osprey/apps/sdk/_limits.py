@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from osprey_connectors.types import LimitsMode
 
 __all__ = ["WriteVerdictView", "prewrite_verdict"]
 
@@ -39,7 +42,7 @@ class WriteVerdictView:
     reason: str | None
     declared: bool
     enforced: bool
-    mode: Literal["optional", "exclusive"] | None
+    mode: LimitsMode | None
     limits: dict[str, float | None] | None
 
 

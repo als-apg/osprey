@@ -22,6 +22,7 @@ from typing_extensions import override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
+    ProcessingMode,
     SampleSeries,
     long_frame,
     reject_non_numeric,
@@ -283,7 +284,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         precision_ms: int = 1000,
         *,
         timeout_s: float | None = None,
-        processing: str = "raw",
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from EPICS archiver.

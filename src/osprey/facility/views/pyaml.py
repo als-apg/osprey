@@ -47,11 +47,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility import TEXTURE
 from osprey.facility.kinds import SHIPPED_SORTS
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, report_note
 from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
+from osprey_connectors.simulation import TEXTURE
 
 if TYPE_CHECKING:
     from osprey.facility.kinds import ViewContext

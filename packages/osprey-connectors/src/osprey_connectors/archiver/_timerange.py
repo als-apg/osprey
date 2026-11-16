@@ -9,7 +9,7 @@ canonical long frame without ever manufacturing a sample.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal, TypeAlias, TypeGuard
+from typing import Literal, TypeAlias, TypeGuard, get_args
 
 import pandas as pd
 from pydantic import InstanceOf
@@ -18,18 +18,12 @@ from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.config import localize_facility
 from osprey_connectors.model import FrozenModel
 
-#: A canonical processing mode, one of :data:`PROCESSING_MODES`.
+#: A canonical processing mode: the aggregation ArchiverConnector.get_data
+#: applies within each bin, or raw for none.
 ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]
 
-PROCESSING_MODES: tuple[ProcessingMode, ...] = (
-    "raw",
-    "mean",
-    "min",
-    "max",
-    "median",
-    "std",
-    "count",
-)
+#: Every :data:`ProcessingMode`, raw first.
+PROCESSING_MODES: tuple[ProcessingMode, ...] = get_args(ProcessingMode)
 
 #: One channel's samples, indexed by timestamp. The element is the archived
 #: channel value the ``value`` column of ``ArchiverConnector.get_data`` carries,

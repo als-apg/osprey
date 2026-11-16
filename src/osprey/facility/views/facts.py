@@ -61,10 +61,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey.facility.views.channel_finder import hierarchy_levels
+from osprey_connectors.simulation import TEXTURE
 
 __all__ = [
     "CONFIGURATION_FILE",
