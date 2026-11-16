@@ -458,7 +458,7 @@ async def test_open_panel_forwards_macros(tmp_path, monkeypatch):
     _register_demo_panel(tmp_path, monkeypatch)
 
     body = {"id": "d-7", "resource": "/path/osprey_demo.bob", "ready": True}
-    macros = {"IOC": "injbpm", "HOST": "ioc host 1"}
+    macros = {"IOC": "injbpm", "HOST": "ioc-host-1.example", "N": "07"}
     with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
         result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
 
@@ -492,6 +492,23 @@ async def test_open_panel_without_macros_sends_the_old_body(tmp_path, monkeypatc
         ({"IOC": {"nested": "x"}}, "'IOC'"),
         ({"": "injbpm"}, "name"),
         ({7: "injbpm"}, "name"),
+        ({"1ST": "v"}, "name"),
+        ({"IOC NAME": "v"}, "name"),
+        ({"$(X)": "v"}, "name"),
+        ({"A.B": "v"}, "name"),
+        ({"IOC\n": "v"}, "name"),
+        ({"IOC": ""}, "empty"),
+        ({"IOC": "$(HOME)"}, "nested macro"),
+        ({"IOC": "a${USER}"}, "nested macro"),
+        ({"DIR": "../other"}, "path separator"),
+        ({"DIR": "/etc"}, "path separator"),
+        ({"DIR": "sub\\panel"}, "path separator"),
+        ({"DIR": ".."}, "parent-directory"),
+        ({"P": "SR01:BPM"}, "colon"),
+        ({"IOC": "ioc host"}, "whitespace"),
+        ({"IOC": "ioc\thost"}, "whitespace"),
+        ({"IOC": "ioc\x00"}, "control character"),
+        ({"IOC": "ok", "DIR": "a/b"}, "'DIR'"),
     ],
 )
 async def test_open_panel_rejects_malformed_macros(tmp_path, monkeypatch, macros, named):
@@ -505,16 +522,28 @@ async def test_open_panel_rejects_malformed_macros(tmp_path, monkeypatch, macros
     mock_open.assert_not_called()
 
 
+@pytest.mark.parametrize("value", ["injbpm", "ioc-host-1.example", "07", "SR01C_BPM1", "a.b"])
+async def test_open_panel_accepts_plain_macro_values(tmp_path, monkeypatch, value):
+    """A plain token (IOC name, host name, number) is forwarded unchanged."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-9", "resource": "/path/osprey_demo.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": value}, focus=False)
+
+    assert mock_open.call_args.args[0]["macros"] == {"IOC": value}
+
+
 async def test_open_panel_macros_rejected_by_bridge(tmp_path, monkeypatch):
     """The bridge's verdict on a macro name reaches the caller with its text."""
     _register_demo_panel(tmp_path, monkeypatch)
 
     with patch(
         f"{_MOD}._http_post_open",
-        return_value=(400, {"error": "Invalid macro name '1ST'", "status": 400}),
+        return_value=(400, {"error": "Invalid macro name 'xmlns'", "status": 400}),
     ):
         with assert_raises_error(error_type="phoebus_open_failed") as ctx:
-            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"1ST": "v"})
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"xmlns": "v"})
     assert "Invalid macro name" in ctx["envelope"]["error_message"]
     assert any("macro" in hint for hint in ctx["envelope"]["suggestions"])
 

@@ -477,14 +477,40 @@ def _resolve_panel_resource(name: str) -> str:
     return resource
 
 
+# A macro name the tool forwards: a plain identifier. Narrower than what
+# Phoebus itself accepts (which also allows ".", "-", "[" and "]" for
+# property paths), because the agent chooses the name.
+_MACRO_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+
+# What a macro value may not contain. A value is substituted into the opened
+# display's PV names and embedded-display paths, so the registered panel must
+# stay the only thing that says which files and which other macros are in
+# play: no nested macro or environment reference, no path separator or
+# traversal, no scheme or drive separator, nothing a reader of the call
+# cannot see.
+_MACRO_VALUE_REFUSALS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\$[({]"), "a nested macro reference ('$(' or '${')"),
+    (re.compile(r"[/\\]"), "a path separator ('/' or '\\')"),
+    (re.compile(r"\.\."), "a parent-directory reference ('..')"),
+    (re.compile(r":"), "a colon (':')"),
+    (re.compile(r"\s"), "whitespace"),
+    (re.compile(r"[\x00-\x1f\x7f-\x9f]"), "a control character"),
+)
+
+
 def _validated_macros(macros: object) -> dict[str, str]:
     """Return *macros* as a name → string-value dict, or raise a validation error.
 
-    ``None`` and an empty mapping both mean "no macros". Only the shape is
-    checked here — a mapping of non-empty string names to string values, what
-    the bridge's ``POST /open`` accepts as ``macros``. Which names are legal
-    macro names is the bridge's rule, and its refusal reaches the caller as
-    ``phoebus_open_failed``.
+    ``None`` and an empty mapping both mean "no macros".
+
+    The panel registry admits display *files*; a macro value is substituted
+    into the PV names and embedded-display paths inside one. So the values
+    are held to what cannot redirect the display to another file or pull in
+    another macro: a name is a plain identifier, and a value is non-empty and
+    free of nested macro references, path separators and traversal, colons,
+    whitespace and control characters (``_MACRO_VALUE_REFUSALS``). A value
+    that is a plain token (an IOC name, a host name, a device number) passes.
+    Which PVs a parameterised panel may be pointed at is not decided here.
     """
     if macros is None:
         return {}
@@ -496,10 +522,11 @@ def _validated_macros(macros: object) -> dict[str, str]:
             ['Pass macros as an object, e.g. {"IOC": "injbpm"}.'],
         )
     for macro, value in macros.items():
-        if not isinstance(macro, str) or not macro.strip():
+        if not isinstance(macro, str) or not _MACRO_NAME.match(macro):
             make_error(
                 "validation_error",
-                f"Every macro name must be a non-empty string (got {macro!r}).",
+                f"Invalid macro name {macro!r}: a macro name is letters, digits and "
+                "underscores, starting with a letter.",
             )
         if not isinstance(value, str):
             make_error(
@@ -507,6 +534,21 @@ def _validated_macros(macros: object) -> dict[str, str]:
                 f"The value of macro {macro!r} must be a string (got {type(value).__name__}).",
                 ["Macro values are text: pass a number as a quoted string."],
             )
+        if not value:
+            make_error("validation_error", f"The value of macro {macro!r} must not be empty.")
+        for pattern, what in _MACRO_VALUE_REFUSALS:
+            if pattern.search(value):
+                make_error(
+                    "validation_error",
+                    f"The value of macro {macro!r} contains {what}, which a macro value "
+                    "passed to phoebus_open_panel may not.",
+                    [
+                        "A macro value is a plain token such as an IOC or host name; it "
+                        "cannot name a path, a PV with a ':' prefix, or another macro.",
+                        "If this display needs such a value, ask the operator to open it "
+                        "in Phoebus.",
+                    ],
+                )
     return dict(macros)
 
 
@@ -558,6 +600,11 @@ async def phoebus_open_panel(
             background opens that should not steal the user's view.
         macros: Display macros as a mapping of macro name to string value
             (e.g. ``{"IOC": "injbpm"}``). Omit for a display that takes none.
+            A name is letters, digits and underscores, starting with a
+            letter. A value is a plain token: not empty, and without
+            ``$(``/``${``, ``/``, ``\\``, ``..``, ``:``, whitespace or control
+            characters, so it cannot point the display at another file or
+            macro. Anything else is refused before Phoebus is contacted.
 
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "id": "d-N",
