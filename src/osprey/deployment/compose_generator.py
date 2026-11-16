@@ -7095,6 +7095,8 @@ def prepare_compose_files(
         ``control_system.limits_checking.database_path`` names no path or names
         a file that is not on this host (:func:`resolve_limits_mount`). Nothing
         has been rendered when it raises.
+    :raises ValueError: A roster card shows an application panel whose
+        container holds no roster grant (one line per card and panel).
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -7209,6 +7211,16 @@ def prepare_compose_files(
     # function (`osprey build`, `deploy_up`, `deploy_down`, `deploy_restart`,
     # `rebuild_deployment`) stages the same map and no caller hands one in.
     login_tiers = staged_login_tiers(config, layer_root) if deployed_service_names else None
+
+    # A roster card's terminal proxies each application panel its render shows
+    # with that card's secret; a panel whose container is handed none refuses
+    # every such request, so the render refuses the panel instead.
+    if deployed_service_names:
+        from osprey.deployment.web_terminals.roster import app_panels_without_roster_grant
+
+        problems = app_panels_without_roster_grant(config, resolve_repo_root(config), layer_root)
+        if problems:
+            raise ValueError("\n".join(problems))
 
     # Create the service build directory for deployed services only
     for service_name in deployed_service_names:

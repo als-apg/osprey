@@ -695,6 +695,10 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``panel.agent_routes``
      - ``[METHOD, /path]`` pairs the agent's tools may call; ``GET``,
        ``HEAD`` and ``OPTIONS`` read, every other method writes.
+   * - ``panel.roster_grant``
+     - Required when a roster card shows the panel: ``{}`` hands each such
+       card's secret to the panel's container. The build refuses the panel
+       without it.
    * - ``panel.roster_grant.single_user_alias`` [false]
      - The panel works for the alias login of a single-user deployment,
        which has no roster.

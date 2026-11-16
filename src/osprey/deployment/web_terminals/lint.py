@@ -87,6 +87,7 @@ from osprey.deployment.web_terminals.roster import (
     _is_shared_entry,
     _roster_entry_name,
     app_access_refusal,
+    app_panels_without_roster_grant,
     as_dict,
     auth_is_enforced,
     authored_people,
@@ -320,6 +321,7 @@ def lint_web_terminals(
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
         findings.extend(_check_open_mode_code_panel(root, project_root=project_root))
+        findings.extend(_check_app_panel_roster_grant(root, project_root=project_root))
         # Both read the deployment's `.env` or `.env.auth`, so they ride the
         # same gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
@@ -3674,6 +3676,38 @@ def _auth_context(
         return _auth_tls_context(web_terminals, base=base)
     except ValueError:
         return None
+
+
+def _check_app_panel_roster_grant(
+    root: dict[str, Any], *, project_root: Path | None
+) -> list[Finding]:
+    """A roster card shows an application panel whose container holds no roster grant.
+
+    The authoring-time voice of the compose render's refusal, driven by the
+    predicate that refusal raises on (:func:`app_panels_without_roster_grant`)
+    and speaking its message. A malformed grant row is the render's refusal
+    to raise, so it yields no finding here.
+
+    Args:
+        root: The whole parsed config.
+        project_root: The deployment repo whose ``build/`` holds the renders.
+            ``None`` falls back to the working directory.
+
+    Returns:
+        One finding per (card, panel), or none.
+    """
+    try:
+        problems = app_panels_without_roster_grant(root, project_root or Path("."))
+    except ValueError:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.app_panel_without_roster_grant",
+            message=problem,
+        )
+        for problem in problems
+    ]
 
 
 def _check_open_mode_code_panel(
