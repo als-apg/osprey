@@ -785,7 +785,7 @@ async def _write_row(live: Any, row: dict[str, Any]) -> None:
         row["reason"] = f"the write raised: {exc}"
         return
     row["outcome"] = str(result.outcome)
-    violation = result.limits_violation
+    violation = getattr(result, "limits_violation", None)
     message = getattr(result, "error_message", None)
     if violation is not None:
         row["reason"] = f"{violation.kind}: {violation.reason}"

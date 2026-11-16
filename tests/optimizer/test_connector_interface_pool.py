@@ -424,11 +424,21 @@ def test_any_other_refusal_keeps_its_verdict_reason_and_leaves_the_authority_sta
 
 
 def test_a_limits_refusal_out_of_the_batch_is_a_refusal():
-    from osprey_connectors.errors import ChannelLimitsViolationError
+    from osprey_connectors.control_system import ChannelWriteResult
+    from osprey_connectors.errors import LimitsViolation, RefusalReason
 
-    exc = ChannelLimitsViolationError(
-        address="A:SP", value=9.0, violation_type="MAX_EXCEEDED", violation_reason="max"
-    )
+    def refused(operations):
+        return [
+            ChannelWriteResult.refused(
+                address,
+                value,
+                RefusalReason.LIMITS,
+                f"Write to '{address}' refused by the limits (MAX_EXCEEDED): max",
+                limits=LimitsViolation(kind="MAX_EXCEEDED", reason="max"),
+            )
+            for address, value in operations
+        ]
+
     with pytest.raises(WriteRefusedError) as caught:
-        ConnectorInterface("live", bridge=_KeyedBridge(exc=exc)).set_values({"A:SP": 9.0})
+        ConnectorInterface("live", bridge=_KeyedBridge(results=refused)).set_values({"A:SP": 9.0})
     assert caught.value.reason == "LIMITS"

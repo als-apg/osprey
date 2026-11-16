@@ -82,7 +82,8 @@ def test_archiver_frame_names_its_rows_by_address(empty):
 
 def test_write_failure_reasons_are_protocol_neutral():
     """A DOOCS write failure must not be reported as a Channel Access failure."""
-    assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")
+    for outcome in ("failed", "mismatch", "unconfirmed"):
+        assert ChannelWriteFailedError("SR:Q", outcome).outcome == outcome
 
 
 def test_channel_metadata_display_range_is_not_named_like_a_write_bound():

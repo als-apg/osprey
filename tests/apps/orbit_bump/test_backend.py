@@ -63,7 +63,7 @@ from osprey.apps.sdk import (
 )
 from osprey.interfaces.common_middleware import WebAuthMiddleware
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import LimitsViolation
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from tests.hooks.conftest import import_hook
 
@@ -171,6 +171,7 @@ class StandInConnector:
         self.outcomes: dict[str, WriteOutcome] = {}
         #: addr -> what its write raises.
         self.raises: dict[str, Exception] = {}
+        self.violations: dict[str, LimitsViolation] = {}
         #: Setpoints whose readback does not follow a write.
         self.lagging: set[str] = set()
         #: Seconds each write takes.
@@ -210,7 +211,12 @@ class StandInConnector:
             if addr not in self.lagging and readback in self.values:
                 self.values[readback] = value
         message = None if outcome in (WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH) else "no"
-        return SimpleNamespace(outcome=outcome, observed_value=value, error_message=message)
+        return SimpleNamespace(
+            outcome=outcome,
+            observed_value=value,
+            error_message=message,
+            limits_violation=self.violations.get(addr),
+        )
 
     async def disconnect(self) -> None:
         if self.refuse_disconnect:
@@ -1899,8 +1905,9 @@ def test_apply_whose_settle_expires_is_partially_applied_with_the_last_readback(
 
 
 def test_apply_stops_at_a_mid_sequence_limits_violation(client, computed, machine) -> None:
-    machine.raises["C3:x:SP"] = ChannelLimitsViolationError(
-        "C3:x:SP", 9.9, "MAX_STEP_EXCEEDED", "step 8.6 exceeds 2.0"
+    machine.outcomes["C3:x:SP"] = WriteOutcome.REFUSED
+    machine.violations["C3:x:SP"] = LimitsViolation(
+        kind="MAX_STEP_EXCEEDED", reason="step 8.6 exceeds 2.0"
     )
     machine.writes.clear()
     plan = _apply(client, computed).json()

@@ -119,7 +119,7 @@ import asyncio
 import os
 
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import SendReport
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.ipc._verification import _selected_role
@@ -165,16 +165,12 @@ class FixtureConnector(VAInProcessConnector):
             await asyncio.sleep(SLOW_SECONDS)
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, address, value, *, timeout_s=None, **kwargs):
+    async def _send(self, address, value, *, timeout_s, wait):
         if self._gateway_role != WRITE_ROLE:
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason="CONTROL_SYSTEM_REFUSED",
-                error_message="the read-only gateway refused the write",
+            return SendReport(
+                fault="cs_refused", detail="the read-only gateway refused the write"
             )
-        return await super().write_channel(address, value, timeout_s=timeout_s, **kwargs)
+        return await super()._send(address, value, timeout_s=timeout_s, wait=wait)
 
 
 class VirtualAcceleratorFixtureConnector(FixtureConnector):

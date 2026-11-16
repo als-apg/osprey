@@ -33,9 +33,9 @@ from osprey_connectors import control_context, posture_store, types
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    LimitsViolation,
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -172,6 +172,16 @@ def returns(outcome, **fields):
     return behaviour
 
 
+def refused_by_limits(reason, message="refused by the limits"):
+    """The connector's LIMITS refusal, carrying a violation whose sentence is *reason*."""
+    return returns(
+        WriteOutcome.REFUSED,
+        refusal_reason="LIMITS",
+        error_message=message,
+        limits_violation=LimitsViolation(kind="MAX_EXCEEDED", reason=reason),
+    )
+
+
 def raises(exc):
     async def behaviour(address, value):  # noqa: ARG001 - the behaviour signature
         raise exc
@@ -223,17 +233,15 @@ CONNECTOR_ROWS = [
         "chip says no",
     ),
     (
-        "7-raised",
-        raises(
-            ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "9.0 is above the limit 5.0")
-        ),
+        "7-violation",
+        refused_by_limits("9.0 is above the limit 5.0"),
         "refused",
         "LIMITS",
         "9.0 is above the limit 5.0",
     ),
     (
         "7-returned",
-        returns(WriteOutcome.REFUSED, refusal_reason="LIMITS", error_message="step too large"),
+        refused_by_limits("step too large", message="Write refused: step too large"),
         "refused",
         "LIMITS",
         "step too large",
@@ -361,9 +369,7 @@ class TestConnectorRows:
     async def test_an_empty_osprey_message_is_left_empty_for_the_adapter(
         self, va, audit_dir, monkeypatch
     ):
-        connector_answers(
-            monkeypatch, raises(ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "   "))
-        )
+        connector_answers(monkeypatch, refused_by_limits("   "))
         write_record(va)
         session = await opened()
 
@@ -418,14 +424,14 @@ class TestConnectorRows:
             raises(ChannelWriteBlockedError(CHANNEL, "VALIDATION_ERROR", message="v" * 2000)),
             raises(ChannelWriteBlockedError(CHANNEL, "CONTROL_SYSTEM_REFUSED", message="c" * 2000)),
             raises(ChannelWriteBlockedError(CHANNEL, "LIMITS", message="l" * 2000)),
-            raises(ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "m" * 2000)),
+            refused_by_limits("m" * 2000),
             returns(
                 WriteOutcome.REFUSED,
                 refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message="r" * 2000,
             ),
         ],
-        ids=["validation", "control-system", "limits-blocked", "limits-raised", "returned"],
+        ids=["validation", "control-system", "limits-blocked", "limits-returned", "returned"],
     )
     async def test_every_relayed_refusal_text_is_carried_whole(self, va, monkeypatch, behaviour):
         connector_answers(monkeypatch, behaviour)
