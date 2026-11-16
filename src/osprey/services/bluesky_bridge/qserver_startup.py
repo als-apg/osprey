@@ -447,6 +447,7 @@ def _make_plan_function(
         probe_before_motion,
         warn_if_write_refused,
     )
+    from osprey.services.bluesky_bridge.write_grant import run_under_grant
     from osprey_connectors.posture_store import bind_owner, current_owner
 
     def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
@@ -470,7 +471,9 @@ def _make_plan_function(
                     f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
             try:
-                return (yield from plan)
+                return (
+                    yield from run_under_grant(spec.name, lambda: spec.plan(declared, params), plan)
+                )
             except Exception as exc:
                 # Everything, because a refusal wears two shapes and the seam
                 # that knows both is the one that decides whether this is one
