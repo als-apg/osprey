@@ -1134,7 +1134,12 @@ These keys configure the ``phoebus`` MCP server, which is off until
        own port.
    * - ``phoebus.panels``
      - Panel name to ``.bob`` path, one dotted line per display. A relative
-       path resolves against the directory of ``config.yml``.
+       path resolves against the directory of ``config.yml``. A parameterised
+       display is written in the long form instead:
+       ``phoebus.panels.<name>.file`` is the path and
+       ``phoebus.panels.<name>.macros`` the list of macro names
+       ``phoebus_open_panel`` may pass to it. A panel that lists none, and
+       every panel in the short form, takes no macros.
    * - ``phoebus.require_handle``
      - ``true`` refuses the implicit ``"active"`` display, so callers pass a
        handle or a display name. A multi-user web-terminal deployment stamps
