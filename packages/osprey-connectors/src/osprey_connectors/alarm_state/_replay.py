@@ -35,7 +35,7 @@ from osprey_connectors.alarm_state._fold import (
     state_rows,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, parse_instant
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 logger = get_logger("alarm_replay")
@@ -177,8 +177,9 @@ class ReplayAlarmState(AlarmState):
 class _Message(FrozenModel):
     """One topic message of the file; a key it does not name is ignored.
 
-    ``time`` is read with :meth:`datetime.fromisoformat`. A time with no zone
-    names no instant, so it fails the load rather than being read in a guessed one.
+    ``time`` is read with :func:`~osprey_connectors.model.parse_instant`. A time
+    with no zone names no instant, so it fails the load rather than being read
+    in a guessed one.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -190,7 +191,7 @@ class _Message(FrozenModel):
     @field_validator("time", mode="before")
     @classmethod
     def _iso_time(cls, recorded: object) -> object:
-        return datetime.fromisoformat(recorded) if isinstance(recorded, str) else recorded
+        return parse_instant(recorded) if isinstance(recorded, str) else recorded
 
 
 def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, datetime]:

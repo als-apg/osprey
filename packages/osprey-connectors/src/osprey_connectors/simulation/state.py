@@ -30,7 +30,7 @@ from typing_extensions import override
 
 from osprey_connectors.errors import require_aware
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, FrozenTuple
+from osprey_connectors.model import FrozenModel, FrozenTuple, parse_instant
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -117,16 +117,12 @@ def parse_active_state(text: str) -> ActiveState:
             key, _, value = stripped.partition("=")
             if key.strip() == "anchor":
                 try:
-                    parsed = datetime.fromisoformat(value.strip())
+                    anchor_at = parse_instant(value.strip())
                 except ValueError:
-                    logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
-                    continue
-                if parsed.utcoffset() is None:
                     logger.warning(
-                        f"Ignoring an anchor without a UTC offset in state file: {stripped!r}"
+                        "Ignoring an anchor that is malformed or without a UTC offset"
+                        f" in state file: {stripped!r}"
                     )
-                    continue
-                anchor_at = parsed
             continue
         names.append(stripped)
     return ActiveState(names=tuple(names), anchor_at=anchor_at)

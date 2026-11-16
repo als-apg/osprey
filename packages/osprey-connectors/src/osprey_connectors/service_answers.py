@@ -38,7 +38,7 @@ from pydantic import (
     model_validator,
 )
 
-from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, parse_instant
 from osprey_connectors.types import ControlTarget
 
 #: The row record a :class:`HistoryPage` holds.
@@ -99,13 +99,14 @@ def _flag(recorded: object) -> bool | None:
 def _instant(recorded: object) -> datetime | None:
     """A recorded stamp as the aware instant it names, or ``None`` when it names none.
 
-    An aware ``datetime`` is that instant; a string is read as ISO-8601, ``Z`` and
-    ``+00:00`` alike. A string with no zone, one that is not ISO-8601 and any other
-    value name no instant, and none is guessed for them.
+    An aware ``datetime`` is that instant; a string is read, surrounding
+    whitespace aside, by :func:`~osprey_connectors.model.parse_instant`, so
+    ``Z`` and ``+00:00`` alike, in UTC. A string with no zone, one that is not
+    ISO-8601 and any other value name no instant, and none is guessed for them.
     """
     if isinstance(recorded, str):
         try:
-            recorded = datetime.fromisoformat(recorded.strip())
+            return parse_instant(recorded.strip())
         except ValueError:
             return None
     if not isinstance(recorded, datetime) or recorded.utcoffset() is None:
