@@ -1004,8 +1004,9 @@ _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, object] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
 
-#: Whether the default singleton was chosen by ``CONFIG_FILE``, which
-#: :func:`osprey_connectors.workspace.resolve_config_path` does not consult.
+#: Whether the default singleton was chosen by ``CONFIG_FILE`` or a
+#: :func:`config_anchored_at` scope, neither of which
+#: :func:`osprey_connectors.workspace.resolve_config_path` consults.
 #: :func:`osprey_connectors.workspace.load_osprey_config` then reads the file it
 #: resolves without making it the default, so the lookups that follow keep
 #: answering from the file the process was pointed at.
@@ -1181,6 +1182,11 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     verb pointed at one deployment with ``--repo`` cannot leave the next lookup
     in this process answering for it.
 
+    Held for the whole scope: a
+    :func:`~osprey_connectors.workspace.load_osprey_config` inside it (every
+    agent-data-root lookup makes one) reads the file ``OSPREY_CONFIG`` or the
+    working directory names without making it the default.
+
     Never raises. A config that will not load leaves the previous default in
     place and warns: this makes lookups honest, and an anchor that aborted its
     caller would turn a degraded lookup into a failed deploy.
@@ -1190,12 +1196,13 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             ``<repo>/build/config.yml`` (see
             :func:`osprey_connectors.workspace.rendered_config_path`).
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
-    previous = (_default_config, _default_configurable)
+    previous = (_default_config, _default_configurable, _default_pinned)
     try:
         try:
             _get_config(str(config_path), set_as_default=True)
+            _default_pinned = True
         except Exception as exc:  # an unusable anchor must not fail the caller
             logger.warning(
                 f"Could not anchor configuration at {config_path} "
@@ -1204,7 +1211,7 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             )
         yield
     finally:
-        _default_config, _default_configurable = previous
+        _default_config, _default_configurable, _default_pinned = previous
 
 
 def load_config(config_path: str | None = None) -> dict[str, object]:

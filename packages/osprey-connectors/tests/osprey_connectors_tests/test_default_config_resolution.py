@@ -20,10 +20,16 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import types
-from osprey_connectors.config import ConfigBuilder, default_config_path, get_config_value
+from osprey_connectors.config import (
+    ConfigBuilder,
+    config_anchored_at,
+    default_config_path,
+    get_config_value,
+)
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.workspace import (
     load_osprey_config,
+    resolve_agent_data_root,
     resolve_config_path,
     resolve_shared_data_root,
 )
@@ -124,6 +130,40 @@ def test_a_data_root_lookup_still_settles_a_default_nothing_pinned(project, tmp_
 
     assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
     assert Path(default_config_path()) == named
+
+
+@pytest.mark.parametrize("named_by", ["cwd", "OSPREY_CONFIG"])
+def test_a_data_root_lookup_inside_an_anchor_keeps_answering_for_the_anchor(
+    project, tmp_path, monkeypatch, named_by
+):
+    """A ``--repo`` verb anchors on its deployment while the working directory
+    or ``OSPREY_CONFIG`` names another; a data-root lookup inside the scope must
+    not repoint the lookups that follow at that other one."""
+    if named_by == "cwd":
+        write_config(project / "build" / "config.yml", types.MOCK_ARCHIVER)
+    else:
+        named = write_config(tmp_path / "named" / "config.yml", types.MOCK_ARCHIVER)
+        monkeypatch.setenv("OSPREY_CONFIG", str(named))
+    anchored = write_config(tmp_path / "other-repo" / "build" / "config.yml")
+
+    with config_anchored_at(anchored):
+        resolve_agent_data_root()
+        resolve_shared_data_root()
+
+        assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+        assert Path(default_config_path()) == anchored
+
+
+def test_after_an_anchor_a_data_root_lookup_settles_the_default_again(project, tmp_path):
+    rendered = write_config(project / "build" / "config.yml", types.MOCK_ARCHIVER)
+    anchored = write_config(tmp_path / "other-repo" / "build" / "config.yml")
+
+    with config_anchored_at(anchored):
+        pass
+    resolve_shared_data_root()
+
+    assert get_config_value("archiver.type") == types.MOCK_ARCHIVER
+    assert Path(default_config_path()) == rendered
 
 
 def test_a_config_at_the_directory_root_is_still_found(project):

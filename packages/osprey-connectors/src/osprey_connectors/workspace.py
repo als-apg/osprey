@@ -234,9 +234,10 @@ def load_osprey_config() -> dict[str, ContractAny]:
     environment-variable placeholders are resolved consistently.
 
     The file is the one :func:`resolve_config_path` names. It becomes the
-    default config unless ``CONFIG_FILE`` chose that default, which this
-    resolution does not consult: the lookups that name no config keep reading
-    the file the process was pointed at.
+    default config unless ``CONFIG_FILE`` or a
+    :func:`~osprey_connectors.config.config_anchored_at` scope chose that
+    default, neither of which this resolution consults: the lookups that name
+    no config keep reading the file the process was pointed at.
 
     Returns:
         Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
