@@ -387,9 +387,31 @@ def exemplar_copy(exemplar_repo: Path, tmp_path: Path) -> Path:
     The copy is what a start verb is allowed to scribble on: it mints tokens
     into ``.env``, writes key material under ``data/``, and spools output under
     ``var/``, all of which the profile fingerprint sees.
+
+    The render baked the checkout identity of the directory it was built in
+    into the labels override, and a start lists its containers by that label.
+    The copy is a different checkout, so its override is re-keyed to the copy's
+    own identity, as a build in place would have rendered it.
     """
+    import re
+
+    from osprey.deployment.compose_generator import (
+        LABELS_OVERRIDE_FILENAME,
+        REPO_ID_LABEL,
+        repo_identity,
+    )
+
     destination = tmp_path / exemplar_repo.name
     shutil.copytree(exemplar_repo, destination, symlinks=True)
+    override = destination / "build" / LABELS_OVERRIDE_FILENAME
+    if override.is_file():
+        rekeyed = re.sub(
+            rf"^(\s+{re.escape(REPO_ID_LABEL)}:\s*).*$",
+            rf"\g<1>'{repo_identity(destination)}'",
+            override.read_text(encoding="utf-8"),
+            flags=re.MULTILINE,
+        )
+        override.write_text(rekeyed, encoding="utf-8")
     return destination
 
 

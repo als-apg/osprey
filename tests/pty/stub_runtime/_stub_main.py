@@ -305,6 +305,11 @@ def write_state(state: dict[str, Any]) -> None:
 #: script that must run under the bare system interpreter is not worth it.
 _SERVICE_KEY = re.compile(r"^ {2}([A-Za-z0-9][A-Za-z0-9_.-]*):\s*$")
 _CONTAINER_NAME = re.compile(r"^\s+container_name:\s*['\"]?([^'\"\s]+)['\"]?\s*$")
+#: A service's ``labels:`` key, and one entry under it in either compose spelling:
+#: ``key: value`` in the mapping form, ``- key=value`` in the list form.
+_LABELS_KEY = re.compile(r"^ {4}labels:\s*$")
+_LABEL_MAPPING_ENTRY = re.compile(r"^ {6}['\"]?([^'\":\s]+)['\"]?:\s*(.*?)\s*$")
+_LABEL_LIST_ENTRY = re.compile(r"^ {6}-\s*['\"]?([^'\"=\s]+)=(.*?)['\"]?\s*$")
 
 
 def services_in(compose_file: Path) -> list[tuple[str, str]]:
@@ -342,6 +347,51 @@ def services_in(compose_file: Path) -> list[tuple[str, str]]:
     return found
 
 
+def labels_in(compose_file: Path) -> dict[str, list[str]]:
+    """``key=value`` labels each service declares in one compose file.
+
+    Compose stamps a service's declared labels on its containers, and the deploy
+    path selects this checkout's containers by one of them, so a started
+    container has to carry them.
+    """
+    try:
+        lines = compose_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    found: dict[str, list[str]] = {}
+    in_services = False
+    current: str | None = None
+    in_labels = False
+    for line in lines:
+        if line.startswith("services:"):
+            in_services = True
+            continue
+        if line and not line[0].isspace() and not line.startswith("#"):
+            in_services = False
+            continue
+        if not in_services:
+            continue
+        match = _SERVICE_KEY.match(line)
+        if match:
+            current = match.group(1)
+            in_labels = False
+            continue
+        if current is None:
+            continue
+        if _LABELS_KEY.match(line):
+            in_labels = True
+            continue
+        if in_labels:
+            entry = _LABEL_LIST_ENTRY.match(line) or _LABEL_MAPPING_ENTRY.match(line)
+            if entry:
+                value = entry.group(2).strip().strip("'\"")
+                found.setdefault(current, []).append(f"{entry.group(1)}={value}")
+                continue
+            in_labels = False
+    return found
+
+
 def _compose_files(args: list[str]) -> list[Path]:
     """Every ``-f``/``--file`` path in an argv, in order.
 
@@ -374,9 +424,16 @@ def _project_name(args: list[str]) -> str:
     return os.environ.get("COMPOSE_PROJECT_NAME", "osprey")
 
 
-def _container_record(project: str, service: str, name: str, index: int) -> dict[str, Any]:
-    """One ``ps``-shaped record, with the keys the status renderer reads."""
+def _container_record(
+    project: str, service: str, name: str, index: int, labels: list[str]
+) -> dict[str, Any]:
+    """One ``ps``-shaped record, with the keys the status renderer reads.
+
+    ``Labels`` is docker's comma-joined string: compose's own two labels, then
+    the ones the compose files declare for the service.
+    """
     qualified = name if name != service else f"{project}-{service}-1"
+    stamped = [f"com.docker.compose.project={project}", f"com.docker.compose.service={service}"]
     return {
         "ID": f"{index:012x}",
         "Names": qualified,
@@ -385,7 +442,7 @@ def _container_record(project: str, service: str, name: str, index: int) -> dict
         "State": "running",
         "Status": "Up 3 seconds",
         "Ports": "",
-        "Labels": f"com.docker.compose.project={project},com.docker.compose.service={service}",
+        "Labels": ",".join(stamped + labels),
         "Networks": f"{project}_default",
         "RunningFor": "3 seconds ago",
         "Service": service,
@@ -685,9 +742,13 @@ def _handle_compose_up(args: list[str], remainder: list[str]) -> None:
     project = _project_name(args)
     state = read_state()
     existing = {c["Names"]: c for c in state["containers"]}
+    declared_labels: dict[str, list[str]] = {}
+    for compose_file in _compose_files(args):
+        for service, labels in labels_in(compose_file).items():
+            declared_labels.setdefault(service, []).extend(labels)
     lines: list[str] = []
     for index, (service, name) in enumerate(_selected_services(args, remainder), start=1):
-        record = _container_record(project, service, name, index)
+        record = _container_record(project, service, name, index, declared_labels.get(service, []))
         was_running = record["Names"] in existing
         existing[record["Names"]] = record
         lines.append(f" Container {record['Names']}  {'Recreated' if was_running else 'Created'}")
