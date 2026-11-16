@@ -600,7 +600,7 @@ class TestPtyChildWaits:
         proc = subprocess.Popen([sys.executable, "-S", "-c", "import time; time.sleep(120)"])
         try:
             with pytest.raises(
-                AssertionError, match=rf"pid {proc.pid} \(ps state '\S+'\) is still"
+                AssertionError, match=rf"pid {proc.pid} \(psutil status '\S+'\) is still"
             ):
                 await wait_gone([proc.pid], within=0.1)
         finally:

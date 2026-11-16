@@ -93,7 +93,7 @@ async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
         if waited > within:
             pid = running[0]
             raise AssertionError(
-                f"pid {pid} (ps state {states[pid]!r}) is still running {waited:.1f} s after "
+                f"pid {pid} (psutil status {states[pid]!r}) is still running {waited:.1f} s after "
                 "the stop returned"
             )
         await asyncio.sleep(0.05)
