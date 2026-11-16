@@ -26,7 +26,7 @@ def _record(tree: Path, owner: str, target: str) -> Path:
     record = control_context.ControlContext(target=target, generation=3, switch={}, switch_epoch=1)
     path = tree / owner / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(record.to_payload()), encoding="utf-8")
+    path.write_text(json.dumps(record.model_dump(mode="json")), encoding="utf-8")
     return path
 
 

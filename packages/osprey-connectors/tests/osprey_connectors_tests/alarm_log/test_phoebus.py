@@ -233,7 +233,7 @@ async def test_history_filtered_rows_on_a_full_page_still_report_truncation():
 async def test_history_no_rows_is_no_logged_events_not_no_alarm():
     page = await _logger(Recording(search=[])).history(PV, None, 50, timeout_s=DEADLINE)
     assert page.outcome is Outcome.NO_MATCH
-    assert page.rows == []
+    assert page.rows == ()
     assert page.reason == "no logged events"
 
 

@@ -1659,7 +1659,7 @@ def _spend(repo: Path, grant, steps: int, lease_left_s: float, *, directory=None
     )
     directory = repo / "var" / "write_ledger" if directory is None else directory
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{grant.id}.ledger.json").write_text(json.dumps(ledger.to_payload()))
+    (directory / f"{grant.id}.ledger.json").write_text(json.dumps(ledger.model_dump(mode="json")))
 
 
 def test_a_programs_authorization_in_force_is_a_row_with_its_steps_and_lease(tmp_path):

@@ -158,20 +158,24 @@ class TestLaptop:
     def test_a_missing_request_and_another_owners_are_refused(self, tmp_path):
         assert run("approve", uuid.uuid4().hex, "--yes").exit_code != 0
         foreign = wa._parse_request(
-            json.dumps({**ask().to_payload(), "id": uuid.uuid4().hex, "owner": "someone-else"})
+            json.dumps(
+                {**ask().model_dump(mode="json"), "id": uuid.uuid4().hex, "owner": "someone-else"}
+            )
         )
         path = tmp_path / f"{foreign.id}.json"
-        path.write_text(json.dumps(foreign.to_payload()), encoding="utf-8")
+        path.write_text(json.dumps(foreign.model_dump(mode="json")), encoding="utf-8")
         result = run("approve", str(path), "--yes")
         assert result.exit_code != 0 and "this account" in result.output
 
     def test_a_request_past_a_ceiling_is_refused_and_writes_nothing(self, tmp_path):
         """A file read back fine but past a ceiling: the approval's write refuses it."""
         over = wa._parse_request(
-            json.dumps({**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1})
+            json.dumps(
+                {**ask().model_dump(mode="json"), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1}
+            )
         )
         path = tmp_path / f"{over.id}.json"
-        path.write_text(json.dumps(over.to_payload()), encoding="utf-8")
+        path.write_text(json.dumps(over.model_dump(mode="json")), encoding="utf-8")
         result = run("approve", str(path), "--yes")
         assert result.exit_code != 0
         assert "nothing was written" in result.output
@@ -248,7 +252,7 @@ class TestDeployment:
         else:
             directory = repo / "var" / "write_ledger" / "requests"
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{request.id}.json").write_text(json.dumps(request.to_payload()))
+        (directory / f"{request.id}.json").write_text(json.dumps(request.model_dump(mode="json")))
         return request
 
     @staticmethod
@@ -287,7 +291,7 @@ class TestDeployment:
             steps=(wa.LedgerStep(n=1, at_ns=1, channels=("SR:A",)),),
         )
         (self._own(repo, "alice") / f"{request.id}.ledger.json").write_text(
-            json.dumps(ledger.to_payload())
+            json.dumps(ledger.model_dump(mode="json"))
         )
         listed = json.loads(run("list", "--json").output)
         assert listed["requests"] == []
@@ -352,7 +356,7 @@ class TestDeployment:
             steps=tuple(wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in (1, 2, 3)),
         )
         (repo / "var" / "write_ledger" / f"{request.id}.ledger.json").write_text(
-            json.dumps(ledger.to_payload())
+            json.dumps(ledger.model_dump(mode="json"))
         )
         listed = json.loads(run("list", "--json").output)
         assert [(a["used"], a["steps"], a["in_force"]) for a in listed["authorizations"]] == [

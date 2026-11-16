@@ -274,7 +274,7 @@ def _endpoint_rows(derivation: Any, probe_rows: dict[str, Any]) -> dict[str, dic
     """
     rows: dict[str, dict[str, Any]] = {}
     for role, endpoint in derivation.endpoints.items():
-        row: dict[str, Any] = dict(endpoint.as_dict())
+        row: dict[str, Any] = endpoint.model_dump(mode="json")
         measured = probe_rows.get(role)
         if isinstance(measured, dict):
             row.update(measured)

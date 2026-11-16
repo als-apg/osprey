@@ -382,7 +382,7 @@ class TestEndedByTheLedger:
                 wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in range(1, steps + 1)
             ),
         )
-        (ledgers / f"{grant_id}.ledger.json").write_text(json.dumps(ledger.to_payload()))
+        (ledgers / f"{grant_id}.ledger.json").write_text(json.dumps(ledger.model_dump(mode="json")))
 
     def test_a_running_grant_shows_its_steps_used(self, client, requests_dir, monkeypatch):
         request = put_request(requests_dir)

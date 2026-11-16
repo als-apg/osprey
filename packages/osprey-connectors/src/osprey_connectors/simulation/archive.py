@@ -70,7 +70,7 @@ from pydantic import ValidationError, model_validator
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (
@@ -272,7 +272,7 @@ class SeedKnobs(FrozenModel):
         return self.hot_span_hours * 3600
 
 
-class SeedReport(MutableModel):
+class SeedReport(FrozenModel):
     """What one seeding run wrote."""
 
     documents: int = 0
@@ -1101,10 +1101,11 @@ def seed_base(
     addresses = archive.addresses
     started = time.monotonic()
 
-    report = SeedReport(channels=len(addresses))
-    if len(times):
-        report.start = datetime.fromtimestamp(float(times[0]), UTC)
-        report.end = datetime.fromtimestamp(float(times[-1]), UTC)
+    report = SeedReport(
+        channels=len(addresses),
+        start=datetime.fromtimestamp(float(times[0]), UTC) if len(times) else None,
+        end=datetime.fromtimestamp(float(times[-1]), UTC) if len(times) else None,
+    )
 
     traced = archive.waveform_addresses
     if traced and waveforms is None:
@@ -1124,16 +1125,19 @@ def seed_base(
                 traces = _waveform_documents(archive, chunk_times[coarse], chunk_expiry[coarse])
                 pending = _submit_bounded(pool, pending, waveforms, traces, workers)
 
-            report.documents += len(documents)
-            report.chunks += 1
-            report.elapsed_s = time.monotonic() - started
+            report = evolve(
+                report,
+                documents=report.documents + len(documents),
+                chunks=report.chunks + 1,
+                elapsed_s=time.monotonic() - started,
+            )
             if progress is not None:
                 progress(report)
 
         for future in pending:
             future.result()
 
-    report.elapsed_s = time.monotonic() - started
+    report = evolve(report, elapsed_s=time.monotonic() - started)
     _write_manifest(
         collection,
         seed_fingerprint(knobs, addresses, compression=compression),

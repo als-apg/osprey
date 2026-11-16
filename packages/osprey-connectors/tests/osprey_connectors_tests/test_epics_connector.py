@@ -1348,7 +1348,7 @@ class TestChannelAccessEnumLabels:
 
         assert result.value == 2  # the index, not "ACQUIRING"
         assert result.metadata.enum_label == "ACQUIRING"
-        assert result.metadata.enum_labels == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
+        assert result.metadata.enum_labels == ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
         assert result.metadata.raw_metadata["type"] == "time_enum"
 
     @pytest.mark.asyncio
@@ -1407,7 +1407,7 @@ class TestChannelAccessEnumLabels:
         result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 9
-        assert result.metadata.enum_labels == ["OFF", "ON"]
+        assert result.metadata.enum_labels == ("OFF", "ON")
         assert result.metadata.enum_label is None
 
     @pytest.mark.asyncio
@@ -1426,7 +1426,7 @@ class TestChannelAccessEnumLabels:
 
         assert received[0].value == 3
         assert received[0].metadata.enum_label == "FAULT"
-        assert received[0].metadata.enum_labels == list(_MODES)
+        assert received[0].metadata.enum_labels == tuple(_MODES)
 
     @pytest.mark.asyncio
     async def test_subscribe_callback_without_labels_delivers_the_update_anyway(self):

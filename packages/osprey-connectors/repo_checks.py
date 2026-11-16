@@ -81,7 +81,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
     "osprey_connectors.posture_store.OwnerTierTerm": "the owner rung answers in this type",
     "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
-    "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.service_answers.SourceKind": (
         "an answer names the kind of service it came from in this type"

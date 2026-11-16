@@ -38,6 +38,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryAction,
     RecoveryRecord,
 )
 from osprey_connectors.ipc import _pool as pool_module
@@ -52,7 +53,7 @@ from osprey_connectors.ipc._pool import (
     PooledConnector,
 )
 from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
-from osprey_connectors.recovery import RecoveryAction, Timing
+from osprey_connectors.recovery import Timing
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch

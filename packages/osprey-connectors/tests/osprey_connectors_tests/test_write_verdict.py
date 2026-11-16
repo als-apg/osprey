@@ -85,7 +85,7 @@ def _tree_record(tree: Path, owner: str, *, switch=None, posture=None) -> Path:
         switch=dict(switch or {}),
         switch_epoch=1,
     )
-    payload = record.to_payload()
+    payload = record.model_dump(mode="json")
     if posture is not None:
         payload["posture"] = dict(posture)  # an old narrowing, verbatim
     return write_payload(tree / owner / control_context.RECORD_FILENAME, payload)

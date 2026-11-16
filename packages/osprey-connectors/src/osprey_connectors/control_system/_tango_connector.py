@@ -41,6 +41,7 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.types import TANGO
 
 logger = get_logger("tango_connector")
@@ -163,7 +164,7 @@ def _attribute_timestamp(attr: object, tz: tzinfo) -> datetime:
     return datetime.fromtimestamp(tv_sec + tv_usec / 1e6, tz)
 
 
-def _enum_label_for(labels: list[str] | None, index: object) -> str | None:
+def _enum_label_for(labels: tuple[str, ...] | None, index: object) -> str | None:
     """The label this reading's index resolves to, or ``None``.
 
     Fails soft on anything unresolvable: the integer index alone is still a
@@ -192,7 +193,7 @@ class TangoConnector(ControlSystemConnector):
         self._connected: bool = False
         self._proxies: dict[str, _DeviceProxy] = {}
         self._subscriptions: dict[str, tuple[_DeviceProxy, int]] = {}
-        self._enum_labels: dict[str, list[str] | None] = {}
+        self._enum_labels: dict[str, tuple[str, ...] | None] = {}
         self._timeout_s: float = DEFAULT_TIMEOUT_S
         # PyTango and the ``tango_host`` override, both set by connect().
         self._tango: _PyTango | None = None
@@ -299,7 +300,7 @@ class TangoConnector(ControlSystemConnector):
 
     def _labels_for(
         self, proxy: _DeviceProxy, device_name: str, attribute: str
-    ) -> list[str] | None:
+    ) -> tuple[str, ...] | None:
         """Enum labels for a ``DevEnum`` attribute, cached per attribute.
 
         Fails soft to ``None``: labels are an enrichment, never a precondition
@@ -308,11 +309,11 @@ class TangoConnector(ControlSystemConnector):
         key = f"{device_name}/{attribute}"
         if key in self._enum_labels:
             return self._enum_labels[key]
-        labels: list[str] | None
+        labels: tuple[str, ...] | None
         try:
             info = proxy.get_attribute_config(attribute)
             raw = getattr(info, "enum_labels", None)
-            labels = [str(label) for label in raw] if raw else None
+            labels = tuple(str(label) for label in raw) if raw else None
         except Exception as exc:
             logger.debug(f"Could not fetch enum labels for '{key}': {exc}")
             labels = None
@@ -350,7 +351,7 @@ class TangoConnector(ControlSystemConnector):
         alarm_status, severity = _quality_fields(quality)
         timestamp = _attribute_timestamp(attr, get_facility_timezone())
 
-        enum_labels: list[str] | None = None
+        enum_labels: tuple[str, ...] | None = None
         enum_label: str | None = None
         attr_type: object = getattr(attr, "type", None)
         if attr_type is not None and "DevEnum" in str(attr_type):
@@ -361,6 +362,7 @@ class TangoConnector(ControlSystemConnector):
             units="",
             precision=None,
             alarm_status=alarm_status,
+            alarm_severity=severity,
             timestamp=timestamp,
             enum_labels=enum_labels,
             enum_label=enum_label,
@@ -373,11 +375,6 @@ class TangoConnector(ControlSystemConnector):
                 else None,
             },
         )
-        # ChannelMetadata grows a first-class alarm_severity field
-        # independently of this connector; populate it where it exists rather
-        # than depending on it.
-        if hasattr(metadata, "alarm_severity"):
-            metadata.alarm_severity = severity
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @override
@@ -632,11 +629,10 @@ class TangoConnector(ControlSystemConnector):
             timestamp = _attribute_timestamp(attr, tz)
             metadata = ChannelMetadata(
                 alarm_status=alarm_status,
+                alarm_severity=severity,
                 timestamp=timestamp,
                 raw_metadata={"severity": severity},
             )
-            if hasattr(metadata, "alarm_severity"):
-                metadata.alarm_severity = severity
             channel_value = ChannelValue(value=attr.value, timestamp=timestamp, metadata=metadata)
             loop.call_soon_threadsafe(callback, channel_value)
 
@@ -684,21 +680,21 @@ class TangoConnector(ControlSystemConnector):
         unit = getattr(info, "unit", "") or ""
         if unit.lower() in ("no unit", "none"):  # TANGO's spellings of "unitless"
             unit = ""
-        metadata.units = unit
-        metadata.description = getattr(info, "description", None) or None
-        if metadata.description == "No description":
-            metadata.description = None
-        raw = metadata.raw_metadata or {}
-        raw.update(
-            {
+        description = getattr(info, "description", None) or None
+        if description == "No description":
+            description = None
+        return evolve(
+            metadata,
+            units=unit,
+            description=description,
+            raw_metadata={
+                **(metadata.raw_metadata or {}),
                 "min_value": getattr(info, "min_value", None),
                 "max_value": getattr(info, "max_value", None),
                 "format": getattr(info, "format", None),
                 "writable": str(getattr(info, "writable", None)),
-            }
+            },
         )
-        metadata.raw_metadata = raw
-        return metadata
 
     @override
     async def validate_channel(self, address: str) -> bool:

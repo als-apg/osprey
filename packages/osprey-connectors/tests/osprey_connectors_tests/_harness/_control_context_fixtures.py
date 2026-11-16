@@ -222,7 +222,7 @@ def write_control_context(
     )
     path = control_context._record_path_under(root)
     if verbatim:
-        payload = record.to_payload()
+        payload = record.model_dump(mode="json")
         payload["posture"] = posture
         if switch is not None:
             payload["switch"] = dict(switch)
@@ -318,7 +318,7 @@ def write_server_report(
     path = control_context._record_path_under(root).parent / (
         f"{control_context.REPORT_FILE_PREFIX}{pid}{control_context.REPORT_FILE_SUFFIX}"
     )
-    write_payload(path, report.to_payload())
+    write_payload(path, report.model_dump(mode="json"))
     return path
 
 

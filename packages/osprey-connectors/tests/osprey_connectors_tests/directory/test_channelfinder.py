@@ -143,7 +143,7 @@ class TestWordSearch:
 
         assert page.outcome is Outcome.NO_MATCH
         assert page.total == 0
-        assert page.rows == []
+        assert page.rows == ()
         assert page.truncated is False
 
 
@@ -322,7 +322,7 @@ class TestPaging:
 
         assert len(replay.params_to(CHANNELS)) == 1
         assert page.outcome is Outcome.FOUND
-        assert page.rows == []
+        assert page.rows == ()
         assert page.total == 3
 
     async def test_a_later_page_of_a_name_search_reaches_the_name_search(self):
@@ -345,7 +345,7 @@ class TestPartial:
 
         assert page.outcome is Outcome.FOUND
         assert page.total is None
-        assert page.partial == [{"part": "count", "reason": DOWN.reason}]
+        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
         assert len(page.rows) == 2
         assert page.truncated is False
 
@@ -386,7 +386,7 @@ class TestPartial:
         page = await directory.search(DirectoryQuery(words="temp"), timeout_s=DEADLINE)
 
         assert page.outcome is Outcome.FOUND
-        assert page.partial == [{"part": "count", "reason": DOWN.reason}]
+        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
 
     async def test_a_later_page_with_no_rows_and_no_count_says_it_cannot_tell(self):
         def answer(path, _pairs):
@@ -412,7 +412,7 @@ class TestPartial:
 
         assert page.outcome is Outcome.NO_MATCH
         assert page.total is None
-        assert page.partial == [{"part": "count", "reason": DOWN.reason}]
+        assert page.partial == ({"part": "count", "reason": DOWN.reason},)
 
 
 class TestRows:
@@ -506,7 +506,7 @@ class TestDescribe:
         assert record.row.status == "Active"
         assert record.properties["caPort"] == "5064"
         assert record.properties["Engineer"] == "rf-group"
-        assert record.tags == []
+        assert record.tags == ()
         for mapped in ("pvStatus", "time", "iocName", "hostName", "recordType", "recordDesc"):
             assert mapped not in record.properties
         assert ("~name", "DEMO:RF1:CAV:Temp-I") in replay.params_to(CHANNELS)[0]
@@ -545,7 +545,7 @@ class TestDescribe:
 
         record = await directory.describe("DEMO:RF2:CAV:Temp-I", timeout_s=DEADLINE)
 
-        assert record.tags == ["archived"]
+        assert record.tags == ("archived",)
         assert record.row.status == "Inactive"
         assert record.properties["alias"] == "DEMO:RF2:Temp"
 

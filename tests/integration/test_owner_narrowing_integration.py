@@ -225,7 +225,7 @@ def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Pat
     """
     payload = control_context.ControlContext(
         target=target, generation=3, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = {target: state}
     path = write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
     control_context.invalidate_cache()

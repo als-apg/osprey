@@ -301,7 +301,7 @@ class ChannelFinderDirectory(ChannelDirectory):
                 last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
             ),
             properties=properties,
-            tags=[tag.name for tag in channel.tags or ()],
+            tags=tuple(tag.name for tag in channel.tags or ()),
         )
 
     async def _get(self, path: str, params: _Params | None, timeout_s: float) -> object:
@@ -331,9 +331,9 @@ class ChannelFinderDirectory(ChannelDirectory):
                 request=" · ".join(sent),
                 source=self.source,
                 total=total,
-                rows=rows or [],
+                rows=tuple(rows or ()),
                 truncated=truncated,
-                partial=partial or [],
+                partial=tuple(partial or ()),
                 reason=reason,
             )
 

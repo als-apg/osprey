@@ -41,7 +41,7 @@ on safely:
   an owner anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
-  an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every
+  an input: a record's JSON form (``model_dump(mode="json")``) holds ``sandbox`` for every
   machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position
   is off (:func:`_posture_mirror`), whatever the record it was built
   from carried, and no write decision reads it back. A file written before
@@ -143,12 +143,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Generic, Literal, TypeVar, get_args
 
-from pydantic import Field, field_validator
+from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer
 
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ConnectorsError, StateLockedError, StateUnavailableError
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping, evolve
 from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
@@ -310,18 +310,15 @@ class Owner(FrozenModel):
     pid: int
     port: int | None = None
 
-    def to_payload(self) -> dict[str, object]:
-        """This owner as the record's ``owner`` object."""
-        return {"kind": self.kind, "pid": self.pid, "port": self.port}
-
 
 class ControlContext(FrozenModel):
     """One deployment's control context.
 
     :func:`read_record` hands back the cached instance, which is frozen: a
     caller that needs a changed record builds a new one. Its ``posture``,
-    ``last_switch`` and ``switch`` maps are the cached instance's own, so they
-    are not edited in place either — an in-place edit would reach every other
+    ``last_switch`` and ``switch`` maps are read-only
+    (:data:`~osprey_connectors.model.ReadOnlyMapping`) for the same reason: they
+    are the cached instance's own, and an in-place edit would reach every other
     reader in the process.
 
     Attributes:
@@ -332,8 +329,8 @@ class ControlContext(FrozenModel):
             record is ownerless and free to be claimed.
         posture: The ``posture`` field as read off disk — the mirror of
             ``switch`` (:func:`_posture_mirror`), or an old narrowing in a file
-            written before it. A reading only: :meth:`to_payload` ignores it
-            and derives the field from ``switch``, so nothing set here is
+            written before it. A reading only: the record's JSON form ignores
+            it and derives the field from ``switch``, so nothing set here is
             ever stored, and no write decision reads it.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
@@ -354,9 +351,9 @@ class ControlContext(FrozenModel):
     target: ControlTarget
     generation: int
     owner: Owner | None = None
-    posture: dict[str, Posture] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    switch: Mapping[str, ArmedPosition] = Field(default_factory=dict)
+    posture: ReadOnlyMapping[str, Posture] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    switch: ReadOnlyMapping[str, ArmedPosition] = Field(default_factory=empty_mapping)
     switch_epoch: int | None = None
 
     @field_validator("switch", mode="before")
@@ -364,24 +361,27 @@ class ControlContext(FrozenModel):
     def _switch_words(cls, value: object) -> dict[str, ArmedPosition]:
         return _parse_switch(dict(value) if isinstance(value, Mapping) else value)
 
-    def to_payload(self) -> dict[str, object]:
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
 
-        The seven contract fields and the schema, and nothing else: a payload
-        round-trips through :func:`parse_record` unchanged, and a key some
-        future version added does not survive a rewrite by this one. The
-        ``posture`` field is the mirror of ``switch`` (:func:`_posture_mirror`),
-        never :attr:`posture`: a narrowing is not something a writer can store.
+        The seven contract fields and the schema, in this order, and nothing
+        else: the object round-trips through :func:`parse_record` unchanged, and
+        a key some future version added does not survive a rewrite by this one.
+        The ``posture`` field is the mirror of ``switch``
+        (:func:`_posture_mirror`), never :attr:`posture`: a narrowing is not
+        something a writer can store.
         """
+        fields: dict[str, object] = handler(self)
         return {
             "schema": _SCHEMA_VERSION,
-            "owner": None if self.owner is None else self.owner.to_payload(),
-            "target": self.target,
-            "generation": self.generation,
+            "owner": fields["owner"],
+            "target": fields["target"],
+            "generation": fields["generation"],
             "posture": _posture_mirror(self.switch),
-            "last_switch": None if self.last_switch is None else dict(self.last_switch),
-            "switch": dict(self.switch),
-            "switch_epoch": self.switch_epoch,
+            "last_switch": fields["last_switch"],
+            "switch": fields["switch"],
+            "switch_epoch": fields["switch_epoch"],
         }
 
 
@@ -863,7 +863,7 @@ def _write_record_unlocked(record: ControlContext, path: Path) -> None:
     from inside this module with the lock held: a write that skipped the lock,
     or that wrote a ``switch`` it did not read, is the race rule 3 closes.
     """
-    write_json_atomic(path, record.to_payload())
+    write_json_atomic(path, record.model_dump(mode="json"))
 
 
 def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
@@ -1507,12 +1507,12 @@ class ServerReport(FrozenModel):
     applied_target: ControlTarget | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, object] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    last_posture_realign: dict[str, object] | None = None
-    targets: dict[str, object] = Field(default_factory=dict)
+    reachability: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    last_posture_realign: ReadOnlyMapping[str, object] | None = None
+    targets: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
     updated_at: str | None = None
-    statement: dict[str, dict[str, object] | None] | None = None
+    statement: ReadOnlyMapping[str, ReadOnlyMapping[str, object] | None] | None = None
 
     @property
     def display_only(self) -> bool:
@@ -1524,34 +1524,19 @@ class ServerReport(FrozenModel):
         """
         return self.statement is not None
 
-    def to_payload(self) -> dict[str, object]:
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This report as the JSON object its file holds.
 
         The ten contract fields, plus ``statement`` as the eleventh for a
-        display-only report and only then, so a payload round-trips through
+        display-only report and only then, so the object round-trips through
         :func:`_parse_report` unchanged and a controls server's report never
         reads back as display-only.
         """
-        payload: dict[str, object] = {
-            "server_pid": self.server_pid,
-            "session": self.session,
-            "applied_target": self.applied_target,
-            "applied_generation": self.applied_generation,
-            "children": list(self.children),
-            "reachability": dict(self.reachability),
-            "last_switch": None if self.last_switch is None else dict(self.last_switch),
-            "last_posture_realign": (
-                None if self.last_posture_realign is None else dict(self.last_posture_realign)
-            ),
-            "targets": dict(self.targets),
-            "updated_at": self.updated_at,
-        }
-        if self.statement is not None:
-            payload["statement"] = {
-                axis: None if value is None else dict(value)
-                for axis, value in self.statement.items()
-            }
-        return payload
+        fields: dict[str, object] = handler(self)
+        if self.statement is None:
+            del fields["statement"]
+        return fields
 
 
 def _non_negative_int(value: object) -> int | None:

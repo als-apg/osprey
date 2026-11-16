@@ -212,7 +212,7 @@ class PhoebusAlarmLogger(AlarmLog):
         return HistoryPage(
             outcome=outcome,
             source=self.source,
-            rows=rows or [],
+            rows=tuple(rows or ()),
             truncated=truncated,
             reason=reason,
         )

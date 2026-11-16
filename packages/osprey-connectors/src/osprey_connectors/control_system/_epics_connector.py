@@ -68,6 +68,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, is_control_target, machine_kind
 
@@ -498,7 +499,7 @@ class _GetItemIterable(Protocol):
     def __getitem__(self, index: int, /) -> object: ...
 
 
-def _enum_label_fields(labels: object, index: object) -> tuple[list[str] | None, str | None]:
+def _enum_label_fields(labels: object, index: object) -> tuple[tuple[str, ...] | None, str | None]:
     """Normalize a raw label list and resolve the label for ``index``.
 
     Every branch fails soft: a control system that reports no labels, reports
@@ -512,7 +513,7 @@ def _enum_label_fields(labels: object, index: object) -> tuple[list[str] | None,
     if not isinstance(labels, Iterable | _GetItemIterable):
         return None, None  # not iterable — nothing usable was reported
     try:
-        normalized = [str(label) for label in iter(labels)]
+        normalized = tuple(str(label) for label in iter(labels))
     except TypeError:  # not iterable after all — nothing usable was reported
         return None, None
     if not normalized:
@@ -737,7 +738,7 @@ class _PvaPayload(TypedDict, total=False):
 
     value: Required[object]
     raw_metadata: dict[str, object]
-    enum_labels: list[str] | None
+    enum_labels: tuple[str, ...] | None
     enum_label: str | None
 
 
@@ -1653,17 +1654,27 @@ class EPICSConnector(ControlSystemConnector):
 
         raw_metadata.update(payload.pop("raw_metadata", {}))
 
-        metadata = self._pva_metadata(value, timestamp, raw_metadata)
-        # Only the enum branch contributes these; every other payload leaves the
-        # fields at their None default, which is what marks a channel as not
-        # enum-typed.
-        metadata.enum_labels = payload.get("enum_labels")
-        metadata.enum_label = payload.get("enum_label")
+        # Only the enum branch contributes the enum fields; every other payload
+        # leaves them at their None default, which is what marks a channel as
+        # not enum-typed.
+        metadata = self._pva_metadata(
+            value,
+            timestamp,
+            raw_metadata,
+            enum_labels=payload.get("enum_labels"),
+            enum_label=payload.get("enum_label"),
+        )
 
         return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
-        self, value: object, timestamp: datetime, raw_metadata: dict[str, object]
+        self,
+        value: object,
+        timestamp: datetime,
+        raw_metadata: dict[str, object],
+        *,
+        enum_labels: tuple[str, ...] | None = None,
+        enum_label: str | None = None,
     ) -> ChannelMetadata:
         """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
 
@@ -1713,6 +1724,8 @@ class EPICSConnector(ControlSystemConnector):
             warning_high=warning_high,
             alarm_low=alarm_low,
             alarm_high=alarm_high,
+            enum_labels=enum_labels,
+            enum_label=enum_label,
             raw_metadata=raw_metadata,
         )
 
@@ -2072,7 +2085,7 @@ class EPICSConnector(ControlSystemConnector):
         sent, as_text = put.sent, put.as_text
         if as_text:
             # Written to a char array as text, so it is read back as text.
-            observed.value = _char_text(observed.value)
+            observed = evolve(observed, value=_char_text(observed.value))
 
         alarm_status, alarm_severity = _readback_alarm_fields(observed)
         metadata = getattr(observed, "metadata", None)

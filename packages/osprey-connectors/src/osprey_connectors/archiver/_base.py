@@ -13,10 +13,10 @@ import pandas as pd
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._timerange import ProcessingMode
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel
 
 
-class ArchiverMetadata(MutableModel):
+class ArchiverMetadata(FrozenModel):
     """Archiving metadata for one channel.
 
     ``address`` is the same protocol-agnostic channel address the control-system

@@ -83,7 +83,7 @@ def _record(tree: Path, state: str) -> None:
     """The owner's record with the switch at *state* for :data:`TARGET`."""
     payload = control_context.ControlContext(
         target=TARGET, generation=1, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = {TARGET: state}
     write_payload(tree / OWNER / control_context.RECORD_FILENAME, payload)
     control_context.invalidate_cache()

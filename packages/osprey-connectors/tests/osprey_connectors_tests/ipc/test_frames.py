@@ -144,12 +144,13 @@ def test_channel_value_result_round_trips_as_a_real_dataclass():
     assert frame.value.metadata.enum_label is None
 
 
-def test_enum_metadata_crosses_the_seam_as_a_list_of_labels():
+def test_enum_metadata_crosses_the_seam_as_the_tuple_of_labels_sent():
     """An mbbi reading keeps both halves across the connector-host boundary.
 
-    The labels arrive as a ``list``: frames are JSON, which has no tuple, so the
-    field is declared a list in :class:`ChannelMetadata` precisely so that what
-    a proxy hands back compares equal to what the connector built.
+    The labels cross as a JSON array, which decodes as a list; the field turns
+    the list back into the tuple the connector built, so what a proxy hands
+    back compares equal to it. A list given on the sending side is held as a
+    tuple there too.
     """
     value = ChannelValue(
         value=2,
@@ -165,7 +166,8 @@ def test_enum_metadata_crosses_the_seam_as_a_list_of_labels():
 
     assert frame.value.value == 2
     assert frame.value.metadata.enum_label == "ACQUIRING"
-    assert frame.value.metadata.enum_labels == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
+    assert frame.value.metadata.enum_labels == ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
+    assert frame.value == value
 
 
 def test_batched_read_result_dict_round_trips():

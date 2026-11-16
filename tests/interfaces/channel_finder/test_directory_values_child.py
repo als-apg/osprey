@@ -46,6 +46,7 @@ from osprey_connectors.control_system import _epics_connector as epics_connector
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, InlineCaLoop
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -237,11 +238,13 @@ class _ScriptedFake(FakeConnector):
     def _read_value(self, address: str) -> ChannelValue:
         reading = super()._read_value(address)
         if address == "ALARMED":
-            reading.metadata = ChannelMetadata(alarm_severity=2, alarm_status="HIHI")
+            return evolve(reading, metadata=ChannelMetadata(alarm_severity=2, alarm_status="HIHI"))
         if address == "CURRENT":
-            reading.metadata = ChannelMetadata(units="mA", precision=3)
+            return evolve(reading, metadata=ChannelMetadata(units="mA", precision=3))
         if address == "MODE":
-            reading.metadata = ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+            return evolve(
+                reading, metadata=ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+            )
         return reading
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):
@@ -254,8 +257,10 @@ class _ScriptedFake(FakeConnector):
             return ChannelValue(value=[0.0] * 100_000, timestamp=datetime.now(UTC))
         if address == "NO_TIMESTAMP":
             reading = await super().read_channel(address, timeout_s=timeout_s)
-            reading.timestamp = None
-            return reading
+            # A reading no connector can build: skips the record's validation.
+            return ChannelValue.model_construct(
+                value=reading.value, timestamp=None, metadata=reading.metadata
+            )
         return await super().read_channel(address, timeout_s=timeout_s)
 
     async def write_channel(self, *args: Any, **kwargs: Any):

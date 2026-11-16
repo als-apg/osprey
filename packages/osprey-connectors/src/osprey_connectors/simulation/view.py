@@ -33,7 +33,7 @@ from typing import Final, Literal, get_args, overload
 from pydantic import BaseModel, ValidationError
 
 from osprey_connectors.errors import ConnectorsError
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.records import (
     AddressesDocument,
@@ -52,7 +52,6 @@ from osprey_connectors.simulation.records import (
     ServedModelsDocument,
     VariablesDocument,
     WiringRecord,
-    _ReadOnly,
     _thaw,
 )
 
@@ -293,7 +292,7 @@ class Channel(FrozenModel):
     writable: bool
     value_range: tuple[int | float, int | float] | None
     owner: str
-    on: _ReadOnly[str, str] | None
+    on: ReadOnlyMapping[str, str] | None
     options: tuple[str, ...] | None
     shape: tuple[int, ...] | None
     precision: int | None
@@ -359,7 +358,7 @@ class Binding(FrozenModel):
     plane: Plane | None
     refresh: Refresh
     element: str | None
-    record: _ReadOnly[str, object]
+    record: ReadOnlyMapping[str, object]
     marks: frozenset[Mark] = frozenset()
 
     @classmethod
@@ -421,10 +420,10 @@ class Model(FrozenModel):
     name: str
     engine: str | None
     served: bool
-    settings: _ReadOnly[str, object]
+    settings: ReadOnlyMapping[str, object]
     deck: Path | None
     bindings: tuple[Binding, ...]
-    inputs: tuple[_ReadOnly[str, object], ...] = ()
+    inputs: tuple[ReadOnlyMapping[str, object], ...] = ()
 
 
 class SimulatorView:

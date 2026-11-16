@@ -198,11 +198,11 @@ def test_an_unavailable_page_carries_its_reason(build):
         build(reason="")
 
 
-def test_pages_do_not_share_their_default_lists():
-    first = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
-    second = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
+def test_a_page_holds_its_rows_as_a_tuple():
+    assert HistoryPage(outcome=Outcome.FOUND, source=SOURCE).rows == ()
+    page = HistoryPage(outcome=Outcome.FOUND, source=SOURCE, rows=["a", "b"])
 
-    assert first.rows is not second.rows
+    assert page.rows == ("a", "b")
 
 
 # -- The ABCs -----------------------------------------------------------------

@@ -254,7 +254,7 @@ class TestRequestFormat:
     def test_round_trip(self):
         payload = request_payload()
         request = _parse_request(json.dumps(payload))
-        assert request.to_payload() == payload
+        assert request.model_dump(mode="json") == payload
         assert request.channels["A:SP"] == ChannelRange(min=0.0, max=10.0)
         assert request.completion == "restore"
 
@@ -294,7 +294,7 @@ class TestRequestFormat:
     ):
         """The ceilings are the writer's: a file on disk past one is honoured as before."""
         payload = request_payload(**change)
-        assert _parse_request(json.dumps(payload)).to_payload() == payload
+        assert _parse_request(json.dumps(payload)).model_dump(mode="json") == payload
         ledgers = tmp_path / "ledger"
         ledgers.mkdir()
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
@@ -336,7 +336,7 @@ class TestRequestFormat:
         directory = tmp_path / "requests"
         directory.mkdir()
         good = _parse_request(json.dumps(request_payload()))
-        (directory / f"{good.id}.json").write_text(json.dumps(good.to_payload()))
+        (directory / f"{good.id}.json").write_text(json.dumps(good.model_dump(mode="json")))
         broken = directory / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
         misnamed = directory / f"{uuid.uuid4().hex}.json"

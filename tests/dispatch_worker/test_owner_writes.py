@@ -76,7 +76,7 @@ def _set_switch(tree: Path, owner: str, state: str) -> None:
     """Write *owner*'s record in *tree* with the real machine's switch at *state*."""
     payload = control_context.ControlContext(
         target=TARGET_LIVE, generation=3, posture={}, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = {TARGET_LIVE: state}
     write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
 

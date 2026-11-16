@@ -39,7 +39,7 @@ from osprey_connectors.control_system._gateway_role import (
     _selected_role,
     readonly_gateway_refusal,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,
@@ -123,9 +123,6 @@ class Endpoint(FrozenModel):
     port: object
     mode: GatewayMode
 
-    def as_dict(self) -> dict[str, object]:
-        return {"host": self.host, "port": self.port, "mode": self.mode}
-
 
 class TargetDerivation(FrozenModel):
     """What a connector-host child *will* do for a target, derived from config.
@@ -152,7 +149,7 @@ class TargetDerivation(FrozenModel):
 
     target: ControlTarget
     connector_type: str
-    endpoints: dict[GatewayRole, Endpoint]
+    endpoints: ReadOnlyMapping[GatewayRole, Endpoint]
     selected_role: SelectedRole
     transport: Transport | None
     gateways_declared: GatewaysDeclared = GATEWAYS_MISSING
@@ -175,15 +172,6 @@ class Verification(FrozenModel):
     expected: object = None
     got: object = None
     detail: str = ""
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "ok": self.ok,
-            "field": self.field,
-            "expected": self.expected,
-            "got": self.got,
-            "detail": self.detail,
-        }
 
 
 def config_section(config: object, name: str) -> dict[str, object]:

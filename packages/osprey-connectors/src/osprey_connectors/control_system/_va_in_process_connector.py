@@ -72,7 +72,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
@@ -632,11 +632,11 @@ class VAInProcessConnector(ControlSystemConnector):
         variable = composite.supported_variables[address]
         unit = getattr(variable, "unit", None) or (record and record.unit) or ""
         severity = composite.output_severity([address])
-        labels: list[str] | None = None
+        labels: tuple[str, ...] | None = None
         if record is not None and record.value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
-            labels = values.channel_labels(record)
+            labels = tuple(values.channel_labels(record))
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),
@@ -651,7 +651,7 @@ class VAInProcessConnector(ControlSystemConnector):
         stored: object = composite.held([address])[address] if held else composite.get(address)
         metadata = self._metadata(address, composite)
         if metadata.enum_labels is not None and stored in metadata.enum_labels:
-            metadata.enum_label = str(stored)
+            metadata = evolve(metadata, enum_label=str(stored))
         return ChannelValue(
             value=self._wire(address, stored),
             timestamp=metadata.timestamp or datetime.now(get_facility_timezone()),

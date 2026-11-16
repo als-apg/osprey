@@ -50,7 +50,7 @@ def _switch(tree: Path, owner: str, state: str) -> None:
     """*owner*'s record with the switch at *state* for :data:`TARGET`, as the chip leaves it."""
     payload = control_context.ControlContext(
         target=TARGET, generation=1, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = {TARGET: state}
     write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
     control_context.invalidate_cache()

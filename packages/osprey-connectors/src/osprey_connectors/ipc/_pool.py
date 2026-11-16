@@ -221,7 +221,12 @@ from typing import Final, Literal, Protocol, TypeVar
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
-from osprey_connectors.errors import ConnectorsError, ConnectorUnavailableError, RecoveryRecord
+from osprey_connectors.errors import (
+    ConnectorsError,
+    ConnectorUnavailableError,
+    RecoveryAction,
+    RecoveryRecord,
+)
 from osprey_connectors.ipc._host import START_PHASES, StartPhase
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -247,7 +252,7 @@ from osprey_connectors.ipc._verification import (
 )
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
-from osprey_connectors.recovery import RecoveryAction, RecoveryPolicy, Timing
+from osprey_connectors.recovery import RecoveryPolicy, Timing
 from osprey_connectors.types import TRANSPORT_CA, ControlTarget, machine_kind
 
 __all__ = [
@@ -863,11 +868,11 @@ class ConnectorHostPool:
                 f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
                 f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
                 "left running. The call may yet complete in the child; it was not retried.",
-                recovery=(record.as_dict(),),
+                recovery=(record,),
             ) from exc
         cause = child.retired or CAUSE_EXITED
         reason = self._replaced_reason(child, method, exc, cause)
-        raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc
+        raise self._lost(child, reason, cause, method, recovery=(record,)) from exc
 
     async def _recovered(
         self, child: _PoolChild, method: str, exc: BaseException, ticket: int
@@ -883,7 +888,7 @@ class ConnectorHostPool:
         )
         if record is None or record.action is RecoveryAction.CHILD_KEPT:
             return ()
-        return (record.as_dict(),)
+        return (record,)
 
     def _replaced_reason(
         self, child: _PoolChild, method: str, exc: BaseException, cause: HostLossCause

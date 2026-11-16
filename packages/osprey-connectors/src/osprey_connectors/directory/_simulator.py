@@ -235,7 +235,7 @@ class SimulatorDirectory(ChannelDirectory):
             request=request,
             source=self.source,
             total=len(hits),
-            rows=rows,
+            rows=tuple(rows),
             truncated=start + len(rows) < len(hits),
         )
 

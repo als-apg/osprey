@@ -144,10 +144,13 @@ from typing import Final, Literal, NoReturn, Self, TypeVar, get_args
 
 from pydantic import (
     Field,
+    SerializerFunctionWrapHandler,
     ValidationError,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
+    field_serializer,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -159,7 +162,7 @@ from osprey_connectors.errors import (
     StateUnavailableError,
 )
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, evolve
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
@@ -292,8 +295,8 @@ def _now_ns() -> int:
 # -- the formats --------------------------------------------------------------
 #
 # Each file holds one of the records below as a JSON object, with ``schema``
-# beside its fields: :meth:`Grant.to_payload` and the others write it, and
-# :func:`_parse_stored` reads it back. A record built in this process checks
+# beside its fields: the record's JSON form, ``model_dump(mode="json")``, is
+# that object (:class:`_StoredRecord`), and :func:`_parse_stored` reads it back. A record built in this process checks
 # only the types of its fields; the reader's rules (module rule 2: names that
 # are names, ids, counts, finite bounds, an order between two stamps) are its
 # validators too, and they run when a record is read from a file
@@ -343,6 +346,16 @@ def _number(
     return value
 
 
+def _as_held(value: float) -> int | float:
+    """A number field written as the type it holds.
+
+    :func:`_number` keeps an ``int`` a writer was handed, so a file it writes
+    says ``60`` for ``60``; JSON mode would otherwise write every ``float``
+    field as a float (``60.0``).
+    """
+    return value
+
+
 def _positive_finite(value: float, info: ValidationInfo[object]) -> float:
     """*value* read from a file must be a finite number above zero."""
     if _from_file(info):
@@ -383,6 +396,8 @@ class ChannelRange(FrozenModel):
             return False
         number = float(value)
         return math.isfinite(number) and self.min <= number <= self.max
+
+    _held = field_serializer("min", "max")(_as_held)
 
     @field_validator("min", "max", mode="wrap")
     @classmethod
@@ -437,7 +452,16 @@ class Revocation(FrozenModel):
         return _named(value, info)
 
 
-class Grant(FrozenModel):
+class _StoredRecord(FrozenModel):
+    """A record one file holds: its JSON form carries ``schema`` beside its fields."""
+
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        fields: dict[str, object] = handler(self)
+        return {"schema": _SCHEMA_VERSION, **fields}
+
+
+class Grant(_StoredRecord):
     """One authorization, as its file states it.
 
     Attributes:
@@ -462,7 +486,7 @@ class Grant(FrozenModel):
     holder: str
     target: ControlTarget
     switch_epoch: int
-    channels: Mapping[str, ChannelRange]
+    channels: ReadOnlyMapping[str, ChannelRange]
     steps: int
     issued_at_ns: int
     expires_at_ns: int
@@ -470,10 +494,6 @@ class Grant(FrozenModel):
     approver: Approver
     label: str = ""
     revoked: Revocation | None = None
-
-    def to_payload(self) -> Mapping[str, object]:
-        """This grant as the JSON object its file holds."""
-        return {"schema": _SCHEMA_VERSION, **self.model_dump()}
 
     def live_at(self, now_ns: int) -> bool:
         """Not revoked and not expired at *now_ns*. The lease is the ledger's."""
@@ -505,6 +525,8 @@ class Grant(FrozenModel):
         cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
     ) -> Mapping[str, ChannelRange]:
         return _channel_map(value, info)
+
+    _held = field_serializer("lease_s")(_as_held)
 
     @field_validator("lease_s", mode="wrap")
     @classmethod
@@ -545,7 +567,7 @@ class LedgerStep(FrozenModel):
         return value
 
 
-class Ledger(FrozenModel):
+class Ledger(_StoredRecord):
     """The holder's consumption of one authorization.
 
     Attributes:
@@ -566,10 +588,6 @@ class Ledger(FrozenModel):
     pid_ns: str | None
     lease_until_ns: int
     steps: tuple[LedgerStep, ...] = Field(default=(), strict=False)
-
-    def to_payload(self) -> Mapping[str, object]:
-        """This ledger as the JSON object its file holds."""
-        return {"schema": _SCHEMA_VERSION, **self.model_dump(mode="json")}
 
     @field_validator("authorization")
     @classmethod
@@ -1345,7 +1363,7 @@ def _lapse(place: _Place, authorization: str) -> None:
     status, ledger = _read_ledger_at(place, authorization)
     if status == "ok" and ledger is not None and ledger.lease_until_ns > 0:
         lapsed = evolve(ledger, lease_until_ns=0)
-        _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", lapsed.to_payload())
+        _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", lapsed.model_dump(mode="json"))
 
 
 def _spend(
@@ -1396,7 +1414,7 @@ def _spend(
             step = LedgerStep(n=len(ledger.steps) + 1, at_ns=now, channels=channels)
             _write_json(
                 place.path / f"{authorization_id}{_LEDGER_SUFFIX}",
-                evolve(ledger, steps=(*ledger.steps, step)).to_payload(),
+                evolve(ledger, steps=(*ledger.steps, step)).model_dump(mode="json"),
             )
             return judged.verdict
     except Exception:  # an unrecorded step is never an allowed write
@@ -1548,7 +1566,7 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
             pid_ns=_pid_namespace(),
             lease_until_ns=now + int(grant.lease_s * 1e9),
         )
-        _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", ledger.to_payload())
+        _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", ledger.model_dump(mode="json"))
     return ledger
 
 
@@ -1573,7 +1591,9 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bo
                 return False
             grant = _live_grant(owner, authorization, now)
             renewed = evolve(ledger, lease_until_ns=now + int(grant.lease_s * 1e9))
-            _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", renewed.to_payload())
+            _write_json(
+                place.path / f"{authorization}{_LEDGER_SUFFIX}", renewed.model_dump(mode="json")
+            )
             return True
     except Exception:  # a renewal that cannot be made is a lease left to lapse
         logger.warning("The lease of %r was not renewed", authorization, exc_info=True)
@@ -1744,7 +1764,7 @@ def _issue_grant(
         StateLockedError: The lock was not acquired.
         OSError: The directory is not a plain directory, or the write failed.
     """
-    payload = grant.to_payload()
+    payload = grant.model_dump(mode="json")
     _parse_grant(json.dumps(payload))  # what is written must read back
     _within_ceilings(grant.steps, grant.issued_at_ns, grant.expires_at_ns, grant.lease_s)
     target_dir = _grant_directory(directory, grant.owner)
@@ -1810,7 +1830,7 @@ def revoke_grants(
             if wanted is not None and grant.id not in wanted:
                 continue
             stopped = evolve(grant, revoked=Revocation(at_ns=now, by=by))
-            _write_json(target_dir / f"{grant.id}{_GRANT_SUFFIX}", stopped.to_payload())
+            _write_json(target_dir / f"{grant.id}{_GRANT_SUFFIX}", stopped.model_dump(mode="json"))
             marked.append(grant.id)
     return tuple(marked)
 
@@ -2150,7 +2170,7 @@ REQUESTS_DIR_NAME: Final = "requests"
 _REQUEST_READ_LIMIT: Final = 1024 * 1024
 
 
-class WriteRequest(FrozenModel):
+class WriteRequest(_StoredRecord):
     """A holder asking for an authorization: what a person approves.
 
     The holder writes it into ``<ledger dir>/requests/<id>.json``; an approval
@@ -2178,17 +2198,13 @@ class WriteRequest(FrozenModel):
     owner: str
     holder: str
     target: ControlTarget
-    channels: Mapping[str, ChannelRange]
+    channels: ReadOnlyMapping[str, ChannelRange]
     steps: int
     requested_at_ns: int
     expires_at_ns: int
     lease_s: float
     label: str = ""
     completion: RunCompletion = "none"
-
-    def to_payload(self) -> Mapping[str, object]:
-        """This request as the JSON object its file holds."""
-        return {"schema": _SCHEMA_VERSION, **self.model_dump()}
 
     def grant(self, *, switch_epoch: int, approver: Approver, issued_at_ns: int) -> Grant:
         """The grant approving this request exactly as asked, under its id."""
@@ -2233,6 +2249,8 @@ class WriteRequest(FrozenModel):
         cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
     ) -> Mapping[str, ChannelRange]:
         return _channel_map(value, info)
+
+    _held = field_serializer("lease_s")(_as_held)
 
     @field_validator("lease_s", mode="wrap")
     @classmethod
@@ -2373,7 +2391,7 @@ def write_request(
         label=label,
         completion=completion,
     )
-    payload = request.to_payload()
+    payload = request.model_dump(mode="json")
     _parse_request(json.dumps(payload))  # what is written must read back
     _within_ceilings(request.steps, request.requested_at_ns, request.expires_at_ns, request.lease_s)
     place = _checked_ledger_place(request.id, create=True)
