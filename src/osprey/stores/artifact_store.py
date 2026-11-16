@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.stores.artifact_forms import (
     RUN_RECORD_KEY,
+    RUN_ROLES,
     extension_key,
     form_of,
     is_run_record,
@@ -441,9 +442,6 @@ def _stamped_metadata(metadata: Mapping[str, Any] | None, now: str) -> dict[str,
 RunRole = Literal["preview", "code", "output", "result"]
 RunStatus = Literal["succeeded", "failed", "not_run"]
 
-RUN_ROLES: frozenset[str] = frozenset({"preview", "code", "output", "result"})
-"""Every value ``metadata.run_part`` may take."""
-
 RUN_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "not_run"})
 """Every value a result head's ``metadata.run_status`` may take."""
 
@@ -504,19 +502,26 @@ def run_role(entry: ArtifactEntry) -> RunRole:
     return "output"
 
 
-def is_run_bookkeeping(entry: ArtifactEntry) -> bool:
-    """Whether *entry* is a by-product of a run rather than something made on purpose.
+def is_deliverable(entry: ArtifactEntry) -> bool:
+    """Whether *entry* was made for the person who asked, not kept as a record.
 
-    Any run part but ``output`` is bookkeeping: the approval hook's preview, the
-    executor's notebook and its result record. An entry stamped with an explicit
-    ``run_part`` is judged by that alone, and an unstamped legacy entry also by
-    its ``RUN_RECORD_KEY`` mark. The one rule every surface that shows only
-    deliberate artifacts reads (the activity strip, a dispatch run's
-    produced-artifact listing).
+    The one rule for what a dispatch run lists for delivery (a chat bridge
+    posts every entry the list names). Two kinds of entry are records, told by
+    what the store already holds about them:
+
+    * a script run's own record of itself — the approval preview, the
+      executor's notebook and its result record (:func:`is_run_record`);
+    * a tool's data record — what a tool stored for the agent's code to load,
+      which is every entry that carries the agent-facing ``data_file`` pointer:
+      an ``archiver_read`` series, an oversized ``channel_read`` reading, a
+      screenshot or snapshot record, a measurement file.
+
+    Everything else was made on purpose and is deliverable: a figure, a
+    ``save_artifact()`` file, a ``create_*`` tool's plot or document, a
+    registered or exported file. A record stays in the store and is served by
+    id like any other entry.
     """
-    if entry.metadata.get("run_part") is not None:
-        return run_role(entry) != "output"
-    return run_role(entry) != "output" or entry.metadata.get(RUN_RECORD_KEY) is True
+    return not is_run_record(entry) and not entry.data_file
 
 
 def _result_status(entry: ArtifactEntry) -> RunStatus:
@@ -1413,6 +1418,25 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if entry is None or not entry.run_id or entry.run_id != run_id:
             return None
         return entry
+
+    def mark_data_record(self, entry_id: str) -> ArtifactEntry | None:
+        """Point ``data_file`` of a single-file entry at its own file.
+
+        For a tool that stores its data record through :meth:`save_file` or
+        :meth:`save_object`: it gives the entry the agent-facing pointer
+        :meth:`save_data` sets at save time, which is what marks a tool's data
+        record (:func:`is_deliverable`). Returns the entry, or ``None`` when
+        the id is unknown.
+        """
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return None
+        filepath = self._store_dir / entry.filename
+        try:
+            agent_path = str(filepath.relative_to(self.repo_root))
+        except ValueError:
+            agent_path = entry.filename
+        return self.update_entry_metadata(entry_id, data_file=agent_path)
 
     def _entry_data_file(self, entry: ArtifactEntry) -> Path | None:
         """Return the entry's *second* file, when it really has one.

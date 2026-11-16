@@ -273,9 +273,19 @@ def store(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         saved.append(fields)
         return type("Entry", (), {"id": f"artifact-{len(saved)}"})()
 
+    def mark_data_record(entry_id: str) -> None:
+        saved[-1]["marked_data_record"] = entry_id
+
     monkeypatch.setattr(
         "osprey.stores.artifact_store.get_artifact_store",
-        lambda: type("Store", (), {"save_file": staticmethod(save_file)})(),
+        lambda: type(
+            "Store",
+            (),
+            {
+                "save_file": staticmethod(save_file),
+                "mark_data_record": staticmethod(mark_data_record),
+            },
+        )(),
     )
     return saved
 
@@ -292,6 +302,7 @@ def test_the_measurement_file_saved_is_the_one_in_the_runs_own_folder(gated, sto
     ((saved,),) = [store]
     assert saved["file_content"] == measured.read_bytes()
     assert saved["filename"] == "pyaml_measure_orm.json"
+    assert saved["marked_data_record"] == "artifact-1"  # a data record, not a delivery
     assert answer["artifact_id"] == "artifact-1"
     assert "data_file_refused" not in answer
 

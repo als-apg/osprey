@@ -275,7 +275,8 @@ def _save_measurement(result: dict[str, Any], args: MeasureArgs, folder: Path | 
         from osprey.stores.artifact_manifest import read_collected_file
         from osprey.stores.artifact_store import get_artifact_store
 
-        entry = get_artifact_store().save_file(
+        store = get_artifact_store()
+        entry = store.save_file(
             file_content=read_collected_file(path),
             filename=path.name,
             artifact_type="json",
@@ -291,6 +292,8 @@ def _save_measurement(result: dict[str, Any], args: MeasureArgs, folder: Path | 
                 "sha256": result.get("sha256"),
             },
         )
+        # The measurement is this tool's data record, loaded back by code.
+        store.mark_data_record(entry.id)
     except Exception:
         logger.warning("Could not save %s to the artifact store", path, exc_info=True)
         return

@@ -28,10 +28,9 @@ and a result record alongside whatever the code deliberately produced, and the
 approval hook saves a review preview before it. Emitting for those would turn
 one agent action into several strip entries, so they are filtered out here; the
 run's own channel emit is that action's signal. They are told by their run part
-(:func:`~osprey.stores.artifact_store.is_run_bookkeeping`: ``metadata.run_part``
-of ``preview``/``code``/``result``, or the legacy shapes
-:func:`~osprey.stores.artifact_store.run_role` reads, or the legacy
-``metadata[RUN_RECORD_KEY]``), so a run's ``output`` — a notebook the code saves
+(:func:`~osprey.stores.artifact_forms.is_run_record`: ``metadata.run_part`` of
+``preview``/``code``/``result``, or the shapes older entries have), so a run's
+``output`` — a notebook the code saves
 on purpose from inside the run included — still emits. Deliberate saves —
 figures, ``save_artifact()``, the ``create_*`` tools, ``archiver_read`` /
 ``phoebus_snapshot`` persists — emit one frame per entry.
@@ -63,7 +62,7 @@ from typing import TYPE_CHECKING
 from osprey.mcp_server.http import notify_agent_activity
 from osprey.stores.artifact_store import (
     current_artifact_mutation_actor,
-    is_run_bookkeeping,
+    is_run_record,
 )
 
 if TYPE_CHECKING:
@@ -167,7 +166,7 @@ def _enqueue(tool: str, entry: ArtifactEntry) -> None:
     # worker thread that POSTs later would always see the default.
     if current_artifact_mutation_actor() != "agent":
         return
-    if is_run_bookkeeping(entry):
+    if is_run_record(entry):
         return
     try:
         _pending.put_nowait((tool, _detail_for(entry)))

@@ -18,7 +18,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
+from osprey.stores.artifact_store import (
+    RUN_RECORD_KEY,
+    ArtifactStore,
+    is_deliverable,
+    is_run_record,
+)
 from osprey_connectors import control_context
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
@@ -113,36 +118,77 @@ def _entry(**fields):
 
 
 class TestActivityVerdict:
+    """The strip's bookkeeping filter is the shared run-record rule."""
+
+    def test_the_strip_reads_the_one_run_record_rule(self):
+        from osprey.mcp_server import artifact_activity
+        from osprey.stores import artifact_forms
+
+        assert artifact_activity.is_run_record is artifact_forms.is_run_record
+
     @pytest.mark.parametrize("part", ["preview", "code", "result"])
     def test_run_parts_other_than_output_are_bookkeeping(self, part):
-        from osprey.stores.artifact_store import is_run_bookkeeping
-
-        assert is_run_bookkeeping(_entry(tool_source="execute", metadata={"run_part": part}))
+        assert is_run_record(_entry(tool_source="execute", metadata={"run_part": part}))
 
     def test_a_run_output_emits(self):
-        from osprey.stores.artifact_store import is_run_bookkeeping
-
         entry = _entry(
             tool_source="execute",
             artifact_type="notebook",
             title="Notebook: saved on purpose",
             metadata={"run_part": "output", RUN_RECORD_KEY: True},
         )
-        assert not is_run_bookkeeping(entry)
+        assert not is_run_record(entry)
 
     def test_legacy_result_record_is_bookkeeping(self):
-        from osprey.stores.artifact_store import is_run_bookkeeping
+        assert is_run_record(_entry(tool_source="execute", category="code_output"))
+        assert is_run_record(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
 
-        assert is_run_bookkeeping(_entry(tool_source="execute", category="code_output"))
-        assert is_run_bookkeeping(_entry(tool_source="execute", metadata={RUN_RECORD_KEY: True}))
+    def test_a_deliberate_save_emits(self):
+        assert not is_run_record(_entry(tool_source="create_static_plot"))
+        assert not is_run_record(_entry(tool_source="artifact_register"))
 
-    def test_a_deliberate_save_emits_whatever_its_category(self):
-        from osprey.stores.artifact_store import is_run_bookkeeping
+    def test_a_tools_data_record_emits(self):
+        """A data record is an agent action on the strip, though never delivered."""
+        entry = _entry(tool_source="archiver_read", data_file="var/agent_data/artifacts/a1.json")
+        assert not is_run_record(entry)
+        assert not is_deliverable(entry)
 
-        assert not is_run_bookkeeping(_entry(tool_source="create_static_plot"))
-        assert not is_run_bookkeeping(
-            _entry(tool_source="artifact_register", category="code_output")
+
+class TestDeliverable:
+    def test_a_plain_save_is_deliverable(self):
+        assert is_deliverable(_entry(tool_source="create_static_plot"))
+
+    def test_a_run_output_is_deliverable(self):
+        assert is_deliverable(_entry(tool_source="execute", metadata={"run_part": "output"}))
+
+    @pytest.mark.parametrize("part", ["preview", "code", "result"])
+    def test_a_run_record_is_not(self, part):
+        assert not is_deliverable(_entry(tool_source="execute", metadata={"run_part": part}))
+
+    def test_what_save_data_stores_is_a_data_record(self, tmp_path):
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_data(tool="archiver_read", data={"series": {}}, title="t")
+        assert entry.data_file
+        assert not is_deliverable(entry)
+
+    def test_mark_data_record_points_a_saved_file_at_itself(self, tmp_path):
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_file(
+            file_content=b"{}",
+            filename="m.json",
+            artifact_type="json",
+            title="measurement",
+            mime_type="application/json",
+            tool_source="pyaml_measure",
         )
+        assert is_deliverable(entry)
+
+        marked = store.mark_data_record(entry.id)
+
+        assert marked is not None and marked.data_file.endswith(entry.filename)
+        assert not is_deliverable(store.get_entry(entry.id))
+        assert store._entry_data_file(marked) is None  # its own file, not a companion
+        assert store.mark_data_record("0" * 12) is None
 
 
 # ---- summary by form ---------------------------------------------------------

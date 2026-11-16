@@ -100,7 +100,10 @@ The recent exchanges in this conversation, **oldest first**. This is what makes
      - The dispatch run that produced the answer, or ``null``.
    * - ``artifacts``
      - Descriptors for the files that run produced — round-tripped opaquely by
-       the bridge, capped per turn, newest kept.
+       the bridge, capped per turn, newest kept. They name what the agent made
+       for the person (a plot, a document, a file it saved on purpose), never a
+       record kept on the way: a script run's notebook and result record, or a
+       tool's data record such as an archiver read.
    * - ``asked_by``
      - Who asked this question, in the same shape as ``asker``. Absent when the
        bridge did not know, including every turn recorded before the field

@@ -354,13 +354,14 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
     is cheap regardless of artifact count. Returns ``[]`` for an unknown/empty
     ``run_id`` or a run that produced no artifacts.
 
-    "Produced" means made on purpose: a figure, a ``save_artifact()`` file, a
-    ``create_*`` tool's document. A script run's bookkeeping — the approval
-    preview, the per-execution notebook and the result record
-    (:func:`~osprey.stores.artifact_store.is_run_bookkeeping`) — is left out,
-    because every consumer of this list republishes what it names (a chat
-    bridge posts each one into the conversation). Like a caller-supplied input,
-    a bookkeeping entry stays reachable by id through the created-by byte route.
+    "Produced" means made on purpose for the person who asked: a figure, a
+    ``save_artifact()`` file, a ``create_*`` tool's plot or document. Records
+    are left out (:func:`~osprey.stores.artifact_store.is_deliverable`) — a
+    script run's preview, notebook and result record, and a tool's data record
+    such as an ``archiver_read`` series — because every consumer of this list
+    republishes what it names (a chat bridge posts each one into the
+    conversation). Like a caller-supplied input, a record stays reachable by id
+    through the created-by byte route.
 
     Each descriptor is ``{artifact_id, filename, source_mime, delivered_mime,
     convertible}``. ``source_mime`` is retained so a consumer always knows the
@@ -368,7 +369,7 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
     """
     if not run_id:
         return []
-    from osprey.stores.artifact_store import is_run_bookkeeping
+    from osprey.stores.artifact_store import is_deliverable
 
     try:
         entries = _get_store().list_entries(run_filter=run_id, exclude_examples=True)
@@ -382,8 +383,8 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
         # so a consumer never mistakes an ingested image for agent output.
         if e.origin == "input":
             continue
-        # Nor is a script run's own record of itself (preview, notebook, result).
-        if is_run_bookkeeping(e):
+        # Nor is a record a run or a tool kept (preview, notebook, data series).
+        if not is_deliverable(e):
             continue
         delivered_mime, convertible = predict_delivery(e.mime_type)
         out.append(
