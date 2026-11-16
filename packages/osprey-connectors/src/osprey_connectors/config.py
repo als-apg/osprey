@@ -557,10 +557,11 @@ def load_project_dotenv() -> None:
     values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
     still see — and warn about — an export that disagrees with the store, and
     hand compose an environment with the shell's precedence intact. The record
-    is taken once per key against the *merged* chain, before any file is
-    loaded: the value a key ends up with is the local file's, so that is the
-    value the shell's export is judged against, and a key both files set is
-    recorded once rather than twice.
+    is taken once per key against the value the chain *applied*, as
+    :func:`apply_env_chain` parsed it (an inline ``# comment`` stripped, a
+    ``${VAR}`` interpolated): the value a key ends up with is the local file's,
+    so that is the value the shell's export is judged against, and a key both
+    files set is recorded once rather than twice.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -579,7 +580,7 @@ def load_project_dotenv() -> None:
 
     repo_root = Path.cwd()
     try:
-        from osprey_connectors.dotenv import chain_files, merge_chain
+        from osprey_connectors.dotenv import chain_files
 
         paths = chain_files(repo_root)
         if not paths:
@@ -591,17 +592,15 @@ def load_project_dotenv() -> None:
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
         # the shell's own. A shell-only name is never replaced, so it is never
-        # recorded.
-        pinned = merge_chain(repo_root)
-        for name, value in pinned.items():
-            if (
-                not _is_shell_only_env_var(name)
-                and name in os.environ
-                and os.environ[name] != value
-                and name not in _dotenv_shell_overrides
-            ):
-                _dotenv_shell_overrides[name] = os.environ[name]
-        apply_env_chain(os.environ, paths)
+        # recorded. The record compares against what was applied, so it reads
+        # the files with the parser that applies them.
+        shell = dict(os.environ)
+        try:
+            apply_env_chain(os.environ, paths)
+        finally:
+            for name, value in shell.items():
+                if os.environ.get(name, value) != value and name not in _dotenv_shell_overrides:
+                    _dotenv_shell_overrides[name] = value
         logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
