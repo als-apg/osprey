@@ -832,7 +832,6 @@ class TestConfirmingRead:
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.observed_value == "ON"
-        assert result.observed_number is None
 
 
 @pytest.mark.usefixtures("writes_enabled")

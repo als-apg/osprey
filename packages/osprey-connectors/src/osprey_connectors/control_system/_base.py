@@ -321,20 +321,6 @@ def values_match(sent: object, observed: object, *, enum_label: str | None = Non
         return False
 
 
-def as_number(value: object) -> float | None:
-    """``value`` as a float, or ``None`` when it is not a number.
-
-    A reading that is not a number — a string, an enum label, a waveform — has
-    no numeric form and is reported as ``None`` ("no numeric value"), never
-    coerced into one. A string that happens to parse as a number is still a
-    string here: what the channel holds is text, and inventing a number for it
-    is the fabrication this helper exists to prevent.
-    """
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        return None
-    return float(value)
-
-
 #: The outcomes whose result carries an ``error_message``: each has something
 #: the operator has to be told.
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
@@ -370,8 +356,7 @@ class ChannelWriteResult:
     them apart without parsing ``error_message``; it is ``None`` on every
     other result. ``observed_value`` is whatever the confirming
     re-read returned, in the type the channel holds — a number, a string, an
-    enum label, a waveform; :attr:`observed_number` narrows it to a float
-    where that makes sense.
+    enum label, a waveform.
 
     Alarm state (``alarm_status``, ``alarm_severity``) is carried
     protocol-agnostically — the alarm *name* as a string, the severity as an
@@ -445,11 +430,6 @@ class ChannelWriteResult:
                 f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
             )
-
-    @property
-    def observed_number(self) -> float | None:
-        """:attr:`observed_value` as a float, or ``None`` when it is not a number."""
-        return as_number(self.observed_value)
 
 
 #: Package path of the OSPREY MCP servers, as consecutive parts of the file
