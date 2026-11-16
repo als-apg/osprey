@@ -36,7 +36,7 @@ CONTEXT_FULL = ControlContext(
     generation=3,
     owner=Owner(kind="web_terminal", pid=1234, port=8087),
     # Read off disk and never stored: the writer derives the field from ``switch``.
-    posture={"live": "sandbox", "extra": "ignored"},
+    posture={"live": "sandbox", "extra": "writes"},
     last_switch={
         "request_id": "r-1",
         "terminus": "applied",
