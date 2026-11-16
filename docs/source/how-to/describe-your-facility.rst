@@ -338,11 +338,11 @@ address per line.
 
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into ``fixes.yaml``. Each device a row gives an ``s`` is written to
-``imported/list/devices.yaml``; a ``model`` column names the model whose deck
-``s`` is measured along. A run whose list states no ``s`` leaves no
-``devices.yaml``, and a device the list then names needs a record of its own,
-such as an ``add`` fix, or the build stops with ``reference-missing``. The
+into ``fixes.yaml``. Each device a row names is written to
+``imported/list/devices.yaml``, with its ``s`` where a row gives one; a
+``model`` column names the model whose deck ``s`` is measured along. Beside
+another source of device records, the import names the devices only the list
+declares in one line, which is where a misspelt ``device`` cell shows. The
 list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.
