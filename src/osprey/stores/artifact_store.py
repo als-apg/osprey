@@ -214,6 +214,13 @@ class ArtifactEntry:
     kind: str = ""
     """The registered extension type this artifact is (``osprey.stores.type_registry``),
     empty for none. ``artifact_type`` stays the file format."""
+    deliver: bool = False
+    """Whether this entry was made for the person who asked, stated by its writer
+    at save time (the ``deliver`` argument of the save methods). A dispatch run
+    lists exactly its entries that say so, and a chat bridge posts what the
+    list names. An entry that states nothing — a run's own record, a tool's
+    data record, anything saved before the field existed — is kept in the
+    store and served by id, never posted."""
 
     def to_dict(self) -> dict[str, Any]:
         # ``_sanitize_for_json`` already rebuilds every nested dict and list, so
@@ -502,28 +509,6 @@ def run_role(entry: ArtifactEntry) -> RunRole:
     return "output"
 
 
-def is_deliverable(entry: ArtifactEntry) -> bool:
-    """Whether *entry* was made for the person who asked, not kept as a record.
-
-    The one rule for what a dispatch run lists for delivery (a chat bridge
-    posts every entry the list names). Two kinds of entry are records, told by
-    what the store already holds about them:
-
-    * a script run's own record of itself — the approval preview, the
-      executor's notebook and its result record (:func:`is_run_record`);
-    * a tool's data record — what a tool stored for the agent's code to load,
-      which is every entry that carries the agent-facing ``data_file`` pointer:
-      an ``archiver_read`` series, an oversized ``channel_read`` reading, a
-      screenshot or snapshot record, a measurement file.
-
-    Everything else was made on purpose and is deliverable: a figure, a
-    ``save_artifact()`` file, a ``create_*`` tool's plot or document, a
-    registered or exported file. A record stays in the store and is served by
-    id like any other entry.
-    """
-    return not is_run_record(entry) and not entry.data_file
-
-
 def _result_status(entry: ArtifactEntry) -> RunStatus:
     """A result head's status: its stored ``run_status``, else what its result says."""
     stored = entry.metadata.get("run_status")
@@ -786,6 +771,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("origin", "")
         d.setdefault("exec_id", "")
         d.setdefault("kind", "")
+        d.setdefault("deliver", False)
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -827,6 +813,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         at: datetime | None = None,
         entry_id: str | None = None,
     ) -> ArtifactEntry:
@@ -843,8 +830,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
         example; empty for produced output). An empty ``origin`` takes
         ``OSPREY_ARTIFACT_ORIGIN``. ``exec_id`` links the entry into a run group;
-        ``kind`` names its extension type. ``category`` is deprecated and
-        ignored.
+        ``kind`` names its extension type. ``deliver=True`` states that the
+        entry was made for the person who asked (:attr:`ArtifactEntry.deliver`);
+        a writer that leaves it out stores a record nobody is sent.
+        ``category`` is deprecated and ignored.
 
         ``at`` (timezone-aware) states the save's time: it becomes
         ``timestamp`` and, unless *metadata* already names one,
@@ -868,6 +857,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 session_id=session_id,
                 exec_id=exec_id,
                 kind=kind,
+                deliver=deliver,
                 at=at,
                 entry_id=entry_id,
             )
@@ -895,6 +885,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         at: datetime | None = None,
         entry_id: str | None = None,
     ) -> ArtifactEntry:
@@ -936,6 +927,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=_resolved_origin(origin),
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
         self._entries.append(entry)
         self._save_index()
@@ -991,6 +983,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
@@ -1014,6 +1007,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=origin,
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
 
     def save_from_path(
@@ -1028,6 +1022,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Copy an existing file into the artifact store. ``category`` is deprecated and ignored."""
@@ -1052,6 +1047,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             origin=origin,
             exec_id=exec_id,
             kind=kind,
+            deliver=deliver,
         )
 
     def save_data(
@@ -1069,6 +1065,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Save structured data as an artifact.  Replaces ``DataContext.save()``.
@@ -1117,6 +1114,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 origin=_resolved_origin(origin),
                 exec_id=exec_id,
                 kind=kind,
+                deliver=deliver,
             )
             self._entries.append(entry)
             self._save_index()
@@ -1142,6 +1140,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        deliver: bool = False,
         origin: str = "",
     ) -> ArtifactEntry:
         """Save a multi-dimensional channel reading as a PNG plus its raw array.
@@ -1238,6 +1237,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                     origin=_resolved_origin(origin),
                     exec_id=exec_id,
                     kind=kind,
+                    deliver=deliver,
                 )
                 self._entries.append(entry)
                 appended = True
@@ -1418,25 +1418,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if entry is None or not entry.run_id or entry.run_id != run_id:
             return None
         return entry
-
-    def mark_data_record(self, entry_id: str) -> ArtifactEntry | None:
-        """Point ``data_file`` of a single-file entry at its own file.
-
-        For a tool that stores its data record through :meth:`save_file` or
-        :meth:`save_object`: it gives the entry the agent-facing pointer
-        :meth:`save_data` sets at save time, which is what marks a tool's data
-        record (:func:`is_deliverable`). Returns the entry, or ``None`` when
-        the id is unknown.
-        """
-        entry = self.get_entry(entry_id)
-        if entry is None:
-            return None
-        filepath = self._store_dir / entry.filename
-        try:
-            agent_path = str(filepath.relative_to(self.repo_root))
-        except ValueError:
-            agent_path = entry.filename
-        return self.update_entry_metadata(entry_id, data_file=agent_path)
 
     def _entry_data_file(self, entry: ArtifactEntry) -> Path | None:
         """Return the entry's *second* file, when it really has one.

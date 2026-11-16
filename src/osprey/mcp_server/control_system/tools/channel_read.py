@@ -497,8 +497,6 @@ def _save_data_only_reading(store, address: str, value, reason: str) -> dict:
             "render_skipped": reason,
         },
     )
-    # A reading is this tool's data record, like its series and image siblings.
-    store.mark_data_record(entry.id)
 
     handle: dict = {"artifact_id": entry.id, "no_preview_reason": reason}
     data_file = _agent_path_for(store, entry)

@@ -62,6 +62,14 @@ your reply. Nothing is serialized; the content is stored as given:
 
 `artifact_register` never runs Python and cannot take a live object.
 
+### What a chat conversation receives
+
+A chat reply carries your text and the artifacts you made for the person:
+plots, documents, `save_artifact()` files and what `artifact_register` stores.
+What a tool stored for you to read (an archived series, a large channel reading
+and its picture, a screenshot) is not posted; to send one, register its file
+with `artifact_register(file_path=...)`.
+
 ## Notebook Artifacts
 
 Every `execute` call automatically creates a Jupyter notebook artifact
