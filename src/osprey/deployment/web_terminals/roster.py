@@ -1180,6 +1180,26 @@ def _panel_roster_grants(
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
+    card_renders = _card_renders(config)
+    if not card_renders:
+        return []
+    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
+    return [
+        (card, terminal_secret_var(card))
+        for card, render in card_renders
+        if render in entitled_renders
+    ]
+
+
+def _card_renders(config: Any) -> list[tuple[str, str | None]]:
+    """Each roster card and the render its terminal runs, in roster order.
+
+    A shared card runs its own render; a person runs the render their entry or
+    role binds them to, else ``default_tier``.
+
+    :param config: The parsed deploy config.
+    :return: ``(card name, render name or None)`` pairs; empty with no roster.
+    """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     cards = roster_entries(web_terminals)
     if not cards:
@@ -1197,14 +1217,13 @@ def _panel_roster_grants(
     default_tier = web_terminals.get("default_tier")
     if not isinstance(default_tier, str) or not default_tier:
         default_tier = None
-    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
-
-    grants: list[tuple[str, str]] = []
-    for entry in cards:
-        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
-        if tier in entitled_renders:
-            grants.append((entry["name"], terminal_secret_var(entry["name"])))
-    return grants
+    return [
+        (
+            entry["name"],
+            entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier,
+        )
+        for entry in cards
+    ]
 
 
 def has_web_terminal_roster(config: Any) -> bool:
