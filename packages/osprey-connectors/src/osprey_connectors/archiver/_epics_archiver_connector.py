@@ -22,6 +22,7 @@ from typing_extensions import override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
+    ProcessingMode,
     SampleSeries,
     long_frame,
     reject_non_numeric,
@@ -72,7 +73,7 @@ class _Series(FrozenModel):
         return value or []
 
 
-def _data_points(payload: object, pv: str) -> list[_Sample]:
+def _data_points(payload: object, address: str) -> list[_Sample]:
     """The samples of a ``getData.json`` reply, ``[]`` for an empty one.
 
     The appliance answers ``[{"meta": {...}, "data": [{"secs", "nanos", "val"}, ...]}]``;
@@ -86,11 +87,11 @@ def _data_points(payload: object, pv: str) -> list[_Sample]:
     if not payload:
         return []
     if not isinstance(payload, list):
-        raise ValueError(f"Unexpected archiver reply for {pv}: not a list of series objects")
+        raise ValueError(f"Unexpected archiver reply for {address}: not a list of series objects")
     try:
         return _Series.model_validate(payload[0]).data
     except ValidationError as exc:
-        raise ValueError(f"Unexpected archiver reply for {pv}: {_fault(exc)}") from exc
+        raise ValueError(f"Unexpected archiver reply for {address}: {_fault(exc)}") from exc
 
 
 def _fault(exc: ValidationError) -> str:
@@ -123,7 +124,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         >>> connector = EPICSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['BEAM:CURRENT'],
+        >>>     addresses=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -196,12 +197,12 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
-    def _fetch_single_pv(self, pv: str, start_str: str, end_str: str) -> SampleSeries:
+    def _fetch_single_pv(self, address: str, start_str: str, end_str: str) -> SampleSeries:
         """
         Fetch archived data for a single PV via direct HTTP.
 
         Args:
-            pv: PV name (may include processing operators, e.g. mean_60(SR:DCCT))
+            address: PV name (may include processing operators, e.g. mean_60(SR:DCCT))
             start_str: ISO 8601 UTC start time string
             end_str: ISO 8601 UTC end time string
 
@@ -214,7 +215,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             ConnectorUnavailableError: If the HTTP request fails
         """
         params = urllib.parse.urlencode(
-            {"pv": pv, "from": start_str, "to": end_str, "fetchLatestMetadata": "true"}
+            {"pv": address, "from": start_str, "to": end_str, "fetchLatestMetadata": "true"}
         )
         url = f"{self._url}{self._retrieval_path}/data/getData.json?{params}"
         req = urllib.request.Request(url, method="GET")
@@ -245,20 +246,20 @@ class EPICSArchiverConnector(ArchiverConnector):
             ) from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
-        samples = _data_points(payload, pv)
+        samples = _data_points(payload, address)
         if not samples:
-            return pd.Series(dtype=float, name=pv)
+            return pd.Series(dtype=float, name=address)
 
         # Check for waveform PV (array-valued val)
         if isinstance(samples[0].val, list):
-            raise ValueError(f"Waveform PVs not supported: {pv}")
+            raise ValueError(f"Waveform PVs not supported: {address}")
 
         timestamps = pd.to_datetime(
             [sample.secs for sample in samples], unit="s", utc=True
         ) + pd.to_timedelta([sample.nanos for sample in samples], unit="ns")
         values = [sample.val for sample in samples]
 
-        return pd.Series(values, index=timestamps, name=pv)
+        return pd.Series(values, index=timestamps, name=address)
 
     def _refused_login_message(self, code: int) -> str:
         """Name the login the appliance refused, or the keys that would supply one."""
@@ -277,25 +278,26 @@ class EPICSArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: float | None = None,
-        processing: str = "raw",
+        *,
+        timeout_s: float | None = None,
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from EPICS archiver.
 
         Args:
-            channels: Channel addresses to retrieve (EPICS PV names)
+            addresses: Channel addresses to retrieve (EPICS PV names)
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Bin width in milliseconds, applied server-side. Must
                 be a whole number of seconds (the Archiver Appliance's operator
                 syntax takes seconds); a finer width is rejected rather than
                 rounded. ``<= 0`` means full resolution.
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin, pushed
                 down to the appliance. One of "raw", "mean", "min", "max",
                 "median", "std", "count". Anything else raises ValueError.
@@ -312,7 +314,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 ``processing`` mode is requested for a channel whose values are
                 non-numeric
         """
-        timeout = timeout if timeout is not None else self._timeout
+        timeout_s = timeout_s if timeout_s is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("Archiver not connected")
@@ -344,11 +346,11 @@ class EPICSArchiverConnector(ArchiverConnector):
                 pv: self._fetch_single_pv(
                     f"{operator}({pv})" if operator else pv, start_str, end_str
                 )
-                for pv in channels
+                for pv in addresses
             }
 
         try:
-            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
+            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout_s)
 
             # The appliance already binned server-side, so aggregate_series is
             # skipped — but its non-numeric check must run here: the appliance
@@ -359,11 +361,11 @@ class EPICSArchiverConnector(ArchiverConnector):
 
             data = long_frame(series_dict)
 
-            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(channels)} PVs")
+            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(addresses)} PVs")
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(f"Archiver request timed out after {timeout}s") from e
+            raise TimeoutError(f"Archiver request timed out after {timeout_s}s") from e
         except ConnectionRefusedError as e:
             raise ConnectorUnavailableError(
                 "Cannot connect to the archiver. "
@@ -378,7 +380,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             raise
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
 
@@ -386,14 +388,14 @@ class EPICSArchiverConnector(ArchiverConnector):
         cannot say whether the channel is archived: ``is_archived`` is ``None``.
 
         Args:
-            channel: Channel address (EPICS PV name)
+            address: Channel address (EPICS PV name)
 
         Returns:
             ArchiverMetadata with ``is_archived=None`` and the reason in
             ``description``
         """
         return ArchiverMetadata(
-            channel=channel,
+            address=address,
             is_archived=None,
             description=(
                 "the EPICS Archiver Appliance connector does not ask the appliance "
@@ -402,14 +404,14 @@ class EPICSArchiverConnector(ArchiverConnector):
         )
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """
         Check which PVs are archived.
 
         The appliance is not asked, so every channel answers ``None`` (unknown).
 
         Args:
-            channels: Channel addresses to check (EPICS PV names)
+            addresses: Channel addresses to check (EPICS PV names)
 
         Returns:
             Dictionary mapping every channel address to ``None``
@@ -419,4 +421,4 @@ class EPICSArchiverConnector(ArchiverConnector):
         """
         if not self._connected:
             raise RuntimeError("Archiver not connected")
-        return dict[str, bool | None].fromkeys(channels, None)
+        return dict[str, bool | None].fromkeys(addresses, None)

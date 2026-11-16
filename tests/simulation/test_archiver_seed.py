@@ -240,7 +240,7 @@ def read_back(mongo_store, monkeypatch):
         )
         try:
             return await connector.get_data(
-                channels=list(channels), start_date=start, end_date=end, precision_ms=0
+                addresses=list(channels), start_date=start, end_date=end, precision_ms=0
             )
         finally:
             await connector.disconnect()
@@ -726,7 +726,7 @@ class TestConnectorRoundtrip:
 
         frame = await read_back([pv], window_start, window_end)
 
-        rows = frame[frame["channel"] == pv]
+        rows = frame[frame["address"] == pv]
         assert len(rows) > 0
         stamps = epoch_seconds_array(list(rows["timestamp"]))
         expected = archive.series(pv, stamps)
@@ -813,7 +813,7 @@ class TestWaveformChannels:
 
         with pytest.raises(ChannelNotFoundError) as caught:
             pulse_archive.traces("NO:SUCH:WAVEFORM", [T0.timestamp()])
-        assert caught.value.channel_address == "NO:SUCH:WAVEFORM"
+        assert caught.value.address == "NO:SUCH:WAVEFORM"
 
     def test_a_trace_is_the_pulse_at_its_instant(self, pulse_archive):
         instants = _tail_instants(SMALL, T0)[:3]

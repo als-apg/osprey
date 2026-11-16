@@ -42,6 +42,7 @@ from osprey_connectors.directory._contract import (
     DirectoryQuery,
     DirectoryRecord,
     DirectoryRow,
+    DirectoryStatus,
 )
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable, _Recorded
@@ -65,7 +66,7 @@ _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
 )
 
 #: The ``pvStatus`` values a row reports; any other value reports no status.
-_STATUSES: Mapping[str, Literal["Active", "Inactive"]] = MappingProxyType(
+_STATUSES: Mapping[str, DirectoryStatus] = MappingProxyType(
     {"Active": "Active", "Inactive": "Inactive"}
 )
 
@@ -155,8 +156,8 @@ def _searched(query: DirectoryQuery) -> str:
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
-    if query.name:
-        parts.append(f"name matches {query.name}")
+    if query.address_pattern:
+        parts.append(f"name matches {query.address_pattern}")
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:
@@ -274,7 +275,10 @@ class ChannelFinderDirectory(ChannelDirectory):
         """The searches to try in turn, each without its paging."""
         words = query.words.split()
         plain = [word for word in words if not _is_name_term(word)]
-        terms = [*(word for word in words if _is_name_term(word)), *(query.name or "").split()]
+        terms = [
+            *(word for word in words if _is_name_term(word)),
+            *(query.address_pattern or "").split(),
+        ]
         narrowing = [*(("~name", _pattern(term)) for term in terms), *self._filters(query)]
         if not plain:
             return [narrowing or [("~name", "*")]]
@@ -288,7 +292,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         properties = _properties_of(channel)
         return DirectoryRecord(
             row=DirectoryRow(
-                name=channel.name,
+                address=channel.name,
                 status=_STATUSES.get(properties.pop(_ROW_FIELD_PROPERTIES["status"], "")),
                 description=properties.pop(self._description_property, None),
                 channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
@@ -297,14 +301,14 @@ class ChannelFinderDirectory(ChannelDirectory):
                 last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
             ),
             properties=properties,
-            tags=[tag.name for tag in channel.tags or ()],
+            tags=tuple(tag.name for tag in channel.tags or ()),
         )
 
-    async def _get(self, path: str, params: _Params | None, deadline: float) -> object:
-        return await self._transport.request("GET", path, params=params, deadline=deadline)
+    async def _get(self, path: str, params: _Params | None, timeout_s: float) -> object:
+        return await self._transport.request("GET", path, params=params, timeout_s=timeout_s)
 
     @override
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
         started = time.monotonic()
         searched = _searched(query)
         size = max(query.page_size, 0)
@@ -327,15 +331,15 @@ class ChannelFinderDirectory(ChannelDirectory):
                 request=" · ".join(sent),
                 source=self.source,
                 total=total,
-                rows=rows or [],
+                rows=tuple(rows or ()),
                 truncated=truncated,
-                partial=partial or [],
+                partial=tuple(partial or ()),
                 reason=reason,
             )
 
         while True:
             narrowing = searches.pop(0)
-            left = deadline - (time.monotonic() - started)
+            left = timeout_s - (time.monotonic() - started)
             params: _Params = [*narrowing, ("~size", size), ("~from", start)]
             sent.append(_literal(_CHANNELS, params))
             body, counted = await asyncio.gather(
@@ -368,11 +372,11 @@ class ChannelFinderDirectory(ChannelDirectory):
             )
 
     @override
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
         started = time.monotonic()
         total: int | Unavailable = 0
         for narrowing in self._searches(query):
-            left = deadline - (time.monotonic() - started)
+            left = timeout_s - (time.monotonic() - started)
             total = _total(await self._get(_COUNT, narrowing, left))
             if total != 0:
                 break
@@ -380,41 +384,41 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     @override
     async def describe(
-        self, name: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        params: _Params = [("~name", _one_value(name)), ("~size", _DESCRIBE_SIZE)]
-        channels = _channels(await self._get(_CHANNELS, params, deadline))
+        params: _Params = [("~name", _one_value(address)), ("~size", _DESCRIBE_SIZE)]
+        channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):
             return channels
         for channel in channels:
-            if channel.name == name:
+            if channel.name == address:
                 return self._record(channel)
         return Outcome.NOT_LISTED
 
     @override
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:
-        names = _names(await self._get(_PROPERTIES, None, deadline))
+    async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:
+        names = _names(await self._get(_PROPERTIES, None, timeout_s))
         return names if isinstance(names, Unavailable) else sorted(names)
 
     @override
     async def property_values(
-        self, name: str, prefix: str | None, deadline: float
+        self, property: str, *, prefix: str | None = None, timeout_s: float
     ) -> list[str] | Unavailable:
         wanted = f"{_one_value(prefix)}*" if prefix else "*"
-        params: _Params = [(name, wanted), ("~size", _VALUES_SIZE)]
-        channels = _channels(await self._get(_CHANNELS, params, deadline))
+        params: _Params = [(property, wanted), ("~size", _VALUES_SIZE)]
+        channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):
             return channels
-        values = {_properties_of(channel).get(name) for channel in channels}
+        values = {_properties_of(channel).get(property) for channel in channels}
         return sorted(
             value for value in values if value is not None and value.startswith(prefix or "")
         )
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         names, sample = await asyncio.gather(
-            self.property_names(deadline),
-            self._get(_CHANNELS, [("~name", "*"), ("~size", _PROBE_SAMPLE_SIZE)], deadline),
+            self.property_names(timeout_s=timeout_s),
+            self._get(_CHANNELS, [("~name", "*"), ("~size", _PROBE_SAMPLE_SIZE)], timeout_s),
         )
         if isinstance(names, Unavailable):
             return names

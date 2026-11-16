@@ -759,7 +759,7 @@ class OspreyPVConnector:
             statement={"reachable": self._report_reach(), "writes": session.writes},
         )
         try:
-            control_context.write_json_atomic(path, report.to_payload())
+            control_context.write_json_atomic(path, report.model_dump(mode="json"))
         except OSError:
             logger.warning("Could not write the display-only server report", exc_info=True)
 

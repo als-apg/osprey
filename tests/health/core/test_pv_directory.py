@@ -81,7 +81,7 @@ class _Fake:
             kind=self.spec.kind, target=self.spec.target, service=self.spec.type, rehearsal=False
         )
 
-    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def probe(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.answers.get(self.spec.kind, f"{self.spec.type} answered")
 
 

@@ -100,7 +100,10 @@ SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
-_POSITION_RANK = {position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)}
+#: Keyed by ``str``: it ranks request words, which a position may not be.
+_POSITION_RANK: dict[str, int] = {
+    position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)
+}
 
 
 #: The one spelling of a switch epoch on the wire: a canonical decimal string.
@@ -2209,7 +2212,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
         stored = await run_in_threadpool(
             partial(control_context.set_switch, targets, body.state, epoch=epoch)
         )
-    except control_context.StoppedSince as exc:
+    except control_context.StoppedSinceError as exc:
         if exc.epoch is None:  # the record went away after the status read
             raise _posture_not_taken(
                 session_id, gesture=gesture, state=body.state, record_missing=True
@@ -2459,7 +2462,9 @@ def _row_selected_role(
     ``None`` for a target this render cannot derive at all, which the collapse
     renders as ``unknown``.
     """
-    if config is UNREADABLE:
+    from osprey_connectors.types import is_control_target
+
+    if config is UNREADABLE or not is_control_target(target):
         return None
     try:
         from osprey_connectors.ipc import derive_endpoints
@@ -2572,11 +2577,11 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     context = _context_state(app)
     if context.owner is not None:
         identity = context.follows if context.follows is not None else context.owner.identity
-        return {**identity.to_payload(), "self": context.follows is None}
+        return {**identity.model_dump(mode="json"), "self": context.follows is None}
     recorded = getattr(record, "owner", None)
     if recorded is None:
         return None
-    return {**recorded.to_payload(), "self": control_context.owned_here(record)}
+    return {**recorded.model_dump(mode="json"), "self": control_context.owned_here(record)}
 
 
 def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:

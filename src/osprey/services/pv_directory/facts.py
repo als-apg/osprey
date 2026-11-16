@@ -352,7 +352,7 @@ class Facts:
                 record=_unknown_config(_LOGGED_CONFIGURATION),
                 label=_LOGGED_CONFIGURATION,
             )
-        answer = await _ask(log.config_for(name, deadline), deadline)
+        answer = await _ask(log.config_for(name, timeout_s=deadline), deadline)
         if _is_unavailable(answer):
             return _failed_config(log, _LOGGED_CONFIGURATION, answer.reason)
         return _config_section(log, answer)
@@ -369,7 +369,7 @@ class Facts:
         backend, _source, reason = await self._service.backend(kind)
         if backend is None:
             return _NoSource(reason or NO_SOURCE_REASON, rows=[])
-        answer = await _ask(backend.history(name, since, limit, deadline), deadline)
+        answer = await _ask(backend.history(name, since, limit, timeout_s=deadline), deadline)
         if _is_unavailable(answer):
             return _section(backend, "unavailable", rows=[], reason=answer.reason)
         page = as_payload(answer)

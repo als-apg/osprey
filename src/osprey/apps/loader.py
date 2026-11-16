@@ -306,7 +306,7 @@ def _access_resolver(host: BuildProfile) -> Callable[[Any, str, str], str]:
         resolve_access_principals,
         resolve_cards,
     )
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     web_terminals = effective_web_terminals(host.config)
     enabled = bool(web_terminals.get("enabled"))

@@ -71,7 +71,7 @@ except ImportError:
     severity_rank = None  # type: ignore[assignment]
     BackendSpec = None  # type: ignore[assignment,misc]
     ChannelDirectory = None  # type: ignore[assignment,misc]
-    ENGINEER = None  # type: ignore[assignment]
+    ENGINEER = None  # type: ignore[assignment,misc]
     IOC_HEALTH_SIGNALS = None  # type: ignore[assignment]
     DirectoryPage = None  # type: ignore[assignment,misc]
     DirectoryQuery = None  # type: ignore[assignment,misc]
@@ -114,6 +114,8 @@ __all__ = [
     "PutRow",
     "Source",
     "SERVED_FIELD",
+    "SERVED_QUERY_FIELD",
+    "SERVED_ROW_FIELD",
     "Unavailable",
     "as_payload",
     "has_simulator",
@@ -131,12 +133,24 @@ NO_SOURCE_REASON = "not available for this target"
 
 #: The served name of each contract field the framework serves under its EPICS word.
 #: Routes, pages and tool answers keep ``ioc``, ``record_type`` and ``pv``.
-SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "channel": "pv"}
+SERVED_FIELD = {"server": "ioc", "channel_type": "record_type", "address": "pv"}
+
+#: A directory row's fields as served: its address is the row's ``name``.
+SERVED_ROW_FIELD = {**SERVED_FIELD, "address": "name"}
+
+#: The served keyword of each :class:`DirectoryQuery` field a search names
+#: differently: the address glob is ``name``.
+SERVED_QUERY_FIELD = {"server": "ioc", "channel_type": "record_type", "address_pattern": "name"}
 
 #: The records whose fields are served under :data:`SERVED_FIELD`.
-_SERVED_RECORDS = tuple(
-    record for record in (DirectoryRow, PutRow, AlarmStateRow) if record is not None
-)
+_SERVED_RECORDS = tuple(record for record in (PutRow, AlarmStateRow) if record is not None)
+
+
+def _served_names(result: Any) -> Mapping[str, str]:
+    """The served name of each of *result*'s fields that is served under another."""
+    if DirectoryRow is not None and isinstance(result, DirectoryRow):
+        return SERVED_ROW_FIELD
+    return SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -158,7 +172,8 @@ def as_payload(result: Any) -> Any:
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
-    row, a put row and an alarm-state row name their fields by :data:`SERVED_FIELD`. Other
+    row names its fields by :data:`SERVED_ROW_FIELD`, a put row and an alarm-state row
+    by :data:`SERVED_FIELD`. Other
     records (pydantic models, and dataclasses) become mappings field by field, enum
     members their values, mappings and sequences their JSON forms; anything else is
     returned as it is.
@@ -171,10 +186,10 @@ def as_payload(result: Any) -> Any:
             "rehearsal": result.rehearsal,
         }
     if isinstance(result, BaseModel):
-        names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
+        names = _served_names(result)
         return {names.get(name, name): as_payload(value) for name, value in result}
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
-        names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
+        names = _served_names(result)
         return {
             names.get(field.name, field.name): as_payload(getattr(result, field.name))
             for field in dataclasses.fields(result)

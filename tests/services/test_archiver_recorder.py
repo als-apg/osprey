@@ -602,10 +602,10 @@ class _StallingConnector:
         self.cancelled: list[str] = []
         self.timeouts: list[float | None] = []
 
-    async def read_channel(self, address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
         from osprey_connectors.control_system._base import ChannelValue
 
-        self.timeouts.append(timeout)
+        self.timeouts.append(timeout_s)
         if address in self.stalled:
             try:
                 await asyncio.Event().wait()
@@ -1210,7 +1210,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            channels=list(samples),
+            addresses=list(samples),
             start_date=timestamp - timedelta(seconds=5),
             end_date=timestamp + timedelta(seconds=5),
         )
@@ -1218,7 +1218,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     finally:
         await connector.disconnect()
 
-    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    read = dict(zip(frame["address"], frame["value"], strict=True))
     assert read == samples
     assert availability == dict.fromkeys(samples, True)
 
@@ -1269,7 +1269,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            channels=list(samples),
+            addresses=list(samples),
             start_date=timestamp - timedelta(seconds=5),
             end_date=timestamp + timedelta(seconds=5),
         )
@@ -1278,7 +1278,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     finally:
         await connector.disconnect()
 
-    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    read = dict(zip(frame["address"], frame["value"], strict=True))
     assert read == samples
     assert availability == {**dict.fromkeys(samples, True), "seeded_at": False}
     assert metadata.is_archived is True

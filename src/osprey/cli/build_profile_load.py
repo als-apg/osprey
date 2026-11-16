@@ -29,6 +29,7 @@ from osprey.agent_record.config import parse_agent_record_block, refuse_retired_
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
+from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.served import SIMULATION_MODELS_KEY
 from osprey.port_layout import (
@@ -39,7 +40,6 @@ from osprey.port_layout import (
 )
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import (
     FAST_TICK_KEY,
     TICK_KEY,

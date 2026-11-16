@@ -225,7 +225,7 @@ def _key(pv: str, group: str = "Demo/RF") -> bytes:
 
 
 def _rows(snapshot: FeedSnapshot, *, stale: bool = False) -> dict[str, object]:
-    return {row.channel: row for row in state_rows(snapshot, stale=stale)}
+    return {row.address: row for row in state_rows(snapshot, stale=stale)}
 
 
 def test_a_tree_node_state_is_not_a_row():

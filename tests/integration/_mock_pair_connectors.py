@@ -84,7 +84,7 @@ VA_SEED = 202.0
 
 #: Every field ``ChannelLimitsViolationError`` carries, each a distinct value.
 LIMITS_FIELDS: dict[str, Any] = {
-    "channel_address": LIMITS_CHANNEL,
+    "address": LIMITS_CHANNEL,
     "attempted_value": 150.5,
     "violation_type": "MAX_EXCEEDED",
     "violation_reason": "Value 150.5 above maximum 100.0",
@@ -122,73 +122,75 @@ class _PairConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         return None
 
-    def value_for(self, channel_address: str) -> float:
-        """This connector's constant for *channel_address*.
+    def value_for(self, address: str) -> float:
+        """This connector's constant for *address*.
 
         Raises:
             ChannelUnreachableError: The channel belongs to the other target, or
                 to no target at all. A refusal is how a read proves which process
                 answered it when the value alone would not.
         """
-        if channel_address in (SHARED_CHANNEL, self.probe_channel, SLOW_CHANNEL):
+        if address in (SHARED_CHANNEL, self.probe_channel, SLOW_CHANNEL):
             return self.seed
-        if channel_address in BATCH_CHANNELS:
-            return self.seed + BATCH_CHANNELS.index(channel_address) + 1
+        if address in BATCH_CHANNELS:
+            return self.seed + BATCH_CHANNELS.index(address) + 1
         raise ChannelUnreachableError(
-            channel_address, f"{type(self).__name__} serves no channel named {channel_address!r}"
+            address, f"{type(self).__name__} serves no channel named {address!r}"
         )
 
     async def read_channel(
         self,
-        channel_address: str,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
+        address: str,
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelValue:
-        if channel_address == SLOW_CHANNEL:
+        if address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
         return ChannelValue(
-            value=self.value_for(channel_address),
+            value=self.value_for(address),
             timestamp=datetime.now(UTC),
             metadata=ChannelMetadata(units="mA"),
         )
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         readings = await asyncio.gather(
-            *(self.read_channel(address, timeout=timeout) for address in channel_addresses),
+            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
             return_exceptions=True,
         )
         return {
             address: reading
-            for address, reading in zip(channel_addresses, readings, strict=True)
+            for address, reading in zip(addresses, readings, strict=True)
             if isinstance(reading, ChannelValue)
         }
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelWriteResult:
-        if channel_address == LIMITS_CHANNEL:
+        if address == LIMITS_CHANNEL:
             raise make_limits_violation()
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.UNREQUESTED,
         )
 
-    async def subscribe(self, channel_address: str, callback: Any) -> str:
+    async def subscribe(self, address: str, callback: Any) -> str:
         raise NotImplementedError("the pair connectors serve reads and writes only")
 
     async def unsubscribe(self, subscription_id: str) -> None:
         raise NotImplementedError("the pair connectors serve reads and writes only")
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:  # noqa: ARG002 - the control-system connector base fixes this signature
+    async def get_metadata(self, address: str) -> ChannelMetadata:  # noqa: ARG002 - the control-system connector base fixes this signature
         return ChannelMetadata(units="mA")
 
-    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - the control-system connector base fixes this signature
+    async def validate_channel(self, address: str) -> bool:  # noqa: ARG002 - the control-system connector base fixes this signature
         return True
 
 

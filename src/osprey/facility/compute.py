@@ -62,7 +62,6 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.relations import (
@@ -88,9 +87,9 @@ from osprey.facility.validate import (
     stating_files,
 )
 from osprey.facility.wiring import element_stop
+from osprey_connectors.simulation import TEXTURE
 
 __all__ = [
-    "TEXTURE",
     "check_compute",
     "check_model_inputs",
     "check_served_inputs",

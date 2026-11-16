@@ -18,8 +18,8 @@ from typing import Any
 
 from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 from .build_profile_document import _read_profile_document

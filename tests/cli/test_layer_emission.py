@@ -30,8 +30,8 @@ from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_cmd import profile
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import RETIRED_LAYER_DIRS
-from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import (
     ENABLE_ORBIT_BUMP,

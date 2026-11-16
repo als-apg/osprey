@@ -172,14 +172,14 @@ def authorize_manual_write(
             label=label,
             owner=owner,
         )
-    except wa.AuthorizationRefused as refused:
+    except wa.AuthorizationRefusedError as refused:
         # A self-issue's auth_revoked means the switch was not at allowed (or
         # left it during the issue): no authorization of this call has ended.
         reason = SWITCH_NOT_ALLOWED if refused.reason == "auth_revoked" else refused.reason
         raise _refused(reason, refused.detail) from refused
     try:
         wa.start_lease(grant.id, owner=owner)
-    except wa.AuthorizationRefused as refused:
+    except wa.AuthorizationRefusedError as refused:
         retire_self_issued(grant)
         code = (
             status.HTTP_409_CONFLICT

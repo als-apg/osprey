@@ -168,18 +168,18 @@ class ModelConnector(DictConnector):
             "TUNE:v": 0.3 + TUNE_GAIN[1] * quads + (2.0 + CHROMA_GAIN[1] * sexts) * delta_p,
         }
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        if channel_address in READINGS:
-            self._state[channel_address] = float(self._derived()[channel_address])
-        return await super().read_channel(channel_address, timeout)
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
+        if address in READINGS:
+            self._state[address] = float(self._derived()[address])
+        return await super().read_channel(address, timeout_s=timeout_s)
 
-    def _put(self, channel_address: str, value: Any) -> None:
+    def _put(self, address: str, value: Any) -> None:
         if self.on_put is not None:
-            self.on_put(channel_address)
-        self.puts.append((channel_address, value))
-        super()._put(channel_address, value)
-        if channel_address.endswith(":sp"):
-            self._state[channel_address.replace(":sp", ":rb")] = value
+            self.on_put(address)
+        self.puts.append((address, value))
+        super()._put(address, value)
+        if address.endswith(":sp"):
+            self._state[address.replace(":sp", ":rb")] = value
 
 
 def _accelerator() -> Accelerator:
@@ -284,9 +284,9 @@ class TestEveryPath:
         served: list[tuple[str, str]] = []
         read = connector.read_channel
 
-        async def logged_read(address: str, timeout: float | None = None) -> Any:
+        async def logged_read(address: str, *, timeout_s: float | None = None) -> Any:
             served.append(("read", address))
-            return await read(address, timeout)
+            return await read(address, timeout_s=timeout_s)
 
         connector.read_channel = logged_read  # type: ignore[method-assign]
         connector.on_put = lambda address: served.append(("put", address))
@@ -468,22 +468,22 @@ class LaggingConnector(ModelConnector):
         self.events: list[tuple[str, Any]] = []
         self.on_put = lambda address: self.events.append(("put", address))
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        if channel_address in self.pairs.values():
-            self.events.append(("poll", channel_address))
-            if channel_address in self.pending:
-                value, remaining = self.pending[channel_address]
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
+        if address in self.pairs.values():
+            self.events.append(("poll", address))
+            if address in self.pending:
+                value, remaining = self.pending[address]
                 if remaining > 0:
-                    self.pending[channel_address] = (value, remaining - 1)
+                    self.pending[address] = (value, remaining - 1)
                 else:
-                    del self.pending[channel_address]
-                    self._state[channel_address] = value
-        return await super().read_channel(channel_address, timeout)
+                    del self.pending[address]
+                    self._state[address] = value
+        return await super().read_channel(address, timeout_s=timeout_s)
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        readback = self.pairs.get(channel_address)
+    def _put(self, address: str, value: Any) -> None:
+        readback = self.pairs.get(address)
         before = self._state.get(readback) if readback is not None else None
-        super()._put(channel_address, value)
+        super()._put(address, value)
         if readback is not None:
             self._state[readback] = before
             if readback not in self.stuck:

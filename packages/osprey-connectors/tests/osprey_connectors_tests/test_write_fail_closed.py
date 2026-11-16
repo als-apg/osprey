@@ -42,7 +42,7 @@ class TestOneNamePerWrite:
         """Every spelling validates against the limits entry of ``TEST:PV`` and is
         refused by that entry's limit; the raw spelling never reaches the validator."""
         violation = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=999.0,
             violation_type="max_value",
             violation_reason="above max",
@@ -77,7 +77,7 @@ class TestOneNamePerWrite:
         (name, _value), _kwargs = connector._limits_validator.validate.call_args
         assert name == "TEST:PV"
         assert [(n, v) for n, v, _wait in connector._aioca.puts] == [("TEST:PV", 1.0)]
-        assert result.channel_address == "TEST:PV"
+        assert result.address == "TEST:PV"
 
 
 class TestFailClosedValidation:
@@ -116,7 +116,7 @@ class TestFailClosedValidation:
         thread hop a ``max_value`` violation does.
         """
         violation = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=value,
             violation_type=violation_type,
             violation_reason=reason,
@@ -172,7 +172,7 @@ class TestNonBlockingOffload:
         connector = _make_connector()
         validate_threads: list[int] = []
 
-        def recording_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+        def recording_validate(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             validate_threads.append(threading.get_ident())
 
         connector._limits_validator.validate = MagicMock(side_effect=recording_validate)

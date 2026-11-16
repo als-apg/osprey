@@ -280,7 +280,7 @@ class TestReadChannel:
         with pytest.raises(ChannelUnreachableError, match="channel not found") as raised:
             await conn.read_channel("INVALID/ADDR")
 
-        assert raised.value.channel_address == "INVALID/ADDR"
+        assert raised.value.address == "INVALID/ADDR"
         assert "INVALID/ADDR" in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -499,7 +499,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+        def blocking_validate(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)
@@ -602,7 +602,7 @@ class TestBoundedCalls:
     names the bound that did. No test reads a clock.
     """
 
-    async def test_a_stalled_read_raises_timeout_error_within_timeout_s(self):
+    async def test_a_stalled_read_raises_channel_unreachable_within_timeout_s(self):
         mock_d4py = _make_doocs4py()
         with (
             Stall() as get,
@@ -613,14 +613,16 @@ class TestBoundedCalls:
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(0.2)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel("FAC/DEV/LOC/PROP")
             answered_first = not get.returned
 
         assert answered_first
+        assert raised.value.address == "FAC/DEV/LOC/PROP"
         assert "FAC/DEV/LOC/PROP" in str(raised.value)
         assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
+        assert not isinstance(raised.value, TimeoutError)
 
     async def test_a_per_call_timeout_wins_over_timeout_s(self):
         mock_d4py = _make_doocs4py()
@@ -633,8 +635,8 @@ class TestBoundedCalls:
         ):
             mock_d4py.get.side_effect = get
             conn = await _bounded_connector(30)
-            with pytest.raises(TimeoutError) as raised:
-                await conn.read_channel("FAC/DEV/LOC/PROP", timeout=0.2)
+            with pytest.raises(ChannelUnreachableError) as raised:
+                await conn.read_channel("FAC/DEV/LOC/PROP", timeout_s=0.2)
             answered_first = not get.returned
 
         assert answered_first

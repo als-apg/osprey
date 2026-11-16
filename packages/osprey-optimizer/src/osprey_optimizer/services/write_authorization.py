@@ -52,7 +52,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from osprey_optimizer.environments.write_authority import WriteAuthority
 from osprey_optimizer.models.config import OnComplete
@@ -64,6 +64,9 @@ from osprey_optimizer.models.exceptions import (
 from osprey_optimizer.models.protocols import EnvironmentProtocol
 from osprey_optimizer.utils.interval_thread import IntervalThread
 
+if TYPE_CHECKING:
+    from osprey_connectors.write_authorization import RunCompletion
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -72,15 +75,12 @@ __all__ = [
     "LEASE_S",
     "POLL_S",
     "WAIT_S",
-    "Completion",
     "RunAuthorization",
     "WritePlan",
     "completion_for",
     "retire_self_issued",
     "write_plan",
 ]
-
-Completion = Literal["none", "apply_best", "restore"]
 
 #: How long a run's authorization lasts at most, from the moment it is asked for.
 #: A value past the connectors' ceiling (:data:`~osprey_connectors.write_authorization.MAX_EXPIRES_S`,
@@ -105,7 +105,7 @@ _RELEASED = "released"
 ASK_INSTEAD = frozenset({"auth_revoked", "switch_off"})
 
 
-def completion_for(on_complete: OnComplete) -> Completion:
+def completion_for(on_complete: OnComplete) -> RunCompletion:
     """The authorization's completion word for a run's ``on_complete``."""
     return "none" if on_complete == "hold" else on_complete
 
@@ -117,7 +117,7 @@ class WritePlan:
     target: str
     channels: Mapping[str, tuple[float, float]]
     evaluations: int
-    completion: Completion
+    completion: RunCompletion
     label: str = ""
 
     @property
@@ -355,7 +355,7 @@ class RunAuthorization:
                 label=plan.label,
                 owner=self._owner,
             )
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             if refused.reason not in ASK_INSTEAD:
                 raise self.end(refused.reason, refused.detail) from refused
             grant = self._ask(plan, expires_at_ns)
@@ -378,7 +378,7 @@ class RunAuthorization:
                 completion=plan.completion,
                 owner=self._owner,
             )
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             raise self.end(refused.reason, refused.detail) from refused
         except Exception as exc:  # a request that could not be written asks nobody
             raise self.end("auth_unreadable", str(exc)) from exc
@@ -398,7 +398,7 @@ class RunAuthorization:
                     self._check_cancellation()
                 try:
                     grant = wa.approved_grant(request.id, owner=self._owner)
-                except wa.AuthorizationRefused as refused:
+                except wa.AuthorizationRefusedError as refused:
                     raise self.end(refused.reason, refused.detail) from refused
                 if grant is not None:
                     return grant
@@ -430,7 +430,7 @@ class RunAuthorization:
         self._issued = grant
         try:
             wa.start_lease(grant.id, owner=self._owner)
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             raise self.end(refused.reason, refused.detail) from refused
         except Exception as exc:  # a lease that could not be opened authorizes nothing
             raise self.end("auth_unreadable", str(exc)) from exc
@@ -469,7 +469,7 @@ class RunAuthorization:
         reason = "auth_lease_lapsed"
         try:
             wa.approved_grant(grant_id, owner=self._owner)
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             reason = refused.reason
         except Exception:  # the lease is what failed; that is the reason given
             logger.debug("Could not read why %s lapsed", grant_id, exc_info=True)

@@ -94,9 +94,9 @@ def _fold() -> tuple[dict[str, Any], dict[str, Any], str]:
         await backend.start()
         try:
             pvs = sorted(_replay_pvs())
-            states = {pv: await backend.state_for(pv, 1.0) for pv in pvs}
-            configs = {pv: await backend.config_for(pv, 1.0) for pv in pvs}
-            return states, configs, await backend.probe(1.0)
+            states = {pv: await backend.state_for(pv, timeout_s=1.0) for pv in pvs}
+            configs = {pv: await backend.config_for(pv, timeout_s=1.0) for pv in pvs}
+            return states, configs, await backend.probe(timeout_s=1.0)
         finally:
             await backend.aclose()
 

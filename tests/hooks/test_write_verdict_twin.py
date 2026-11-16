@@ -124,7 +124,7 @@ def _stage_host_switch(tmp_path, switch):
     """This host's record holding *switch* verbatim: a legacy ``on`` has no writer."""
     payload = control_context.ControlContext(
         target="live", generation=1, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = switch
     path = control_context._record_path_under(host_root(tmp_path))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -504,9 +504,7 @@ def test_restated_store_names_match_the_package():
 
 
 def test_tier_words_match_the_package():
-    assert reader.TIER_NEVER == types._TIER_NEVER
-    assert reader.TIER_ASKED == types._TIER_ASKED
-    assert reader.TIER_ALLOWED == types._TIER_ALLOWED
+    assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == types.TIER_WORDS
     # The order is the ceiling's rank: ``min`` on it is the cap.
     assert reader._LOGIN_TIERS == posture_store._LOGIN_TIERS == ("never", "asked", "allowed")
 

@@ -58,22 +58,24 @@ LABELLED = {"type": "labelled", "settings": {"url": "http://directory.example"}}
 class LabelledDirectory(ChannelDirectory):
     """A facility directory of an out-of-tree type."""
 
-    async def search(self, query: Any, deadline: float) -> Any:
+    async def search(self, query: Any, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def count(self, query: Any, deadline: float) -> Any:
+    async def count(self, query: Any, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def describe(self, name: str, deadline: float) -> Any:
+    async def describe(self, address: str, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def property_names(self, deadline: float) -> Any:
+    async def property_names(self, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
-    async def property_values(self, name: str, prefix: str | None, deadline: float) -> Any:
+    async def property_values(
+        self, property: str, *, prefix: str | None = None, timeout_s: float
+    ) -> Any:
         raise NotImplementedError
 
-    async def probe(self, deadline: float) -> Any:
+    async def probe(self, *, timeout_s: float) -> Any:
         raise NotImplementedError
 
 
@@ -341,7 +343,7 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    contract = {served: field for field, served in _connectors.SERVED_FIELD.items()}
+    contract = {served: field for field, served in _connectors.SERVED_ROW_FIELD.items()}
     rows = [
         DirectoryRow(
             **{

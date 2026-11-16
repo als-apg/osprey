@@ -285,8 +285,8 @@ class TestARosterThatCannotSayWhichChannelsAreSettable:
                 detail="one channel record states no role",
             ),
         )
-        state.channel_addresses = ("FAC:PS:01:CURRENT",)
-        state.channel_address_index = frozenset(state.channel_addresses)
+        state.addresses = ("FAC:PS:01:CURRENT",)
+        state.channel_address_index = frozenset(state.addresses)
 
         validated = graph_client.post("/api/validate", json={"channels": ["FAC:PS:01:CURRENT"]})
         enumerated = graph_client.get("/api/channels")

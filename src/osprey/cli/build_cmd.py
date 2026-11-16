@@ -61,6 +61,7 @@ from osprey.deployment.wheel_build import (
     build_deployment_packages,
     is_secret_file,
 )
+from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
@@ -70,7 +71,6 @@ from osprey.utils.config_writer import (
     save_config_document,
 )
 from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 

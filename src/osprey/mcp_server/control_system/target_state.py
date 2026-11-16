@@ -189,11 +189,12 @@ import os
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.types import ControlTarget
 from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
@@ -204,10 +205,10 @@ logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
 #: target it is *not* on without a second lookup. Restated here rather than
 #: imported from :mod:`osprey_connectors.types` for the same reason the path
 #: contract is restated in the hooks: this module is the readers' vocabulary.
-TARGET_LIVE = "live"
-TARGET_VA = "va"
-TARGET_STANDIN = "standin"
-TARGET_NAMES: tuple[str, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
+TARGET_LIVE: Final = "live"
+TARGET_VA: Final = "va"
+TARGET_STANDIN: Final = "standin"
+TARGET_NAMES: tuple[ControlTarget, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
 #: identity. Part of the path contract above, and taken from

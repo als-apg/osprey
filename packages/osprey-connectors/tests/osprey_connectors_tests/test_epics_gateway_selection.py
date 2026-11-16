@@ -29,6 +29,7 @@ import osprey_connectors.control_system._epics_connector as epics_connector_modu
 from osprey_connectors.control_system._base import ControlSystemConnector, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
+from osprey_connectors.errors import ConnectorUnavailableError, ConnectRefusedError
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import WRITES_KEY
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
@@ -219,8 +220,12 @@ async def test_a_readonly_run_on_a_write_gateway_only_machine_refuses_to_connect
     monkeypatch.setattr(epics_connector_module, "get_ca_loop", lambda: loop)
 
     connector = EPICSConnector()
-    with pytest.raises(ConnectionError) as caught:
+    with pytest.raises(ConnectRefusedError) as caught:
         await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+
+    # A policy refusal, not a lost connector; still a ConnectionError, as it was.
+    assert isinstance(caught.value, ConnectionError)
+    assert not isinstance(caught.value, ConnectorUnavailableError)
 
     assert "no read-only gateway" in str(caught.value)
     assert "deployment admin" in str(caught.value)

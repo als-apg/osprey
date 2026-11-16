@@ -151,7 +151,7 @@ def map_write_error(
         The mapped exception, with ``exc`` set as its ``__cause__``; raise it
         with ``raise map_write_error(exc) from exc``.
     """
-    channel = (exc.channel_address if isinstance(exc, ChannelError) else None) or address
+    channel = (exc.address if isinstance(exc, ChannelError) else None) or address
     reason = _write_reason(exc)
     mapped: OspreyWriteRefused | OspreyWriteFailed
     refusals = (ChannelLimitsViolationError, ChannelWriteBlockedError, ControlTargetChangedError)

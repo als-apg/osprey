@@ -32,6 +32,7 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
+from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.roots import FacilityRoots
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
@@ -41,7 +42,6 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
 from .build_profile_archiver import (

@@ -107,7 +107,7 @@ class FakeBackend:
             rehearsal=self.spec.rehearsal,
         )
 
-    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def probe(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return f"{self.spec.type} answered"
 
 
@@ -132,12 +132,15 @@ class FakeDirectory(FakeBackend):
             for record in self.records.values()
             if (not query.server or record.row.server in query.server)
             and (query.status is None or record.row.status == query.status)
-            and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
-            and query.words in record.row.name
+            and (
+                query.address_pattern is None
+                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+            )
+            and query.words in record.row.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
-    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return DirectoryPage(
                 outcome=Outcome.UNAVAILABLE,
@@ -159,15 +162,15 @@ class FakeDirectory(FakeBackend):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             return Unavailable(reason=self.fail)
-        return self.records.get(name, Outcome.NOT_LISTED)
+        return self.records.get(address, Outcome.NOT_LISTED)
 
 
 class FakeAlarmState(FakeBackend):
@@ -180,16 +183,16 @@ class FakeAlarmState(FakeBackend):
     async def start(self) -> None:
         pass
 
-    async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.listed
 
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.state
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -198,7 +201,7 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     delay = 0.0
 
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         await asyncio.sleep(self.delay)
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
@@ -206,18 +209,18 @@ class FakeAlarmLog(FakeBackend):
             rows=[AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
         )
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
 class FakePutLog(FakeBackend):
     page: Any = None
 
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t2", channel=pv, old="1", new="2", user="operator two")],
+            rows=[PutRow(at="t2", address=address, old="1", new="2", user="operator two")],
         )
 
 
@@ -302,12 +305,12 @@ def _facts(config: dict[str, Any], tmp_path: Path) -> Any:
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(name=name, server=ioc, host="host-a", status=status)
+    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
     return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.name: record for record in records}
+    return {record.row.address: record for record in records}
 
 
 def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -596,7 +599,7 @@ async def test_alarm_state_on_va_from_the_replay(
 
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
     record = AlarmStateRecord(severity=severity, time=time, **state)
-    return AlarmStateRow(channel=channel, path=f"/SR/{channel}", state=record)
+    return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
 
 
 def _listed(*rows: Any, stale: bool = False) -> Any:
@@ -1255,8 +1258,8 @@ class _Metadata:
 class _Held:
     """A ``store_extent`` answer."""
 
-    def __init__(self, channels: Any = None, reason: str | None = None, **times: Any) -> None:
-        self.channels = channels
+    def __init__(self, addresses: Any = None, reason: str | None = None, **times: Any) -> None:
+        self.addresses = addresses
         self.oldest = times.get("oldest")
         self.newest = times.get("newest")
         self.reason = reason
@@ -1457,7 +1460,7 @@ async def test_the_archive_summary_counts_the_directory_per_ioc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
     archiver.held = _Held(
-        channels=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
+        addresses=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
         oldest=datetime(2026, 10, 13),
         newest=datetime(2026, 11, 12, 8, 0, 4),
     )
@@ -1494,7 +1497,7 @@ async def test_an_archive_that_cannot_list_its_channels_counts_nothing(tmp_path:
 async def test_above_the_filter_cap_the_summary_gives_the_caps_reason(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.held = _Held(channels=frozenset({"SR:BPM1"}))
+    archiver.held = _Held(addresses=frozenset({"SR:BPM1"}))
     page = _facts(_archived(tmp_path, filter_cap=2), tmp_path)
 
     summary = await page.archive_summary()

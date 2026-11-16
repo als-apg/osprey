@@ -80,9 +80,9 @@ def fold_message(
     return snapshot
 
 
-def state_record(snapshot: FeedSnapshot, channel: str, *, stale: bool) -> AlarmStateRecord | None:
-    """The alarm state of *channel*, or ``None`` when the feed holds none for it."""
-    paths = snapshot.states.get(pv_name(channel))
+def state_record(snapshot: FeedSnapshot, address: str, *, stale: bool) -> AlarmStateRecord | None:
+    """The alarm state of *address*, or ``None`` when the feed holds none for it."""
+    paths = snapshot.states.get(pv_name(address))
     if not paths:
         return None
     return _state_of(list(paths.values())[-1], stale=stale)
@@ -100,7 +100,7 @@ def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, .
         path, body = list(paths.items())[-1]
         if "current_severity" in body:
             rows.append(
-                AlarmStateRow(channel=channel, path=path, state=_state_of(body, stale=stale))
+                AlarmStateRow(address=channel, path=path, state=_state_of(body, stale=stale))
             )
     return tuple(rows)
 
@@ -123,13 +123,13 @@ def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
     )
 
 
-def config_record(snapshot: FeedSnapshot, channel: str) -> AlarmConfigRecord:
-    """Where *channel* sits in the alarm tree, as the feed last configured it.
+def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfigRecord:
+    """Where *address* sits in the alarm tree, as the feed last configured it.
 
     A state with no configuration beside it proves the path but not the tree's
     entry, so that answers ``"unknown"``; only no message at all answers ``"no"``.
     """
-    name = pv_name(channel)
+    name = pv_name(address)
     paths = snapshot.configs.get(name)
     if not paths:
         states = snapshot.states.get(name)

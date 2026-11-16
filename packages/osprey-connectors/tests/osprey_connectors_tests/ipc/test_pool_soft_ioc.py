@@ -133,20 +133,20 @@ async def test_two_targets_each_reach_only_their_own_ioc(deployment, ioc_prefix)
         assert sim.report["connector_type"] == "live_standin"
 
         seeds = await asyncio.gather(
-            live.read_channel(readback, timeout=CA_TIMEOUT_S),
-            sim.read_channel(readback, timeout=CA_TIMEOUT_S),
+            live.read_channel(readback, timeout_s=CA_TIMEOUT_S),
+            sim.read_channel(readback, timeout_s=CA_TIMEOUT_S),
         )
         assert [value.value for value in seeds] == [SEED_A, SEED_B]
 
         written = await asyncio.gather(
-            live.write_channel_checked(setpoint, 11.0, confirm=True, timeout=CA_TIMEOUT_S),
-            sim.write_channel_checked(setpoint, 222.0, confirm=True, timeout=CA_TIMEOUT_S),
+            live.write_channel_checked(setpoint, 11.0, confirm=True, timeout_s=CA_TIMEOUT_S),
+            sim.write_channel_checked(setpoint, 222.0, confirm=True, timeout_s=CA_TIMEOUT_S),
         )
         assert [result.outcome for result in written] == [WriteOutcome.CONFIRMED] * 2
 
         after = await asyncio.gather(
-            live.read_channel(setpoint, timeout=CA_TIMEOUT_S),
-            sim.read_channel(setpoint, timeout=CA_TIMEOUT_S),
+            live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S),
+            sim.read_channel(setpoint, timeout_s=CA_TIMEOUT_S),
         )
         assert [value.value for value in after] == [11.0, 222.0]
         assert await live.validate_channel(setpoint) is True
@@ -168,21 +168,21 @@ async def test_only_the_switched_on_target_can_write(deployment, ioc_prefix):
         assert sim.report["writes_enabled"] is False
 
         # A readonly child refuses even on the armed target, before the IOC.
-        refused = await live_ro.write_channel(setpoint, 42.0, timeout=CA_TIMEOUT_S)
+        refused = await live_ro.write_channel(setpoint, 42.0, timeout_s=CA_TIMEOUT_S)
         assert refused.outcome is WriteOutcome.REFUSED
-        assert (await live_ro.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_A
+        assert (await live_ro.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == SEED_A
 
-        landed = await live.write_channel(setpoint, 5.0, confirm=True, timeout=CA_TIMEOUT_S)
+        landed = await live.write_channel(setpoint, 5.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
 
-        refused = await sim.write_channel(setpoint, 999.0, confirm=True, timeout=CA_TIMEOUT_S)
+        refused = await sim.write_channel(setpoint, 999.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
         with pytest.raises(ChannelWriteBlockedError):
             await sim.write_channel_checked(setpoint, 999.0, confirm=True)
 
-        assert (await sim.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_B
-        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == 5.0
+        assert (await sim.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == SEED_B
+        assert (await live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == 5.0
     finally:
         await pool.close()
 
@@ -200,17 +200,17 @@ async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment,
         record = control_context.read_record()
         control_context.set_switch(["live"], "asked", epoch=record.switch_epoch)
         control_context.invalidate_cache()
-        lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout=CA_TIMEOUT_S)
+        lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout_s=CA_TIMEOUT_S)
 
         assert lagging.outcome is WriteOutcome.REFUSED
         assert refusal_phrase("switching", "real") in lagging.error_message
-        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_A
+        assert (await live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == SEED_A
 
         # A fresh child for the key selects the write gateway and writes.
         await live.disconnect()
         fresh = await pool.connector("live")
         assert fresh.report["selected_role"] == "write_access"
-        landed = await fresh.write_channel(setpoint, 8.0, confirm=True, timeout=CA_TIMEOUT_S)
+        landed = await fresh.write_channel(setpoint, 8.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
     finally:
         await pool.close()

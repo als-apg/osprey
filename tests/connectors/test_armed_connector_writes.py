@@ -182,7 +182,7 @@ def _assert_refused(call, address: str) -> None:
     with pytest.raises(ChannelWriteBlockedError) as caught:
         call()
     assert caught.value.reason == "RAW_CLIENT_WRITE"
-    assert caught.value.channel_address == address
+    assert caught.value.address == address
     assert RAW_CLIENT_WRITE_MARKER in str(caught.value)
 
 

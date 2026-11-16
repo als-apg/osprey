@@ -117,9 +117,9 @@ def _load_config_result(
     while this owns the exists-check, the raise-to-degrade branches, and the
     ``health:`` parse — none of which ever raise.
     """
+    from osprey.errors import ConfigurationError
     from osprey.health.config import parse_health_config
     from osprey.health.core.configuration import ConfigState
-    from osprey_connectors.errors import ConfigurationError
 
     if not config_path.exists():
         return (

@@ -163,8 +163,8 @@ def test_a_source_is_served_with_the_label_the_framework_names() -> None:
 
 def test_rows_are_served_under_the_epics_words() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    put = _connectors.PutRow(at="t", channel="SR:BPM1.HIHI", field=".HIHI", old="1", new="2")
-    row = _connectors.DirectoryRow(name="SR:BPM1", channel_type="ai", server="ioc-a")
+    put = _connectors.PutRow(at="t", address="SR:BPM1.HIHI", field=".HIHI", old="1", new="2")
+    row = _connectors.DirectoryRow(address="SR:BPM1", channel_type="ai", server="ioc-a")
 
     assert _connectors.as_payload(put) == {
         "at": "t",

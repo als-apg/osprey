@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey_connectors.errors import ConfigurationError
+from osprey.errors import ConfigurationError
 from osprey_connectors.safety_file import atomic_replace
 
 from .build_profile_deploy import SUPPORTED_CI_PLATFORMS, DeployConfig, parse_deploy_block

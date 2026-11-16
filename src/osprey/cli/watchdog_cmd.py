@@ -195,8 +195,8 @@ def _load_definitions(
     profiles: Sequence[Path], project_dir: Path | None, selected: str | None
 ) -> tuple[WatchdogDefinition, ...]:
     """The watchdogs to replay, each switched on: a replay comes before enabling."""
+    from osprey.errors import BuildProfileError
     from osprey.services.watchdog.definitions import load_profile_watchdogs
-    from osprey_connectors.errors import BuildProfileError
 
     try:
         roots = list(profiles) or [find_repo_root(project_dir)]

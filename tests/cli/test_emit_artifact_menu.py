@@ -10,7 +10,7 @@ from osprey.cli.build_profile_emit import (
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_merge import _apply_exclude
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _emit(preset: str) -> str:

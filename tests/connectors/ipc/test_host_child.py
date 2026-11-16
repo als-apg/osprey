@@ -341,7 +341,7 @@ def test_an_untyped_section_serves_va_in_process(tmp_path):
 
 
 def test_a_first_frame_that_is_not_init_fails_the_launch(child):
-    frame = child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    frame = child.call("read_channel", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
     assert isinstance(frame.exception, ConnectionError)
@@ -394,7 +394,7 @@ def test_inherited_epics_variables_do_not_survive_into_the_child(tmp_path):
 
 
 def test_read_channel_returns_a_channel_value(ready_child):
-    frame = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    frame = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ResultFrame)
     value = frame.value
@@ -404,7 +404,7 @@ def test_read_channel_returns_a_channel_value(ready_child):
 
 
 def test_validate_channel_is_served(ready_child):
-    frame = ready_child.call("validate_channel", channel_address="SR:BEAM:CURRENT")
+    frame = ready_child.call("validate_channel", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ResultFrame)
     assert frame.value is True
@@ -420,7 +420,7 @@ def test_ping_answers_with_the_childs_pid(ready_child):
 def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
     channels = [f"SR:BPM:{index}:X" for index in range(6)]
 
-    request_id = ready_child.send("read_multiple_channels", channel_addresses=channels)
+    request_id = ready_child.send("read_multiple_channels", addresses=channels)
     frame = ready_child.next_frame()
 
     assert frame.request_id == request_id
@@ -434,7 +434,7 @@ def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
 
 
 def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_child):
-    frame = ready_child.call("write_channel", channel_address="SR:CORR:1:SP", value=0.5)
+    frame = ready_child.call("write_channel", address="SR:CORR:1:SP", value=0.5)
 
     result = frame.value
     assert isinstance(result, ChannelWriteResult)
@@ -453,7 +453,7 @@ def test_write_multiple_channels_refuses_every_operation(ready_child):
     )
 
     results = frame.value
-    assert [result.channel_address for result in results] == ["SR:CORR:1:SP", "SR:CORR:2:SP"]
+    assert [result.address for result in results] == ["SR:CORR:1:SP", "SR:CORR:2:SP"]
     assert all(result.outcome is WriteOutcome.REFUSED for result in results)
     assert all(result.refusal_reason == "WRITES_DISABLED" for result in results)
 
@@ -493,7 +493,7 @@ def test_the_child_reports_the_verdict_for_its_own_target(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize("channel", list(PROBED_UNITS))
 def test_spawn_probe_reads_the_named_channel(ready_child, channel):
-    frame = ready_child.call("spawn_probe", channel=channel, timeout=5.0)
+    frame = ready_child.call("spawn_probe", address=channel, timeout_s=5.0)
 
     assert isinstance(frame, frames.ResultFrame)
     assert isinstance(frame.value, ChannelValue)
@@ -506,7 +506,7 @@ def test_spawn_probe_reads_the_named_channel(ready_child, channel):
 def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(ready_child):
     # The mock's own response delay (10 ms) outlasts this bound, so the probe
     # is cut off by the bound rather than by the connector.
-    frame = ready_child.call("spawn_probe", channel="SR:BEAM:CURRENT", timeout=0.001)
+    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=0.001)
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.class_tag == "TimeoutError"
@@ -519,7 +519,7 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
 
     # A failed probe means the switch does not happen; it does not mean this
     # child is finished.
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
 
 
@@ -527,12 +527,12 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
 def test_a_probe_with_a_bound_that_is_not_positive_is_refused_and_the_child_keeps_serving(
     ready_child, bound
 ):
-    frame = ready_child.call("spawn_probe", channel="SR:BEAM:CURRENT", timeout=bound)
+    frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=bound)
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert f"spawn_probe timeout must be positive, got {bound!r}" in frame.message
+    assert f"spawn_probe timeout_s must be positive, got {bound!r}" in frame.message
 
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
 
 
@@ -541,19 +541,19 @@ def test_a_reply_frame_sent_to_the_child_is_ignored_and_the_child_keeps_serving(
     ready_child.proc.stdin.flush()
 
     ready_child.quiet()
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
     assert "ignoring unexpected ResultFrame frame" in ready_child.stderr()
 
 
 def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
-    frame = ready_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
+    frame = ready_child.call("subscribe", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
     assert isinstance(frame.exception, ConnectorInternalError)
     assert "subscribe" in frame.message
 
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
 
 
@@ -595,7 +595,7 @@ def test_a_request_that_does_not_decode_is_refused_without_killing_the_child(
     assert frame.request_id == "req-undecodable"
     assert isinstance(frame.exception, ConnectorInternalError)
 
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
 
 
@@ -605,7 +605,7 @@ def test_a_frame_that_names_no_request_is_skipped_and_the_child_keeps_serving(re
     _send_raw(ready_child, frames.MAGIC + frames._HEADER_STRUCT.pack(len(body)) + body)
 
     ready_child.quiet()
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
     assert "does not decode" in ready_child.stderr()
 
@@ -661,7 +661,7 @@ def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child)
     }
     child.init(control_system=slow)
 
-    request_id = child.send("read_channel", channel_address="SR:BEAM:CURRENT")
+    request_id = child.send("read_channel", address="SR:BEAM:CURRENT")
     child.proc.stdin.close()
 
     frame = child.next_frame()

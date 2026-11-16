@@ -123,11 +123,11 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP"],
+            addresses=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
@@ -140,11 +140,11 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP"],
+            addresses=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
@@ -153,7 +153,7 @@ class TestMockArchiverSimulation:
             ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
         ):
             await connector.get_data(
-                channels=["T:Q1:CUR:SP", "UNSERVED:PV"],
+                addresses=["T:Q1:CUR:SP", "UNSERVED:PV"],
                 start_date=datetime(2024, 1, 1, 0, 0, 0),
                 end_date=datetime(2024, 1, 1, 1, 0, 0),
             )
@@ -168,12 +168,12 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP", "T:MODE"],
+            addresses=["T:Q1:CUR:SP", "T:MODE"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
-        mode = df.loc[df["channel"] == "T:MODE", "value"]
+        sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
+        mode = df.loc[df["address"] == "T:MODE", "value"]
 
         assert len(sp) > 0
         assert len(mode) > 0

@@ -28,8 +28,8 @@ from osprey.cli.templates.claude_code import (
     _lint_write_tools_are_gated,
     config_derived_context,
 )
+from osprey.errors import BuildProfileError
 from osprey.services.code_review.settings import DEFAULT_PROMPT
-from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build
 
 HOOK_FILE = "osprey_code_review.py"

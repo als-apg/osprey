@@ -54,6 +54,7 @@ from typing import Annotated, Final, Literal, TypeGuard
 
 from pydantic import ConfigDict, JsonValue, Strict, TypeAdapter, ValidationError
 
+from osprey_connectors.errors import StateLockedError
 from osprey_connectors.model import FrozenModel, MutableModel
 from osprey_connectors.safety_file import atomic_replace
 
@@ -351,9 +352,11 @@ def _locked(root: Path, session_key: str) -> Iterator[Path]:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(
+                    raise StateLockedError(
                         f"The session hold record at {directory} stayed locked for "
-                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written"
+                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written",
+                        path=lock,
+                        waited_s=_LOCK_TIMEOUT_S,
                     ) from None
                 time.sleep(_LOCK_POLL_S)
         try:
@@ -408,7 +411,7 @@ def ensure_session(session_key: str, *, root: Path | str | None = None) -> None:
     Raises:
         ValueError: *session_key* is not a safe file name.
         OSError: The session directory is a link or could not be created.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
     """
     resolved = hold_root(root)
     if resolved is None:
@@ -441,7 +444,7 @@ def open_flag(
     Raises:
         ValueError: *session_key* is not a safe file name.
         OSError: The session directory is a link, or the write failed.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
     """
     resolved = hold_root(root)
     if resolved is None:
@@ -504,7 +507,7 @@ def answer_flags(
             ``"stop"`` nor ``"continue"``.
         TypeError: *flag_ids* is a single string.
         OSError: The session directory is a link, or the write failed.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
     """
     if answer not in _ANSWERS:
         raise ValueError(f"answer must be 'stop' or 'continue', not {answer!r}")
@@ -560,7 +563,7 @@ def mark_stop_unconfirmed(
         ValueError: *session_key* is not a safe file name.
         TypeError: *flag_ids* is a single string.
         OSError: The session directory is a link, or the write failed.
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
     """
     wanted = _ids(flag_ids)
     resolved = hold_root(root)

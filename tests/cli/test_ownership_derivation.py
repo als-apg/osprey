@@ -21,7 +21,7 @@ from osprey.cli.build_persistence import (
 )
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
 
 

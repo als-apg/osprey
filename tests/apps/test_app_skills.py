@@ -12,7 +12,7 @@ from osprey.apps.manifest import AppManifest, parse_manifest
 from osprey.apps.projection import login_skills
 from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_cmd import _copy_app_skills
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _manifest(name: str, skills: list[str]) -> AppManifest:

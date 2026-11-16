@@ -91,7 +91,7 @@ def archiver_read_tool(archiver_project):  # noqa: ARG001 - the tool resolves it
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
     with patch(
         "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
@@ -741,7 +741,7 @@ async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
     with patch(
         "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
@@ -1092,7 +1092,7 @@ def _probe(available=True, start=None, end=None, is_archived=True, note=None):
     from osprey_connectors.archiver._base import ArchiverMetadata
 
     md = ArchiverMetadata(
-        channel="X", is_archived=is_archived, archival_start=start, archival_end=end
+        address="X", is_archived=is_archived, archival_start=start, archival_end=end
     )
     return _CoverageProbe(available=available, metadata=md, note=note)
 
@@ -1223,7 +1223,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.return_value = {"SR:OLD:RB": True}
         connector.get_metadata.side_effect = None
         connector.get_metadata.return_value = ArchiverMetadata(
-            channel="SR:OLD:RB",
+            address="SR:OLD:RB",
             is_archived=True,
             archival_start=_ARC_START,
             archival_end=_ARC_END,
@@ -1262,7 +1262,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.return_value = {"SR:VOID:RB": False}
         connector.get_metadata.side_effect = None
         connector.get_metadata.return_value = ArchiverMetadata(
-            channel="SR:VOID:RB", is_archived=False
+            address="SR:VOID:RB", is_archived=False
         )
 
         result = await fn(
@@ -1300,7 +1300,7 @@ class TestCoverageInToolResponse:
         connector.get_data.return_value = _make_archiver_df({})
         connector.check_availability.side_effect = RuntimeError("Archiver not connected")
         connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            channel=ch, is_archived=None
+            address=ch, is_archived=None
         )
 
         result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
@@ -1340,7 +1340,7 @@ class TestCoverageInToolResponse:
             "cannot reach https://reader:secret@archiver.example/mgmt"
         )
         connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            channel=ch, is_archived=None
+            address=ch, is_archived=None
         )
 
         result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")

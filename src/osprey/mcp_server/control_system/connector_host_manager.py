@@ -118,18 +118,20 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
     endpoint_is_live_standin,
+    unknown_target_detail,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
-from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
+from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
 from osprey_connectors.ipc import (
-    DEFAULT_CALL_DEADLINE_S,
+    DEFAULT_CALL_TIMEOUT_S,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     AttributedReader,
     ChildUnresponsiveError,
     ConnectorHostProxy,
     Endpoint,
+    SelectedRole,
     TargetDerivation,
     Verification,
     connector_block,
@@ -144,12 +146,14 @@ from osprey_connectors.ipc import (
 from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
-from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
+    ControlTarget,
+    MachineKind,
+    is_control_target,
 )
 from osprey_connectors.types import baseline_target as types_baseline_target
 from osprey_connectors.types import switch_capable as types_switch_capable
@@ -270,7 +274,7 @@ class SwitchError(RuntimeError):
             "detail": self.detail,
         }
         if self.verification is not None:
-            payload["verification"] = self.verification.as_dict()
+            payload["verification"] = self.verification.model_dump(mode="json")
         if self.gateway is not None:
             payload["gateway"] = self.gateway
         return payload
@@ -341,7 +345,7 @@ async def _launch_request(
         )
 
     try:
-        return await proxy.supervisor_request(method, kwargs, timeout)
+        return await proxy.supervisor_request(method, kwargs, timeout_s=timeout)
     except ChildUnresponsiveError as exc:
         raise failure(f"did not answer {method!r} within {timeout}s") from exc
     except Exception as exc:
@@ -392,16 +396,21 @@ class _Child:
     def is_alive(self) -> bool:
         return self.process.returncode is None
 
-    def reported_role(self) -> str | None:
+    def reported_role(self) -> SelectedRole | None:
         """The gateway role the child said it connected on, or ``None``.
 
         A connector with no gateways to select between reports no role, and a
         report is trusted here because it was verified against the parent's
-        derivation before the child was adopted. Anything but a non-empty
-        string is "no role", never a role spelled oddly.
+        derivation before the child was adopted, whose ``selected_role`` is a
+        :data:`~osprey_connectors.ipc.SelectedRole`. Anything but one of those
+        words is "no role", never a role spelled oddly.
         """
         reported = self.report.get("selected_role")
-        return reported if isinstance(reported, str) and reported else None
+        if reported == ROLE_READ_ONLY:
+            return ROLE_READ_ONLY
+        if reported == ROLE_WRITE_ACCESS:
+            return ROLE_WRITE_ACCESS
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +428,7 @@ def _control_system_section(config: Any) -> Any:
     return config.get("control_system") if isinstance(config, dict) else None
 
 
-def baseline_target(config: Any) -> str:
+def baseline_target(config: Any) -> ControlTarget:
     """The target this deployment's own config selects.
 
     The whole-config spelling of :func:`osprey_connectors.types.baseline_target`,
@@ -669,7 +678,7 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
     return words
 
 
-def _machine_kind(target: str, *, standin: bool = False) -> str:
+def _machine_kind(target: str, *, standin: bool = False) -> MachineKind:
     """The kind of machine *target* is, published for every reader (C-KIND).
 
     :func:`_label` is this kind's banner, so the label and the kind cannot
@@ -772,7 +781,7 @@ class ConnectorHostManager:
         #: The target of record. It survives the death of a child: a session on
         #: 'va' whose child died is still a session on 'va', and saying
         #: otherwise would be inventing a switch nobody made.
-        self._target = self._baseline
+        self._target: str = self._baseline
         self._generation = 0
         self._started = False
         #: The targets block as last rendered, or ``None`` before the first
@@ -904,12 +913,13 @@ class ConnectorHostManager:
         if child is None:
             return metadata
         reported = child.reported_role()
-        slot = metadata.get(self._target)
-        if slot is None or reported is None:
+        target = self._target
+        slot = metadata.get(target)
+        if slot is None or reported is None or not is_control_target(target):
             return metadata
         try:
             endpoints = derive_endpoints(
-                self._config.raw, self._target, config_path=config_file
+                self._config.raw, target, config_path=config_file
             ).endpoints
         except ValueError:
             # The slot is already the "not configured" rendering; a role
@@ -1512,7 +1522,7 @@ class ConnectorHostManager:
             "target_changed": target != previous_target,
             "connector_type": derivation.connector_type,
             "selected_role": derivation.selected_role,
-            "endpoint": endpoint.as_dict() if endpoint is not None else None,
+            "endpoint": endpoint.model_dump(mode="json") if endpoint is not None else None,
             "probe_channel": probe_channel,
             "child_pid": candidate.pid,
             "previous_drained": drained,
@@ -1568,7 +1578,7 @@ class ConnectorHostManager:
             "target_changed": False,
             "connector_type": child.connector_type,
             "selected_role": selected_role,
-            "endpoint": endpoint.as_dict() if endpoint is not None else None,
+            "endpoint": endpoint.model_dump(mode="json") if endpoint is not None else None,
             "probe_channel": child.probe_channel,
             "child_pid": child.pid,
             "previous_drained": True,
@@ -1648,6 +1658,10 @@ class ConnectorHostManager:
         derivation and the post-connect check of the child's reported posture
         judge one snapshot of it.
         """
+        if not is_control_target(target):
+            raise SwitchError(
+                target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, unknown_target_detail(target)
+            )
         readonly_run = is_readonly_run()
         writes = False if readonly_run else _writes_allowed(self._config.control_system, target)
         try:
@@ -1825,7 +1839,7 @@ class ConnectorHostManager:
         # A call that names no timeout of its own still ends: a child silent
         # past this deadline raises ChildUnresponsiveError, which the error
         # handler answers by pinging the child and replacing it if it is wedged.
-        proxy = ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S)
+        proxy = ConnectorHostProxy(reader, process.stdin, call_timeout_s=DEFAULT_CALL_TIMEOUT_S)
         try:
             report = await _launch_request(
                 target,
@@ -1873,7 +1887,7 @@ class ConnectorHostManager:
                         process,
                         proxy,
                         "spawn_probe",
-                        {"channel": probe_channel, "timeout": probe_timeout},
+                        {"address": probe_channel, "timeout_s": probe_timeout},
                         probe_timeout,
                         STAGE_PROBE,
                         self._terminate_grace_s,
@@ -1985,7 +1999,7 @@ class ConnectorHostManager:
         timeout = self._drain_timeout()
         try:
             child.proxy.refuse_new_requests(cause)
-            drained = await child.proxy.drain(timeout)
+            drained = await child.proxy.drain(timeout_s=timeout)
             if drained:
                 await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
                 return True

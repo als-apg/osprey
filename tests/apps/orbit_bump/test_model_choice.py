@@ -226,7 +226,7 @@ class _Machine:
     def __init__(self) -> None:
         self.values: dict[str, float] = {}
 
-    async def read_multiple_channels(self, addrs, timeout=None):  # noqa: ARG002
+    async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002
         return {a: SimpleNamespace(value=self.values.get(a, 0.0)) for a in addrs}
 
     async def disconnect(self) -> None:

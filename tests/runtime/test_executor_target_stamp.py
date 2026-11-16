@@ -1099,7 +1099,7 @@ class TestWritePin:
         import osprey.runtime as runtime
 
         class _Reader:
-            async def read_channel(self, channel_address, **kwargs):  # noqa: ARG002 - a connector's read_channel names the channel it reads
+            async def read_channel(self, address, **kwargs):  # noqa: ARG002 - a connector's read_channel names the channel it reads
                 class _Value:
                     value = 42.0
 

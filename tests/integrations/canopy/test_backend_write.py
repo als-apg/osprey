@@ -126,13 +126,13 @@ class _Machine(FakeConnector):
         """The virtual accelerator's key, which its connector inherits from EPICS."""
         return EPICSConnector.channel_key(self, address)  # type: ignore[arg-type]
 
-    async def write_channel(self, channel_address, value, **kwargs):
-        type(self).writes.append((channel_address, value))
+    async def write_channel(self, address, value, **kwargs):
+        type(self).writes.append((address, value))
         hold = type(self).hold
         if hold is not None:
             await hold.wait()
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
             observed_value=value,

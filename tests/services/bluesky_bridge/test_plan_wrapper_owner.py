@@ -435,7 +435,7 @@ def test_the_refusal_travels_on_unchanged(
 
     assert type(refusal.value) is ChannelWriteBlockedError
     assert str(refusal.value) == str(monitor_refusal)
-    assert refusal.value.channel_address == _CHANNEL
+    assert refusal.value.address == _CHANNEL
     assert refusal.value.reason == "WRITES_DISABLED"
 
 
@@ -457,7 +457,7 @@ def test_a_write_that_failed_in_the_plans_own_frame_earns_no_line(
             list(wrapper(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert _warnings_from(caplog, logger_name) == []
-    assert failure.value.channel_address == _CHANNEL
+    assert failure.value.address == _CHANNEL
     assert posture_store._owner_var.get() is NO_OWNER
 
 
@@ -535,7 +535,7 @@ class _RefusingConnector(FakeConnector):
     def __init__(self) -> None:
         super().__init__(readbacks={_CHANNEL: 0.0})
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):  # noqa: ARG002 - the connector write signature
+    async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):  # noqa: ARG002 - the connector write signature
         refuse_a_switched_off_write()
 
 

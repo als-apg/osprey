@@ -131,7 +131,7 @@ connector is gone. Its message is the operator-facing sentence, and its
   starts a fresh one, and ``recovery`` says so (``child_replaced``).
 * :class:`ConnectorHostUnresponsiveError` — a ``ConnectorHostLostError`` that
   is also a :class:`TimeoutError` (``cause="unresponsive"``): the child let a
-  call's own ``timeout`` plus ``timeout_grace_s`` pass — or ``call_deadline_s``
+  call's own ``timeout_s`` plus ``timeout_grace_s`` pass — or ``call_timeout_s``
   for a call with no timeout — without replying, **and then failed to answer a
   ping** within ``ping_timeout_s``. It is killed, and every other call in flight
   on it fails the same way. A ``TimeoutError`` because that is what the call
@@ -216,13 +216,18 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Final, Literal, Protocol, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
-from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
-from osprey_connectors.ipc._host import START_PHASES
+from osprey_connectors.errors import (
+    ConnectorsError,
+    ConnectorUnavailableError,
+    RecoveryAction,
+    RecoveryRecord,
+)
+from osprey_connectors.ipc._host import START_PHASES, StartPhase
 from osprey_connectors.ipc._launch import (
     AttributedReader,
     host_env,
@@ -247,11 +252,11 @@ from osprey_connectors.ipc._verification import (
 )
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
-from osprey_connectors.recovery import RecoveryAction, RecoveryPolicy, Timing
-from osprey_connectors.types import TRANSPORT_CA, machine_kind
+from osprey_connectors.recovery import RecoveryPolicy, Timing
+from osprey_connectors.types import TRANSPORT_CA, ControlTarget, machine_kind
 
 __all__ = [
-    "DEFAULT_CALL_DEADLINE_S",
+    "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
     "READONLY",
     "ConnectorHostError",
@@ -261,6 +266,8 @@ __all__ = [
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
+    "HostLossCause",
+    "HostStartStage",
     "PooledConnector",
 ]
 
@@ -285,24 +292,29 @@ READONLY = "readonly"
 DEFAULT_START_TIMEOUT_S = 30.0
 
 #: Local deadline for a call that names no timeout of its own.
-DEFAULT_CALL_DEADLINE_S = 60.0
+DEFAULT_CALL_TIMEOUT_S = 60.0
 
 #: How long a child that missed a call's deadline gets to answer a ping before
 #: it is judged wedged and killed.
 DEFAULT_PING_TIMEOUT_S = 2.0
 
-#: Stages of :class:`ConnectorHostStartError`.
-STAGE_CONFIG = "config"
-STAGE_SPAWN = "spawn"
-STAGE_INIT = "init"
-STAGE_VERIFY = "verify"
+#: Where a start failed: the ``stage`` of :class:`ConnectorHostStartError`.
+HostStartStage = Literal["config", "spawn", "init", "verify"]
+STAGE_CONFIG: Final = "config"
+STAGE_SPAWN: Final = "spawn"
+STAGE_INIT: Final = "init"
+STAGE_VERIFY: Final = "verify"
 
-#: Causes of :class:`ConnectorHostLostError`.
-CAUSE_EXITED = "exited"
-CAUSE_UNRESPONSIVE = "unresponsive"
-CAUSE_STOPPED = "stopped"
-CAUSE_WRITE_TIMEOUT = "write_timeout"
-CAUSE_UNAVAILABLE = "unavailable"
+#: Why a child went away: the ``cause`` of :class:`ConnectorHostLostError`.
+HostLossCause = Literal["exited", "unresponsive", "stopped", "write_timeout", "unavailable"]
+CAUSE_EXITED: Final = "exited"
+CAUSE_UNRESPONSIVE: Final = "unresponsive"
+CAUSE_STOPPED: Final = "stopped"
+CAUSE_WRITE_TIMEOUT: Final = "write_timeout"
+CAUSE_UNAVAILABLE: Final = "unavailable"
+
+#: One start mark as a failed start reports it: ``(phase, seconds after the spawn)``.
+_StartMark = tuple[StartPhase, float]
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
 #: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
@@ -311,7 +323,7 @@ _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_c
 
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
-_Key = tuple[str, str | None] | tuple[str, str | None, str | None, str | None]
+_Key = tuple[ControlTarget, str | None] | tuple[ControlTarget, str | None, str | None, str | None]
 
 
 def _optional_name(name: str, value: object) -> str | None:
@@ -327,14 +339,16 @@ def _optional_name(name: str, value: object) -> str | None:
     return value.strip()
 
 
-def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
+def _make_key(
+    target: ControlTarget, mode: str | None, owner: str | None, authorization: str | None
+) -> _Key:
     """The pool key: two parts when it names neither owner nor authorization."""
     if owner is None and authorization is None:
         return (target, mode)
     return (target, mode, owner, authorization)
 
 
-def _key_parts(key: _Key) -> tuple[str, str | None, str | None, str | None]:
+def _key_parts(key: _Key) -> tuple[ControlTarget, str | None, str | None, str | None]:
     """``(target, execution_mode, owner, authorization)`` of any key."""
     if len(key) == 2:
         return key[0], key[1], None, None
@@ -369,7 +383,9 @@ class ConnectorHostError(ConnectorUnavailableError):
     """A connector-host child could not serve a call (see the module docstring).
 
     Attributes:
-        target: The control target the child serves.
+        target: The control target the child serves. Always a resolved one:
+            :meth:`ConnectorHostPool.connector` refuses a target that does not
+            resolve with a ``ValueError`` before any child is started.
         execution_mode: ``"readonly"`` or ``None``.
         pid: The child's process id, or ``None`` when none was started.
     """
@@ -378,7 +394,7 @@ class ConnectorHostError(ConnectorUnavailableError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
         recovery: tuple[RecoveryRecord, ...] = (),
@@ -409,11 +425,11 @@ class ConnectorHostStartError(ConnectorHostError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
-        stage: str,
-        phases: tuple[tuple[str, float], ...] = (),
+        stage: HostStartStage,
+        phases: tuple[_StartMark, ...] = (),
     ) -> None:
         super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
         self.stage = stage
@@ -450,7 +466,7 @@ class _StartMarkPipe:
                 os.close(self._read_fd)
             self._read_fd = None
 
-    def read(self, spawned_at: float) -> tuple[tuple[str, float], ...]:
+    def read(self, spawned_at: float) -> tuple[_StartMark, ...]:
         """Every whole mark written so far, as (name, seconds after *spawned_at*)."""
         while self._read_fd is not None:
             try:
@@ -462,19 +478,20 @@ class _StartMarkPipe:
                 break
             self._written += chunk
         whole = self._written[: self._written.rfind(b"\n") + 1]
-        marks: list[tuple[str, float]] = []
+        marks: list[_StartMark] = []
         for line in whole.decode("ascii", "replace").splitlines():
             name, _, at = line.partition(" ")
-            if name not in START_PHASES:
+            phase = next((known for known in START_PHASES if known == name), None)
+            if phase is None:
                 continue
             try:
-                marks.append((name, float(at) - spawned_at))
+                marks.append((phase, float(at) - spawned_at))
             except ValueError:
                 continue
         return tuple(marks)
 
 
-def _describe_start(phases: tuple[tuple[str, float], ...]) -> str:
+def _describe_start(phases: tuple[_StartMark, ...]) -> str:
     """One sentence on how far a child got in starting, from the marks it wrote."""
     if not phases:
         return "It had not finished starting its interpreter and loading the connector host."
@@ -513,10 +530,10 @@ class ConnectorHostLostError(ConnectorHostError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
-        cause: str,
+        cause: HostLossCause,
         returncode: int | None,
         recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
@@ -535,7 +552,7 @@ class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
 
 
-class ConnectorHostSlowCallError(TimeoutError):
+class ConnectorHostSlowCallError(ConnectorsError, TimeoutError):
     """The child missed a call's deadline but still answered a ping, and was kept.
 
     Not a :class:`ConnectorHostLostError`: the connector is not gone, and the
@@ -574,7 +591,7 @@ class _PoolChild:
     reader: AttributedReader
     report: dict[str, object]
     #: Set once the pool has decided to drop this child, to the cause it named.
-    retired: str | None = None
+    retired: HostLossCause | None = None
     #: The one teardown of this child, shared by everyone who asks for it.
     teardown: asyncio.Task[None] | None = None
 
@@ -618,6 +635,7 @@ class _PoolTarget:
         return await self._pool._answers_ping(self._child)
 
     async def retire(self) -> None:
+        cause: HostLossCause
         if isinstance(self._exc, ChildUnresponsiveError):
             cause = CAUSE_UNRESPONSIVE if self._pinged else CAUSE_WRITE_TIMEOUT
         elif raised_by_child(self._exc):
@@ -667,9 +685,9 @@ class ConnectorHostPool:
             leads it to, and with none its writes stay off.
         python: The interpreter children run under.
         start_timeout_s: Bound on a child starting and answering its init frame.
-        call_deadline_s: Local deadline for a call that names no ``timeout``;
+        call_timeout_s: Local timeout for a call that names no ``timeout_s``;
             a child silent that long is pinged.
-        timeout_grace_s: How long past a call's own ``timeout`` the child may
+        timeout_grace_s: How long past a call's own ``timeout_s`` the child may
             take to answer before it is pinged. The child applies the timeout
             to the control-system call and reports its own
             :class:`TimeoutError` first, which is the better error.
@@ -690,7 +708,7 @@ class ConnectorHostPool:
         config_file: str | PathLike[str] | None = None,
         python: str = sys.executable,
         start_timeout_s: float = DEFAULT_START_TIMEOUT_S,
-        call_deadline_s: float = DEFAULT_CALL_DEADLINE_S,
+        call_timeout_s: float = DEFAULT_CALL_TIMEOUT_S,
         timeout_grace_s: float = 1.0,
         ping_timeout_s: float = DEFAULT_PING_TIMEOUT_S,
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
@@ -700,7 +718,7 @@ class ConnectorHostPool:
         self._config_file = str(Path(config_file).resolve()) if config_file else None
         self._python = python
         self._start_timeout_s = start_timeout_s
-        self._call_deadline_s = call_deadline_s
+        self._call_timeout_s = call_timeout_s
         self._timeout_grace_s = timeout_grace_s
         self._ping_timeout_s = ping_timeout_s
         self._terminate_grace_s = terminate_grace_s
@@ -717,7 +735,7 @@ class ConnectorHostPool:
 
     async def connector(
         self,
-        target: str,
+        target: ControlTarget,
         *,
         execution_mode: str | None = None,
         owner: str | None = None,
@@ -850,11 +868,11 @@ class ConnectorHostPool:
                 f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
                 f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
                 "left running. The call may yet complete in the child; it was not retried.",
-                recovery=(record.as_dict(),),
+                recovery=(record,),
             ) from exc
         cause = child.retired or CAUSE_EXITED
         reason = self._replaced_reason(child, method, exc, cause)
-        raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc
+        raise self._lost(child, reason, cause, method, recovery=(record,)) from exc
 
     async def _recovered(
         self, child: _PoolChild, method: str, exc: BaseException, ticket: int
@@ -870,10 +888,10 @@ class ConnectorHostPool:
         )
         if record is None or record.action is RecoveryAction.CHILD_KEPT:
             return ()
-        return (record.as_dict(),)
+        return (record,)
 
     def _replaced_reason(
-        self, child: _PoolChild, method: str, exc: BaseException, cause: str
+        self, child: _PoolChild, method: str, exc: BaseException, cause: HostLossCause
     ) -> str:
         """The sentence a call fails with once the pool has replaced the child it was on."""
         label = _label(child.key)
@@ -914,7 +932,7 @@ class ConnectorHostPool:
         if not child.usable():
             return False
         try:
-            await child.proxy.supervisor_request("ping", {}, self._ping_timeout_s)
+            await child.proxy.supervisor_request("ping", {}, timeout_s=self._ping_timeout_s)
         except Exception:
             return False
         return True
@@ -923,7 +941,7 @@ class ConnectorHostPool:
         self,
         child: _PoolChild,
         detail: str,
-        cause: str,
+        cause: HostLossCause,
         method: str,
         *,
         recovery: tuple[RecoveryRecord, ...] = (),
@@ -1087,7 +1105,7 @@ class ConnectorHostPool:
             reader,
             process.stdin,
             timeout_grace_s=self._timeout_grace_s,
-            deadline_s=self._call_deadline_s,
+            call_timeout_s=self._call_timeout_s,
         )
         child = _PoolChild(key=key, process=process, proxy=proxy, reader=reader, report={})
         pid = child.pid
@@ -1097,7 +1115,7 @@ class ConnectorHostPool:
         if readonly:
             init["execution_mode"] = READONLY
 
-        def failure(stage: str, detail: str) -> ConnectorHostStartError:
+        def failure(stage: HostStartStage, detail: str) -> ConnectorHostStartError:
             phases = marks.read(spawned_at) if stage == STAGE_INIT else ()
             reached = f" {_describe_start(phases)}" if stage == STAGE_INIT else ""
             return ConnectorHostStartError(
@@ -1112,7 +1130,7 @@ class ConnectorHostPool:
         async def init_report() -> object:
             """The child's reply to its init frame; a silent or lost child is a start failure."""
             try:
-                return await proxy.supervisor_request("init", init, self._start_timeout_s)
+                return await proxy.supervisor_request("init", init, timeout_s=self._start_timeout_s)
             except ChildUnresponsiveError as exc:
                 raise failure(
                     STAGE_INIT, f"did not answer its init frame within {self._start_timeout_s}s."
@@ -1198,7 +1216,7 @@ class ConnectorHostPool:
     @staticmethod
     def _writes_allowed(
         section: Mapping[str, object],
-        target: str,
+        target: ControlTarget,
         owner: str | None = None,
         authorization: str | None = None,
     ) -> bool:
@@ -1308,7 +1326,7 @@ class ConnectorHostPool:
         readonly_run: bool,
         writes: bool,
         report: dict[str, object],
-        failure: Callable[[str, str], ConnectorHostStartError],
+        failure: Callable[[HostStartStage, str], ConnectorHostStartError],
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
         verification = verify_host_report(
@@ -1348,7 +1366,7 @@ class ConnectorHostPool:
             f"came up somewhere other than derived: {verification.detail}",
         )
 
-    async def _discard(self, child: _PoolChild, reason: str, cause: str) -> None:
+    async def _discard(self, child: _PoolChild, reason: str, cause: HostLossCause) -> None:
         """Drop a child that failed: attribute, kill, and let the proxy settle.
 
         Only the key's *current* child is removed from the pool — a stale
@@ -1410,7 +1428,7 @@ class PooledConnector:
         self._key = key
 
     @property
-    def target(self) -> str:
+    def target(self) -> ControlTarget:
         return _key_parts(self._key)[0]
 
     @property
@@ -1439,67 +1457,81 @@ class PooledConnector:
         child = self._pool._children.get(self._key)
         return dict(child.report) if child is not None and child.usable() else {}
 
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         return await self._pool._call(
-            self._key, "read_channel", lambda proxy: proxy.read_channel(channel_address, timeout)
+            self._key,
+            "read_channel",
+            lambda proxy: proxy.read_channel(address, timeout_s=timeout_s),
         )
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         return await self._pool._call(
             self._key,
             "read_multiple_channels",
-            lambda proxy: proxy.read_multiple_channels(channel_addresses, timeout),
+            lambda proxy: proxy.read_multiple_channels(addresses, timeout_s=timeout_s),
         )
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         return await self._pool._call(
             self._key,
             "write_channel",
-            lambda proxy: proxy.write_channel(channel_address, value, timeout, confirm),
+            lambda proxy: proxy.write_channel(address, value, timeout_s=timeout_s, confirm=confirm),
         )
 
     async def write_multiple_channels(
         self,
         operations: Sequence[tuple[str, object]],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         return await self._pool._call(
             self._key,
             "write_multiple_channels",
-            lambda proxy: proxy.write_multiple_channels(operations, timeout, confirm),
+            lambda proxy: proxy.write_multiple_channels(
+                operations, timeout_s=timeout_s, confirm=confirm
+            ),
         )
 
     async def write_channel_checked(
-        self, channel_address: str, value: object, **kwargs: object
+        self,
+        address: str,
+        value: object,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 
         ``ChannelWriteBlockedError`` for a refusal — writes disabled, a
         readonly child, limits — and ``ChannelWriteFailedError`` for a write
-        that was sent but not confirmed. ``confirm`` and ``timeout`` pass
+        that was sent but not confirmed. ``timeout_s`` and ``confirm`` pass
         through to :meth:`write_channel`.
         """
         # The proxy's own write_channel_checked is the base class's function,
         # bound by name: it is typed for a ControlSystemConnector, not the proxy.
         result = await self._pool._invoke(
-            self._key, "write_channel_checked", channel_address, value, **kwargs
+            self._key,
+            "write_channel_checked",
+            address,
+            value,
+            timeout_s=timeout_s,
+            confirm=confirm,
         )
         return _expect(result, ChannelWriteResult, "write_channel_checked")
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         return await self._pool._call(
-            self._key, "validate_channel", lambda proxy: proxy.validate_channel(channel_address)
+            self._key, "validate_channel", lambda proxy: proxy.validate_channel(address)
         )
 
     async def disconnect(self) -> None:

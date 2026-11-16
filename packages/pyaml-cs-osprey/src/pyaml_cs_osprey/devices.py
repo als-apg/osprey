@@ -239,11 +239,9 @@ class OspreyDeviceList(DeviceAccessList):
                     others = [a for a in batch if a in reported]
                 else:
                     others = list(batch)
-                sent = [
-                    a for a in others if a != exc.channel_address and _run._moved(a, records, exc)
-                ]
+                sent = [a for a in others if a != exc.address and _run._moved(a, records, exc)]
                 if sent:
-                    return _batch_failure(exc, [*sent, exc.channel_address])
+                    return _batch_failure(exc, [*sent, exc.address])
             return map_write_error(exc)
 
         _run.write(list(batch), write, map_error, map_read=map_read_error, confirm=confirm)
@@ -384,7 +382,7 @@ def _batch_failure(
     exc: ChannelWriteFailedError | ChannelWriteBlockedError, addresses: list[str]
 ) -> OspreyWriteFailed:
     """Map a mid-batch failure or refusal, naming every other of ``addresses`` as sent."""
-    failing = exc.channel_address
+    failing = exc.address
     others = [a for a in addresses if a != failing]
     reason = _write_reason(exc)
     if others:

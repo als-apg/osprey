@@ -39,7 +39,7 @@ from osprey.services.pv_directory._connectors import (
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
-    SERVED_FIELD,
+    SERVED_QUERY_FIELD,
     DirectoryPage,
     DirectoryQuery,
     Outcome,
@@ -96,7 +96,7 @@ _MOVED_REASON = "the target moved"
 #: The served names of the row fields the facets count, after ``origin``.
 _ROW_FACETS = ("ioc", "record_type")
 #: The contract field of each served name.
-_CONTRACT_FIELD = {served: field for field, served in SERVED_FIELD.items()}
+_CONTRACT_FIELD = {served: field for field, served in SERVED_QUERY_FIELD.items()}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,7 +161,7 @@ class DirectoryService:
         full = asyncio.create_task(self._full_set(at, backend, server, count, started, deadline))
         feed = asyncio.create_task(self._alarm_index(deadline))
         store = asyncio.create_task(self._archive_index(deadline))
-        page = None if cut else asyncio.create_task(backend.search(server, deadline))
+        page = None if cut else asyncio.create_task(backend.search(server, timeout_s=deadline))
         tasks = [task for task in (count, full, feed, store, page) if task is not None]
         await asyncio.wait(tasks, timeout=deadline)
         late = f"no answer within {deadline:g} s"
@@ -201,8 +201,8 @@ class DirectoryService:
             DirectoryPage(
                 searched=_searched(server, origins, alarms, archived),
                 source=source,
-                partial=partial,
-                facets=facets,
+                partial=tuple(partial),
+                facets=None if facets is None else {k: tuple(v) for k, v in facets.items()},
                 facets_reason=facets_reason,
                 **fields_out,
             )
@@ -266,7 +266,7 @@ class DirectoryService:
             payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
             return {**payload, "origin": origin, "record": None}
         deadline = self._timeout()
-        answer = await self._bounded(backend.describe(name, deadline), deadline)
+        answer = await self._bounded(backend.describe(name, timeout_s=deadline), deadline)
         payload = {"source": as_payload(source), "origin": origin, "record": None}
         if isinstance(answer, Unavailable):
             return {**payload, "outcome": "unavailable", "reason": answer.reason}
@@ -436,7 +436,7 @@ class DirectoryService:
             # backend that overruns it, so "still loading" stays the backend's word.
             answer = await self._bounded(snapshot.probe(deadline), deadline + _PROBE_GRACE_S)
         else:
-            answer = await self._bounded(backend.probe(deadline), deadline)
+            answer = await self._bounded(backend.probe(timeout_s=deadline), deadline)
         if isinstance(answer, str):
             return {"outcome": "found", "source": as_payload(source), "evidence": answer}
         return {"outcome": "unavailable", "source": as_payload(source), "reason": answer.reason}
@@ -564,7 +564,7 @@ class DirectoryService:
         cached = self._cached(at, key)
         if cached is not None:
             return cached
-        answer = await backend.count(server, deadline)
+        answer = await backend.count(server, timeout_s=deadline)
         if isinstance(answer, int):
             self._store(at, key, answer)
         return answer
@@ -592,7 +592,7 @@ class DirectoryService:
         if total == 0:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
-        answer = await backend.search(evolve(server, page=0, page_size=total), left)
+        answer = await backend.search(evolve(server, page=0, page_size=total), timeout_s=left)
         if answer.outcome == Outcome.UNAVAILABLE:
             return Unavailable(reason=answer.reason or "no answer")
         fetched = _FullSet(list(answer.rows), answer.request)
@@ -616,7 +616,7 @@ class DirectoryService:
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
-        return {row.channel: row.state for row in answer.rows}
+        return {row.address: row.state for row in answer.rows}
 
     def _cut_page(
         self,
@@ -672,9 +672,9 @@ class DirectoryService:
     def _marked(self, backend: Any, rows: Iterable[Any]) -> list[tuple[Any, Origin]]:
         """*rows* without hidden properties, each paired with its origin mark."""
         rows = list(rows)
-        marks = mark([row.name for row in rows], dict(self._config))
+        marks = mark([row.address for row in rows], dict(self._config))
         hidden = self._hidden()
-        return [(self._hide_row(backend, row, hidden), marks[row.name]) for row in rows]
+        return [(self._hide_row(backend, row, hidden), marks[row.address]) for row in rows]
 
     def _hidden(self) -> frozenset[str]:
         names = self._display.get("hidden_properties")
@@ -825,10 +825,10 @@ def _kept(
         if (
             archived
             and channels is not None
-            and _archived_value(channels, row.name) not in archived
+            and _archived_value(channels, row.address) not in archived
         ):
             return False
-        return not (alarms and states is not None) or _alarm_value(states, row.name) in alarms
+        return not (alarms and states is not None) or _alarm_value(states, row.address) in alarms
 
     return keeps
 
@@ -861,12 +861,14 @@ def _facets(
     }
     if isinstance(index, dict):
         counted = _tally(
-            _alarm_value(index, row.name) for row, origin in marked if by_alarm_group(row, origin)
+            _alarm_value(index, row.address)
+            for row, origin in marked
+            if by_alarm_group(row, origin)
         )
         facets["alarm"] = sorted(counted, key=_alarm_order)
     if held is not None:
         stored = _tally(
-            _archived_value(held, row.name)
+            _archived_value(held, row.address)
             for row, origin in marked
             if by_archive_group(row, origin)
         )
@@ -938,8 +940,8 @@ def _searched(
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
-    if query.name:
-        parts.append(f"name matches {query.name}")
+    if query.address_pattern:
+        parts.append(f"name matches {query.address_pattern}")
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:

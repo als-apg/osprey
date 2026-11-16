@@ -62,14 +62,14 @@ class _StillLoading:
         self.closed += 1
         self._release.set()
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        return await self._read(deadline, LOADING)
+    async def state_for(self, address: str, *, timeout_s: float):  # noqa: ARG002 - a fake
+        return await self._read(timeout_s, LOADING)
 
-    async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        return await self._read(deadline, LOADING)
+    async def config_for(self, address: str, *, timeout_s: float):  # noqa: ARG002 - a fake
+        return await self._read(timeout_s, LOADING)
 
-    async def states(self, deadline: float):
-        return await self._read(deadline, LOADING)
+    async def states(self, *, timeout_s: float):
+        return await self._read(timeout_s, LOADING)
 
     async def _read(self, deadline: float, answer):
         self.deadlines.append(deadline)
@@ -87,16 +87,16 @@ class _Answering(_StillLoading):
     async def start(self) -> None:
         self.started += 1
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        self.deadlines.append(deadline)
+    async def state_for(self, address: str, *, timeout_s: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(timeout_s)
         return self._answer
 
-    async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        self.deadlines.append(deadline)
+    async def config_for(self, address: str, *, timeout_s: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(timeout_s)
         return self._answer
 
-    async def states(self, deadline: float):
-        self.deadlines.append(deadline)
+    async def states(self, *, timeout_s: float):
+        self.deadlines.append(timeout_s)
         return self._answer
 
 
@@ -229,14 +229,14 @@ class _Probed(_StillLoading):
     async def start(self) -> None:
         self.started += 1
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        self.deadlines.append(deadline)
-        await asyncio.sleep(min(self._load_s, deadline))
-        self._caught_up = deadline >= self._load_s
+    async def state_for(self, address: str, *, timeout_s: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(timeout_s)
+        await asyncio.sleep(min(self._load_s, timeout_s))
+        self._caught_up = timeout_s >= self._load_s
         return None if self._caught_up else LOADING
 
-    async def probe(self, deadline: float):
-        self.probes.append(deadline)
+    async def probe(self, *, timeout_s: float):
+        self.probes.append(timeout_s)
         return "read 3 messages; last contact 0 s ago" if self._caught_up else LOADING
 
 
@@ -284,7 +284,7 @@ async def test_the_list_is_the_backends_answer_read_once_after_the_start():
         await snapshot.aclose()
 
     assert isinstance(states, AlarmStates)
-    assert {row.channel for row in states.rows} == {PV, "DEMO:VAC1:GAUGE:Pres-I"}
+    assert {row.address for row in states.rows} == {PV, "DEMO:VAC1:GAUGE:Pres-I"}
     assert states.counts == {"MAJOR": 1, "MINOR": 1}
 
 

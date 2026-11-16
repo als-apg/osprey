@@ -27,22 +27,27 @@ Nothing here imports a control-system client library.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import SupportsIndex, SupportsInt
+from typing import Final, Literal, SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._gateway_role import (
+    ROLE_PVA,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
+    GatewayRole,
+    SelectedRole,
     _selected_role,
     readonly_gateway_refusal,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,
     TARGET_LIVE,
     TRANSPORT_IN_PROCESS,
     VIRTUAL_ACCELERATOR,
+    ControlTarget,
+    Transport,
     connector_transport,
     resolve_target,
     tier_allows,
@@ -63,6 +68,10 @@ __all__ = [
     "ROLE_READ_ONLY",
     "ROLE_WRITE_ACCESS",
     "Endpoint",
+    "GatewayMode",
+    "GatewayRole",
+    "GatewaysDeclared",
+    "SelectedRole",
     "LiveCollision",
     "TargetDerivation",
     "Verification",
@@ -76,14 +85,14 @@ __all__ = [
     "verify_host_report",
 ]
 
-# -- Gateway roles and the environment modes they produce -------------------
+# -- The environment modes gateway roles produce ----------------------------
 
-ROLE_PVA = "pva"
-
+#: How a gateway reaches EPICS: through name servers or an address list.
+GatewayMode = Literal["name_server", "addr_list"]
 #: ``use_name_server: true`` — EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS.
-MODE_NAME_SERVER = "name_server"
+MODE_NAME_SERVER: Final = "name_server"
 #: ``use_name_server: false`` — EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST.
-MODE_ADDR_LIST = "addr_list"
+MODE_ADDR_LIST: Final = "addr_list"
 
 #: The ports ``EPICSConnector.connect()`` falls back to when a gateway names
 #: none. The virtual accelerator never reaches the CA default: its unset ports
@@ -96,9 +105,10 @@ DEFAULT_PVA_PORT = 5075
 #: How a connector block spells its ``gateways`` table, as
 #: :func:`declared_gateways` reads it: an explicit ``gateways: []`` (nothing to
 #: probe), no table anybody filled in, or rows.
-GATEWAYS_NONE_DECLARED = "none_declared"
-GATEWAYS_MISSING = "missing"
-GATEWAYS_ROWS = "rows"
+GatewaysDeclared = Literal["none_declared", "missing", "rows"]
+GATEWAYS_NONE_DECLARED: Final = "none_declared"
+GATEWAYS_MISSING: Final = "missing"
+GATEWAYS_ROWS: Final = "rows"
 
 
 class Endpoint(FrozenModel):
@@ -111,10 +121,7 @@ class Endpoint(FrozenModel):
     #: The ``port`` the gateway block carries, as written (or the default the
     #: derivation filled in): usually an ``int``, but whatever the config holds.
     port: object
-    mode: str
-
-    def as_dict(self) -> dict[str, object]:
-        return {"host": self.host, "port": self.port, "mode": self.mode}
+    mode: GatewayMode
 
 
 class TargetDerivation(FrozenModel):
@@ -140,12 +147,12 @@ class TargetDerivation(FrozenModel):
     and keeps the default.
     """
 
-    target: str
+    target: ControlTarget
     connector_type: str
-    endpoints: dict[str, Endpoint]
-    selected_role: str
-    transport: str | None
-    gateways_declared: str = GATEWAYS_MISSING
+    endpoints: ReadOnlyMapping[GatewayRole, Endpoint]
+    selected_role: SelectedRole
+    transport: Transport | None
+    gateways_declared: GatewaysDeclared = GATEWAYS_MISSING
 
     @property
     def declares_no_endpoints(self) -> bool:
@@ -165,15 +172,6 @@ class Verification(FrozenModel):
     expected: object = None
     got: object = None
     detail: str = ""
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "ok": self.ok,
-            "field": self.field,
-            "expected": self.expected,
-            "got": self.got,
-            "detail": self.detail,
-        }
 
 
 def config_section(config: object, name: str) -> dict[str, object]:
@@ -199,7 +197,7 @@ def connector_block(config: object, connector_type: str) -> object:
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
 
-def _mode(gateway: Mapping[str, object], key: str) -> str:
+def _mode(gateway: Mapping[str, object], key: str) -> GatewayMode:
     name_server = config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
     return MODE_NAME_SERVER if name_server else MODE_ADDR_LIST
 
@@ -232,7 +230,7 @@ def _pva_globs(block: Mapping[str, object]) -> list[str]:
 
 def derive_endpoints(
     config: object,
-    target: str,
+    target: ControlTarget,
     *,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
@@ -242,7 +240,7 @@ def derive_endpoints(
 
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
-        target: The control target, ``'live'`` or ``'va'``.
+        target: The control target.
         writes_enabled: Whether writes are armed for *target*. Defaults to
             the deployment's write tier —
             :func:`~osprey_connectors.types.tier_allows` over the
@@ -308,7 +306,8 @@ def derive_endpoints(
 
     block_key = f"control_system.connector.{connector_type}"
     gateways = subsection(block, "gateways")
-    endpoints: dict[str, Endpoint] = {}
+    endpoints: dict[GatewayRole, Endpoint] = {}
+    role: SelectedRole
     for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
         row = _row(gateways.get(role), DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")
         if row is not None:
@@ -341,7 +340,7 @@ def derive_endpoints(
     )
 
 
-def declared_gateways(block: object) -> str:
+def declared_gateways(block: object) -> GatewaysDeclared:
     """How a connector *block* spells its ``gateways`` table: the one reader of that fact.
 
     Only the explicit empty list is :data:`GATEWAYS_NONE_DECLARED`. A block that
@@ -420,7 +419,7 @@ class LiveCollision(FrozenModel):
 
     selected: Endpoint
     live: Endpoint
-    role: str
+    role: SelectedRole
     connector_type: str
 
 

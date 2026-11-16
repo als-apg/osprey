@@ -136,11 +136,9 @@ class KeywordRecorder(MockDynamicConnector):
 
     seen_kwargs: list[dict] = []
 
-    async def write_channel(self, channel_address, value, **kwargs):
+    async def write_channel(self, address, value, **kwargs):
         self.seen_kwargs.append(kwargs)
-        return await MockDynamicConnector._unguarded_write_channel(
-            self, channel_address, value, **kwargs
-        )
+        return await MockDynamicConnector._unguarded_write_channel(self, address, value, **kwargs)
 
 
 class TestCustomConnectorConfirmDefault:
@@ -188,7 +186,7 @@ class TestCustomConnectorConfirmDefault:
 
         results = await connector.write_multiple_channels([("TEST:CH1", 1.0), ("TEST:CH2", 2.0)])
 
-        assert [r.channel_address for r in results] == ["TEST:CH1", "TEST:CH2"]
+        assert [r.address for r in results] == ["TEST:CH1", "TEST:CH2"]
         for result in results:
             assert result.outcome is WriteOutcome.UNREQUESTED
         # The keyword is absent, not None — forwarding None would override the default.

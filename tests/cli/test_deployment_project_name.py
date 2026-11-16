@@ -31,7 +31,7 @@ from osprey.deployment.web_terminals.render_naming import (
     derived_renders,
     render_project,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 
 #: A deployment that stands up its own web-terminal stack, spelling no render.

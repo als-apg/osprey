@@ -3138,7 +3138,7 @@ def _selected_variant_profile(repo_root: Path) -> Path | None:
         profile as-is.
     """
     from osprey.cli.variant_selection import resolve_variant_selection
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     try:
         return resolve_variant_selection(repo_root).path

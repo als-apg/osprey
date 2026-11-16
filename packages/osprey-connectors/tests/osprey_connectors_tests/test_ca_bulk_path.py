@@ -263,7 +263,7 @@ class TestMonitors:
 
         assert received[0].value == 2
         assert received[0].metadata.enum_label == "FAULT"
-        assert received[0].metadata.enum_labels == ["OFFLINE", "STANDBY", "FAULT"]
+        assert received[0].metadata.enum_labels == ("OFFLINE", "STANDBY", "FAULT")
         assert received[0].metadata.alarm_status == "NO_ALARM"
 
     async def test_an_enum_without_labels_still_delivers_the_index(self):
@@ -1370,7 +1370,7 @@ async def _scenario_repoint(args):
     # Another route to the same IOC: its connect() repoints the process's CA.
     second = await _connected(args, name_server=False)
     await _until(lambda: len(first_events) >= 5)
-    one_shot = (await first.read_channel(PLAIN, timeout=3.0)).value
+    one_shot = (await first.read_channel(PLAIN, timeout_s=3.0)).value
     await first.unsubscribe(sub_id)
     await first.disconnect()
 

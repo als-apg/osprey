@@ -76,7 +76,7 @@ async def contract(prefix: str) -> dict[str, Any]:
     for record in ("AO", "LONG", "MBBO", "STR"):
         out["reads"][record] = _metadata(await connector.read_channel(f"{prefix}:{record}"))
     try:
-        await connector.read_channel(f"{prefix}:NOPE", timeout=0.5)
+        await connector.read_channel(f"{prefix}:NOPE", timeout_s=0.5)
     except Exception as exc:  # the exception class is the assertion
         out["reads"]["NOPE"] = type(exc).__name__
 
@@ -85,8 +85,8 @@ async def contract(prefix: str) -> dict[str, Any]:
         "into_alarm": (f"{prefix}:AO", 9.0, {}),
         "enum_label": (f"{prefix}:MBBO", "Off", {}),
         "unrequested": (f"{prefix}:AO", 3.0, {"confirm": False}),
-        "not_sent": (f"{prefix}:NOPE", 1.0, {"timeout": 0.5}),
-        "unacknowledged": (f"{prefix}:SLOW", 1.0, {"timeout": 1.0}),
+        "not_sent": (f"{prefix}:NOPE", 1.0, {"timeout_s": 0.5}),
+        "unacknowledged": (f"{prefix}:SLOW", 1.0, {"timeout_s": 1.0}),
         "access_denied": (f"{prefix}:RO", 5.0, {}),
         "text_hex_to_long": (f"{prefix}:LONG", "0x10", {}),
         "text_exponent_to_long": (f"{prefix}:LONG", "1e3", {}),
@@ -222,7 +222,7 @@ async def unreachable_name_server(prefix: str) -> dict[str, Any]:
         }
     )
     try:
-        await connector.read_channel(f"{prefix}:AO", timeout=1)
+        await connector.read_channel(f"{prefix}:AO", timeout_s=1)
     except Exception as exc:  # the exception class is the assertion
         return {"read": type(exc).__name__}
     return {"read": "answered"}
@@ -258,7 +258,7 @@ async def repoint(prefix: str) -> dict[str, Any]:
     nowhere = EPICSConnector()
     await nowhere.connect(at(1))
     try:
-        await nowhere.read_channel(f"{prefix}:AO", timeout=1)
+        await nowhere.read_channel(f"{prefix}:AO", timeout_s=1)
         moved = "answered"
     except Exception as exc:  # the exception class is the assertion
         moved = type(exc).__name__
@@ -415,7 +415,7 @@ def _writes_armed() -> Iterator[None]:
         )
         try:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=0, path=path)
-        except control_context.StoppedSince as stamped:
+        except control_context.StoppedSinceError as stamped:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         control_context.invalidate_cache()
         with (

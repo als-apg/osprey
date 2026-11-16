@@ -250,15 +250,15 @@ class _StubConnector:
     def __init__(self, table):
         self.table = table
 
-    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
-        if channel_address not in self.table:
+    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
+        if address not in self.table:
             raise RuntimeError(READ_ERROR)
-        return ChannelValue(value=self.table[channel_address], timestamp=datetime.now(UTC))
+        return ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
+    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
         return {
             address: ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
-            for address in channel_addresses
+            for address in addresses
             if address in self.table
         }
 
@@ -338,7 +338,7 @@ async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name)
     connector = cls.__new__(cls)
     addresses = ["CX:A", "CX:B", "CX:C"]
 
-    async def read_channel(address, timeout=None):  # noqa: ARG001 - read_channel signature
+    async def read_channel(address, *, timeout_s=None):  # noqa: ARG001 - read_channel signature
         position = addresses.index(address)
         if position == FAILING:
             raise asyncio.CancelledError

@@ -41,29 +41,27 @@ class SlowInProcessConnector(VAInProcessConnector):
     connector unavailable, ``BUG:`` channels raise a connector bug, ``WEDGE:``
     channels wedge the child, and every write is logged."""
 
-    async def read_channel(self, channel_address, timeout=None):
-        if channel_address.startswith(WEDGE_PREFIX):
+    async def read_channel(self, address, *, timeout_s=None):
+        if address.startswith(WEDGE_PREFIX):
             time.sleep(3600)
-        if channel_address.startswith(GONE_PREFIX):
-            raise ChannelUnreachableError(
-                channel_address, message=f"pool test: {channel_address} is unreachable"
-            )
-        if channel_address.startswith(LOST_PREFIX):
+        if address.startswith(GONE_PREFIX):
+            raise ChannelUnreachableError(address, message=f"pool test: {address} is unreachable")
+        if address.startswith(LOST_PREFIX):
             raise ConnectorUnavailableError("pool test: the connector's transport is gone")
-        if channel_address.startswith(BUG_PREFIX):
-            raise KeyError(channel_address)
-        if channel_address.startswith(SLOW_PREFIX):
+        if address.startswith(BUG_PREFIX):
+            raise KeyError(address)
+        if address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
-        return await super().read_channel(channel_address, timeout)
+        return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, channel_address, value, timeout=None, confirm=None):
+    async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
         log = os.environ.get(WRITE_LOG_ENV)
         if log:
             with open(log, "a", encoding="utf-8") as handle:
-                handle.write(f"{channel_address} {value}\n")
-        if channel_address.startswith(SLOW_PREFIX):
+                handle.write(f"{address} {value}\n")
+        if address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
-        return await super().write_channel(channel_address, value, timeout, confirm)
+        return await super().write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
 
 
 class FailingConnector(VAInProcessConnector):
@@ -105,5 +103,5 @@ class ExitingConnector(VAInProcessConnector):
 class ExitingOnReadConnector(VAInProcessConnector):
     """A connector that starts normally and ends the child process on its first read."""
 
-    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - the base signature
+    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the base signature
         os._exit(4)

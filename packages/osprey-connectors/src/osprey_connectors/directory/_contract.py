@@ -14,7 +14,7 @@ from typing import Literal, Self
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import override
 
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.service_answers import (
     Outcome,
     Source,
@@ -22,6 +22,9 @@ from osprey_connectors.service_answers import (
     _Backend,
     _require_reason,
 )
+
+#: Whether the directory lists a channel as announced now or no longer.
+DirectoryStatus = Literal["Active", "Inactive"]
 
 
 class DirectoryRow(FrozenModel):
@@ -33,8 +36,8 @@ class DirectoryRow(FrozenModel):
     type. ``last_announced`` is RecSync's ``time`` or Tango's last export time.
     """
 
-    name: str
-    status: Literal["Active", "Inactive"] | None = None
+    address: str
+    status: DirectoryStatus | None = None
     description: str | None = None
     channel_type: str | None = None
     server: str | None = None
@@ -43,11 +46,11 @@ class DirectoryRow(FrozenModel):
 
 
 class DirectoryRecord(FrozenModel):
-    """One PV in full. Every property is optional and a string, as measured."""
+    """One channel in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
-    properties: Mapping[str, str] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list)
+    properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
+    tags: FrozenTuple[str] = ()
 
 
 class DirectoryQuery(FrozenModel):
@@ -55,13 +58,13 @@ class DirectoryQuery(FrozenModel):
 
     A query keys the service's cache, so it hashes: the repeatable filters become
     tuples, from one string, any iterable of them or ``None``, and ``properties``
-    stays out of the hash.
+    stays out of the hash. ``address_pattern`` is a glob over channel addresses.
     """
 
     words: str = ""
-    name: str | None = None
-    properties: Mapping[str, str] = Field(default_factory=dict)
-    status: str | None = None
+    address_pattern: str | None = None
+    properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
+    status: DirectoryStatus | None = None
     server: tuple[str, ...] = ()
     channel_type: tuple[str, ...] = ()
     page: int = 0
@@ -79,7 +82,7 @@ class DirectoryQuery(FrozenModel):
         return hash(
             (
                 self.words,
-                self.name,
+                self.address_pattern,
                 self.status,
                 self.server,
                 self.channel_type,
@@ -103,10 +106,10 @@ class DirectoryPage(FrozenModel):
     request: str
     source: Source
     total: int | None = None
-    rows: list[DirectoryRow] = Field(default_factory=list)
+    rows: FrozenTuple[DirectoryRow] = ()
     truncated: bool = False
-    partial: list[Mapping[str, str]] = Field(default_factory=list)
-    facets: Mapping[str, list[Mapping[str, object]]] | None = None
+    partial: FrozenTuple[ReadOnlyMapping[str, str]] = ()
+    facets: ReadOnlyMapping[str, FrozenTuple[ReadOnlyMapping[str, object]]] | None = None
     facets_reason: str | None = None
     reason: str | None = None
 
@@ -117,7 +120,7 @@ class DirectoryPage(FrozenModel):
 
 
 class ChannelDirectory(_Backend, ABC):
-    """Search the control system's own directory of PVs."""
+    """Search the control system's own directory of channels."""
 
     @property
     def field_properties(self) -> Mapping[str, str]:
@@ -128,29 +131,29 @@ class ChannelDirectory(_Backend, ABC):
         return MappingProxyType({})
 
     @abstractmethod
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
         """One page of the rows *query* matches; no rows is ``NO_MATCH``, not ``NOT_LISTED``."""
 
     @abstractmethod
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int | Unavailable:
         """How many rows *query* matches over the whole directory."""
 
     @abstractmethod
     async def describe(
-        self, name: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        """The record of the PV called exactly *name*, or ``NOT_LISTED``."""
+        """The record of the channel at exactly *address*, or ``NOT_LISTED``."""
 
     @abstractmethod
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:
+    async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:
         """The property names the directory holds."""
 
     @abstractmethod
     async def property_values(
-        self, name: str, prefix: str | None, deadline: float
+        self, property: str, *, prefix: str | None = None, timeout_s: float
     ) -> list[str] | Unavailable:
-        """The values of property *name*, those starting with *prefix* if given."""
+        """The values of *property*, those starting with *prefix* if given."""
 
     @abstractmethod
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether the service answers: the evidence in plain words, or why not."""

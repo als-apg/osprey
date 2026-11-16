@@ -59,14 +59,14 @@ def _scenarios_carry_a_logbook(build: Path) -> bool:
 
     :param build: The build directory.
     """
-    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.simulation.view import SimulatorView, SimulatorViewError
 
     try:
         view = SimulatorView.find(build)
         if view is None:
             return False
         return any(scenario.logbook for scenario in view.scenarios())
-    except (OSError, ValueError):
+    except (SimulatorViewError, OSError, ValueError):
         return False
 
 

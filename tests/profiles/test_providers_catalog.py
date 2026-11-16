@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.errors import BuildProfileError
 from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
     ProviderCatalog,
@@ -17,7 +18,6 @@ from osprey.profiles.providers import (
     load_provider_catalog,
     packaged_catalog_path,
 )
-from osprey_connectors.errors import BuildProfileError
 
 # The providers the packaged catalog ships: the ten chat providers the
 # demo app template carried under `api.providers`, the

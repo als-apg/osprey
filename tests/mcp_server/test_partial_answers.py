@@ -277,7 +277,7 @@ async def test_an_unreachable_channel_recovers_nothing():
 class _UnresponsiveProxy:
     """A connector-host proxy whose every read misses its deadline."""
 
-    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector's read signature
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the connector's read signature
         raise ChildUnresponsiveError(f"no answer for {address}")
 
 

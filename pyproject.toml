@@ -938,6 +938,9 @@ name = "The connector package's top-level modules, in layers"
 # `write_authorization` reads the record and the posture store and is read by
 # the write guard in the control-system connectors, so it sits between them.
 #
+# The exception vocabulary sits just above the bottom: every config reader and
+# every write-path writer raises its classes, so it imports only `model`.
+#
 # The factory builds the read-only service backends, one namespace per kind.
 # They reach the control system through neither connector family, so they sit
 # below both; the alarm log takes its configuration record from `alarm_state`,
@@ -964,7 +967,7 @@ layers = [
     "osprey_connectors.simulation",
     "osprey_connectors.settle",
     "osprey_connectors.recovery",
-    "osprey_connectors.errors | osprey_connectors.write_target",
+    "osprey_connectors.write_target",
     "osprey_connectors.write_authorization",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
@@ -973,6 +976,7 @@ layers = [
     "osprey_connectors.simulator",
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
+    "osprey_connectors.errors",
     "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model",
 ]
 ignore_imports = [

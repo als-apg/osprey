@@ -15,8 +15,8 @@ import pytest
 
 from osprey.cli.build_profile_load import _KNOWN_OPTIMIZER_KEYS, _parse_profile
 from osprey.cli.build_profile_schema import OptimizerConfig, optimizer_errors
+from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
-from osprey_connectors.errors import BuildProfileError
 
 #: A port an author pinned by hand, clear of the layout's own default.
 AUTHORED_PORT = default_port("optimizer") + 1000

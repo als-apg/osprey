@@ -309,7 +309,7 @@ class TestBatchConfirmResolution:
             [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)]
         )
 
-        assert [r.channel_address for r in results] == ["BATCH:CH1", "BATCH:CH2"]
+        assert [r.address for r in results] == ["BATCH:CH1", "BATCH:CH2"]
         assert results[0].outcome is WriteOutcome.CONFIRMED
         assert results[1].outcome is WriteOutcome.UNREQUESTED
 

@@ -553,7 +553,7 @@ def stamped_root(module_environment, monkeypatch):
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:
     """One value off the wire, through whichever child is serving right now."""
-    value = await manager.active_proxy().read_channel(address, timeout=READ_TIMEOUT_S)
+    value = await manager.active_proxy().read_channel(address, timeout_s=READ_TIMEOUT_S)
     assert isinstance(value, ChannelValue)
     return value.value
 
@@ -569,7 +569,7 @@ class Refusal:
     """
 
     kind: str
-    channel_address: str
+    address: str
     attempted_value: object
     violation_type: str
     message: str
@@ -584,11 +584,13 @@ async def refused_write(manager: ConnectorHostManager, address: str, value: floa
     message should say so.
     """
     try:
-        result = await manager.active_proxy().write_channel(address, value, timeout=READ_TIMEOUT_S)
+        result = await manager.active_proxy().write_channel(
+            address, value, timeout_s=READ_TIMEOUT_S
+        )
     except ChannelLimitsViolationError as exc:
         return Refusal(
             kind=type(exc).__name__,
-            channel_address=str(getattr(exc, "channel_address", "")),
+            address=str(getattr(exc, "address", "")),
             attempted_value=getattr(exc, "attempted_value", None),
             violation_type=str(getattr(exc, "violation_type", "")),
             message=str(exc),
@@ -902,7 +904,7 @@ class TestTheStrictPostureRefusesAnUnlistedWrite:
     ) -> None:
         assert round_trip.refusal.kind == ChannelLimitsViolationError.__name__
         assert round_trip.refusal.violation_type == UNLISTED_VIOLATION
-        assert round_trip.refusal.channel_address == UNLISTED_CHANNEL
+        assert round_trip.refusal.address == UNLISTED_CHANNEL
         assert round_trip.refusal.attempted_value == UNLISTED_WRITE_VALUE
 
     def test_the_refusal_names_the_database_and_not_the_network(

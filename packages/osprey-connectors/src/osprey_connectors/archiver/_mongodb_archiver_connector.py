@@ -30,6 +30,7 @@ from osprey_connectors.archiver._mongo_client import (
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
+    ProcessingMode,
     SampleSeries,
     aggregate_series,
     long_frame,
@@ -184,7 +185,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> connector = MongoDBArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['BEAM:CURRENT'],
+        >>>     addresses=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -477,22 +478,23 @@ class MongoDBArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
-        processing: str = "raw",
+        *,
+        timeout_s: float | None = None,
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from MongoDB collection.
 
         Args:
-            channels: Channel addresses to retrieve
+            addresses: Channel addresses to retrieve
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
                 client-side via pandas resampling. Anything else raises ValueError.
@@ -511,7 +513,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 non-raw processing mode is requested for a channel that
                 carries non-numeric values
         """
-        bound: float = timeout if timeout is not None else self._timeout
+        bound: float = timeout_s if timeout_s is not None else self._timeout
 
         self._require_connected()
 
@@ -519,14 +521,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
         # means facility-local, as in every other connector.
         start_utc, end_utc = utc_window(start_date, end_date)
 
-        if not channels:
+        if not addresses:
             raise ValueError("channels cannot be empty")
 
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         def fetch_data() -> pd.DataFrame:
             """Synchronous data fetch function."""
-            fields = {channel: field_name(channel) for channel in channels}
+            fields = {channel: field_name(channel) for channel in addresses}
             # Match any document carrying at least one requested channel: ANDing
             # existence would silently return nothing for channels archived apart.
             query = {
@@ -541,8 +543,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
-            timestamps: dict[str, list[datetime]] = {channel: [] for channel in channels}
-            values: dict[str, list[object]] = {channel: [] for channel in channels}
+            timestamps: dict[str, list[datetime]] = {channel: [] for channel in addresses}
+            values: dict[str, list[object]] = {channel: [] for channel in addresses}
             traced: set[str] = set()
             found = 0
             for store in self._stores():
@@ -568,7 +570,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
 
             series: dict[str, SampleSeries] = {}
-            for channel in channels:
+            for channel in addresses:
                 s = pd.Series(
                     values[channel],
                     index=pd.to_datetime(timestamps[channel], utc=True),
@@ -589,7 +591,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=bound)
 
             logger.debug(
-                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(channels)} channels"
+                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(addresses)} channels"
             )
             return data
 
@@ -612,7 +614,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
 
@@ -624,7 +626,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         missing data inside a range it was told existed.
 
         Args:
-            channel: Name of the process variable
+            address: Name of the process variable
 
         Returns:
             ArchiverMetadata; ``is_archived`` is False and both bounds are None
@@ -645,7 +647,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             """
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
-            query = {field_name(channel): {"$exists": True}}
+            query = {field_name(address): {"$exists": True}}
             projection = {"date": 1}
             firsts: list[datetime] = []
             lasts: list[datetime] = []
@@ -665,21 +667,21 @@ class MongoDBArchiverConnector(ArchiverConnector):
         except Exception as e:
             logger.warning(f"Error checking channel metadata: {e}")
             return ArchiverMetadata(
-                channel=channel,
+                address=address,
                 is_archived=None,
                 description=f"the MongoDB archive could not be read: {type(e).__name__}",
             )
 
         return ArchiverMetadata(
-            channel=channel,
+            address=address,
             is_archived=first is not None,
             archival_start=first,
             archival_end=last,
-            description=f"MongoDB archived channel: {channel}",
+            description=f"MongoDB archived channel: {address}",
         )
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived in the MongoDB collection or its
         waveform sibling.
@@ -689,7 +691,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         answer, not a fault to surface to the caller.
 
         Args:
-            channels: Channel addresses to check
+            addresses: Channel addresses to check
 
         Returns:
             Dictionary mapping channel address to availability status
@@ -702,7 +704,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         def check_channels() -> dict[str, bool]:
             """Check which channels exist in the collection."""
             availability = {}
-            for channel in channels:
+            for channel in addresses:
                 query = {field_name(channel): {"$exists": True}}
                 availability[channel] = any(
                     store.count_documents(query, limit=1) > 0 for store in self._stores()
@@ -713,7 +715,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             return dict(await asyncio.to_thread(check_channels))
         except Exception as e:
             logger.warning(f"Error checking channel availability: {e}")
-            return dict[str, bool | None].fromkeys(channels, None)
+            return dict[str, bool | None].fromkeys(addresses, None)
 
     @override
     async def store_extent(self) -> ArchiveExtent:
@@ -753,7 +755,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                         _address_of(field) for field in document if field not in _RESERVED_FIELDS
                     )
             return ArchiveExtent(
-                channels=frozenset(channels),
+                addresses=frozenset(channels),
                 oldest=min(oldest, default=None),
                 newest=max(newest, default=None),
             )

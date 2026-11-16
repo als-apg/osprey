@@ -59,7 +59,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -70,7 +70,7 @@ from pydantic import ValidationError, model_validator
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (
@@ -89,7 +89,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.composite import Composite, ServingInstance
     from osprey_connectors.simulation.records import (
         ArchiverEvent,
         ChannelRecord,
@@ -149,8 +149,8 @@ _DEFAULT_CHUNK_SIZE = 2000
 _DEFAULT_WORKERS = 4
 
 
-class SeedState(Enum):
-    """What a store's manifest says about the seed it holds."""
+class SeedState(StrEnum):
+    """What a store's manifest says about the seed it holds; each member is its word."""
 
     ABSENT = "absent"
     """No manifest document: the store has never been seeded (or was wiped)."""
@@ -272,7 +272,7 @@ class SeedKnobs(FrozenModel):
         return self.hot_span_hours * 3600
 
 
-class SeedReport(MutableModel):
+class SeedReport(FrozenModel):
     """What one seeding run wrote."""
 
     documents: int = 0
@@ -300,7 +300,7 @@ class SeedReport(MutableModel):
 # ---------------------------------------------------------------------------
 
 #: The serving instance the archive composite's log lines name.
-_ARCHIVE_INSTANCE = "virtual_accelerator"
+_ARCHIVE_INSTANCE: ServingInstance = "virtual_accelerator"
 
 _STEP = "step"
 
@@ -632,7 +632,7 @@ def build(
             state; the message names it and its engine's error. A model without
             a deck is unbuilt by design (``no deck``) and does not raise.
         ValueError: A ``pulse`` seed names a channel the view does not hold.
-        NoSimulatorView: The directory holds no simulator view.
+        NoSimulatorViewError: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
     from osprey_connectors.config import get_facility_timezone
@@ -845,7 +845,7 @@ def _synthesize_documents(
 
 def seed_fingerprint(
     knobs: SeedKnobs,
-    channel_addresses: Iterable[str],
+    addresses: Iterable[str],
     *,
     compression: str,
 ) -> dict[str, int | str]:
@@ -861,14 +861,14 @@ def seed_fingerprint(
 
     Args:
         knobs: The archive's shape.
-        channel_addresses: The seeded channel set. Order does not matter; the
+        addresses: The seeded channel set. Order does not matter; the
             hash is taken over the sorted, deduplicated names.
         compression: The collection's block compressor.
 
     Returns:
         The fingerprint, JSON-serializable and safe to store verbatim.
     """
-    names = sorted(set(channel_addresses))
+    names = sorted(set(addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
     return {
         "schema_version": _SEED_SCHEMA_VERSION,
@@ -1101,10 +1101,11 @@ def seed_base(
     addresses = archive.addresses
     started = time.monotonic()
 
-    report = SeedReport(channels=len(addresses))
-    if len(times):
-        report.start = datetime.fromtimestamp(float(times[0]), UTC)
-        report.end = datetime.fromtimestamp(float(times[-1]), UTC)
+    report = SeedReport(
+        channels=len(addresses),
+        start=datetime.fromtimestamp(float(times[0]), UTC) if len(times) else None,
+        end=datetime.fromtimestamp(float(times[-1]), UTC) if len(times) else None,
+    )
 
     traced = archive.waveform_addresses
     if traced and waveforms is None:
@@ -1124,16 +1125,19 @@ def seed_base(
                 traces = _waveform_documents(archive, chunk_times[coarse], chunk_expiry[coarse])
                 pending = _submit_bounded(pool, pending, waveforms, traces, workers)
 
-            report.documents += len(documents)
-            report.chunks += 1
-            report.elapsed_s = time.monotonic() - started
+            report = evolve(
+                report,
+                documents=report.documents + len(documents),
+                chunks=report.chunks + 1,
+                elapsed_s=time.monotonic() - started,
+            )
             if progress is not None:
                 progress(report)
 
         for future in pending:
             future.result()
 
-    report.elapsed_s = time.monotonic() - started
+    report = evolve(report, elapsed_s=time.monotonic() - started)
     _write_manifest(
         collection,
         seed_fingerprint(knobs, addresses, compression=compression),

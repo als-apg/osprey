@@ -32,7 +32,7 @@ from osprey.cli.profile_conventions import (
     convention_selections,
     split_convention_selection,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"

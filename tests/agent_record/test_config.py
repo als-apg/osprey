@@ -39,8 +39,8 @@ from osprey.cli.build_profile_deploy import (
 )
 from osprey.cli.build_profile_load import _parse_profile, load_profile_document
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
+from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
-from osprey_connectors.errors import BuildProfileError
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:

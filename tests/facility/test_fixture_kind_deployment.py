@@ -560,7 +560,7 @@ def test_the_listed_kinds_are_read_from_each_project_file_without_an_import(
 @pytest.mark.usefixtures("installed")
 def test_a_listed_package_excuses_only_the_kind_its_own_project_file_declares() -> None:
     from osprey.deployment.wheel_build import refuse_unshipped_kinds
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     refuse_unshipped_kinds([], listed={KIND: DISTRIBUTION})
     for listed in ({KIND: "another-package"}, {"another_kind": DISTRIBUTION}):

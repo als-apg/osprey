@@ -18,11 +18,12 @@ import copy
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from osprey_connectors import posture_store
 from osprey_connectors.config import ConfigBuilder, load_project_dotenv
 from osprey_connectors.log_filter import quiet_logger
+from osprey_connectors.posture_store import WriteCeiling
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ UNREADABLE = object()
 
 #: ``locks.tier`` when the login's tier cannot be read — the verdict refuses it
 #: as ``owner_unknown``, which no chip gesture lifts either.
-TIER_UNKNOWN = "unknown"
+TIER_UNKNOWN: Final = "unknown"
 
 
 #: The last render this module parsed: ``(path, signature, config)``. One entry
@@ -127,7 +128,7 @@ def section_of(config: Any) -> Any:
     return config.get("control_system") if isinstance(config, dict) else None
 
 
-def login_tier(section: Any, login: str) -> str:
+def login_tier(section: Any, login: str) -> WriteCeiling:
     """The login's write ceiling here: ``never``, ``asked``, ``allowed`` or ``unknown``.
 
     The two tier terms of the write verdict first, in its order: the

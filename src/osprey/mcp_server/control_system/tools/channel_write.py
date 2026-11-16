@@ -315,7 +315,7 @@ async def _note_old_values(connector: Any, channels: list[str]) -> None:
     old_values: dict[str, Any] = {}
     try:
         read = await asyncio.wait_for(
-            connector.read_multiple_channels(channels, timeout=OLD_VALUE_READ_TIMEOUT_S),
+            connector.read_multiple_channels(channels, timeout_s=OLD_VALUE_READ_TIMEOUT_S),
             OLD_VALUE_READ_TIMEOUT_S,
         )
         for channel in channels:
@@ -1070,7 +1070,7 @@ async def channel_write(
         # response.
         results = [
             {
-                "channel": wr.channel_address,
+                "channel": wr.address,
                 "value": wr.value_written,
                 OUTCOME_KEY: str(wr.outcome),
                 "refusal_reason": wr.refusal_reason,

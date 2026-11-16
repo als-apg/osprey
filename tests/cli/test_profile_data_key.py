@@ -22,8 +22,8 @@ from osprey.cli.build_profile import (
     resolve_build_profile,
 )
 from osprey.cli.profile_root import ProfileKind, resolve_profile_root
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:

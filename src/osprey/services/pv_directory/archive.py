@@ -85,7 +85,7 @@ async def read_extent(connector: Any, deadline: float) -> Extent:
     except Exception as failure:
         logger.warning("the archive's extent could not be read", exc_info=True)
         return Extent(reason=service_failed(failure))
-    channels = getattr(answer, "channels", None)
+    channels = getattr(answer, "addresses", None)
     return Extent(
         channels=frozenset(channels) if channels is not None else None,
         oldest=getattr(answer, "oldest", None),

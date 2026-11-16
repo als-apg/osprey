@@ -19,9 +19,9 @@ class TestChannelLimitsConfig:
     def test_create_basic_config(self):
         """Test creating a basic channel config."""
         config = ChannelLimitsConfig(
-            channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+            address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
         )
-        assert config.channel_address == "TEST:PV"
+        assert config.address == "TEST:PV"
         assert config.min_value == 0.0
         assert config.max_value == 100.0
         assert config.writable is True
@@ -29,15 +29,15 @@ class TestChannelLimitsConfig:
 
     def test_create_config_with_max_step(self):
         """Test creating config with max_step."""
-        config = ChannelLimitsConfig(channel_address="TEST:PV", max_step=5.0, writable=True)
+        config = ChannelLimitsConfig(address="TEST:PV", max_step=5.0, writable=True)
         assert config.max_step == 5.0
 
     def test_writable_has_no_default(self):
         """A record states its own writability; none is assumed for it."""
         with pytest.raises(ValidationError, match="writable"):
-            ChannelLimitsConfig(channel_address="TEST:PV")
+            ChannelLimitsConfig(address="TEST:PV")
 
-        config = ChannelLimitsConfig(channel_address="TEST:PV", writable=False)
+        config = ChannelLimitsConfig(address="TEST:PV", writable=False)
         assert config.writable is False
 
 
@@ -49,14 +49,10 @@ class TestLimitsValidator:
         """Create validator with basic test database."""
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+                address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
-            "TEST:PV:READONLY": ChannelLimitsConfig(
-                channel_address="TEST:PV:READONLY", writable=False
-            ),
-            "TEST:PV:NO_LIMITS": ChannelLimitsConfig(
-                channel_address="TEST:PV:NO_LIMITS", writable=True
-            ),
+            "TEST:PV:READONLY": ChannelLimitsConfig(address="TEST:PV:READONLY", writable=False),
+            "TEST:PV:NO_LIMITS": ChannelLimitsConfig(address="TEST:PV:NO_LIMITS", writable=True),
         }
         policy = {"mode": "exclusive"}
         return LimitsValidator(test_db, policy)
@@ -66,7 +62,7 @@ class TestLimitsValidator:
         """Create validator with permissive policy."""
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+                address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
         policy = {"mode": "optional"}
@@ -77,7 +73,7 @@ class TestLimitsValidator:
         """Create validator with max_step configured."""
         test_db = {
             "TEST:PV:STEP": ChannelLimitsConfig(
-                channel_address="TEST:PV:STEP",
+                address="TEST:PV:STEP",
                 min_value=0.0,
                 max_value=100.0,
                 max_step=10.0,
@@ -129,7 +125,7 @@ class TestLimitsValidator:
 
         error = exc_info.value
         assert error.violation_type == "MIN_EXCEEDED"
-        assert error.channel_address == "TEST:PV"
+        assert error.address == "TEST:PV"
         assert error.attempted_value == -10.0
         assert error.min_value == 0.0
         assert error.max_value == 100.0
@@ -141,7 +137,7 @@ class TestLimitsValidator:
 
         error = exc_info.value
         assert error.violation_type == "MAX_EXCEEDED"
-        assert error.channel_address == "TEST:PV"
+        assert error.address == "TEST:PV"
         assert error.attempted_value == 150.0
 
     def test_min_exceeded_error_message(self, basic_validator):
@@ -175,7 +171,7 @@ class TestLimitsValidator:
 
         error = exc_info.value
         assert error.violation_type == violation_type
-        assert error.channel_address == channel
+        assert error.address == channel
 
     # =========================================================================
     # Unlisted PV Tests
@@ -547,7 +543,7 @@ class TestChannelLimitsViolationError:
     def test_error_message_format(self):
         """Test that error message is properly formatted."""
         error = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=150.0,
             violation_type="MAX_EXCEEDED",
             violation_reason="Value 150.0 above maximum 100.0",
@@ -564,7 +560,7 @@ class TestChannelLimitsViolationError:
     def test_error_with_step_info(self):
         """Test error message includes step information."""
         error = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=95.0,
             violation_type="MAX_STEP_EXCEEDED",
             violation_reason="Step size 45.0 exceeds maximum 10.0",
@@ -581,12 +577,12 @@ class TestChannelLimitsViolationError:
     def test_inherits_from_exception(self):
         """Test that exception inherits from Exception (framework-level)."""
         error = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=150.0,
             violation_type="MAX_EXCEEDED",
             violation_reason="Test",
         )
 
         assert isinstance(error, Exception)
-        assert error.channel_address == "TEST:PV"
+        assert error.address == "TEST:PV"
         assert error.violation_type == "MAX_EXCEEDED"

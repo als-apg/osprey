@@ -1489,7 +1489,7 @@ class TestTheSwitchReachesARunningChild:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()  # baseline: the switch is off
 
-        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout_s=10.0)
         assert refused.outcome is WriteOutcome.REFUSED
 
         write_va_record({"va": "asked"})
@@ -1497,5 +1497,5 @@ class TestTheSwitchReachesARunningChild:
 
         assert realign()["state"] == session_control.REALIGN_DONE
         assert manager.status()["selected_role"] == "write_access"
-        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout_s=10.0)
         assert written.outcome is not WriteOutcome.REFUSED

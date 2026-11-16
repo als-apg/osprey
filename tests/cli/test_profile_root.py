@@ -20,8 +20,8 @@ import pytest
 
 from osprey.cli import build_profile_presets
 from osprey.cli.profile_root import ProfileKind, ProjectProfile, resolve_profile_root
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 

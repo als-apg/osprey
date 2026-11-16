@@ -25,6 +25,7 @@ from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.errors import BuildProfileError
 from osprey.registry.mcp import (
     _APPROVAL,
     _APPROVAL_PREFLIGHT,
@@ -34,7 +35,6 @@ from osprey.registry.mcp import (
     facility_write_tools,
     resolve_servers,
 )
-from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
 
 PORT = 18951

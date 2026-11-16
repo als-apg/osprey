@@ -120,8 +120,12 @@ async def test_the_snapshot_equals_the_kafka_fold_of_the_same_messages(tmp_path)
 
         assert backend._snapshot == kafka._snapshot == folded
         for pv in (PV, ACKED_PV, "DEMO:VAC1:GONE", "DEMO:NOT:IN:THE:TREE"):
-            assert await backend.state_for(pv, 1.0) == await kafka.state_for(pv, 1.0)
-            assert await backend.config_for(pv, 1.0) == await kafka.config_for(pv, 1.0)
+            assert await backend.state_for(pv, timeout_s=1.0) == await kafka.state_for(
+                pv, timeout_s=1.0
+            )
+            assert await backend.config_for(pv, timeout_s=1.0) == await kafka.config_for(
+                pv, timeout_s=1.0
+            )
     finally:
         await kafka.aclose()
         await backend.aclose()
@@ -132,7 +136,7 @@ async def test_reads_answer_the_folded_record():
     backend = _backend()
     await backend.start()
 
-    assert await backend.state_for(PV, 1.0) == AlarmStateRecord(
+    assert await backend.state_for(PV, timeout_s=1.0) == AlarmStateRecord(
         severity="MAJOR",
         status="NO_ALARM",
         latched=True,
@@ -141,14 +145,14 @@ async def test_reads_answer_the_folded_record():
         time="2026-11-06T11:59:30.000Z",
         stale=False,
     )
-    acked = await backend.state_for(ACKED_PV, 1.0)
+    acked = await backend.state_for(ACKED_PV, timeout_s=1.0)
     assert acked.severity == "MINOR"
     assert acked.acknowledged is True
-    config = await backend.config_for(PV, 1.0)
+    config = await backend.config_for(PV, timeout_s=1.0)
     assert isinstance(config, AlarmConfigRecord)
     assert config.in_tree == "yes"
-    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", 1.0) is None
-    assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", 1.0)).in_tree == "no"
+    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) is None
+    assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0)).in_tree == "no"
 
 
 def _elapsed(since: float) -> float:
@@ -159,9 +163,9 @@ async def test_a_read_before_start_is_still_loading_at_once():
     backend = _backend()
     began = asyncio.get_running_loop().time()
 
-    assert await backend.state_for(PV, 5.0) == LOADING
-    assert await backend.config_for(PV, 5.0) == LOADING
-    assert await backend.probe(5.0) == LOADING
+    assert await backend.state_for(PV, timeout_s=5.0) == LOADING
+    assert await backend.config_for(PV, timeout_s=5.0) == LOADING
+    assert await backend.probe(timeout_s=5.0) == LOADING
     assert _elapsed(began) < 1.0
 
 
@@ -174,14 +178,14 @@ async def test_a_read_whose_deadline_runs_out_during_the_load_is_still_loading(h
         before = asyncio.all_tasks()
 
         began = asyncio.get_running_loop().time()
-        assert await backend.state_for(PV, 0.05) == LOADING
-        assert await backend.config_for(PV, 0.05) == LOADING
+        assert await backend.state_for(PV, timeout_s=0.05) == LOADING
+        assert await backend.config_for(PV, timeout_s=0.05) == LOADING
         assert _elapsed(began) >= 0.09
         assert asyncio.all_tasks() - before == set()
     finally:
         release.set()
     await starting
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
 
 
 async def test_a_read_during_the_load_waits_and_answers_once_the_load_lands(held_load):
@@ -197,7 +201,7 @@ async def test_a_read_during_the_load_waits_and_answers_once_the_load_lands(held
 
     releasing = asyncio.create_task(release_after_the_read_began())
     try:
-        state = await backend.state_for(PV, 5.0)
+        state = await backend.state_for(PV, timeout_s=5.0)
     finally:
         release.set()
         await releasing
@@ -219,7 +223,7 @@ async def test_a_cancelled_start_leaves_the_load_running(held_load):
 
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
 
 
 @pytest.mark.usefixtures("load_moment")
@@ -227,8 +231,8 @@ async def test_times_are_rebased_so_the_newest_is_the_load_moment():
     backend = _backend()
     await backend.start()
 
-    newest = await backend.state_for(ACKED_PV, 1.0)
-    older = await backend.state_for(PV, 1.0)
+    newest = await backend.state_for(ACKED_PV, timeout_s=1.0)
+    older = await backend.state_for(PV, timeout_s=1.0)
     assert newest.time == "2026-11-06T12:00:00.000Z"
     assert older.time == "2026-11-06T11:59:30.000Z"
 
@@ -252,8 +256,8 @@ async def test_the_newest_message_need_not_be_the_last_line(tmp_path):
     )
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).time == "2026-11-06T12:00:00.000Z"
-    assert (await backend.state_for(ACKED_PV, 1.0)).time == "2026-11-06T11:59:00.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-11-06T12:00:00.000Z"
+    assert (await backend.state_for(ACKED_PV, timeout_s=1.0)).time == "2026-11-06T11:59:00.000Z"
 
 
 @pytest.mark.usefixtures("load_moment")
@@ -267,27 +271,27 @@ async def test_a_message_with_no_time_keeps_what_its_value_recorded(tmp_path):
     )
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).time == "2026-10-29T03:14:07.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-10-29T03:14:07.000Z"
 
 
 async def test_a_replay_of_old_timestamps_is_not_stale_when_fresh_nor_a_minute_later(load_moment):
     backend = _backend()
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).stale is False
+    assert (await backend.state_for(PV, timeout_s=1.0)).stale is False
     load_moment[0] = LOAD_MOMENT + timedelta(minutes=1, seconds=1)
-    assert (await backend.state_for(PV, 1.0)).stale is False
-    assert (await backend.state_for(PV, 1.0)).time == "2026-11-06T11:59:30.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).stale is False
+    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-11-06T11:59:30.000Z"
 
 
 async def test_the_stopped_feed_is_stale():
     backend = _backend(STOPPED_FEED)
     await backend.start()
 
-    record = await backend.state_for(PV, 1.0)
+    record = await backend.state_for(PV, timeout_s=1.0)
     assert record.severity == "MAJOR"
     assert record.stale is True
-    assert "stopped" in await backend.probe(1.0)
+    assert "stopped" in await backend.probe(timeout_s=1.0)
 
 
 async def test_a_marker_followed_by_messages_is_not_stale(tmp_path):
@@ -300,7 +304,7 @@ async def test_a_marker_followed_by_messages_is_not_stale(tmp_path):
     )
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).stale is False
+    assert (await backend.state_for(PV, timeout_s=1.0)).stale is False
 
 
 @pytest.mark.parametrize("lines", [(), ({"feed": "stopped"},)])
@@ -308,23 +312,23 @@ async def test_a_replay_with_no_message_answers_no_message(tmp_path, lines):
     backend = _backend(_write(tmp_path / "feed.jsonl", *lines))
     await backend.start()
 
-    assert await backend.state_for(PV, 1.0) == EMPTY
-    assert await backend.config_for(PV, 1.0) == EMPTY
-    assert isinstance(await backend.probe(1.0), str)
+    assert await backend.state_for(PV, timeout_s=1.0) == EMPTY
+    assert await backend.config_for(PV, timeout_s=1.0) == EMPTY
+    assert isinstance(await backend.probe(timeout_s=1.0), str)
 
 
 async def test_an_unresolved_demo_name_is_unavailable_at_every_read():
     backend = _backend("demo:example-alarms")
 
-    before = await backend.state_for(PV, 1.0)
+    before = await backend.state_for(PV, timeout_s=1.0)
     assert isinstance(before, Unavailable)
     assert before != LOADING
     assert "demo:example-alarms" in before.reason
 
     await backend.start()
-    assert await backend.state_for(PV, 1.0) == before
-    assert await backend.config_for(PV, 1.0) == before
-    assert await backend.probe(1.0) == before
+    assert await backend.state_for(PV, timeout_s=1.0) == before
+    assert await backend.config_for(PV, timeout_s=1.0) == before
+    assert await backend.probe(timeout_s=1.0) == before
     assert backend._task is None
 
 
@@ -333,14 +337,14 @@ async def test_a_relative_path_resolves_against_the_project_dir(tmp_path):
     backend = _backend("feed.jsonl", project_dir=tmp_path)
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
 
 
 async def test_a_relative_path_without_a_project_dir_is_unavailable():
     backend = _backend("feed.jsonl")
     await backend.start()
 
-    answer = await backend.state_for(PV, 1.0)
+    answer = await backend.state_for(PV, timeout_s=1.0)
     assert isinstance(answer, Unavailable)
     assert "feed.jsonl" in answer.reason
 
@@ -349,7 +353,7 @@ async def test_no_replay_file_is_unavailable():
     backend = _backend(None)
     await backend.start()
 
-    answer = await backend.state_for(PV, 1.0)
+    answer = await backend.state_for(PV, timeout_s=1.0)
     assert isinstance(answer, Unavailable)
     assert "replay_file" in answer.reason
 
@@ -359,9 +363,9 @@ async def test_a_missing_file_answers_with_the_reason_and_never_a_clear_state(tm
     await backend.start()
 
     for answer in (
-        await backend.state_for(PV, 1.0),
-        await backend.config_for(PV, 1.0),
-        await backend.probe(1.0),
+        await backend.state_for(PV, timeout_s=1.0),
+        await backend.config_for(PV, timeout_s=1.0),
+        await backend.probe(timeout_s=1.0),
     ):
         assert isinstance(answer, Unavailable)
         assert "absent.jsonl" in answer.reason
@@ -384,10 +388,10 @@ async def test_a_malformed_line_fails_the_whole_load(tmp_path, line):
     backend = _backend(path)
     await backend.start()
 
-    answer = await backend.state_for(PV, 1.0)
+    answer = await backend.state_for(PV, timeout_s=1.0)
     assert isinstance(answer, Unavailable)
     assert answer != LOADING
-    assert isinstance(await backend.probe(1.0), Unavailable)
+    assert isinstance(await backend.probe(timeout_s=1.0), Unavailable)
 
 
 async def test_start_is_idempotent(monkeypatch):
@@ -411,17 +415,17 @@ async def test_aclose_releases_the_load_and_is_idempotent():
     backend = _backend()
     await backend.aclose()
     await backend.start()
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
 
     await backend.aclose()
     await backend.aclose()
 
     assert backend._task is None
     assert backend._snapshot is None
-    assert await backend.state_for(PV, 1.0) == LOADING
+    assert await backend.state_for(PV, timeout_s=1.0) == LOADING
 
     await backend.start()
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
 
 
 async def test_aclose_during_the_load_ends_the_start_without_an_answer(held_load):
@@ -435,7 +439,7 @@ async def test_aclose_during_the_load_ends_the_start_without_an_answer(held_load
     release.set()
     await asyncio.sleep(0)
 
-    assert await backend.state_for(PV, 1.0) == LOADING
+    assert await backend.state_for(PV, timeout_s=1.0) == LOADING
 
 
 async def test_it_runs_with_aiokafka_absent(monkeypatch):
@@ -443,8 +447,8 @@ async def test_it_runs_with_aiokafka_absent(monkeypatch):
     backend = _backend()
     await backend.start()
 
-    assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
-    assert isinstance(await backend.probe(1.0), str)
+    assert (await backend.state_for(PV, timeout_s=1.0)).severity == "MAJOR"
+    assert isinstance(await backend.probe(timeout_s=1.0), str)
 
 
 def test_importing_it_loads_neither_aiokafka_nor_the_kafka_backend():
@@ -460,13 +464,13 @@ def test_importing_it_loads_neither_aiokafka_nor_the_kafka_backend():
 
 
 async def test_the_list_before_start_is_still_loading():
-    assert await _backend().states(1.0) == LOADING
+    assert await _backend().states(timeout_s=1.0) == LOADING
 
 
 async def test_the_list_of_an_empty_replay_is_no_message(tmp_path):
     backend = _backend(_write(tmp_path / "feed.ndjson"))
     await backend.start()
-    assert await backend.states(1.0) == EMPTY
+    assert await backend.states(timeout_s=1.0) == EMPTY
 
 
 @pytest.mark.usefixtures("load_moment")
@@ -474,14 +478,14 @@ async def test_the_list_holds_every_channel_its_counts_and_the_load_moment():
     backend = _backend()
     await backend.start()
 
-    states = await backend.states(1.0)
+    states = await backend.states(timeout_s=1.0)
 
-    assert {row.channel: row.path for row in states.rows} == {
+    assert {row.address: row.path for row in states.rows} == {
         PV: f"/Demo/RF/{PV}",
         ACKED_PV: f"/Demo/Vac/{ACKED_PV}",
     }
     for row in states.rows:
-        assert row.state == await backend.state_for(row.channel, 1.0)
+        assert row.state == await backend.state_for(row.address, timeout_s=1.0)
     assert dict(states.counts) == {"MAJOR": 1, "MINOR": 1}
     assert states.stale is False
     assert states.last_contact == "2026-11-06T12:00:00.000Z"
@@ -491,7 +495,7 @@ async def test_the_list_of_a_stopped_feed_is_stale():
     backend = _backend(STOPPED_FEED)
     await backend.start()
 
-    states = await backend.states(1.0)
+    states = await backend.states(timeout_s=1.0)
     assert states.stale is True
     assert all(row.state.stale for row in states.rows)
 
@@ -501,8 +505,8 @@ async def test_a_list_read_during_the_load_waits_for_it(held_load):
     backend = _backend()
     starting = asyncio.create_task(backend.start())
     await asyncio.to_thread(entered.wait, 5.0)
-    assert await backend.states(0.05) == LOADING
+    assert await backend.states(timeout_s=0.05) == LOADING
 
     release.set()
     await starting
-    assert len((await backend.states(1.0)).rows) == 2
+    assert len((await backend.states(timeout_s=1.0)).rows) == 2

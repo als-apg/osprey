@@ -153,6 +153,26 @@ class TestTheView:
         with pytest.raises(SystemExit, match=str(tmp_path / VIEW_RELPATH.name / ADDRESSES_FILE)):
             entrypoint.main()
 
+    @pytest.mark.usefixtures("recorded")
+    def test_a_missing_view_file_is_refused_by_its_path(self, served: Path) -> None:
+        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
+        variables.unlink()
+
+        with pytest.raises(SystemExit) as caught:
+            entrypoint.main()
+
+        assert str(caught.value.code).startswith(f"FATAL: no simulator view file at {variables}.")
+
+    @pytest.mark.usefixtures("recorded")
+    def test_a_view_file_that_is_not_json_is_refused_by_its_path(self, served: Path) -> None:
+        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
+        variables.write_text("{", encoding="utf-8")
+
+        with pytest.raises(SystemExit) as caught:
+            entrypoint.main()
+
+        assert str(caught.value.code).startswith(f"FATAL: {variables} is not JSON")
+
     def test_a_version_one_view_exits_before_ready_naming_rebuild(
         self, served: Path, recorded: _Recorded, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -254,9 +274,11 @@ class TestTheInstance:
             entrypoint.main()
 
     def test_the_instances_are_the_composites_served_ones(self) -> None:
-        from osprey_connectors.simulation.composite import _INSTANCES
+        from typing import get_args
 
-        assert set(entrypoint.VA_INSTANCES) == set(_INSTANCES) - {"inprocess"}
+        from osprey_connectors.simulation.composite import ServingInstance
+
+        assert set(entrypoint.VA_INSTANCES) == set(get_args(ServingInstance)) - {"inprocess"}
 
 
 class TestTheTick:

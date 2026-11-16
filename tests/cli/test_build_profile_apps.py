@@ -26,7 +26,7 @@ from osprey.cli.build_profile_load import (
     reject_unknown_kind_keys,
 )
 from osprey.cli.profile_root import ProfileKind
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _MANIFEST = {"name": "knob", "containers": {"knob": {"runtime": "osprey"}}}
 
@@ -312,7 +312,7 @@ def test_a_manifest_refusal_is_a_profile_error_to_every_other_reader(tmp_path: P
     # A command that only asks whether the profile resolves (a profile card, the
     # scaffold, a tolerant loop over logins) catches BuildProfileError or
     # ConfigurationError; the refusal reaches it as one, never as a traceback.
-    from osprey_connectors.errors import ConfigurationError
+    from osprey.errors import ConfigurationError
 
     repo = _repo(tmp_path, {"apps": {"knob": {}}})
     _write_yaml(repo / "apps" / "knob" / "app.yml", {**_MANIFEST, "colour": "blue"})

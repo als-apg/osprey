@@ -4,7 +4,7 @@ Rule 3 of :mod:`osprey_connectors.control_context`: the person's gesture is the
 only write that moves ``switch`` and ``switch_epoch``, and it reads, compares and
 writes in one hold of the record lock. A machine stands at off, asked or allowed.
 A widening names the epoch the person saw and is refused with
-:class:`~osprey_connectors.control_context.StoppedSince` when a stop, or a lost
+:class:`~osprey_connectors.control_context.StoppedSinceError` when a stop, or a lost
 record, came after it; a narrowing or a no-op never refuses; turning every machine
 off clears every key and moves the epoch forward. What is widening is decided
 inside the lock against the map on disk, not by what the person thought they saw.
@@ -20,7 +20,8 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context, posture_store, refusals
-from osprey_connectors.control_context import StoppedSince, set_switch, switch_position
+from osprey_connectors.control_context import StoppedSinceError, set_switch, switch_position
+from osprey_connectors.errors import StateLockedError, StateUnavailableError
 from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
@@ -92,7 +93,7 @@ def test_a_turn_on_with_a_newer_epoch_than_the_record_is_refused_and_writes_noth
     epoch = _epoch(path)
     before = path.read_bytes()
 
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked", epoch=epoch + 10)
 
     assert caught.value.epoch == epoch
@@ -159,7 +160,7 @@ class TestEachWidening:
         path = self._record(data_root, before_position)
         epoch = _epoch(path)
         before = path.read_bytes()
-        with pytest.raises(StoppedSince) as caught:
+        with pytest.raises(StoppedSinceError) as caught:
             set_switch(["va"], state, epoch=epoch + offset)
         assert caught.value.epoch == epoch
         assert path.read_bytes() == before
@@ -168,7 +169,7 @@ class TestEachWidening:
         path = self._record(data_root, before_position)
         epoch = _epoch(path)
         before = path.read_bytes()
-        with pytest.raises(StoppedSince) as caught:
+        with pytest.raises(StoppedSinceError) as caught:
             set_switch(["va"], state)
         assert caught.value.epoch == epoch
         assert path.read_bytes() == before
@@ -210,7 +211,7 @@ def test_a_move_believed_to_be_a_narrowing_that_raced_all_off_is_refused(data_ro
     path = write_control_context(data_root, switch={"va": "allowed"})
     seen = _epoch(path)
     set_switch("all", "off")
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked")
     assert caught.value.epoch == _epoch(path) > seen
     assert caught.value.stamped is False
@@ -221,7 +222,7 @@ def test_one_widening_name_gates_the_whole_call(data_root):
     path = write_control_context(data_root, switch={"live": "allowed"})
     epoch = _epoch(path)
     before = path.read_bytes()
-    with pytest.raises(StoppedSince):
+    with pytest.raises(StoppedSinceError):
         set_switch(["live", "va"], "asked")
     assert path.read_bytes() == before
 
@@ -335,7 +336,7 @@ def test_on_to_allowed_is_a_widening(data_root):
     path = write_control_context(data_root)
     epoch = _epoch(path)
     _write_legacy(path, {"live": "on"})
-    with pytest.raises(StoppedSince):
+    with pytest.raises(StoppedSinceError):
         set_switch(["live"], "allowed")
     set_switch(["live"], "allowed", epoch=epoch)
     assert _payload(path)["switch"] == {"live": "allowed"}
@@ -384,7 +385,7 @@ def test_a_turn_on_begun_before_all_off_is_refused(data_root):
     path = write_control_context(data_root)
     seen = _epoch(path)
     set_switch("all", "off")
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked", epoch=seen)
     assert caught.value.epoch == _epoch(path) > seen
     # Not a stamp: the chip re-renders and needs a new click, so the turn-on stays off.
@@ -408,7 +409,7 @@ def test_a_turn_on_with_an_older_epoch_is_refused_and_writes_nothing(data_root):
     epoch = _epoch(path)
     before = path.read_bytes()
 
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked", epoch=epoch - 1)
 
     assert caught.value.epoch == epoch
@@ -430,7 +431,7 @@ def _write_epoch_less(path: Path, switch: dict | None = None) -> None:
 def test_a_missing_epoch_never_compares_as_older(offered):
     path = control_context.record_path()
     _write_epoch_less(path)
-    with pytest.raises(StoppedSince):
+    with pytest.raises(StoppedSinceError):
         set_switch(["live"], "asked", epoch=offered)
     assert _payload(path)["switch"] == {}
 
@@ -441,7 +442,7 @@ def test_a_turn_on_against_an_epoch_less_record_stamps_one_and_the_retry_succeed
     _write_epoch_less(path, switch={"va": "asked"})
     before = time.time_ns()
 
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["live"], "asked", epoch=before)
 
     stamped = _payload(path)["switch_epoch"]
@@ -461,7 +462,7 @@ def test_a_turn_on_against_an_epoch_less_record_stamps_one_and_the_retry_succeed
 def test_a_widening_with_no_epoch_on_an_epoch_less_record_stamps_one():
     path = control_context.record_path()
     _write_epoch_less(path)
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["live"], "allowed")
     assert caught.value.stamped is True
     assert caught.value.epoch == _epoch(path)
@@ -498,7 +499,7 @@ def test_a_widening_without_an_epoch_is_stopped_since_and_writes_nothing(data_ro
     path = write_control_context(data_root)
     epoch = _epoch(path)
     before = path.read_bytes()
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], state)
     assert caught.value.epoch == epoch
     assert caught.value.stamped is False
@@ -525,7 +526,7 @@ def test_the_legacy_gesture_word_on_is_taken_as_asked_and_never_stored(data_root
 def test_the_legacy_gesture_word_on_widens_like_asked(data_root):
     path = write_control_context(data_root)
     before = path.read_bytes()
-    with pytest.raises(StoppedSince):
+    with pytest.raises(StoppedSinceError):
         set_switch(["va"], "on")
     assert path.read_bytes() == before
 
@@ -591,8 +592,10 @@ def test_no_agent_data_root_is_a_runtime_error(monkeypatch):
     monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(control_context, "record_path", lambda: None)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(StateUnavailableError) as caught:
         set_switch("all", "off")
+    assert caught.value.path is None
+    assert isinstance(caught.value, RuntimeError)
 
 
 # --- missing and lost records --------------------------------------------------------------
@@ -611,7 +614,7 @@ def test_off_on_a_missing_record_writes_nothing_and_returns_none(targets, state)
 @pytest.mark.usefixtures("data_root")
 def test_on_on_a_missing_record_is_refused():
     path = control_context.record_path()
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked", epoch=time.time_ns())
     assert caught.value.epoch is None
     assert caught.value.stamped is False
@@ -623,7 +626,7 @@ def test_on_on_a_missing_record_is_refused():
 @pytest.mark.parametrize("offered", [None, 1], ids=["no-epoch", "any-epoch"])
 def test_a_widening_on_a_missing_record_is_refused(state, offered):
     path = control_context.record_path()
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], state, epoch=offered)
     assert caught.value.epoch is None
     assert not path.exists()
@@ -637,7 +640,7 @@ def test_off_on_an_unreadable_record_writes_nothing(data_root, damage):
     assert set_switch("all", "off") is None
     assert set_switch(["live"], "off") is None
     assert path.read_bytes() == before
-    with pytest.raises(StoppedSince):
+    with pytest.raises(StoppedSinceError):
         set_switch(["live"], "asked", epoch=time.time_ns())
     assert path.read_bytes() == before
 
@@ -661,7 +664,7 @@ def test_a_turn_on_begun_before_the_record_was_lost_is_refused(data_root, damage
     control_context.write_record(control_context.ControlContext(target="live", generation=2))
     assert _epoch(path) > seen
 
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["live"], "asked", epoch=seen)
     assert _payload(path)["switch"] == {}
     # The gesture retried with the new epoch goes through.
@@ -681,7 +684,7 @@ def test_the_gesture_waits_for_the_lock_and_refuses_after_a_bounded_wait(data_ro
     fd = os.open(path.with_name(path.name + ".lock"), os.O_RDWR)
     fcntl.flock(fd, fcntl.LOCK_EX)
     try:
-        with pytest.raises(RuntimeError, match="locked"):
+        with pytest.raises(StateLockedError, match="locked"):
             set_switch("all", "off")
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -777,10 +780,10 @@ def test_the_fixture_switch_goes_through_the_gesture(data_root, monkeypatch):
 
 def test_stopped_since_carries_its_epoch_and_reason():
     """A route answers a stale gesture from attributes, never by parsing text."""
-    error = StoppedSince(epoch=42)
+    error = StoppedSinceError(epoch=42)
     assert error.epoch == 42 and error.reason == "stopped_since"
     assert error.stamped is False
-    assert StoppedSince(epoch=42, stamped=True).stamped is True
+    assert StoppedSinceError(epoch=42, stamped=True).stamped is True
     # Not a RuntimeError: "store unavailable" handlers must not swallow it.
     assert not isinstance(error, RuntimeError)
 
@@ -790,7 +793,7 @@ def test_the_fixture_retry_helpers_still_arm_after_a_refusal(data_root, offset):
     """The retry the fixtures use — re-offer the refusal's epoch — lands under equality."""
     path = write_control_context(data_root)
     epoch = _epoch(path)
-    with pytest.raises(StoppedSince) as caught:
+    with pytest.raises(StoppedSinceError) as caught:
         set_switch(["va"], "asked", epoch=epoch + offset)
     assert caught.value.epoch == epoch
     set_switch(["va"], "asked", epoch=caught.value.epoch)

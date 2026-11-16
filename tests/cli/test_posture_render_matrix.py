@@ -40,8 +40,8 @@ import yaml
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.build_profile_resolve import resolve_build_document, resolve_build_profile
+from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import tier_writes
 from tests.cli.test_killswitch_on_tier import _DUMB, _FACILITY, _build, _settings
 

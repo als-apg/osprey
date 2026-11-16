@@ -24,8 +24,8 @@ from tests._canopy_contract import OTHER_COMMIT
 from osprey.cli.build_lifecycle import _run_lifecycle_phase
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.profile_conventions import unknown_root_entries
+from osprey.errors import BuildProfileError
 from osprey.integrations.canopy import LIBRARY_SUBPATH, PROVEN_COMMITS, library, stage
-from osprey_connectors.errors import BuildProfileError
 
 CANOPY_WHEEL = "canopy-0.4.0-py3-none-any.whl"
 PYDM_WHEEL = "pydmconverter-1.2.0-py3-none-any.whl"

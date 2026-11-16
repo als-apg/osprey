@@ -103,31 +103,32 @@ class TestConnectorFactory:
             async def disconnect(self):
                 pass
 
-            async def read_channel(self, channel_address, timeout=None):
+            async def read_channel(self, address, *, timeout_s=None):
                 pass
 
             async def write_channel(
                 self,
-                channel_address,
+                address,
                 value,
-                timeout=None,
+                *,
+                timeout_s=None,
                 confirm=None,
             ):
                 pass
 
-            async def read_multiple_channels(self, channel_addresses, timeout=None):
+            async def read_multiple_channels(self, addresses, *, timeout_s=None):
                 pass
 
-            async def subscribe(self, channel_address, callback):
+            async def subscribe(self, address, callback):
                 pass
 
             async def unsubscribe(self, subscription_id):
                 pass
 
-            async def get_metadata(self, channel_address):
+            async def get_metadata(self, address):
                 pass
 
-            async def validate_channel(self, channel_address):
+            async def validate_channel(self, address):
                 pass
 
         # Register it

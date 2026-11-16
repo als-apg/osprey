@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from osprey.runtime import (
     _write_channel_async,
@@ -58,13 +59,13 @@ class RecordingConnector(ControlSystemConnector):
     def _writes_enabled(self) -> bool:
         return True
 
-    async def write_channel(self, channel_address: str, value, **kwargs):
+    async def write_channel(self, address: str, value, **kwargs):
         """Mock write operation."""
-        self.write_calls.append((channel_address, value, kwargs))
+        self.write_calls.append((address, value, kwargs))
         if self.canned_result is not None:
             return self.canned_result
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
             observed_value=value,
@@ -77,9 +78,9 @@ class RecordingConnector(ControlSystemConnector):
             results.append(await self.write_channel(address, value, **kwargs))
         return results
 
-    async def read_channel(self, channel_address: str, **kwargs):
+    async def read_channel(self, address: str, **kwargs):
         """Mock read operation."""
-        self.read_calls.append((channel_address, kwargs))
+        self.read_calls.append((address, kwargs))
         channel_value = MagicMock()
         channel_value.value = 42.0
         return channel_value
@@ -91,18 +92,18 @@ class RecordingConnector(ControlSystemConnector):
     # --- Unused abstract-method stubs -------------------------------------
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
-    async def subscribe(self, channel_address, callback) -> str:
+    async def subscribe(self, address, callback) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         raise NotImplementedError
 
 
@@ -150,7 +151,7 @@ def test_write_channel_failure():
     """A write the control system could not deliver raises ChannelWriteFailedError."""
     mock_connector = RecordingConnector(
         canned_result=ChannelWriteResult(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value_written=42.0,
             outcome=WriteOutcome.FAILED,
             error_message="Write failed",
@@ -182,7 +183,7 @@ class TestRuntimeWriteConfirmation:
         """A MISMATCH outcome raises with both the sent and observed values."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.MISMATCH,
                 observed_value=0.0,
@@ -199,7 +200,7 @@ class TestRuntimeWriteConfirmation:
                 write_channel("TEST:PV", 42.0)
 
             assert excinfo.value.reason == "MISMATCH"
-            assert excinfo.value.channel_address == "TEST:PV"
+            assert excinfo.value.address == "TEST:PV"
             assert excinfo.value.observed_value == 0.0
             # Both numbers must be nameable from the exception alone.
             assert "42.0" in str(excinfo.value)
@@ -210,7 +211,7 @@ class TestRuntimeWriteConfirmation:
         """The multi-channel path enforces the same contract as the single path."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV1",
+                address="TEST:PV1",
                 value_written=1.0,
                 outcome=WriteOutcome.MISMATCH,
                 observed_value=9.0,
@@ -232,7 +233,7 @@ class TestRuntimeWriteConfirmation:
         """A confirming re-read that itself failed (UNCONFIRMED) still raises."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message="readback timed out",
@@ -254,7 +255,7 @@ class TestRuntimeWriteConfirmation:
         """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.REFUSED,
                 error_message="writes are disabled",
@@ -278,7 +279,7 @@ class TestRuntimeWriteConfirmation:
         never raised on."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.CONFIRMED,
                 observed_value=42.0,
@@ -299,7 +300,7 @@ class TestRuntimeWriteConfirmation:
         """confirm=False means nothing was checked (UNREQUESTED): the write returns."""
         mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.UNREQUESTED,
             )
@@ -358,7 +359,7 @@ def test_write_channels_raises_for_the_refused_write_not_one_it_held_back():
             reasons = {"PV1": "BATCH_REFUSED", "PV2": "CHANNEL_NOT_FOUND", "PV3": "BATCH_REFUSED"}
             return [
                 ChannelWriteResult(
-                    channel_address=address,
+                    address=address,
                     value_written=value,
                     outcome=WriteOutcome.REFUSED,
                     refusal_reason=reasons[address],
@@ -375,7 +376,7 @@ def test_write_channels_raises_for_the_refused_write_not_one_it_held_back():
         with pytest.raises(ChannelWriteBlockedError) as info:
             write_channels({"PV1": 1.0, "PV2": 2.0, "PV3": 3.0})
 
-    assert (info.value.channel_address, info.value.reason) == ("PV2", "CHANNEL_NOT_FOUND")
+    assert (info.value.address, info.value.reason) == ("PV2", "CHANNEL_NOT_FOUND")
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
@@ -459,7 +460,7 @@ class TestRuntimeLimitsValidation:
 
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+                address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
         validator = LimitsValidator(test_db, {"mode": "exclusive"})
@@ -473,7 +474,7 @@ class TestRuntimeLimitsValidation:
                 await _write_channel_async("TEST:PV", 150.0)
 
             assert mock_connector.write_calls == []
-            assert exc_info.value.channel_address == "TEST:PV"
+            assert exc_info.value.address == "TEST:PV"
             assert exc_info.value.attempted_value == 150.0
 
 
@@ -491,14 +492,14 @@ class TestRuntimeStepCheckReader:
         return LimitsValidator(
             {
                 "TEST:PV": ChannelLimitsConfig(
-                    channel_address="TEST:PV",
+                    address="TEST:PV",
                     min_value=0.0,
                     max_value=100.0,
                     max_step=2.0,
                     writable=True,
                 ),
                 "OTHER:PV": ChannelLimitsConfig(
-                    channel_address="OTHER:PV", min_value=0.0, max_value=100.0, writable=True
+                    address="OTHER:PV", min_value=0.0, max_value=100.0, writable=True
                 ),
             },
             {"mode": "exclusive"},
@@ -508,8 +509,8 @@ class TestRuntimeStepCheckReader:
     def _connector(reads):
         class ReadingConnector(RecordingConnector):
             def current_value_reader(self):
-                def read_current(channel_address):
-                    reads.append(channel_address)
+                def read_current(address):
+                    reads.append(address)
                     return 50.0
 
                 return read_current
@@ -597,7 +598,7 @@ class TestRuntimeStepCheckReader:
 
         test_db = {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
+                address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
         validator = LimitsValidator(test_db, {"mode": "exclusive"})
@@ -628,17 +629,17 @@ class PerChannelConnector(RecordingConnector):
         super().__init__()
         self.outcomes = outcomes
 
-    async def write_channel(self, channel_address: str, value, **kwargs):
-        self.write_calls.append((channel_address, value, kwargs))
-        outcome = self.outcomes.get(channel_address, WriteOutcome.CONFIRMED)
+    async def write_channel(self, address: str, value, **kwargs):
+        self.write_calls.append((address, value, kwargs))
+        outcome = self.outcomes.get(address, WriteOutcome.CONFIRMED)
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=outcome,
             observed_value=value if outcome is WriteOutcome.CONFIRMED else None,
             refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
             error_message=(
-                f"Write to '{channel_address}' {outcome}"
+                f"Write to '{address}' {outcome}"
                 if outcome in (WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED)
                 else None
             ),
@@ -673,12 +674,12 @@ class BatchReadConnector(RecordingConnector):
         self.batch_calls: list[tuple[list[str], float | None]] = []
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
-        self.batch_calls.append((list(channel_addresses), timeout))
+        self.batch_calls.append((list(addresses), timeout_s))
         return {
             address: ChannelValue(value=self.table[address], timestamp=datetime.now())
-            for address in channel_addresses
+            for address in addresses
             if address in self.table
         }
 
@@ -701,11 +702,11 @@ class CausedReadConnector(BatchReadConnector):
         self.raises = raises
         self.reread = reread or {}
 
-    async def read_channel(self, channel_address: str, **kwargs):
-        self.read_calls.append((channel_address, kwargs))
-        if channel_address in self.raises:
-            raise self.raises[channel_address]
-        return ChannelValue(value=self.reread.get(channel_address), timestamp=datetime.now())
+    async def read_channel(self, address: str, **kwargs):
+        self.read_calls.append((address, kwargs))
+        if address in self.raises:
+            raise self.raises[address]
+        return ChannelValue(value=self.reread.get(address), timestamp=datetime.now())
 
 
 def _patched_factory(connector: ControlSystemConnector):
@@ -767,7 +768,7 @@ def test_write_observer_not_called_when_limits_net_refuses():
     runtime._limits_validator = LimitsValidator(
         {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0.0, max_value=10.0, writable=True
+                address="TEST:PV", min_value=0.0, max_value=10.0, writable=True
             )
         },
         {"mode": "exclusive"},
@@ -828,7 +829,7 @@ def test_write_observer_multi_channel_notifies_every_result_before_raising():
     with _patched_factory(connector):
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             write_channels({"A:PV": 1.0, "B:PV": 2.0, "C:PV": 3.0})
-    assert excinfo.value.channel_address == "B:PV"
+    assert excinfo.value.address == "B:PV"
     assert events == [
         ("A:PV", "attempt"),
         ("B:PV", "attempt"),
@@ -848,7 +849,7 @@ def test_write_observer_multi_channel_raises_first_failure():
     with _patched_factory(connector):
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             write_channels({"A:PV": 1.0, "B:PV": 2.0})
-    assert excinfo.value.channel_address == "A:PV"
+    assert excinfo.value.address == "A:PV"
     # A refused channel reached no wire: its outcome is ``refused``, never sent.
     assert events == [
         ("A:PV", "attempt"),
@@ -980,16 +981,16 @@ class TestRecordWrites:
         self, refusal
     ):
         class RaisingConnector(RecordingConnector):
-            async def write_channel(self, channel_address: str, value, **kwargs):
-                if channel_address == "B:PV":
+            async def write_channel(self, address: str, value, **kwargs):
+                if address == "B:PV":
                     if refusal is ChannelLimitsViolationError:
                         raise ChannelLimitsViolationError(
-                            channel_address, value, "MAX_EXCEEDED", "above max"
+                            address, value, "MAX_EXCEEDED", "above max"
                         )
                     raise ChannelWriteBlockedError(
-                        channel_address, "CONTROL_SYSTEM_REFUSED", message="refused"
+                        address, "CONTROL_SYSTEM_REFUSED", message="refused"
                     )
-                return await super().write_channel(channel_address, value, **kwargs)
+                return await super().write_channel(address, value, **kwargs)
 
         with _patched_factory(RaisingConnector()), record_writes() as records:
             with pytest.raises(refusal):
@@ -1007,7 +1008,7 @@ class TestRecordWrites:
         runtime._limits_validator = LimitsValidator(
             {
                 "A:PV": ChannelLimitsConfig(
-                    channel_address="A:PV", min_value=0.0, max_value=10.0, writable=True
+                    address="A:PV", min_value=0.0, max_value=10.0, writable=True
                 )
             },
             {"mode": "exclusive"},
@@ -1189,8 +1190,8 @@ class TestReadChannels:
 
     def test_read_channels_connector_exception_propagates(self):
         class Exploding(BatchReadConnector):
-            async def read_multiple_channels(self, channel_addresses, timeout=None):
-                raise ConnectionError(f"link down reading {channel_addresses} ({timeout=})")
+            async def read_multiple_channels(self, addresses, *, timeout_s=None):
+                raise ConnectionError(f"link down reading {addresses} ({timeout_s=})")
 
         with _patched_factory(Exploding({})), pytest.raises(ConnectionError):
             read_channels(["A"])
@@ -1211,7 +1212,7 @@ class TestReadChannels:
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError):
             read_channels(["A", "B", "C"], timeout=2.5)
         assert sorted(address for address, _ in connector.read_calls) == ["B", "C"]
-        assert all(kwargs == {"timeout": 2.5} for _, kwargs in connector.read_calls)
+        assert all(kwargs == {"timeout_s": 2.5} for _, kwargs in connector.read_calls)
 
     def test_read_channels_chains_the_first_failed_channel_in_request_order(self):
         denied = PermissionError("D denied")
@@ -1340,7 +1341,7 @@ class TestChannelLimits:
         assert isinstance(other, ChannelLimitsConfig)
         assert (other.min_value, other.max_value, other.max_step) == (0.0, 10.0, None)
 
-    def test_channel_limits_returns_a_copy_the_caller_cannot_weaken(self, tmp_path):
+    def test_channel_limits_returns_a_record_the_caller_cannot_weaken(self, tmp_path):
         import osprey.runtime as runtime
         from osprey.runtime import channel_limits
 
@@ -1349,8 +1350,10 @@ class TestChannelLimits:
 
         cfg = channel_limits("MAG:QF:SP")
         assert cfg is not None
-        cfg.max_step = None
-        cfg.max_value = 1e9
+        with pytest.raises(ValidationError, match="frozen"):
+            cfg.max_step = None
+        with pytest.raises(ValidationError, match="frozen"):
+            cfg.max_value = 1e9
 
         held = validator.limits["MAG:QF:SP"]
         assert (held.max_value, held.max_step) == (5.0, 0.5)

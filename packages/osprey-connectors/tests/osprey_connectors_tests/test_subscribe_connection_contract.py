@@ -1,4 +1,4 @@
-"""``subscribe(channel_address, callback, *, on_connection=None)`` across connectors.
+"""``subscribe(address, callback, *, on_connection=None)`` across connectors.
 
 The base class declares it; EPICS (CA and PVA) reports connection state through
 it; DOOCS and TANGO accept and ignore it; the connector-host IPC proxy still has
@@ -40,7 +40,7 @@ CONNECTORS = [
 @pytest.mark.parametrize("cls", CONNECTORS, ids=lambda c: c.__name__)
 def test_on_connection_is_keyword_only_and_optional(cls):
     params = inspect.signature(cls.subscribe).parameters
-    assert list(params)[:3] == ["self", "channel_address", "callback"]
+    assert list(params)[:3] == ["self", "address", "callback"]
     on_connection = params["on_connection"]
     assert on_connection.kind is inspect.Parameter.KEYWORD_ONLY
     assert on_connection.default is None

@@ -46,6 +46,7 @@ from osprey_connectors.control_system import _epics_connector as epics_connector
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, InlineCaLoop
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -234,29 +235,33 @@ class _ScriptedFake(FakeConnector):
         super().__init__()
         type(self).instances.append(self)
 
-    def _read_value(self, channel_address: str) -> ChannelValue:
-        reading = super()._read_value(channel_address)
-        if channel_address == "ALARMED":
-            reading.metadata = ChannelMetadata(alarm_severity=2, alarm_status="HIHI")
-        if channel_address == "CURRENT":
-            reading.metadata = ChannelMetadata(units="mA", precision=3)
-        if channel_address == "MODE":
-            reading.metadata = ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+    def _read_value(self, address: str) -> ChannelValue:
+        reading = super()._read_value(address)
+        if address == "ALARMED":
+            return evolve(reading, metadata=ChannelMetadata(alarm_severity=2, alarm_status="HIHI"))
+        if address == "CURRENT":
+            return evolve(reading, metadata=ChannelMetadata(units="mA", precision=3))
+        if address == "MODE":
+            return evolve(
+                reading, metadata=ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+            )
         return reading
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        if channel_address == "HANGS":
+    async def read_channel(self, address: str, *, timeout_s: float | None = None):
+        if address == "HANGS":
             await asyncio.Event().wait()
-        if channel_address.startswith("TOGETHER"):
+        if address.startswith("TOGETHER"):
             # A PVA read's shape: a worker thread for the whole read.
             await asyncio.to_thread(type(self).rendezvous.wait)
-        if channel_address == "HUGE":
+        if address == "HUGE":
             return ChannelValue(value=[0.0] * 100_000, timestamp=datetime.now(UTC))
-        if channel_address == "NO_TIMESTAMP":
-            reading = await super().read_channel(channel_address, timeout)
-            reading.timestamp = None
-            return reading
-        return await super().read_channel(channel_address, timeout)
+        if address == "NO_TIMESTAMP":
+            reading = await super().read_channel(address, timeout_s=timeout_s)
+            # A reading no connector can build: skips the record's validation.
+            return ChannelValue.model_construct(
+                value=reading.value, timestamp=None, metadata=reading.metadata
+            )
+        return await super().read_channel(address, timeout_s=timeout_s)
 
     async def write_channel(self, *args: Any, **kwargs: Any):
         type(self).writes += 1

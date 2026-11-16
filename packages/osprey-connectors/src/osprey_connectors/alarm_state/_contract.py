@@ -25,7 +25,7 @@ def severity_rank(severity: object) -> int:
 
 
 class AlarmStateRecord(FrozenModel):
-    """What one PV's alarm is now. The backend alone sets ``stale``; others pass it on."""
+    """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on."""
 
     severity: str | None = None
     status: str | None = None
@@ -39,12 +39,12 @@ class AlarmStateRecord(FrozenModel):
 class AlarmStateRow(FrozenModel):
     """One channel the feed holds a state for.
 
-    ``channel`` is the channel address; ``path`` is the alarm-tree place the state
+    ``address`` is the channel address; ``path`` is the alarm-tree place the state
     was reported under, ``None`` for a backend with no tree. Tango alarm devices
     and DOOCS alarm servers fill ``path`` where they keep a hierarchy.
     """
 
-    channel: str
+    address: str
     path: str | None
     state: AlarmStateRecord
 
@@ -80,7 +80,7 @@ class AlarmStates(FrozenModel):
 
 
 class AlarmConfigRecord(FrozenModel):
-    """One PV's place in the alarm tree."""
+    """One channel's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
     path: str | None = None
@@ -113,24 +113,26 @@ class AlarmState(_Backend, ABC):
 
     @abstractmethod
     async def state_for(
-        self, channel: str, deadline: float
+        self, address: str, *, timeout_s: float
     ) -> AlarmStateRecord | Unavailable | None:
-        """The alarm state of *channel*, waiting up to *deadline* seconds for catch-up.
+        """The alarm state of *address*, waiting up to *timeout_s* seconds for catch-up.
 
         ``None`` is a caught-up feed that holds none for it.
         """
 
     @abstractmethod
-    async def states(self, deadline: float) -> AlarmStates | Unavailable:
-        """Every channel's alarm state, waiting up to *deadline* seconds for catch-up.
+    async def states(self, *, timeout_s: float) -> AlarmStates | Unavailable:
+        """Every channel's alarm state, waiting up to *timeout_s* seconds for catch-up.
 
         Before catch-up it answers as :meth:`state_for` does, never an empty list.
         """
 
     @abstractmethod
-    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
-        """The live alarm configuration of *channel*, waiting up to *deadline* seconds for catch-up."""
+    async def config_for(
+        self, address: str, *, timeout_s: float
+    ) -> AlarmConfigRecord | Unavailable:
+        """The live alarm configuration of *address*, waiting up to *timeout_s* seconds for catch-up."""
 
     @abstractmethod
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether the service answers: the evidence in plain words, or why not."""

@@ -22,7 +22,7 @@ from osprey.cli import build_profile_load
 from osprey.cli.build_persistence import _persist_mcp_servers
 from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM, _parse_profile
 from osprey.cli.build_profile_schema import McpServerDef
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _LOADER_LOGGER = "osprey.cli.build_profile_load"
 

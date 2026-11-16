@@ -201,7 +201,7 @@ class TestNtEnumMapping:
         assert result.value == 2
         assert not isinstance(result.value, str)
         assert result.metadata.enum_label == "On"
-        assert result.metadata.enum_labels == ["Off", "Standby", "On"]
+        assert result.metadata.enum_labels == ("Off", "Standby", "On")
         assert result.metadata.raw_metadata["enum_index"] == 2
         assert result.metadata.raw_metadata["enum_choices"] == ["Off", "Standby", "On"]
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTEnum:1.0"
@@ -386,7 +386,7 @@ class TestReadChannelDispatch:
 
         monkeypatch.setattr(connector, "_read_channel_ca", no_channel_access)
 
-        result = await connector.read_channel(PVA_ADDRESS, timeout=1.5)
+        result = await connector.read_channel(PVA_ADDRESS, timeout_s=1.5)
 
         assert get.calls == [{"name": PVA_ADDRESS, "timeout": 1.5}]
         assert result.value.dtype == np.uint16
@@ -458,7 +458,7 @@ class TestPvaErrorTranslation:
         with pytest.raises(ChannelUnreachableError) as excinfo:
             await connector.read_channel(PVA_ADDRESS)
 
-        assert excinfo.value.channel_address == PVA_ADDRESS
+        assert excinfo.value.address == PVA_ADDRESS
         assert PVA_ADDRESS in str(excinfo.value)
         assert "channel disconnected" in str(excinfo.value)
 
@@ -480,7 +480,7 @@ class TestPvaErrorTranslation:
         connector = _pva_connector(get=get)
 
         with pytest.raises(ChannelUnreachableError) as excinfo:
-            await connector.read_channel(PVA_ADDRESS, timeout=2.0)
+            await connector.read_channel(PVA_ADDRESS, timeout_s=2.0)
 
         message = str(excinfo.value)
         assert PVA_ADDRESS in message

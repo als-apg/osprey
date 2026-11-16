@@ -16,7 +16,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.archive_targets import archive_targets, archive_withheld
-from osprey_connectors.archiver import PROCESSING_MODES
+from osprey_connectors.archiver import PROCESSING_MODES, ProcessingMode
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.refusals import KIND_WORDS
 from osprey_connectors.simulation.values import LABELLED_TYPES, channel_labels
@@ -34,6 +34,9 @@ DEFAULT_AUTO_BIN_POINTS = 10_000
 #: fits. Scalar samples do not count against it — their volume is governed by
 #: the bin.
 WAVEFORM_ELEMENT_BUDGET = 32_000
+
+#: Each processing word a caller may send, as the mode the archiver takes.
+_PROCESSING_MODE: dict[str, ProcessingMode] = {mode: mode for mode in PROCESSING_MODES}
 
 #: The summary note a read carries whenever a waveform channel answered.
 WAVEFORM_NOTE = (
@@ -447,7 +450,8 @@ async def archiver_read(
             ["Provide at least one channel address."],
         )
 
-    if processing not in PROCESSING_MODES:
+    requested = _PROCESSING_MODE.get(processing)
+    if requested is None:
         return make_error(
             "validation_error",
             f"Unknown processing mode '{processing}'.",
@@ -570,11 +574,12 @@ async def archiver_read(
         # aggregate of option indices (a mean of 0 and 3) names no state.
         all_labels = _roster_labels(registry.config.raw)
         labels = {ch: all_labels[ch] for ch in unique_channels if ch in all_labels}
-        if processing == "raw" or not labels:
-            requests = [(unique_channels, processing)]
+        requests: list[tuple[list[str], ProcessingMode]]
+        if requested == "raw" or not labels:
+            requests = [(unique_channels, requested)]
         else:
             requests = [
-                ([ch for ch in unique_channels if ch not in labels], processing),
+                ([ch for ch in unique_channels if ch not in labels], requested),
                 ([ch for ch in unique_channels if ch in labels], "raw"),
             ]
             requests = [(chans, mode) for chans, mode in requests if chans]
@@ -594,7 +599,7 @@ async def archiver_read(
         per_channel: dict[str, dict[str, Any]] = {}
         total_points = 0
 
-        by_channel = dict(tuple(df.groupby("channel", sort=False)))
+        by_channel = dict(tuple(df.groupby("address", sort=False)))
         no_samples = df.iloc[:0]
 
         # A channel whose samples are sequences is a waveform. The budget is

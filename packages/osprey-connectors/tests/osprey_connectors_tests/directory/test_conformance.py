@@ -73,7 +73,7 @@ Answer = Callable[[str, str, Any], Any]
 
 _MEMORY_RECORD = DirectoryRecord(
     row=DirectoryRow(
-        name=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
+        address=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
     ),
     properties={"iocName": "rf1-cav"},
 )
@@ -84,13 +84,13 @@ class MemoryDirectory(ChannelDirectory):
 
     def _hits(self, query: DirectoryQuery) -> list[DirectoryRecord]:
         row = _MEMORY_RECORD.row
-        text = f"{row.name} {row.description}".casefold()
+        text = f"{row.address} {row.description}".casefold()
         matches = all(word.casefold() in text for word in query.words.split()) and (
-            not query.name or query.name.removeprefix("=") in row.name
+            not query.address_pattern or query.address_pattern.removeprefix("=") in row.address
         )
         return [_MEMORY_RECORD] if matches else []
 
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
+    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:  # noqa: ARG002
         hits = self._hits(query)
         return DirectoryPage(
             outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
@@ -101,20 +101,26 @@ class MemoryDirectory(ChannelDirectory):
             rows=[hit.row for hit in hits],
         )
 
-    async def count(self, query: DirectoryQuery, deadline: float) -> int:  # noqa: ARG002
+    async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int:  # noqa: ARG002
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002
-        return _MEMORY_RECORD if name == _MEMORY_RECORD.row.name else Outcome.NOT_LISTED
+    async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002
+        return _MEMORY_RECORD if address == _MEMORY_RECORD.row.address else Outcome.NOT_LISTED
 
-    async def property_names(self, deadline: float) -> list[str]:  # noqa: ARG002
+    async def property_names(self, *, timeout_s: float) -> list[str]:  # noqa: ARG002
         return sorted(_MEMORY_RECORD.properties)
 
-    async def property_values(self, name: str, prefix: str | None, deadline: float) -> list[str]:  # noqa: ARG002
-        value = _MEMORY_RECORD.properties.get(name)
+    async def property_values(
+        self,
+        property: str,
+        *,
+        prefix: str | None = None,
+        timeout_s: float,  # noqa: ARG002
+    ) -> list[str]:
+        value = _MEMORY_RECORD.properties.get(property)
         return [value] if value is not None and value.startswith(prefix or "") else []
 
-    async def probe(self, deadline: float) -> str:  # noqa: ARG002
+    async def probe(self, *, timeout_s: float) -> str:  # noqa: ARG002
         return "memory answered: 1 PV"
 
 
@@ -134,7 +140,7 @@ class Sent:
     path: str
     params: list[tuple[str, Any]]
     json_body: Any
-    deadline: float
+    timeout_s: float
 
 
 class RecordingTransport:
@@ -152,15 +158,15 @@ class RecordingTransport:
         *,
         params: Any = None,
         json_body: Any = None,
-        deadline: float,
+        timeout_s: float,
     ) -> Any:
         if not _is_read_or_search(method, path, json_body):
             self.violations.append(f"{method} {path}")
             pytest.fail(f"{method} {path} is neither a read nor a search")
         pairs = list(params.items() if isinstance(params, dict) else params or [])
-        self.sent.append(Sent(method, path, pairs, json_body, deadline))
-        if deadline <= 0:
-            return Unavailable(reason=f"no answer within {deadline:g} s")
+        self.sent.append(Sent(method, path, pairs, json_body, timeout_s))
+        if timeout_s <= 0:
+            return Unavailable(reason=f"no answer within {timeout_s:g} s")
         return self._answer(method, path, params)
 
 
@@ -448,34 +454,39 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
     since = datetime.now(UTC) - timedelta(days=30)
     if case.kind == "directory":
         return [
-            ("search", await backend.search(DirectoryQuery(words="cooling"), deadline)),
+            ("search", await backend.search(DirectoryQuery(words="cooling"), timeout_s=deadline)),
             (
                 "search",
-                await backend.search(DirectoryQuery(name=pv, page=1, page_size=5), deadline),
+                await backend.search(
+                    DirectoryQuery(address_pattern=pv, page=1, page_size=5), timeout_s=deadline
+                ),
             ),
-            ("count", await backend.count(DirectoryQuery(words="cooling"), deadline)),
-            ("describe", await backend.describe(pv, deadline)),
-            ("property_names", await backend.property_names(deadline)),
-            ("property_values", await backend.property_values("iocName", "rf", deadline)),
-            ("probe", await backend.probe(deadline)),
+            ("count", await backend.count(DirectoryQuery(words="cooling"), timeout_s=deadline)),
+            ("describe", await backend.describe(pv, timeout_s=deadline)),
+            ("property_names", await backend.property_names(timeout_s=deadline)),
+            (
+                "property_values",
+                await backend.property_values("iocName", prefix="rf", timeout_s=deadline),
+            ),
+            ("probe", await backend.probe(timeout_s=deadline)),
         ]
     if case.kind in ("alarm_log", "put_log"):
         answers = [
-            ("history", await backend.history(pv, None, 10, deadline)),
-            ("history", await backend.history(pv, since, 1, deadline)),
+            ("history", await backend.history(pv, None, 10, timeout_s=deadline)),
+            ("history", await backend.history(pv, since, 1, timeout_s=deadline)),
         ]
         if case.kind == "alarm_log":
-            answers.append(("config_for", await backend.config_for(pv, deadline)))
-        return [*answers, ("probe", await backend.probe(deadline))]
+            answers.append(("config_for", await backend.config_for(pv, timeout_s=deadline)))
+        return [*answers, ("probe", await backend.probe(timeout_s=deadline))]
     await backend.start()
     await backend.start()
     try:
         return [
-            ("state_for", await backend.state_for(pv, deadline)),
-            ("state_for", await backend.state_for(ABSENT_PV, deadline)),
-            ("states", await backend.states(deadline)),
-            ("config_for", await backend.config_for(pv, deadline)),
-            ("probe", await backend.probe(deadline)),
+            ("state_for", await backend.state_for(pv, timeout_s=deadline)),
+            ("state_for", await backend.state_for(ABSENT_PV, timeout_s=deadline)),
+            ("states", await backend.states(timeout_s=deadline)),
+            ("config_for", await backend.config_for(pv, timeout_s=deadline)),
+            ("probe", await backend.probe(timeout_s=deadline)),
         ]
     finally:
         await backend.aclose()
@@ -555,20 +566,22 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
     mode = "empty" if case.http else case.modes[0]
     built = await _build(case, mode, tmp_path, monkeypatch)
 
-    described = await built.backend.describe(ABSENT_PV, DEADLINE)
-    page = await built.backend.search(DirectoryQuery(words="nosuchword"), DEADLINE)
-    by_name = await built.backend.search(DirectoryQuery(name=f"={ABSENT_PV}"), DEADLINE)
+    described = await built.backend.describe(ABSENT_PV, timeout_s=DEADLINE)
+    page = await built.backend.search(DirectoryQuery(words="nosuchword"), timeout_s=DEADLINE)
+    by_name = await built.backend.search(
+        DirectoryQuery(address_pattern=f"={ABSENT_PV}"), timeout_s=DEADLINE
+    )
 
     assert described is Outcome.NOT_LISTED
-    assert (page.outcome, page.rows) == (Outcome.NO_MATCH, [])
-    assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, [])
+    assert (page.outcome, page.rows) == (Outcome.NO_MATCH, ())
+    assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, ())
 
 
 @pytest.mark.parametrize("case", HISTORY_CASES, ids=_ids(HISTORY_CASES))
 async def test_a_history_without_rows_is_no_match_never_not_listed(case, tmp_path, monkeypatch):
     built = await _build(case, "empty", tmp_path, monkeypatch)
 
-    page = await built.backend.history(case.pv, None, 10, DEADLINE)
+    page = await built.backend.history(case.pv, None, 10, timeout_s=DEADLINE)
 
     assert (page.outcome, list(page.rows)) == (Outcome.NO_MATCH, [])
 
@@ -585,12 +598,12 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
         {CF_CHANNELS: channels, CF_COUNT: Unavailable(reason=NO_ANSWER)}, []
     )
 
-    page = await built.backend.search(DirectoryQuery(words="cooling"), DEADLINE)
+    page = await built.backend.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
 
     assert page.outcome is Outcome.FOUND
-    assert [row.name for row in page.rows] == [channel["name"] for channel in channels]
+    assert [row.address for row in page.rows] == [channel["name"] for channel in channels]
     assert page.total is None
-    assert page.partial == [{"part": "count", "reason": NO_ANSWER}]
+    assert page.partial == ({"part": "count", "reason": NO_ANSWER},)
 
 
 @pytest.mark.parametrize("case", HTTP_CASES, ids=_ids(HTTP_CASES))
@@ -600,7 +613,7 @@ async def test_no_request_is_given_more_than_the_callers_deadline(case, tmp_path
     await _exercise(built.backend, case, deadline=2.5)
 
     assert built.transport.sent
-    assert all(sent.deadline <= 2.5 for sent in built.transport.sent)
+    assert all(sent.timeout_s <= 2.5 for sent in built.transport.sent)
 
 
 @pytest.mark.parametrize("case", CASES, ids=_ids(CASES))
@@ -624,7 +637,7 @@ async def test_a_read_before_catch_up_waits_and_answers_a_record(case, tmp_path,
     starting = asyncio.create_task(built.backend.start())
     await asyncio.sleep(0)
     try:
-        state = await built.backend.state_for(case.pv, DEADLINE)
+        state = await built.backend.state_for(case.pv, timeout_s=DEADLINE)
     finally:
         await starting
         await built.backend.aclose()
@@ -640,13 +653,13 @@ async def test_the_list_after_catch_up_holds_the_channel_and_counts_its_rows(
     starting = asyncio.create_task(built.backend.start())
     await asyncio.sleep(0)
     try:
-        states = await built.backend.states(DEADLINE)
+        states = await built.backend.states(timeout_s=DEADLINE)
     finally:
         await starting
         await built.backend.aclose()
 
     assert isinstance(states, AlarmStates), states
-    assert case.pv in {row.channel for row in states.rows}
+    assert case.pv in {row.address for row in states.rows}
     assert sum(states.counts.values()) == len(states.rows)
 
 
@@ -680,7 +693,7 @@ async def test_the_recording_transport_fails_a_request_that_writes(method, path,
     transport = RecordingTransport(_always([]))
 
     with pytest.raises(pytest.fail.Exception):
-        await transport.request(method, path, json_body=body, deadline=DEADLINE)
+        await transport.request(method, path, json_body=body, timeout_s=DEADLINE)
 
     assert transport.violations == [f"{method} {path}"]
     assert transport.sent == []
@@ -714,7 +727,7 @@ async def test_the_kafka_feed_reads_through_a_consumer_and_never_produces(monkey
 
     await backend.start()
     try:
-        state = await backend.state_for(PV, DEADLINE)
+        state = await backend.state_for(PV, timeout_s=DEADLINE)
     finally:
         await backend.aclose()
 
@@ -820,7 +833,7 @@ async def test_the_configured_description_property_reaches_the_channelfinder_req
     transport = RecordingTransport(_HTTP_ANSWERS["channelfinder"]["recorded"])
 
     backend = await ConnectorFactory.create_service(spec, transport=transport)
-    page = await backend.search(DirectoryQuery(words="cooling water"), DEADLINE)
+    page = await backend.search(DirectoryQuery(words="cooling water"), timeout_s=DEADLINE)
 
     first = transport.sent[0]
     assert (first.method, first.path) == ("GET", CF_CHANNELS)

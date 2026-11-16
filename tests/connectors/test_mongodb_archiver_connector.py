@@ -222,15 +222,15 @@ class TestGetDataMethod:
         channels = mongodb_test_data["channels"]
 
         df = await connector.get_data(
-            channels=channels,
+            addresses=channels,
             start_date=start_date,
             end_date=end_date,
         )
 
         assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         # All PVs should be represented as channels, long-format
-        assert set(df["channel"]) == set(channels)
+        assert set(df["address"]) == set(channels)
         assert len(df) > 0
 
         await connector.disconnect()
@@ -246,14 +246,14 @@ class TestGetDataMethod:
         end_date = datetime(2025, 1, 2, 0, 0, 0)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
         )
 
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 0
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
 
@@ -266,7 +266,7 @@ class TestGetDataMethod:
 
         with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
             await connector.get_data(
-                channels=["BEAM:CURRENT"],
+                addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
             )
@@ -279,7 +279,7 @@ class TestGetDataMethod:
 
         with pytest.raises(ValueError, match="channels cannot be empty"):
             await connector.get_data(
-                channels=[],
+                addresses=[],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
             )
@@ -301,7 +301,7 @@ class TestGetDataMethod:
         end_date = datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
             precision_ms=3_600_000,
@@ -333,7 +333,7 @@ class TestMetadataMethods:
         metadata = await connector.get_metadata(channel)
 
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.channel == channel
+        assert metadata.address == channel
         assert metadata.is_archived is True  # Should be True since we have test data
         assert channel in metadata.description
         assert metadata.archival_start == mongodb_test_data["start_date"]
@@ -350,7 +350,7 @@ class TestMetadataMethods:
         metadata = await connector.get_metadata("NONEXISTENT:PV")
 
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.channel == "NONEXISTENT:PV"
+        assert metadata.address == "NONEXISTENT:PV"
         assert metadata.is_archived is False  # Should be False for nonexistent PV
         # No stored samples means no coverage window — not an invented one.
         assert metadata.archival_start is None
@@ -450,7 +450,7 @@ class TestDottedChannelAddresses:
         await connector.connect(mongodb_config)
         try:
             df = await connector.get_data(
-                channels=["BEAM:REC.RBV", "BEAM:CURRENT"],
+                addresses=["BEAM:REC.RBV", "BEAM:CURRENT"],
                 start_date=start_date.replace(tzinfo=UTC),
                 end_date=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
             )
@@ -459,11 +459,11 @@ class TestDottedChannelAddresses:
         finally:
             await connector.disconnect()
 
-        assert set(df["channel"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
-        dotted = df[df["channel"] == "BEAM:REC.RBV"]
+        assert set(df["address"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
+        dotted = df[df["address"] == "BEAM:REC.RBV"]
         assert list(dotted["value"]) == [0.0, 1.0, 2.0]
         assert metadata.is_archived is True
-        assert metadata.channel == "BEAM:REC.RBV"
+        assert metadata.address == "BEAM:REC.RBV"
         assert availability == {"BEAM:REC.RBV": True}
 
     @pytest.mark.asyncio
@@ -483,7 +483,7 @@ class TestDottedChannelAddresses:
         await connector.connect(mongodb_config)
         try:
             df = await connector.get_data(
-                channels=["BEAM:REC.RBV"],
+                addresses=["BEAM:REC.RBV"],
                 start_date=start_date.replace(tzinfo=UTC),
                 end_date=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
             )
@@ -581,7 +581,7 @@ class TestQueryShapeWithoutDocker:
         connector, captured = self._stub_connector([])
 
         await connector.get_data(
-            channels=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            addresses=["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -619,7 +619,7 @@ class TestQueryShapeWithoutDocker:
         connector, captured = self._stub_connector([])
 
         await connector.get_data(
-            channels=channels,
+            addresses=channels,
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -642,7 +642,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=2000,
@@ -650,7 +650,7 @@ class TestQueryShapeWithoutDocker:
         )
 
         # Six 1-second samples binned at 2 s, i.e. three bins of two samples.
-        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == expected
+        assert df.loc[df["address"] == "BEAM:CURRENT", "value"].tolist() == expected
 
     @pytest.mark.asyncio
     async def test_raw_processing_decimates_to_last_real_sample_per_bin(self):
@@ -664,13 +664,13 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=2000,
         )
 
-        rows = df.loc[df["channel"] == "BEAM:CURRENT"]
+        rows = df.loc[df["address"] == "BEAM:CURRENT"]
         assert rows["value"].tolist() == [1.0, 3.0, 5.0]
         # Real archived timestamps (t=1,3,5s), not the bin edges (t=0,2,4s).
         assert rows["timestamp"].tolist() == [
@@ -690,13 +690,13 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=0,
         )
 
-        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == [
+        assert df.loc[df["address"] == "BEAM:CURRENT", "value"].tolist() == [
             0.0,
             1.0,
             2.0,
@@ -713,13 +713,13 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector([])
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
             processing=processing,
         )
 
-        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert list(df.columns) == ["timestamp", "address", "value"]
         assert df.empty
         assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
@@ -732,10 +732,10 @@ class TestQueryShapeWithoutDocker:
 
         with pytest.raises(TimeoutError):
             await connector.get_data(
-                channels=["BEAM:CURRENT"],
+                addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
-                timeout=0,
+                timeout_s=0,
             )
 
     @pytest.mark.asyncio
@@ -748,7 +748,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC),
             precision_ms=1000,
@@ -756,7 +756,7 @@ class TestQueryShapeWithoutDocker:
 
         # Documents are 1 hour apart; naive 1 s resampling would reindex onto
         # an 18,001-row grid.
-        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        values = df.loc[df["address"] == "BEAM:CURRENT", "value"]
         assert len(values) == 6
         assert values.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -775,13 +775,13 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            addresses=["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             processing=processing,
         )
 
-        assert set(df["channel"]) == {"BEAM:CURRENT"}
+        assert set(df["address"]) == {"BEAM:CURRENT"}
 
     @pytest.mark.asyncio
     async def test_document_missing_date_is_skipped(self):
@@ -793,7 +793,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
             precision_ms=0,
@@ -824,15 +824,15 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            channels=["FAST", "SLOW"],
+            addresses=["FAST", "SLOW"],
             start_date=base,
             end_date=base + timedelta(milliseconds=49 * 1500 + 100),
             precision_ms=1000,
             processing="mean",
         )
 
-        fast_values = df.loc[df["channel"] == "FAST", "value"].tolist()
-        slow_values = df.loc[df["channel"] == "SLOW", "value"].tolist()
+        fast_values = df.loc[df["address"] == "FAST", "value"].tolist()
+        slow_values = df.loc[df["address"] == "SLOW", "value"].tolist()
 
         # FAST: the true per-1s-bin means.
         assert fast_values == pytest.approx([4.5, 14.5, 24.5, 34.5])
@@ -1241,7 +1241,7 @@ class TestErrorHandlingWithoutDocker:
 
         with pytest.raises(expected, match=match) as exc_info:
             await connector.get_data(
-                channels=["BEAM:CURRENT"],
+                addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -1262,7 +1262,7 @@ class TestErrorHandlingWithoutDocker:
         connector = self._erroring_connector()
 
         with pytest.raises(TypeError, match=f"{bound} must be a datetime object"):
-            await connector.get_data(channels=["BEAM:CURRENT"], start_date=start, end_date=end)
+            await connector.get_data(addresses=["BEAM:CURRENT"], start_date=start, end_date=end)
 
         connector._collection.find.assert_not_called()
 
@@ -1280,7 +1280,7 @@ class TestErrorHandlingWithoutDocker:
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.channel == "BEAM:CURRENT"
+        assert metadata.address == "BEAM:CURRENT"
         assert metadata.is_archived is None
         # An unreadable store reports no coverage rather than inventing one.
         assert metadata.archival_start is None
@@ -1309,7 +1309,7 @@ class TestErrorHandlingWithoutDocker:
             ConnectorUnavailableError, match="Lost connection to MongoDB"
         ) as exc_info:
             await connector.get_data(
-                channels=["BEAM:CURRENT"],
+                addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -1346,7 +1346,7 @@ class TestErrorHandlingWithoutDocker:
             async with connector_error_handler("archiver_read", connector_name="archiver"):
                 archiver = await context.archiver()
                 await archiver.get_data(
-                    channels=["BEAM:CURRENT"],
+                    addresses=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1, tzinfo=UTC),
                     end_date=datetime(2024, 1, 2, tzinfo=UTC),
                 )
@@ -1615,12 +1615,12 @@ class TestWaveformReadWithoutDocker:
         connector = _waveform_connector(waveforms=documents)
 
         df = await connector.get_data(
-            channels=[WAVEFORM_CHANNEL],
+            addresses=[WAVEFORM_CHANNEL],
             start_date=WAVEFORM_T0 - timedelta(minutes=1),
             end_date=WAVEFORM_T0 + timedelta(minutes=1),
         )
 
-        assert list(df["channel"]) == [WAVEFORM_CHANNEL] * 3
+        assert list(df["address"]) == [WAVEFORM_CHANNEL] * 3
         for sample, document in zip(df["value"], documents, strict=True):
             assert isinstance(sample, list)
             assert len(sample) == 500
@@ -1635,7 +1635,7 @@ class TestWaveformReadWithoutDocker:
         connector = _waveform_connector(waveforms=documents)
 
         df = await connector.get_data(
-            channels=[WAVEFORM_CHANNEL],
+            addresses=[WAVEFORM_CHANNEL],
             start_date=WAVEFORM_T0,
             end_date=WAVEFORM_T0 + timedelta(seconds=5),
             precision_ms=precision_ms,
@@ -1652,7 +1652,7 @@ class TestWaveformReadWithoutDocker:
 
         with pytest.raises(ValueError, match=r"waveform.*processing='raw'") as excinfo:
             await connector.get_data(
-                channels=[WAVEFORM_CHANNEL],
+                addresses=[WAVEFORM_CHANNEL],
                 start_date=WAVEFORM_T0,
                 end_date=WAVEFORM_T0 + timedelta(minutes=1),
                 processing=processing,
@@ -1666,7 +1666,7 @@ class TestWaveformReadWithoutDocker:
 
         with pytest.raises(ValueError, match="waveform"):
             await connector.get_data(
-                channels=[WAVEFORM_CHANNEL],
+                addresses=[WAVEFORM_CHANNEL],
                 start_date=WAVEFORM_T0 + timedelta(days=10),
                 end_date=WAVEFORM_T0 + timedelta(days=11),
                 processing="mean",
@@ -1677,7 +1677,7 @@ class TestWaveformReadWithoutDocker:
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(3))
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=WAVEFORM_T0,
             end_date=WAVEFORM_T0 + timedelta(hours=4),
             precision_ms=7_200_000,
@@ -1691,13 +1691,13 @@ class TestWaveformReadWithoutDocker:
         connector = _waveform_connector(scalars=_scalar_documents(), waveforms=_sek_documents(2))
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT", WAVEFORM_CHANNEL],
+            addresses=["BEAM:CURRENT", WAVEFORM_CHANNEL],
             start_date=WAVEFORM_T0,
             end_date=WAVEFORM_T0 + timedelta(hours=4),
         )
 
-        scalar = df[df["channel"] == "BEAM:CURRENT"]["value"]
-        waveform = df[df["channel"] == WAVEFORM_CHANNEL]["value"]
+        scalar = df[df["address"] == "BEAM:CURRENT"]["value"]
+        waveform = df[df["address"] == WAVEFORM_CHANNEL]["value"]
         assert list(scalar) == [100.0, 101.0, 102.0, 103.0]
         assert [len(sample) for sample in waveform] == [500, 500]
 
@@ -1762,7 +1762,7 @@ class TestWaveformReadWithoutDocker:
         connector._waveforms = None
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=WAVEFORM_T0,
             end_date=WAVEFORM_T0 + timedelta(hours=4),
             processing="max",
@@ -1806,7 +1806,7 @@ class TestWaveformReadAgainstMongo:
         await connector.connect(mongodb_config)
         try:
             df = await connector.get_data(
-                channels=[WAVEFORM_CHANNEL],
+                addresses=[WAVEFORM_CHANNEL],
                 start_date=WAVEFORM_T0,
                 end_date=WAVEFORM_T0 + timedelta(minutes=1),
                 precision_ms=60_000,
@@ -1830,13 +1830,13 @@ class TestWaveformReadAgainstMongo:
             metadata = await connector.get_metadata(WAVEFORM_CHANNEL)
             with pytest.raises(ValueError, match="waveform"):
                 await connector.get_data(
-                    channels=[WAVEFORM_CHANNEL],
+                    addresses=[WAVEFORM_CHANNEL],
                     start_date=WAVEFORM_T0,
                     end_date=WAVEFORM_T0 + timedelta(minutes=1),
                     processing="mean",
                 )
             scalar = await connector.get_data(
-                channels=["BEAM:CURRENT"],
+                addresses=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 1, 4, tzinfo=UTC),
                 precision_ms=3_600_000,
@@ -1934,7 +1934,7 @@ class TestStoreExtentWithoutDocker:
         extent = await connector.store_extent()
 
         # The newest documents name the channels: one dropped since is not listed.
-        assert extent.channels == frozenset({"SR:A", "REC.RBV", "SR:WAVE", "SR:TRACE.X"})
+        assert extent.addresses == frozenset({"SR:A", "REC.RBV", "SR:WAVE", "SR:TRACE.X"})
         assert extent.oldest == base
         assert extent.newest == base + timedelta(minutes=60, seconds=50)
         assert extent.reason is None
@@ -1945,7 +1945,7 @@ class TestStoreExtentWithoutDocker:
 
         extent = await connector.store_extent()
 
-        assert extent.channels is None
+        assert extent.addresses is None
         assert extent.oldest is None and extent.newest is None
         assert "could not be read" in extent.reason
 
@@ -1953,7 +1953,7 @@ class TestStoreExtentWithoutDocker:
     async def test_an_empty_store_holds_no_channels(self):
         extent = await _memory_connector([]).store_extent()
 
-        assert extent.channels == frozenset()
+        assert extent.addresses == frozenset()
         assert extent.newest is None
 
     @pytest.mark.asyncio

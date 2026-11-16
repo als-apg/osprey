@@ -466,7 +466,7 @@ class Install:
 
     def models(self) -> list[str]:
         """Every model of the facility file that wires channels: all but the texture."""
-        from osprey.facility import TEXTURE
+        from osprey_connectors.simulation import TEXTURE
 
         return [str(model["name"]) for model in self.document["models"] if model["name"] != TEXTURE]
 

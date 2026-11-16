@@ -31,7 +31,7 @@ from osprey.deployment.wheel_build import (
     refuse_unshipped_apps,
     refuse_unshipped_kinds,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("build")

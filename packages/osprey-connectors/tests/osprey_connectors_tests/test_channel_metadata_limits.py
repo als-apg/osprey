@@ -10,18 +10,30 @@ the client's access right), the PVA metadata reply (``display`` / ``control`` /
 
 import math
 import types
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import aioca
 import numpy as np
 import pytest
+from pydantic import BaseModel, ValidationError
 
-from osprey_connectors.control_system._base import ChannelMetadata, normalise_limit_pair
+from osprey_connectors.archiver import ArchiverMetadata
+from osprey_connectors.control_system import ChannelLimitsConfig
+from osprey_connectors.control_system._base import (
+    ChannelMetadata,
+    ChannelValue,
+    ChannelWriteResult,
+    WriteOutcome,
+    normalise_limit_pair,
+)
 from osprey_connectors.control_system._epics_connector import (
     _PVA_METADATA_REQUEST,
     EPICSConnector,
 )
 from osprey_connectors.ipc._frames import _decode_value, _encode_value
+from osprey_connectors.model import evolve
+from osprey_connectors.simulation.archive import SeedReport
 from osprey_connectors_tests._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
 
 LIMIT_FIELDS = (
@@ -34,6 +46,32 @@ LIMIT_FIELDS = (
     "alarm_low",
     "alarm_high",
 )
+
+
+# ---------------------------------------------------------------------------
+# The records a connector hands back are frozen
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("record", "field", "value"),
+    [
+        (ChannelMetadata(), "units", "mA"),
+        (ChannelValue(value=1.0, timestamp=datetime.now(UTC)), "value", 2.0),
+        (
+            ChannelWriteResult(address="A", value_written=1.0, outcome=WriteOutcome.UNREQUESTED),
+            "outcome",
+            WriteOutcome.CONFIRMED,
+        ),
+        (ArchiverMetadata(address="A", is_archived=True), "is_archived", False),
+        (ChannelLimitsConfig(address="A", max_value=1.0, writable=True), "max_value", 1e9),
+        (SeedReport(), "documents", 1),
+    ],
+    ids=lambda case: type(case).__name__ if isinstance(case, BaseModel) else None,
+)
+def test_a_record_is_built_once_and_never_changed(record, field, value):
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(record, field, value)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +144,10 @@ class TestChannelMetadataFields:
     def test_writable_is_a_bool_or_none(self, given, stored):
         assert ChannelMetadata(writable=given).writable is stored
 
+    def test_a_copy_with_a_bad_pair_is_normalised_like_a_new_record(self):
+        meta = evolve(ChannelMetadata(display_low=0, display_high=10), display_high=0)
+        assert (meta.display_low, meta.display_high) == (None, None)
+
     def test_construction_is_by_keyword(self):
         """A model takes its fields by name only: a positional call is refused."""
         with pytest.raises(TypeError):
@@ -146,7 +188,7 @@ def _ctrl_reading(**limits):
 async def _ca_read_metadata(ctrl, *, write=True):
     channel = FakeChannel(ca_reading(42.0), ctrl=ctrl, write=write)
     return await ca_connector(channels={"SR:CH": channel}, timeout=1.0).read_channel(
-        "SR:CH", timeout=1.0
+        "SR:CH", timeout_s=1.0
     )
 
 

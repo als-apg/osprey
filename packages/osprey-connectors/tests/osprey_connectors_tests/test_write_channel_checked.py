@@ -57,9 +57,10 @@ class _FakeConnector(ControlSystemConnector):
 
     async def write_channel(
         self,
-        channel_address: str,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        address: str,  # noqa: ARG002 - the control-system connector interface fixes this signature
         value: Any,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        *,
+        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         if self._canned_exc is not None:
@@ -69,31 +70,29 @@ class _FakeConnector(ControlSystemConnector):
     # --- Unused abstract-method stubs -------------------------------------
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
-    async def subscribe(self, channel_address, callback) -> str:
+    async def subscribe(self, address, callback) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         raise NotImplementedError
 
 
 def _result(**overrides) -> ChannelWriteResult:
     """Build a ChannelWriteResult with sensible defaults overridable per test."""
     base: dict[str, Any] = {
-        "channel_address": "TEST:PV",
+        "address": "TEST:PV",
         "value_written": 42.0,
         "outcome": WriteOutcome.CONFIRMED,
     }
@@ -127,7 +126,7 @@ class TestRefusals:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
         assert excinfo.value.reason == refusal_reason
-        assert excinfo.value.channel_address == "TEST:PV"
+        assert excinfo.value.address == "TEST:PV"
 
     def test_refusal_without_a_reason_names_none(self):
         """A refusal that names no reason cannot be built, so none reaches the check."""
@@ -140,7 +139,7 @@ class TestRefusals:
         it to ChannelWriteBlockedError(reason="LIMITS") with the original chained.
         """
         violation = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
+            address="TEST:PV",
             value=999.0,
             violation_type="max_value",
             violation_reason="above max",
@@ -151,7 +150,7 @@ class TestRefusals:
             await connector.write_channel_checked("TEST:PV", 999.0)
 
         assert excinfo.value.reason == "LIMITS"
-        assert excinfo.value.channel_address == "TEST:PV"
+        assert excinfo.value.address == "TEST:PV"
         assert excinfo.value.__cause__ is violation
 
 
@@ -172,7 +171,7 @@ class TestFailures:
 
         assert excinfo.value.reason == "FAILED"
         assert excinfo.value.outcome is WriteOutcome.FAILED
-        assert excinfo.value.channel_address == "TEST:PV"
+        assert excinfo.value.address == "TEST:PV"
         assert "Failed to write TEST:PV" in str(excinfo.value)
 
     @pytest.mark.asyncio
@@ -300,8 +299,8 @@ class TestReturns:
         result = _result(outcome=WriteOutcome.UNREQUESTED)
         connector = _FakeConnector(result=result)
 
-        async def _capture(channel_address, value, **kwargs):
-            seen["channel_address"] = channel_address
+        async def _capture(address, value, **kwargs):
+            seen["address"] = address
             seen["value"] = value
             seen.update(kwargs)
             return result
@@ -309,13 +308,13 @@ class TestReturns:
         connector.write_channel = _capture  # type: ignore[method-assign]
 
         returned = await connector.write_channel_checked(
-            "TEST:PV", 42.0, confirm=False, timeout=3.0
+            "TEST:PV", 42.0, confirm=False, timeout_s=3.0
         )
 
         assert returned is result
         assert seen == {
-            "channel_address": "TEST:PV",
+            "address": "TEST:PV",
             "value": 42.0,
             "confirm": False,
-            "timeout": 3.0,
+            "timeout_s": 3.0,
         }

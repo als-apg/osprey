@@ -24,14 +24,16 @@ field back onto a constructor keyword and calls the real class.
 The registry is derived from the vocabulary
 -------------------------------------------
 :data:`EXCEPTION_SPECS` holds the two builtins ``ConnectionError`` and
-``TimeoutError``, rebuilt from their message, and one spec per class in
+``TimeoutError`` and their package kin
+:class:`~osprey_connectors.errors.ConnectRefusedError` (a ``ConnectionError``
+outside every root), each rebuilt from its message, and one spec per class in
 ``osprey_connectors.errors.__all__`` under a contract root
 (:class:`~osprey_connectors.errors.ChannelError`,
 :class:`~osprey_connectors.errors.ConnectorUnavailableError`,
 :class:`~osprey_connectors.errors.ConnectorInternalError`). It is computed at
 import, never listed by hand, so every public failure crosses as itself with
 no entry here to keep in step. A :class:`~osprey_connectors.errors.ChannelError` spec
-carries ``channel_address`` first, by construction; what else a class carries
+carries ``address`` first, by construction; what else a class carries
 is its wire detail, held here and nowhere in the class itself, because the
 vocabulary says what a failure is and this module says what of it crosses.
 
@@ -86,8 +88,9 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    ConnectRefusedError,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping
 
 __all__ = [
     "EXCEPTION_SPECS",
@@ -127,7 +130,7 @@ class ExceptionSpec(FrozenModel):
 
     cls: type[BaseException]
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
+    ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
 
@@ -135,12 +138,12 @@ class _Detail(FrozenModel):
     """What of one vocabulary class crosses beyond its channel."""
 
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
+    ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
 
 #: The wire detail of each vocabulary class. A ``ChannelError`` subclass's
-#: ``channel_address`` is not listed: the registry puts it first for every one.
+#: ``address`` is not listed: the registry puts it first for every one.
 _WIRE_DETAIL: dict[type[BaseException], _Detail] = {
     ChannelError: _Detail(message_kwarg="message"),
     ChannelLimitsViolationError: _Detail(
@@ -176,7 +179,7 @@ def _vocabulary() -> list[type[BaseException]]:
 
 
 def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
-    channel = ("channel_address",) if issubclass(cls, ChannelError) else ()
+    channel = ("address",) if issubclass(cls, ChannelError) else ()
     return ExceptionSpec(
         cls=cls,
         fields=(*channel, *detail.fields),
@@ -185,12 +188,13 @@ def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
     )
 
 
-#: The registry: the two builtins and the vocabulary. Everything else fails
+#: The registry: the two builtins, their package kin and the vocabulary. Everything else fails
 #: closed to :class:`~osprey_connectors.errors.ConnectorInternalError`; a
 #: vocabulary class with no wire detail is left out, and the parity test names it.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
     "ConnectionError": ExceptionSpec(cls=ConnectionError),
     "TimeoutError": ExceptionSpec(cls=TimeoutError),
+    "ConnectRefusedError": ExceptionSpec(cls=ConnectRefusedError),
     **{cls.__name__: _spec(cls, _WIRE_DETAIL[cls]) for cls in _vocabulary() if cls in _WIRE_DETAIL},
 }
 

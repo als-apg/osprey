@@ -113,40 +113,40 @@ class _Machine(FakeConnector):
             type(self).live.remove(self)
         await super().disconnect()
 
-    def _read_value(self, channel_address):
+    def _read_value(self, address):
         now = datetime.now(UTC)
         return ChannelValue(
-            value=type(self).store[channel_address],
+            value=type(self).store[address],
             timestamp=now,
             metadata=ChannelMetadata(
-                units="mA" if channel_address == SCALAR else "",
-                precision=3 if channel_address == SCALAR else None,
-                description=f"Machine channel {channel_address}",
-                enum_labels=list(ENUM_LABELS) if channel_address == ENUM else None,
+                units="mA" if address == SCALAR else "",
+                precision=3 if address == SCALAR else None,
+                description=f"Machine channel {address}",
+                enum_labels=list(ENUM_LABELS) if address == ENUM else None,
                 timestamp=now,
-                **(dict(LIMITS, writable=True) if channel_address == LIMITED else {}),
+                **(dict(LIMITS, writable=True) if address == LIMITED else {}),
             ),
         )
 
-    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the connector read signature
         type(self).reads += 1
-        if channel_address not in type(self).store:
-            raise TimeoutError(f"{channel_address} did not answer")
-        return self._read_value(channel_address)
+        if address not in type(self).store:
+            raise TimeoutError(f"{address} did not answer")
+        return self._read_value(address)
 
-    async def subscribe(self, channel_address, callback, *, on_connection=None):
+    async def subscribe(self, address, callback, *, on_connection=None):
         type(self).subscribes += 1
         self._subscription_count += 1
-        sub_id = f"machine_{channel_address}_{self._subscription_count}"
-        sub = FakeSubscription(channel_address, callback, on_connection)
+        sub_id = f"machine_{address}_{self._subscription_count}"
+        sub = FakeSubscription(address, callback, on_connection)
         self._subscriptions[sub_id] = sub
-        if channel_address in type(self).store and self._is_up(channel_address):
+        if address in type(self).store and self._is_up(address):
             self._report_connection(sub, True)
             self._deliver(sub_id, sub)
         return sub_id
 
-    def _notify(self, channel_addresses):
-        super()._notify(address for address in channel_addresses if address in type(self).store)
+    def _notify(self, addresses):
+        super()._notify(address for address in addresses if address in type(self).store)
 
     async def write_channel(self, *args, **kwargs):
         type(self).writes += 1
@@ -386,7 +386,7 @@ class TestGet:
     ):
         """A read still pending at the read timeout is abandoned and says how long it waited."""
 
-        async def never(self, channel_address, timeout=None):  # noqa: ARG001 - the connector read signature
+        async def never(self, address, *, timeout_s=None):  # noqa: ARG001 - the connector read signature
             await asyncio.sleep(30)
 
         monkeypatch.setattr(machine, "read_channel", never)

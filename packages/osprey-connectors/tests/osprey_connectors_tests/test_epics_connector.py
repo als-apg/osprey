@@ -288,8 +288,8 @@ class TestReadChannel:
         with pytest.raises(
             ChannelUnreachableError, match="Failed to connect to PV 'SR:NOPE'"
         ) as raised:
-            await connector.read_channel("SR:NOPE", timeout=0.5)
-        assert raised.value.channel_address == "SR:NOPE"
+            await connector.read_channel("SR:NOPE", timeout_s=0.5)
+        assert raised.value.address == "SR:NOPE"
 
     @pytest.mark.asyncio
     async def test_a_get_that_times_out_on_a_connected_channel_is_unreachable(self):
@@ -297,15 +297,15 @@ class TestReadChannel:
         connector = _channel_connector(aioca.CANothing("SR:CH", ECA_TIMEOUT))
 
         with pytest.raises(ChannelUnreachableError, match="SR:CH.*timed out") as raised:
-            await connector.read_channel("SR:CH", timeout=0.5)
-        assert raised.value.channel_address == "SR:CH"
+            await connector.read_channel("SR:CH", timeout_s=0.5)
+        assert raised.value.address == "SR:CH"
 
     @pytest.mark.asyncio
     async def test_a_get_lost_to_a_disconnect_is_an_unreachable_channel(self):
         connector = _channel_connector(aioca.CANothing("SR:CH", ECA_DISCONN))
 
         with pytest.raises(ChannelUnreachableError, match="SR:CH"):
-            await connector.read_channel("SR:CH", timeout=0.5)
+            await connector.read_channel("SR:CH", timeout_s=0.5)
 
     @pytest.mark.asyncio
     async def test_read_channel_timestamp_is_facility_tz_aware(self, monkeypatch):
@@ -319,7 +319,7 @@ class TestReadChannel:
         )
         connector = _channel_connector(ca_reading(1.23, timestamp=1_750_000_000.0))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.timestamp.tzinfo is not None
         assert result.timestamp.utcoffset().total_seconds() == 9 * 3600
@@ -334,7 +334,7 @@ class TestReadChannel:
         )
         connector = _channel_connector(ca_reading(3.14, timestamp=0))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.value == 3.14
         assert result.timestamp.tzinfo is not None
@@ -345,7 +345,7 @@ class TestReadChannel:
         """aioca's reading classes stay inside the connector."""
         connector = _channel_connector(ca_reading(2.5))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert type(result.value) is float
         assert result.value == 2.5
@@ -356,7 +356,7 @@ class TestReadChannel:
 
         connector = _channel_connector(ca_reading([1.0, 2.0, 3.0]))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert type(result.value) is numpy.ndarray
         assert result.value.tolist() == [1.0, 2.0, 3.0]
@@ -368,7 +368,7 @@ class TestReadChannel:
             ca_reading(1.0), ctrl=ca_reading(1.0, units="kV", precision=4)
         )
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.units == "kV"
         assert result.metadata.precision == 4
@@ -379,8 +379,8 @@ class TestReadChannel:
         """They describe the record, not the reading; every read still gets the value fresh."""
         connector = _channel_connector(ca_reading(1.0))
 
-        await connector.read_channel("SR:CH", timeout=1.0)
-        await connector.read_channel("SR:CH", timeout=1.0)
+        await connector.read_channel("SR:CH", timeout_s=1.0)
+        await connector.read_channel("SR:CH", timeout_s=1.0)
 
         formats = [c[2]["format"] for c in connector._aioca.calls if c[0] == "caget"]
         assert formats.count(aioca.FORMAT_CTRL) == 1
@@ -390,8 +390,8 @@ class TestReadChannel:
     async def test_a_failed_ctrl_fetch_still_returns_the_reading_and_is_retried(self):
         connector = _channel_connector(ca_reading(4.0), ctrl=aioca.CANothing("SR:CH", ECA_TIMEOUT))
 
-        first = await connector.read_channel("SR:CH", timeout=1.0)
-        await connector.read_channel("SR:CH", timeout=1.0)
+        first = await connector.read_channel("SR:CH", timeout_s=1.0)
+        await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert first.value == 4.0
         assert first.metadata.units == ""
@@ -403,7 +403,7 @@ class TestReadChannel:
         """read_multiple_channels returns only the channels that read successfully."""
         good = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
 
-        async def fake_read(addr, timeout=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
+        async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
                 raise ConnectionError("nope")
             return good
@@ -711,7 +711,7 @@ class TestWriteExactness:
         want = connector._timeout if expected == "configured" else expected
 
         before = time.time()
-        await connector.write_channel("SR:CH", 5.0, confirm=False, timeout=given)
+        await connector.write_channel("SR:CH", 5.0, confirm=False, timeout_s=given)
         after = time.time()
 
         connects = [kw for fn, _, kw in connector._aioca.calls if fn == "connect"]
@@ -901,7 +901,7 @@ class TestWriteFailClosed:
 
         limits = MagicMock()
         limits.validate.side_effect = ChannelLimitsViolationError(
-            channel_address="SR:CH",
+            address="SR:CH",
             value=1.0,
             violation_type="MAX_EXCEEDED",
             violation_reason="too big",
@@ -1192,7 +1192,7 @@ class TestValidateChannelAndMetadata:
         monkeypatch.setattr(connector, "read_channel", read)
 
         assert await connector.validate_channel("SR:CH") is True
-        assert read.await_args.kwargs["timeout"] == 17.0
+        assert read.await_args.kwargs["timeout_s"] == 17.0
 
     @pytest.mark.asyncio
     async def test_validate_channel_false_on_read_error(self, monkeypatch):
@@ -1233,7 +1233,7 @@ class TestChannelAccessAlarmNames:
     async def test_read_reports_the_alarm_name_for_the_code(self, code, severity, name):
         connector = _channel_connector(ca_reading(1.0, status=code, severity=severity))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.alarm_status == name
 
@@ -1241,7 +1241,7 @@ class TestChannelAccessAlarmNames:
     async def test_read_keeps_the_raw_code_beside_the_severity(self):
         connector = _channel_connector(ca_reading(1.0, status=5, severity=1))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.alarm_status == "LOLO"
         assert result.metadata.raw_metadata["status"] == 5
@@ -1252,7 +1252,7 @@ class TestChannelAccessAlarmNames:
         """An out-of-range code must not raise — it degrades to UNKNOWN."""
         connector = _channel_connector(ca_reading(1.0, status=99, severity=3))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.alarm_status == "UNKNOWN"
         assert result.metadata.raw_metadata["status"] == 99  # raw code still recorded
@@ -1300,7 +1300,7 @@ class TestReadAlarmSeverity:
     async def test_read_reports_the_severity_the_control_system_gave(self, status, severity):
         connector = _channel_connector(ca_reading(1.0, status=status, severity=severity))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.alarm_severity == severity
 
@@ -1308,7 +1308,7 @@ class TestReadAlarmSeverity:
     async def test_an_unreported_severity_reads_as_none(self):
         connector = _channel_connector(ca_reading(1.0, status=0, severity=None))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.metadata.alarm_severity is None
 
@@ -1344,11 +1344,11 @@ class TestChannelAccessEnumLabels:
     async def test_enum_read_reports_the_index_and_its_labels(self):
         connector = _enum_connector(value=2)
 
-        result = await connector.read_channel("SR:MODE", timeout=1.0)
+        result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 2  # the index, not "ACQUIRING"
         assert result.metadata.enum_label == "ACQUIRING"
-        assert result.metadata.enum_labels == ["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]
+        assert result.metadata.enum_labels == ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
         assert result.metadata.raw_metadata["type"] == "time_enum"
 
     @pytest.mark.asyncio
@@ -1356,7 +1356,7 @@ class TestChannelAccessEnumLabels:
         """A bi at 0 is a state, not a falsy miss."""
         connector = _enum_connector(value=0, labels=("OFF", "ON"))
 
-        result = await connector.read_channel("SR:MODE", timeout=1.0)
+        result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 0
         assert result.metadata.enum_label == "OFF"
@@ -1366,7 +1366,7 @@ class TestChannelAccessEnumLabels:
         """The fields are how a consumer tells an enum channel from a numeric one."""
         connector = _channel_connector(ca_reading(7.25))
 
-        result = await connector.read_channel("SR:CH", timeout=1.0)
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.value == 7.25
         assert result.metadata.enum_labels is None
@@ -1381,7 +1381,7 @@ class TestChannelAccessEnumLabels:
             name="SR:MODE",
         )
 
-        result = await connector.read_channel("SR:MODE", timeout=1.0)
+        result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 2  # the read is not lost with the labels
         assert result.metadata.enum_labels is None
@@ -1393,7 +1393,7 @@ class TestChannelAccessEnumLabels:
             ca_reading(2, datatype=DBR_ENUM), ctrl=ca_reading(0), name="SR:MODE"
         )
 
-        result = await connector.read_channel("SR:MODE", timeout=1.0)
+        result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 2
         assert result.metadata.enum_labels is None
@@ -1404,10 +1404,10 @@ class TestChannelAccessEnumLabels:
         """An unresolvable index loses its label, not the states it could not name."""
         connector = _enum_connector(value=9, labels=("OFF", "ON"))
 
-        result = await connector.read_channel("SR:MODE", timeout=1.0)
+        result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 9
-        assert result.metadata.enum_labels == ["OFF", "ON"]
+        assert result.metadata.enum_labels == ("OFF", "ON")
         assert result.metadata.enum_label is None
 
     @pytest.mark.asyncio
@@ -1426,7 +1426,7 @@ class TestChannelAccessEnumLabels:
 
         assert received[0].value == 3
         assert received[0].metadata.enum_label == "FAULT"
-        assert received[0].metadata.enum_labels == list(_MODES)
+        assert received[0].metadata.enum_labels == tuple(_MODES)
 
     @pytest.mark.asyncio
     async def test_subscribe_callback_without_labels_delivers_the_update_anyway(self):

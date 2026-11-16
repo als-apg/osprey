@@ -292,19 +292,19 @@ def _block_p4p(monkeypatch):
 def _make_validator():
     limits = {
         "TEST:MAG:SP": ChannelLimitsConfig(
-            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
+            address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
         ),
         "TEST:OTHER:SP": ChannelLimitsConfig(
-            channel_address="TEST:OTHER:SP", min_value=0.0, max_value=10.0, writable=True
+            address="TEST:OTHER:SP", min_value=0.0, max_value=10.0, writable=True
         ),
         "TEST:STEP:SP": ChannelLimitsConfig(
-            channel_address="TEST:STEP:SP",
+            address="TEST:STEP:SP",
             min_value=0.0,
             max_value=10.0,
             max_step=1.0,
             writable=True,
         ),
-        "TEST:RO": ChannelLimitsConfig(channel_address="TEST:RO", writable=False),
+        "TEST:RO": ChannelLimitsConfig(address="TEST:RO", writable=False),
     }
     return LimitsValidator(limits, {"mode": "exclusive"})
 
@@ -333,9 +333,9 @@ def _count_validations(namespace):
     original = validator.validate
     calls = []
 
-    def _counting(channel_address, value, **kwargs):
-        calls.append((channel_address, value))
-        return original(channel_address, value, **kwargs)
+    def _counting(address, value, **kwargs):
+        calls.append((address, value))
+        return original(address, value, **kwargs)
 
     validator.validate = _counting
     return calls
@@ -853,9 +853,7 @@ def test_plain_string_payload_is_not_treated_as_json(monkeypatch):
     one refuses it, since the server -- not the validator -- would parse it.
     """
     validator = _make_validator()
-    validator.limits["TEST:ENUM:CMD"] = ChannelLimitsConfig(
-        channel_address="TEST:ENUM:CMD", writable=True
-    )
+    validator.limits["TEST:ENUM:CMD"] = ChannelLimitsConfig(address="TEST:ENUM:CMD", writable=True)
     classes = _install_fake_p4p(monkeypatch)
     _run_monkeypatch(monkeypatch, validator)
 
@@ -1117,10 +1115,10 @@ def _make_pva_validator():
     """The pvaPy tests' channels: one plain, one with ``max_step``."""
     limits = {
         "TEST:MAG:SP": ChannelLimitsConfig(
-            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
+            address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
         ),
         "TEST:MAG:STEP": ChannelLimitsConfig(
-            channel_address="TEST:MAG:STEP",
+            address="TEST:MAG:STEP",
             min_value=0.0,
             max_value=100.0,
             max_step=2.0,

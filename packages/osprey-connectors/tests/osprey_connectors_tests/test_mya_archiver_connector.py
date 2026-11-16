@@ -354,10 +354,10 @@ async def test_raw_uses_the_interval_endpoint_and_returns_a_long_frame():
     assert client.query.IntervalQuery.called
     # mysampler forward-fills onto a shared grid, which the contract forbids.
     assert not client.query.MySamplerQuery.called
-    assert list(data.columns) == ["timestamp", "channel", "value"]
+    assert list(data.columns) == ["timestamp", "address", "value"]
     assert str(data["timestamp"].dtype) == "datetime64[ns, UTC]"
     assert data["value"].tolist() == [1.0, 2.0, 3.0]
-    assert data["channel"].tolist() == ["TEST:PV"] * 3
+    assert data["address"].tolist() == ["TEST:PV"] * 3
 
 
 @pytest.mark.asyncio
@@ -402,7 +402,7 @@ async def test_each_channel_contributes_only_its_own_samples():
 
     data = await connector.get_data(["TEST:PV1", "TEST:PV2"], _START, _END, precision_ms=0)
 
-    assert data["channel"].tolist() == ["TEST:PV1", "TEST:PV1", "TEST:PV2"]
+    assert data["address"].tolist() == ["TEST:PV1", "TEST:PV1", "TEST:PV2"]
     assert data["value"].tolist() == [1.0, 2.0, 9.0]
 
 
@@ -415,7 +415,7 @@ async def test_channel_with_no_data_contributes_no_rows():
     data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
 
     assert len(data) == 0
-    assert list(data.columns) == ["timestamp", "channel", "value"]
+    assert list(data.columns) == ["timestamp", "address", "value"]
     assert str(data["timestamp"].dtype) == "datetime64[ns, UTC]"
 
 
@@ -641,7 +641,7 @@ async def test_get_metadata_quotes_the_address_before_looking_it_up():
 
     assert client.query.ChannelQuery.call_args[1]["pattern"] == r"IGLK100Preset\_Volt"
     assert meta.is_archived is True
-    assert meta.channel == "IGLK100Preset_Volt"
+    assert meta.address == "IGLK100Preset_Volt"
 
 
 @pytest.mark.asyncio

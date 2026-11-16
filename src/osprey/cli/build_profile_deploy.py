@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
+from osprey.errors import BuildProfileError
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     IN_PROCESS,
     LIMITS_CHECKING_LEAF,

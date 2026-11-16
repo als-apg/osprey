@@ -26,8 +26,9 @@ from tests._facility_file import write_facility_views
 from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates.claude_code import config_derived_context
-from osprey.facility import FACILITY_FILE, TEXTURE
+from osprey.facility import FACILITY_FILE
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from osprey_connectors.simulation import TEXTURE
 
 AGENT = Path(".claude") / "agents" / "pyat-specialist.md"
 

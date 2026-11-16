@@ -190,7 +190,7 @@ def _validator(failsafe_reason: str | None = None) -> LimitsValidator:
         return LimitsValidator({}, {}, {}, failsafe_reason=failsafe_reason)
     bands = {ARM: (0, 1), REQUEST: (0, 1000), CONFIRMING: (0, 1), CORRECTOR: (-5, 5)}
     limits = {
-        a: ChannelLimitsConfig(channel_address=a, min_value=lo, max_value=hi, writable=True)
+        a: ChannelLimitsConfig(address=a, min_value=lo, max_value=hi, writable=True)
         for a, (lo, hi) in bands.items()
     }
     raw = {a: {"min_value": lo, "max_value": hi} for a, (lo, hi) in bands.items()}
@@ -202,7 +202,7 @@ def _mode_validator(mode: str, records: dict[str, dict[str, Any]] | None = None)
     records = records or {}
     limits = {
         address: ChannelLimitsConfig(
-            channel_address=address,
+            address=address,
             min_value=record.get("min_value"),
             max_value=record.get("max_value"),
             writable=True,
@@ -234,7 +234,7 @@ class _Connector:
             message = None if outcome is WriteOutcome.UNREQUESTED else f"{outcome} here"
             results.append(
                 ChannelWriteResult(
-                    channel_address=address,
+                    address=address,
                     value_written=value,
                     outcome=outcome,
                     refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
@@ -489,7 +489,7 @@ async def test_a_strict_target_applies_each_fired_commands_limits_record(repo: P
         # 5 is inside REQUEST's band and outside ARM's.
         await command_write(connector, [REQUEST, ARM], 5)
 
-    assert caught.value.channel_address == ARM
+    assert caught.value.address == ARM
     assert connector.calls == [], "the command before it is not written either"
 
 
@@ -501,7 +501,7 @@ async def test_exclusive_mode_refuses_a_command_with_no_limits_record_whole() ->
     with lock(None, context=ALICE_LIVE), pytest.raises(ChannelLimitsViolationError) as caught:
         await command_write(connector, [ARM, REQUEST], 1)
 
-    assert caught.value.channel_address == REQUEST
+    assert caught.value.address == REQUEST
     assert connector.calls == []
 
 
@@ -521,7 +521,7 @@ async def test_optional_mode_applies_a_listed_commands_bounds() -> None:
     with lock(None, context=ALICE_LIVE), pytest.raises(ChannelLimitsViolationError) as caught:
         await command_write(connector, [REQUEST, ARM], 5)
 
-    assert caught.value.channel_address == ARM
+    assert caught.value.address == ARM
     assert connector.calls == []
 
 
@@ -534,7 +534,7 @@ async def test_a_failed_command_raises_naming_the_commands_that_fired(
     with lock(None, context=ALICE_LIVE), pytest.raises(ChannelWriteFailedError) as caught:
         await command_write(connector, [ARM, REQUEST], 1)
 
-    assert caught.value.channel_address == REQUEST
+    assert caught.value.address == REQUEST
     assert caught.value.commands_fired == [ARM, REQUEST]
     [record] = _command_write_records(recorded_entries)
     assert record["decision"] == "refused"
@@ -550,7 +550,7 @@ async def test_a_refused_command_is_not_named_among_those_that_fired(
     with lock(None, context=ALICE_LIVE), pytest.raises(ChannelWriteBlockedError) as caught:
         await command_write(connector, [ARM, REQUEST], 1)
 
-    assert caught.value.channel_address == ARM
+    assert caught.value.address == ARM
     assert caught.value.commands_fired == [REQUEST]
     [record] = _command_write_records(recorded_entries)
     assert _fired_in(record) == [REQUEST]

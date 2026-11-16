@@ -50,10 +50,10 @@ from osprey.cli.build_cmd import build as build_command
 from osprey.cli.profile_conventions import REPO_CLAUDE_CODE_ENTRIES
 from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_repo_root
 from osprey.deployment.staleness import profile_fingerprint
+from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
 from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import WRITES_KEY, tier_writes
 from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 

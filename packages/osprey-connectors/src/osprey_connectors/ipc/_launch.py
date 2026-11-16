@@ -166,8 +166,8 @@ async def kill_host(
     if reason is not None:
         reader.retire(reason)
     await terminate(process, grace_s)
-    await proxy.drain(SETTLE_TIMEOUT_S)
-    await proxy.disconnect(ack_timeout=0.0)
+    await proxy.drain(timeout_s=SETTLE_TIMEOUT_S)
+    await proxy.disconnect(ack_timeout_s=0.0)
 
 
 async def stop_host(

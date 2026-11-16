@@ -292,7 +292,7 @@ def _write_tree_record(tree: Path, owner: str, switched_on=(), *, target: str = 
         switch=dict.fromkeys(switched_on, "asked"),
         switch_epoch=1,
     )
-    write_payload(path, record.to_payload())
+    write_payload(path, record.model_dump(mode="json"))
     control_context.invalidate_cache()
     return path
 

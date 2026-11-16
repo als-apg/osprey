@@ -91,7 +91,7 @@ channel in its third state gives:
 
    value                = 2
    metadata.enum_label  = 'ACQUIRING'
-   metadata.enum_labels = ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
+   metadata.enum_labels = ('OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT')
 
 Everything below is configuration only — which machine sits behind that API.
 
@@ -233,7 +233,8 @@ Pick a control system
 
 
       A read that does not answer within ``timeout_s`` (or the call's own
-      timeout) raises ``TimeoutError``. A set that does not return within it
+      timeout) raises ``ChannelUnreachableError`` naming the property, as an
+      EPICS read does. A set that does not return within it
       is reported ``unconfirmed``, because the value may still arrive. A
       ``timeout_s`` that is not a positive number of seconds is refused when
       the connector connects.
@@ -269,7 +270,8 @@ Pick a control system
 
       A read or write given no timeout of its own is bounded by ``timeout_s``
       too, with the same answers as DOOCS: a read that runs out raises
-      ``TimeoutError``, and a write that runs out is reported ``unconfirmed``.
+      ``ChannelUnreachableError``, and a write that runs out is reported
+      ``unconfirmed``.
       A ``timeout_s`` that is not a positive number of seconds is refused when
       the connector connects.
 
@@ -568,7 +570,7 @@ approve``. The grant carries the request's id, so the program polls for it:
    :end-before: # docs: wait ends
    :dedent: 4
 
-``approved_grant`` raises ``AuthorizationRefused`` for a grant that is there
+``approved_grant`` raises ``AuthorizationRefusedError`` for a grant that is there
 and does not stand (revoked, expired, unreadable, another holder's).
 
 **3. Write.** Name the authorization to the connector pool once the lease is

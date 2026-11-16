@@ -41,7 +41,7 @@ on safely:
   an owner anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
-  an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every
+  an input: a record's JSON form (``model_dump(mode="json")``) holds ``sandbox`` for every
   machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position
   is off (:func:`_posture_mirror`), whatever the record it was built
   from carried, and no write decision reads it back. A file written before
@@ -78,7 +78,8 @@ Every file in this directory is written through it, the record
 The record is written only under its lock: an exclusive ``fcntl.flock`` on
 the sibling file ``<record path>.lock``, derived from the path being written
 (so ``path=`` moves the lock with the file), waited on for a bounded time and
-then refused with ``RuntimeError``. Inside the lock :func:`write_record`
+then refused with :class:`~osprey_connectors.errors.StateLockedError`
+(a ``RuntimeError``). Inside the lock :func:`write_record`
 re-reads the file on disk and writes the caller's record with the on-disk
 ``switch`` and ``switch_epoch`` substituted: whatever a caller read earlier,
 no writer but the person's own switch gesture (:func:`set_switch`,
@@ -140,13 +141,15 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generic, Literal, TypeVar
+from typing import Final, Generic, Literal, TypeVar, get_args
 
-from pydantic import Field
+from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer
 
 from osprey_connectors import posture_store
+from osprey_connectors.errors import ConnectorsError, StateLockedError, StateUnavailableError
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping, evolve
+from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
@@ -154,7 +157,7 @@ from osprey_connectors.safety_file import (
     atomic_replace,
     ensure_shared_dir,
 )
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.types import CONTROL_TARGETS, ControlTarget, MachineKind, is_control_target
 
 logger = logging.getLogger("osprey_connectors.control_context")
 
@@ -165,6 +168,7 @@ __all__ = [
     "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
     "OWNER_WEB_TERMINAL",
+    "OwnerKind",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
@@ -176,7 +180,7 @@ __all__ = [
     "ControlContext",
     "Owner",
     "ServerReport",
-    "StoppedSince",
+    "StoppedSinceError",
     "applied_detail",
     "blocking_pids",
     "invalidate_cache",
@@ -203,7 +207,7 @@ __all__ = [
     "write_record",
     "write_terminus",
     "held_epoch",
-    "RecordUnavailable",
+    "RecordUnavailableError",
 ]
 
 #: The payload version. There is exactly one, and a payload that does not
@@ -223,9 +227,10 @@ STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 
 #: The two kinds of process that can own the record. A web terminal outranks a
 #: controls server — it is the one an operator is looking at.
-OWNER_WEB_TERMINAL = "web_terminal"
-OWNER_CONTROLS_SERVER = "controls_server"
-_OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
+OwnerKind = Literal["web_terminal", "controls_server"]
+OWNER_WEB_TERMINAL: Final = "web_terminal"
+OWNER_CONTROLS_SERVER: Final = "controls_server"
+_OWNER_KINDS: frozenset[OwnerKind] = frozenset(get_args(OwnerKind))
 
 #: The two termini a switch request can reach in the record. ``applied`` moved
 #: the target and minted a generation; ``refused`` moved nothing.
@@ -263,14 +268,14 @@ _Parsed = TypeVar("_Parsed")
 
 #: A machine's three positions. ``off`` is never stored: it is a target absent
 #: from the map.
-_SWITCH_OFF: Literal["off"] = "off"
-_SWITCH_ASKED: Literal["asked"] = "asked"
-_SWITCH_ALLOWED: Literal["allowed"] = "allowed"
+_SWITCH_OFF: Final = "off"
+_SWITCH_ASKED: Final = "asked"
+_SWITCH_ALLOWED: Final = "allowed"
 
 #: The word a record written before the three positions arms a machine with.
 #: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
 #: carries under ``switch`` is dropped on parse (rule 2).
-_SWITCH_LEGACY_ON = "on"
+_SWITCH_LEGACY_ON: Final = "on"
 
 #: The record lock's file, beside the record: ``<record path>`` plus this.
 #: Rule 3. Not one of the PID-named families, so :func:`sweep_dead` never
@@ -293,7 +298,7 @@ class Owner(FrozenModel):
     """The process currently allowed to write the record.
 
     Attributes:
-        kind: One of :data:`_OWNER_KINDS`.
+        kind: An :data:`OwnerKind`.
         pid: The owning process's PID — how every other process decides
             whether the owner is still alive.
         port: The web terminal's port, so a follower can name where the owner
@@ -301,13 +306,9 @@ class Owner(FrozenModel):
             server, which serves nothing an operator can open.
     """
 
-    kind: str
+    kind: OwnerKind
     pid: int
     port: int | None = None
-
-    def to_payload(self) -> dict[str, object]:
-        """This owner as the record's ``owner`` object."""
-        return {"kind": self.kind, "pid": self.pid, "port": self.port}
 
 
 class ControlContext(FrozenModel):
@@ -315,8 +316,9 @@ class ControlContext(FrozenModel):
 
     :func:`read_record` hands back the cached instance, which is frozen: a
     caller that needs a changed record builds a new one. Its ``posture``,
-    ``last_switch`` and ``switch`` maps are the cached instance's own, so they
-    are not edited in place either — an in-place edit would reach every other
+    ``last_switch`` and ``switch`` maps are read-only
+    (:data:`~osprey_connectors.model.ReadOnlyMapping`) for the same reason: they
+    are the cached instance's own, and an in-place edit would reach every other
     reader in the process.
 
     Attributes:
@@ -327,50 +329,63 @@ class ControlContext(FrozenModel):
             record is ownerless and free to be claimed.
         posture: The ``posture`` field as read off disk — the mirror of
             ``switch`` (:func:`_posture_mirror`), or an old narrowing in a file
-            written before it. A reading only: :meth:`to_payload` ignores it
-            and derives the field from ``switch``, so nothing set here is
+            written before it. A reading only: the record's JSON form ignores
+            it and derives the field from ``switch``, so nothing set here is
             ever stored, and no write decision reads it.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
         switch: The position the person has put each machine at,
             ``{target: "asked" | "allowed"}``; an absent target is off, and
             :func:`switch_position` is how it is read. :func:`write_record`
-            never changes it — it keeps whatever the file on disk says.
+            never changes it — it keeps whatever the file on disk says. Built
+            through rule 2's filter (:func:`_parse_switch`) whatever it is
+            handed, so a value that arms nothing is off rather than a
+            validation error, and the legacy ``"on"`` is ``"asked"``. Keys are
+            any string, not only a :data:`~osprey_connectors.types.ControlTarget`:
+            a key no target names is kept so a stop of every machine clears it.
         switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
             of the record, or ``None`` for a record written before epochs
             existed. Kept by :func:`write_record` like ``switch``.
     """
 
-    target: str
+    target: ControlTarget
     generation: int
     owner: Owner | None = None
-    posture: dict[str, str] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    switch: Mapping[str, str] = Field(default_factory=dict)
+    posture: ReadOnlyMapping[str, Posture] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    switch: ReadOnlyMapping[str, ArmedPosition] = Field(default_factory=empty_mapping)
     switch_epoch: int | None = None
 
-    def to_payload(self) -> dict[str, object]:
+    @field_validator("switch", mode="before")
+    @classmethod
+    def _switch_words(cls, value: object) -> dict[str, ArmedPosition]:
+        return _parse_switch(dict(value) if isinstance(value, Mapping) else value)
+
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
 
-        The seven contract fields and the schema, and nothing else: a payload
-        round-trips through :func:`parse_record` unchanged, and a key some
-        future version added does not survive a rewrite by this one. The
-        ``posture`` field is the mirror of ``switch`` (:func:`_posture_mirror`),
-        never :attr:`posture`: a narrowing is not something a writer can store.
+        The seven contract fields and the schema, in this order, and nothing
+        else: the object round-trips through :func:`parse_record` unchanged, and
+        a key some future version added does not survive a rewrite by this one.
+        The ``posture`` field is the mirror of ``switch``
+        (:func:`_posture_mirror`), never :attr:`posture`: a narrowing is not
+        something a writer can store.
         """
+        fields: dict[str, object] = handler(self)
         return {
             "schema": _SCHEMA_VERSION,
-            "owner": None if self.owner is None else self.owner.to_payload(),
-            "target": self.target,
-            "generation": self.generation,
+            "owner": fields["owner"],
+            "target": fields["target"],
+            "generation": fields["generation"],
             "posture": _posture_mirror(self.switch),
-            "last_switch": None if self.last_switch is None else dict(self.last_switch),
-            "switch": dict(self.switch),
-            "switch_epoch": self.switch_epoch,
+            "last_switch": fields["last_switch"],
+            "switch": fields["switch"],
+            "switch_epoch": fields["switch_epoch"],
         }
 
 
-def _posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
+def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
@@ -390,14 +405,12 @@ def _posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def switch_position(
-    record: ControlContext | None, target: str
-) -> Literal["off", "asked", "allowed"]:
+def switch_position(record: ControlContext | None, target: str) -> SwitchPosition:
     """Where the person has put *target* — the one reader of the ``switch`` map.
 
-    Never raises. No record, a target absent from the map and an unknown value
-    all read as off; a hand-built record still spelling ``"on"`` reads as asked,
-    as a parsed one does.
+    Never raises. No record and a target absent from the map read as off; the
+    map holds only :data:`~osprey_connectors.posture_store.ArmedPosition` words
+    (a parsed ``"on"`` is already ``"asked"``).
 
     Args:
         record: The record, or ``None`` when there is none.
@@ -405,10 +418,10 @@ def switch_position(
     """
     if record is None:
         return _SWITCH_OFF
-    return _switch_word(record.switch.get(target)) or _SWITCH_OFF
+    return record.switch.get(target) or _SWITCH_OFF
 
 
-def claimed(record: ControlContext, baseline: str) -> ControlContext:
+def claimed(record: ControlContext, baseline: ControlTarget) -> ControlContext:
     """*record* as a process claiming it holds it, given the deployment's *baseline*.
 
     A record nobody has switched follows the deployment's baseline; every
@@ -486,12 +499,16 @@ def _parse_owner(value: object) -> Owner | None:
         return None
     kind = value.get("kind")
     pid = _positive_int(value.get("pid"))
-    if kind not in _OWNER_KINDS or pid is None:
+    if pid is None:
         return None
-    return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
+    if kind == OWNER_WEB_TERMINAL:
+        return Owner(kind=OWNER_WEB_TERMINAL, pid=pid, port=_positive_int(value.get("port")))
+    if kind == OWNER_CONTROLS_SERVER:
+        return Owner(kind=OWNER_CONTROLS_SERVER, pid=pid, port=_positive_int(value.get("port")))
+    return None
 
 
-def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
+def _switch_word(value: object) -> ArmedPosition | None:
     """One stored ``switch`` value as the word it arms with, or ``None`` for off.
 
     Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
@@ -508,7 +525,7 @@ def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
     return None
 
 
-def _parse_switch(value: object) -> dict[str, str]:
+def _parse_switch(value: object) -> dict[str, ArmedPosition]:
     """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
@@ -554,7 +571,7 @@ def parse_record(raw: object) -> ControlContext | None:
         # Identity comparison, so a JSON ``true`` cannot pass for schema 1.
         return None
     target = raw.get("target")
-    if target not in CONTROL_TARGETS:
+    if not is_control_target(target):
         return None
     generation = raw.get("generation")
     if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
@@ -810,7 +827,7 @@ def _record_lock(path: Path) -> Iterator[None]:
     planter's choosing. A link refuses the write.
 
     Raises:
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
         OSError: A symbolic link sits where the lock file belongs
             (``errno.ELOOP``), or the lock file could not be created or opened.
     """
@@ -824,9 +841,11 @@ def _record_lock(path: Path) -> Iterator[None]:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(
+                    raise StateLockedError(
                         f"The control-context record at {path} stayed locked for "
-                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written"
+                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written",
+                        path=path,
+                        waited_s=_LOCK_TIMEOUT_S,
                     ) from None
                 time.sleep(_LOCK_POLL_S)
         try:
@@ -844,7 +863,7 @@ def _write_record_unlocked(record: ControlContext, path: Path) -> None:
     from inside this module with the lock held: a write that skipped the lock,
     or that wrote a ``switch`` it did not read, is the race rule 3 closes.
     """
-    write_json_atomic(path, record.to_payload())
+    write_json_atomic(path, record.model_dump(mode="json"))
 
 
 def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
@@ -868,14 +887,14 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
         The path written.
 
     Raises:
-        RuntimeError: The agent-data root does not resolve, so there is
-            nowhere a reader would look for what this call would write; or
-            the record stayed locked past the bounded wait.
+        StateUnavailableError: The agent-data root does not resolve, so there
+            is nowhere a reader would look for what this call would write.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
     target_path = record_path() if path is None else path
     if target_path is None:
-        raise RuntimeError(
+        raise StateUnavailableError(
             "No agent-data root: the control-context record has nowhere to be written"
         )
     with _record_lock(target_path):
@@ -894,14 +913,10 @@ _ALL_TARGETS = "all"
 #: A machine's three positions, narrowest first: a later one widens an earlier
 #: one. The gesture's words and every reader's order. ``"off"`` is not stored
 #: (rule 2).
-SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = (
-    _SWITCH_OFF,
-    _SWITCH_ASKED,
-    _SWITCH_ALLOWED,
-)
+SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
 
 
-class StoppedSince(Exception):
+class StoppedSinceError(ConnectorsError):
     """A widening refused because a stop, or a lost record, came after it began.
 
     Rule 3: a person widening a machine names the epoch they saw. A record
@@ -930,7 +945,9 @@ class StoppedSince(Exception):
         super().__init__(refusal_phrase(self.reason))
 
 
-def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> list[str] | None:
+def _gesture_targets(
+    targets: Sequence[str] | Literal["all"], state: SwitchPosition
+) -> list[str] | None:
     """*targets* checked as named machines, or ``None`` for ``"all"``.
 
     Raises:
@@ -959,14 +976,14 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
     return names
 
 
-def _widens(state: str, position: str) -> bool:
+def _widens(state: SwitchPosition, position: SwitchPosition) -> bool:
     """Whether moving a machine at *position* to *state* widens it."""
     return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
 
 
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: Literal["off", "on", "asked", "allowed"],
+    state: SwitchPosition | Literal["on"],
     *,
     epoch: int | None = None,
     path: Path | None = None,
@@ -985,7 +1002,7 @@ def set_switch(
     * A **widening** (one name moving up off → asked → allowed gates the whole
       call) requires *epoch*, the ``switch_epoch`` the person saw, and succeeds
       only when it equals the record's epoch — a compare-and-swap. It raises
-      :class:`StoppedSince` carrying the on-disk epoch when the two differ
+      :class:`StoppedSinceError` carrying the on-disk epoch when the two differ
       (newer or older) or *epoch* is ``None``, when the record has no epoch
       (one is stamped and ``stamped`` is set, so the retried gesture succeeds),
       or when there is no usable record.
@@ -1034,9 +1051,9 @@ def set_switch(
         ValueError: ``"all"`` with anything but ``"off"``, an unknown *state*,
             malformed *targets*, or an *epoch* that is neither ``None`` nor an
             integer. Nothing is written.
-        StoppedSince: A widening that is stale, as above.
-        RuntimeError: The agent-data root does not resolve, or the record
-            stayed locked past the bounded wait.
+        StoppedSinceError: A widening that is stale, as above.
+        StateUnavailableError: The agent-data root does not resolve.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
     if state == _SWITCH_LEGACY_ON:
@@ -1051,14 +1068,14 @@ def set_switch(
         raise ValueError(f"set_switch epoch must be an integer or None, not {epoch!r}")
     target_path = record_path() if path is None else path
     if target_path is None:
-        raise RuntimeError(
+        raise StateUnavailableError(
             "No agent-data root: the control-context record has nowhere to be written"
         )
     with _record_lock(target_path):
         current, _status = _read(target_path)
         if current is None:
             if state != _SWITCH_OFF:
-                raise StoppedSince(epoch=None)
+                raise StoppedSinceError(epoch=None)
             # No record, no epoch: no grant stands without one, marked or not.
             _try_revoke_on_stop(target_path, names, by)
             return None
@@ -1074,9 +1091,9 @@ def set_switch(
                 if on_disk_epoch is None:
                     stamped = evolve(current, switch_epoch=time.time_ns())
                     _write_record_unlocked(stamped, target_path)
-                    raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
+                    raise StoppedSinceError(epoch=stamped.switch_epoch, stamped=True)
                 if epoch != on_disk_epoch:
-                    raise StoppedSince(epoch=on_disk_epoch)
+                    raise StoppedSinceError(epoch=on_disk_epoch)
             if state == _SWITCH_OFF:
                 switch = {key: value for key, value in current.switch.items() if key not in names}
             else:
@@ -1100,12 +1117,20 @@ def set_switch(
     return stored
 
 
-class RecordUnavailable(Exception):
-    """The record is there and cannot be read, so nothing can be stood on it."""
+class RecordUnavailableError(ConnectorsError):
+    """The record is there and cannot be read, so nothing can be stood on it.
+
+    Attributes:
+        path: The record that cannot be read.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"The control-context record at {path} cannot be read")
 
 
 @contextlib.contextmanager
-def held_epoch(path: Path, target: str) -> Iterator[int]:
+def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
     """Hold the record lock at *path* and yield the record's ``switch_epoch``. Rule 3.
 
     For a writer that issues something standing on the epoch — an approval of a
@@ -1117,14 +1142,14 @@ def held_epoch(path: Path, target: str) -> Iterator[int]:
     an epoch to move past.
 
     Raises:
-        RecordUnavailable: The record is there and cannot be read.
-        RuntimeError: The record stayed locked past the bounded wait.
+        RecordUnavailableError: The record is there and cannot be read.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The stamp could not be written.
     """
     with _record_lock(path):
         current, status = _read(path)
         if status == "unreadable":
-            raise RecordUnavailable(f"The control-context record at {path} cannot be read")
+            raise RecordUnavailableError(path)
         epoch = None if current is None else current.switch_epoch
         if epoch is None:
             epoch = time.time_ns()
@@ -1149,7 +1174,7 @@ def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) 
     which reads this module.
 
     Raises:
-        RuntimeError: The grants directory stayed locked.
+        StateLockedError: The grants directory stayed locked.
         OSError: It is not a plain directory, or a mark could not be written.
     """
     from osprey_connectors import write_authorization
@@ -1479,15 +1504,15 @@ class ServerReport(FrozenModel):
 
     server_pid: int
     session: str | None = None
-    applied_target: str | None = None
+    applied_target: ControlTarget | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, object] = Field(default_factory=dict)
-    last_switch: dict[str, object] | None = None
-    last_posture_realign: dict[str, object] | None = None
-    targets: dict[str, object] = Field(default_factory=dict)
+    reachability: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
+    last_switch: ReadOnlyMapping[str, object] | None = None
+    last_posture_realign: ReadOnlyMapping[str, object] | None = None
+    targets: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
     updated_at: str | None = None
-    statement: dict[str, dict[str, object] | None] | None = None
+    statement: ReadOnlyMapping[str, ReadOnlyMapping[str, object] | None] | None = None
 
     @property
     def display_only(self) -> bool:
@@ -1499,34 +1524,19 @@ class ServerReport(FrozenModel):
         """
         return self.statement is not None
 
-    def to_payload(self) -> dict[str, object]:
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This report as the JSON object its file holds.
 
         The ten contract fields, plus ``statement`` as the eleventh for a
-        display-only report and only then, so a payload round-trips through
+        display-only report and only then, so the object round-trips through
         :func:`_parse_report` unchanged and a controls server's report never
         reads back as display-only.
         """
-        payload: dict[str, object] = {
-            "server_pid": self.server_pid,
-            "session": self.session,
-            "applied_target": self.applied_target,
-            "applied_generation": self.applied_generation,
-            "children": list(self.children),
-            "reachability": dict(self.reachability),
-            "last_switch": None if self.last_switch is None else dict(self.last_switch),
-            "last_posture_realign": (
-                None if self.last_posture_realign is None else dict(self.last_posture_realign)
-            ),
-            "targets": dict(self.targets),
-            "updated_at": self.updated_at,
-        }
-        if self.statement is not None:
-            payload["statement"] = {
-                axis: None if value is None else dict(value)
-                for axis, value in self.statement.items()
-            }
-        return payload
+        fields: dict[str, object] = handler(self)
+        if self.statement is None:
+            del fields["statement"]
+        return fields
 
 
 def _non_negative_int(value: object) -> int | None:
@@ -1572,8 +1582,8 @@ _REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
 #: The keys of a statement's ``writes``: the execution verdict's own terms.
 _WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
 
-_WRITE_POSITIONS: tuple[str | None, ...] = (None, "asked", "allowed")
-_MACHINE_KINDS: tuple[str | None, ...] = (None, "real", "rehearsal", "simulator")
+_WRITE_POSITIONS: tuple[ArmedPosition | None, ...] = (None, *get_args(ArmedPosition))
+_MACHINE_KINDS: tuple[MachineKind | None, ...] = (None, *get_args(MachineKind))
 
 
 def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, object]:
@@ -1666,7 +1676,7 @@ def _parse_report(raw: object) -> ServerReport | None:
     return ServerReport(
         server_pid=server_pid,
         session=_text(raw.get("session")),
-        applied_target=applied_target if applied_target in CONTROL_TARGETS else None,
+        applied_target=applied_target if is_control_target(applied_target) else None,
         applied_generation=_non_negative_int(raw.get("applied_generation")),
         children=_child_pids(raw.get("children")),
         reachability=_mapping(raw.get("reachability")),

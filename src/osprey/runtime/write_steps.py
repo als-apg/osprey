@@ -95,7 +95,7 @@ async def checked_write(
 
     1. ``net(address, value, read_current=connector.current_value_reader())``
        when ``net`` is given — a local limits check that raises
-       :class:`~osprey.errors.ChannelLimitsViolationError` as it is, before
+       :class:`~osprey_connectors.errors.ChannelLimitsViolationError` as it is, before
        anything is observed or sent.
     2. ``on_attempt(address)`` when given — immediately before the connector
        call, so an attempt ledger records exactly the writes that may reach the
@@ -121,7 +121,7 @@ async def checked_write(
     if confirm is not None:
         call_kwargs["confirm"] = confirm
     if timeout is not None:
-        call_kwargs["timeout"] = timeout
+        call_kwargs["timeout_s"] = timeout
 
     if on_attempt is not None:
         on_attempt(address)

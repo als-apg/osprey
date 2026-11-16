@@ -51,11 +51,11 @@ class _RecordingValidator:
         self.validate_calls = []
         self.resolve_confirm_calls = []
 
-    def validate(self, channel_address, value, read_current=None):
-        self.validate_calls.append((channel_address, value, read_current))
+    def validate(self, address, value, read_current=None):
+        self.validate_calls.append((address, value, read_current))
 
-    def resolve_confirm(self, channel_address):
-        self.resolve_confirm_calls.append(channel_address)
+    def resolve_confirm(self, address):
+        self.resolve_confirm_calls.append(address)
         return True
 
 
@@ -95,7 +95,7 @@ def _assert_nothing_downstream_ran(connector):
 def _assert_refusal(result, address, value):
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "VALIDATION_ERROR"
-    assert result.channel_address == address
+    assert result.address == address
     assert result.observed_value is None
     message = result.error_message
     assert message is not None

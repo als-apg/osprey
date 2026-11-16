@@ -28,7 +28,7 @@ from osprey.cli.build_profile_presets import (
 from osprey.cli.profile_cmd import _preset_data
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.preset_data import compose_preset_data
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 FACILITIES = Path(TemplateManager().template_root) / "facilities"
 

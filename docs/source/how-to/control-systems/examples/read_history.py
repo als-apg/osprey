@@ -17,7 +17,7 @@ async def main() -> None:
     try:
         end = datetime.now(UTC)
         frame = await archiver.get_data(
-            channels=["DEMO:READBACK", "DEMO:SETPOINT"],
+            addresses=["DEMO:READBACK", "DEMO:SETPOINT"],
             start_date=end - timedelta(hours=1),
             end_date=end,
         )

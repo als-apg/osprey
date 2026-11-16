@@ -645,7 +645,7 @@ def warn_if_write_refused(
     # system.
     log.warning(
         "a write to %s was refused (plan %r, owner %s) [%s] — %s",
-        refusal.channel_address,
+        refusal.address,
         plan_name,
         owner,
         refusal.reason,

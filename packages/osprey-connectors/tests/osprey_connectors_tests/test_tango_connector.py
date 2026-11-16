@@ -417,7 +417,7 @@ class TestReadChannel:
         proxy.read_attribute.side_effect = RuntimeError("device down")
         with pytest.raises(ChannelUnreachableError, match="device down") as raised:
             await conn.read_channel(_ADDRESS)
-        assert raised.value.channel_address == _ADDRESS
+        assert raised.value.address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -438,7 +438,7 @@ class TestEnumReadings:
 
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
-        assert result.metadata.enum_labels == ["Closed", "Open"]
+        assert result.metadata.enum_labels == ("Closed", "Open")
         assert result.metadata.enum_label == "Open"
 
     async def test_enum_labels_are_cached_per_attribute(self, connector):
@@ -645,7 +645,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+        def blocking_validate(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)
@@ -744,7 +744,7 @@ class TestBoundedCalls:
     No test reads a clock.
     """
 
-    async def test_a_stalled_read_raises_timeout_error_within_timeout(self):
+    async def test_a_stalled_read_raises_channel_unreachable_within_timeout(self):
         proxy = _make_proxy()
         with (
             Stall() as read,
@@ -755,14 +755,16 @@ class TestBoundedCalls:
         ):
             proxy.read_attribute.side_effect = read
             conn = await _bounded_tango(0.2)
-            with pytest.raises(TimeoutError) as raised:
+            with pytest.raises(ChannelUnreachableError) as raised:
                 await conn.read_channel(_ADDRESS)
             answered_first = not read.returned
 
         assert answered_first
+        assert raised.value.address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert "within 0.2s" in str(raised.value)
         assert not isinstance(raised.value, ConnectionError)
+        assert not isinstance(raised.value, TimeoutError)
 
     async def test_a_per_call_timeout_wins_over_the_block_timeout(self):
         proxy = _make_proxy()
@@ -775,8 +777,8 @@ class TestBoundedCalls:
         ):
             proxy.read_attribute.side_effect = read
             conn = await _bounded_tango(30)
-            with pytest.raises(TimeoutError) as raised:
-                await conn.read_channel(_ADDRESS, timeout=0.2)
+            with pytest.raises(ChannelUnreachableError) as raised:
+                await conn.read_channel(_ADDRESS, timeout_s=0.2)
             answered_first = not read.returned
 
         assert answered_first
@@ -872,8 +874,8 @@ class TestUnreachableDevice:
     async def test_a_device_unreachable_during_validation_refuses_the_write(self):
         """An unmade ``max_step`` check is not permission to write."""
 
-        def validate_against_a_fresh_read(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
-            read_current(channel_address)
+        def validate_against_a_fresh_read(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+            read_current(address)
 
         validator = _make_limits_validator()
         validator.validate = MagicMock(side_effect=validate_against_a_fresh_read)

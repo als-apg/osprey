@@ -286,7 +286,7 @@ async def test_a_write_refusal_arrives_with_its_reason_and_its_own_message(raisi
         await raising_pair.write_channel(BLOCKED_CHANNEL, 1.0)
 
     exc = exc_info.value
-    assert exc.channel_address == BLOCKED_CHANNEL
+    assert exc.address == BLOCKED_CHANNEL
     assert exc.reason == BLOCKED_REASON
     assert str(exc) == BLOCKED_MESSAGE
 
@@ -359,7 +359,7 @@ async def test_a_real_limits_database_refusal_renders_its_range_across_the_bound
         await limits_pair.write_channel(BOUNDED_CHANNEL, 150.0)
 
     exc = exc_info.value
-    assert exc.channel_address == BOUNDED_CHANNEL
+    assert exc.address == BOUNDED_CHANNEL
     assert exc.attempted_value == 150.0
     assert exc.violation_type == "MAX_EXCEEDED"
     assert (exc.min_value, exc.max_value) == (0.0, 100.0)
@@ -413,7 +413,7 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
 
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
     monkeypatch.delenv("CONFIG_FILE", raising=False)
-    monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_DEADLINE_S", TEST_DEADLINE_S)
+    monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_TIMEOUT_S", TEST_DEADLINE_S)
     view = served_tree(
         tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "BUG:X", "GONE:X", "LOST:X", "SR:A")
     )
@@ -446,7 +446,7 @@ async def _read_through_the_handle(channel: str, *, timeout: float | None = None
 
     async with connector_error_handler("channel_read", "control_system"):
         connector = await get_server_context().control_system()
-        await connector.read_channel(channel, timeout=timeout)
+        await connector.read_channel(channel, timeout_s=timeout)
 
 
 async def _timed_out_read(channel: str) -> dict:
@@ -465,7 +465,7 @@ async def test_a_slow_child_that_still_answers_a_ping_is_kept(served_from_a_chil
     assert "still answers a ping, so it was kept" in envelope["error_message"]
     assert envelope["details"]["recovery"][0]["action"] == "child_kept"
     assert manager.status()["child_pid"] == pid
-    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    value = await manager.active_proxy().read_channel("SR:A", timeout_s=TIMEOUT_S)
     assert value is not None
 
 
@@ -483,7 +483,7 @@ async def test_a_wedged_child_that_answers_no_ping_is_replaced_on_the_same_targe
     assert manager.status()["child_pid"] != pid
     assert manager.active_generation() == generation
     assert manager.active_target() == "live"
-    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    value = await manager.active_proxy().read_channel("SR:A", timeout_s=TIMEOUT_S)
     assert value is not None
 
 
@@ -494,12 +494,12 @@ async def test_an_unknown_read_in_a_child_is_not_found_and_keeps_the_child(serve
 
     with assert_raises_error(error_type="not_found") as captured:
         async with connector_error_handler("channel_read", "control_system"):
-            await proxy.read_channel("NOT:SERVED", timeout=TIMEOUT_S)
+            await proxy.read_channel("NOT:SERVED", timeout_s=TIMEOUT_S)
 
     assert captured["envelope"]["details"]["channel"] == "NOT:SERVED"
     assert manager.active_proxy() is proxy
     assert manager.status()["child_pid"] == pid
-    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    value = await manager.active_proxy().read_channel("SR:A", timeout_s=TIMEOUT_S)
     assert value is not None
 
 
@@ -512,7 +512,7 @@ async def test_a_connector_bug_in_a_child_is_an_internal_error_and_keeps_the_chi
 
     with assert_raises_error(error_type="internal_error") as captured:
         async with connector_error_handler("channel_read", "control_system"):
-            await proxy.read_channel("BUG:X", timeout=TIMEOUT_S)
+            await proxy.read_channel("BUG:X", timeout_s=TIMEOUT_S)
 
     envelope = captured["envelope"]
     assert "KeyError" in envelope["error_message"]
@@ -535,7 +535,7 @@ async def test_one_unreachable_channel_keeps_the_child(served_from_a_child):
     assert "recovery" not in envelope["details"]
     assert manager.status()["child_pid"] == pid
     assert len(manager.spawned) == spawned
-    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    value = await manager.active_proxy().read_channel("SR:A", timeout_s=TIMEOUT_S)
     assert value is not None
 
 
@@ -549,7 +549,7 @@ async def test_an_unavailable_connector_is_replaced_once_for_a_whole_batch(serve
     connector = await get_server_context().control_system()
 
     failures = await asyncio.gather(
-        *(connector.read_channel("LOST:X", timeout=TIMEOUT_S) for _ in range(20)),
+        *(connector.read_channel("LOST:X", timeout_s=TIMEOUT_S) for _ in range(20)),
         return_exceptions=True,
     )
 
@@ -622,7 +622,7 @@ async def test_a_dead_child_is_replaced_by_its_supervisor_and_the_envelope_repor
     pid = manager.status()["child_pid"]
     connector = await get_server_context().control_system()
 
-    call = asyncio.ensure_future(connector.read_channel("SLOW:X", timeout=TIMEOUT_S))
+    call = asyncio.ensure_future(connector.read_channel("SLOW:X", timeout_s=TIMEOUT_S))
     await asyncio.sleep(0.3)
     os.kill(pid, 9)
 

@@ -85,6 +85,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark, YAMLError
 from ruamel.yaml.tokens import CommentToken
 
+from osprey.errors import BuildProfileError
 from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
     compute_providers_hash,
@@ -99,7 +100,6 @@ from osprey.utils.workspace import (
     TIERS_DIRNAME,
     layer_dir_kind,
 )
-from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import (
     _WEB_TERMINALS,

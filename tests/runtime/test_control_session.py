@@ -11,6 +11,7 @@ target.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from collections.abc import Mapping
@@ -328,8 +329,8 @@ class TestOpen:
         write_record(mock_va)
         reads = []
 
-        async def read_channel(_self, channel_address, **_kwargs):
-            reads.append(channel_address)
+        async def read_channel(_self, address, **_kwargs):
+            reads.append(address)
             raise AssertionError("open must not read a channel")
 
         monkeypatch.setattr(_CountingFake, "read_channel", read_channel)
@@ -468,7 +469,10 @@ class TestUnservable:
 
     async def test_a_record_naming_no_known_target_is_no_record(self, mock_va):
         """The record reader drops a target it cannot use, so this is the fallback."""
-        write_record(mock_va, target="somewhere", generation=1)
+        path = write_record(mock_va, target="va", generation=1)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**payload, "target": "somewhere"}), encoding="utf-8")
+        control_context.invalidate_cache()
 
         session = await _opened()
 

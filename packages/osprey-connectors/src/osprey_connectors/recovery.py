@@ -4,8 +4,8 @@ A supervisor owns a connector's lifetime: the connector-host pool owns its
 children, a server owns its connectors. A supervisor that calls the policy —
 the connector-host pool does — hands the error and the supervised connector to
 :meth:`RecoveryPolicy.recover` when a call fails, and the policy answers with
-what it did, as a :class:`Recovery` record, or ``None`` when the failure
-restarts nothing.
+what it did, as a :class:`~osprey_connectors.errors.RecoveryRecord`, or
+``None`` when the failure restarts nothing.
 
 The decision is one table, failure class and origin in, one step out:
 
@@ -62,21 +62,17 @@ from enum import Enum, StrEnum
 from functools import partial
 from typing import Protocol
 
-from pydantic import field_validator
-
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryAction,
     RecoveryRecord,
 )
-from osprey_connectors.model import FrozenModel
 
 __all__ = [
-    "Recovery",
-    "RecoveryAction",
     "RecoveryPolicy",
     "Supervised",
     "Timing",
@@ -104,45 +100,6 @@ class Timing(StrEnum):
     LAZY = "lazy"
     #: At once, by the recovery itself.
     EAGER = "eager"
-
-
-class RecoveryAction(StrEnum):
-    """What a supervisor did about a failure."""
-
-    CONNECTOR_DROPPED = "connector_dropped"
-    CHILD_REPLACED = "child_replaced"
-    CHILD_KEPT = "child_kept"
-    RESPAWN_REFUSED = "respawn_refused"
-
-
-class Recovery(FrozenModel):
-    """One thing a supervisor did about a failure, in one sentence.
-
-    ``action`` takes the member or its word, and holds the member.
-    """
-
-    action: RecoveryAction
-    text: str
-
-    def as_dict(self) -> RecoveryRecord:
-        """The record as a failure's ``recovery`` carries it."""
-        return RecoveryRecord(action=str(self.action), text=self.text)
-
-    @field_validator("action", mode="before")
-    @classmethod
-    def _member(cls, action: object) -> RecoveryAction:
-        """The member *action* is, or whose word it is, as ``RecoveryAction(action)`` finds it."""
-        member = next((member for member in RecoveryAction if member == action), None)
-        if member is None:
-            raise ValueError(f"{action!r} is not a valid RecoveryAction")
-        return member
-
-    @field_validator("text")
-    @classmethod
-    def _stated(cls, text: str) -> str:
-        if not text:
-            raise ValueError("a recovery record states what was done; its text is empty")
-        return text
 
 
 class Supervised(Protocol):
@@ -275,7 +232,7 @@ class _Episode:
 
     __slots__ = ("answers_through", "task")
 
-    def __init__(self, task: asyncio.Future[Recovery]) -> None:
+    def __init__(self, task: asyncio.Future[RecoveryRecord]) -> None:
         self.task = task
         #: Set when a respawn is refused: the last ticket issued before the refusal.
         self.answers_through: int | None = None
@@ -312,7 +269,7 @@ class RecoveryPolicy:
 
     async def recover(
         self, exc: BaseException, target: Supervised, *, ticket: int, write: bool = False
-    ) -> Recovery | None:
+    ) -> RecoveryRecord | None:
         """Act on *target* for *exc*, at most once per incarnation; ``None`` when nothing is done.
 
         *ticket* is the one :meth:`begin` gave the failed call when it started;
@@ -340,7 +297,10 @@ class RecoveryPolicy:
         return await asyncio.shield(episode.task)
 
     def _settle(
-        self, incarnation: weakref.ref[object], episode: _Episode, task: asyncio.Future[Recovery]
+        self,
+        incarnation: weakref.ref[object],
+        episode: _Episode,
+        task: asyncio.Future[RecoveryRecord],
     ) -> None:
         if not task.cancelled() and task.exception() is None:
             action = task.result().action
@@ -355,7 +315,7 @@ class RecoveryPolicy:
 
     async def _act(
         self, step: _Step, target: Supervised, respawn: Callable[[], Awaitable[bool]] | None
-    ) -> Recovery:
+    ) -> RecoveryRecord:
         failure = _Failure.UNAVAILABLE
         if step is _Step.PROBE:
             if await target.ping():
@@ -373,5 +333,5 @@ class RecoveryPolicy:
             )
         return self._record(action, failure)
 
-    def _record(self, action: RecoveryAction, failure: _Failure) -> Recovery:
-        return Recovery(action=action, text=_SENTENCES[(action, self._timing, failure)])
+    def _record(self, action: RecoveryAction, failure: _Failure) -> RecoveryRecord:
+        return RecoveryRecord(action=action, text=_SENTENCES[(action, self._timing, failure)])

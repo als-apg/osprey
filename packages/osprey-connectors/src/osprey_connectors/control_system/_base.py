@@ -31,9 +31,10 @@ from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
-from osprey_connectors.model import MutableModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.types import Transport
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (
@@ -53,7 +54,7 @@ _LIMIT_PAIRS = (
 )
 
 
-class ChannelMetadata(MutableModel):
+class ChannelMetadata(FrozenModel):
     """Metadata a control system reports about one of its channels.
 
     ``display_low`` / ``display_high`` are the range the control system suggests
@@ -73,10 +74,10 @@ class ChannelMetadata(MutableModel):
     an enum channel: a control system reports the label list only when it has
     one, and an index outside it resolves to nothing.
 
-    ``enum_labels`` is a ``list`` rather than a tuple because that is what
-    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`
-    encodes sequences as JSON arrays and decodes them as lists, so a tuple set
-    here would compare unequal to the same field read through a proxy.
+    ``enum_labels`` is a tuple, and takes a list on input: the connector-host
+    IPC (:mod:`osprey_connectors.ipc._frames`) carries it as a JSON array,
+    which decodes as a list, and the field turns it back into the tuple the
+    sender held, so the field compares equal on both sides of the seam.
 
     ``control_low`` / ``control_high`` (EPICS DRVL/DRVH), ``warning_low`` /
     ``warning_high`` (LOW/HIGH) and ``alarm_low`` / ``alarm_high`` (LOLO/HIHI)
@@ -87,16 +88,16 @@ class ChannelMetadata(MutableModel):
     system does not report one.
 
     Every limit pair, the display range included, passes through
-    :func:`normalise_limit_pair` on construction and on every assignment: a
-    missing, non-numeric or non-finite bound becomes ``None``, and a pair whose
+    :func:`normalise_limit_pair` on construction: a missing, non-numeric or non-finite bound becomes ``None``, and a pair whose
     low is not below its high (EPICS reports an unset range as ``0``/``0``)
     becomes ``None`` on both sides. A connector may therefore hand a limit over
     as whatever its transport reported. The normalisation is idempotent, so a
     value decoded on the far side of the connector-host IPC seam — which
     validates it again — is unchanged. ``writable`` takes a ``bool`` or an
     integer ``0``/``1`` and reads anything else as "not reported"; a
-    ``raw_metadata`` of ``None`` is an empty one. Every other field holds a
-    value of its own type, or the construction raises.
+    ``raw_metadata`` of ``None`` is an empty one, and the record holds it
+    read-only (:data:`~osprey_connectors.model.ReadOnlyMapping`). Every other
+    field holds a value of its own type, or the construction raises.
     """
 
     units: str = ""
@@ -112,10 +113,10 @@ class ChannelMetadata(MutableModel):
     display_low: float | None = None
     display_high: float | None = None
     #: Every state this enum-typed channel can report, in index order; None off enums.
-    enum_labels: list[str] | None = None
+    enum_labels: FrozenTuple[str] | None = None
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
-    raw_metadata: dict[str, ContractAny] | None = Field(default_factory=dict)
+    raw_metadata: ReadOnlyMapping[str, ContractAny] | None = Field(default_factory=empty_mapping)
     #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
     control_low: float | None = None
     control_high: float | None = None
@@ -146,15 +147,23 @@ class ChannelMetadata(MutableModel):
         """A reported write-access right as ``bool``, or ``None`` when not reported."""
         return _writable_flag(value)
 
-    @model_validator(mode="after")
-    def _limit_pairs(self) -> Self:
-        """Each limit pair as one pair: a low not below its high leaves neither."""
+    @model_validator(mode="before")
+    @classmethod
+    def _limit_pairs(cls, data: object) -> object:
+        """Each limit pair as one pair: a low not below its high leaves neither.
+
+        Runs on the fields as given, before each bound is validated, so the
+        record is built once with the pair it keeps.
+        """
+        if not isinstance(data, Mapping):
+            return data
+        fields = dict(data)
         for low_name, high_name in _LIMIT_PAIRS:
-            low, high = getattr(self, low_name), getattr(self, high_name)
-            if normalise_limit_pair(low, high) != (low, high):
-                setattr(self, low_name, None)
-                setattr(self, high_name, None)
-        return self
+            if low_name in fields or high_name in fields:
+                fields[low_name], fields[high_name] = normalise_limit_pair(
+                    fields.get(low_name), fields.get(high_name)
+                )
+        return fields
 
 
 def _limit_bound(value: object) -> float | None:
@@ -200,7 +209,7 @@ def _writable_flag(value: object) -> bool | None:
     return None
 
 
-class ChannelValue(MutableModel):
+class ChannelValue(FrozenModel):
     """Value of a control system channel with metadata."""
 
     value: ContractAny
@@ -364,7 +373,7 @@ def as_number(value: object) -> float | None:
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
 
 
-class ChannelWriteResult(MutableModel):
+class ChannelWriteResult(FrozenModel):
     """What became of one channel write, and what the channel was seen to hold.
 
     The control-system-agnostic result type returned by every connector.
@@ -375,8 +384,8 @@ class ChannelWriteResult(MutableModel):
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``. Construction, and every assignment to a field, enforce
-    it: a result that breaks it raises ``ValueError``.
+    ``observed_value``. Construction enforces it: a result that breaks it
+    raises ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by
@@ -405,7 +414,7 @@ class ChannelWriteResult(MutableModel):
     control-system constants.
     """
 
-    channel_address: str  # Channel that was written
+    address: str  # Channel that was written
     value_written: ContractAny  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
     # Set iff refused, enforced at construction
@@ -460,7 +469,7 @@ class ChannelWriteResult(MutableModel):
             return RefusalReason(value)
         except ValueError:
             raise ValueError(
-                f"Write result for '{info.data.get('channel_address')}' "
+                f"Write result for '{info.data.get('address')}' "
                 f"(outcome {info.data.get('outcome')}): "
                 f"refusal_reason {value!r} is not a known refusal reason"
             ) from None
@@ -479,13 +488,13 @@ class ChannelWriteResult(MutableModel):
         if refused != (self.refusal_reason is not None):
             expected = "a known refusal reason" if refused else "None"
             raise ValueError(
-                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"Write result for '{self.address}' (outcome {self.outcome}): "
                 f"refusal_reason must be {expected}, got {self.refusal_reason!r}"
             )
         if bool(self.error_message) != (self.outcome in _MESSAGE_OUTCOMES):
             expected = "a message" if self.outcome in _MESSAGE_OUTCOMES else "None"
             raise ValueError(
-                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"Write result for '{self.address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
             )
         return self
@@ -662,9 +671,7 @@ def _refusing_verdict(connector: "ControlSystemConnector") -> "WriteVerdict":
     return connector._last_verdict or _monitor_verdict(connector._control_target)
 
 
-def _verdict_refusal(
-    channel_address: str, value: object, verdict: "WriteVerdict"
-) -> ChannelWriteResult:
+def _verdict_refusal(address: str, value: object, verdict: "WriteVerdict") -> ChannelWriteResult:
     """The REFUSED result the monitor returns for a write *verdict* refused.
 
     The operator's words are :func:`~osprey_connectors.refusals.refusal_text`
@@ -694,11 +701,11 @@ def _verdict_refusal(
         except ValueError:
             spoken = _OVERRIDE_REFUSAL
     return ChannelWriteResult(
-        channel_address=channel_address,
+        address=address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=RefusalReason.WRITES_DISABLED,
-        error_message=f"Write to '{channel_address}' blocked{marker}: {spoken}",
+        error_message=f"Write to '{address}' blocked{marker}: {spoken}",
         verdict_reason=None if verdict.allowed else verdict.reason,
     )
 
@@ -798,7 +805,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
 
     if result.outcome is WriteOutcome.REFUSED:
         raise ChannelWriteBlockedError(
-            result.channel_address,
+            result.address,
             result.refusal_reason,
             message=result.error_message,
             verdict_reason=result.verdict_reason,
@@ -810,7 +817,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
     # outcome a consumer reads stay one vocabulary by construction rather than by
     # a table that a new outcome could be left out of.
     raise ChannelWriteFailedError(
-        result.channel_address,
+        result.address,
         result.outcome.upper(),
         message=result.error_message,
         outcome=result.outcome,
@@ -836,7 +843,7 @@ def raise_for_write_results(results: Sequence[ChannelWriteResult]) -> Sequence[C
 
 
 def _limits_refusal(
-    channel_address: str, value: object, error: "ChannelLimitsViolationError"
+    address: str, value: object, error: "ChannelLimitsViolationError"
 ) -> ChannelWriteResult:
     """The REFUSED result a batch answers for a write the limits refused.
 
@@ -845,13 +852,13 @@ def _limits_refusal(
     """
     kind = error.violation_type
     reason = error.violation_reason
-    said = f"({kind}): {reason}" if kind and reason else f": {error}"
+    said = f"({kind}): {reason}" if reason else f": {error}"
     return ChannelWriteResult(
-        channel_address=channel_address,
+        address=address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=RefusalReason.LIMITS,
-        error_message=f"Write to '{channel_address}' refused by the limits {said}",
+        error_message=f"Write to '{address}' refused by the limits {said}",
     )
 
 
@@ -863,14 +870,14 @@ def _refused_batch(
     first = refused[0]
     others = f" and {len(refused) - 1} more" if len(refused) > 1 else ""
     why = (
-        f"the write to '{first.channel_address}' was refused "
+        f"the write to '{first.address}' was refused "
         f"({first.refusal_reason}){others}. No write of the batch was sent."
     )
     return [
         refusal
         if refusal is not None
         else ChannelWriteResult(
-            channel_address=name,
+            address=name,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
             refusal_reason=RefusalReason.BATCH_REFUSED,
@@ -880,24 +887,22 @@ def _refused_batch(
     ]
 
 
-def _repeated_refusal(channel_address: str, value: object, times: int) -> ChannelWriteResult:
+def _repeated_refusal(address: str, value: object, times: int) -> ChannelWriteResult:
     """The refusal of one write to a channel its batch names more than once."""
     return ChannelWriteResult(
-        channel_address=channel_address,
+        address=address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=RefusalReason.VALIDATION_ERROR,
         error_message=(
-            f"Write to '{channel_address}' refused: the batch names this channel more than "
+            f"Write to '{address}' refused: the batch names this channel more than "
             f"once ({times} writes). A batch writes a channel once; send the later value "
             "in a batch of its own."
         ),
     )
 
 
-def _batch_send_verdict(
-    channel_address: str, value: object, error: Exception
-) -> ChannelWriteResult:
+def _batch_send_verdict(address: str, value: object, error: Exception) -> ChannelWriteResult:
     """The result of one write of a batch whose send raised, or the raise itself.
 
     A limits refusal at send time is a ``LIMITS`` refusal. A channel that
@@ -908,15 +913,14 @@ def _batch_send_verdict(
     from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
 
     if isinstance(error, ChannelLimitsViolationError):
-        return _limits_refusal(channel_address, value, error)
+        return _limits_refusal(address, value, error)
     if isinstance(error, ChannelUnreachableError | TimeoutError):
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.UNCONFIRMED,
             error_message=(
-                f"Write to '{channel_address}' could not be confirmed, "
-                f"its outcome is unknown: {error}"
+                f"Write to '{address}' could not be confirmed, its outcome is unknown: {error}"
             ),
         )
     raise error
@@ -954,7 +958,7 @@ class _WriteChannelFunction(Protocol):
     def __call__(
         self,
         connector: "ControlSystemConnector",
-        channel_address: str,
+        address: str,
         value: object,
         /,
         *args: object,
@@ -981,7 +985,7 @@ class _SubscribeFunction(Protocol):
     def __call__(
         self,
         connector: "ControlSystemConnector",
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         /,
         *args: object,
@@ -1000,7 +1004,7 @@ class _ConnectionSubscribeFunction(Protocol):
     def __call__(
         _protocol_self,
         self: "ControlSystemConnector",
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *args: object,
         on_connection: Callable[[bool], None] | None = None,
@@ -1043,14 +1047,14 @@ def _compat_subscribe_without_on_connection(
 
     async def _subscribe(
         self: "ControlSystemConnector",
-        channel_address: str,
+        address: str,
         callback: Callable[["ChannelValue"], None],
         *args: object,
         on_connection: Callable[[bool], None] | None = None,
         **kwargs: object,
     ) -> str:
         if on_connection is None:
-            return await subscribe(self, channel_address, callback, *args, **kwargs)
+            return await subscribe(self, address, callback, *args, **kwargs)
         connected = False
 
         def _deliver(value: "ChannelValue") -> None:
@@ -1060,7 +1064,7 @@ def _compat_subscribe_without_on_connection(
                 on_connection(True)
             callback(value)
 
-        return await subscribe(self, channel_address, _deliver, *args, **kwargs)
+        return await subscribe(self, address, _deliver, *args, **kwargs)
 
     functools.update_wrapper(_subscribe, subscribe)
     # inspect.signature() reads __signature__ before following __wrapped__, so
@@ -1103,15 +1107,17 @@ class ControlSystemConnector(ABC):
     # factory seam as _connector_type, from the target the *caller* named — the
     # init payload's target, the sandbox's stamp, the deployment baseline, the
     # bridge lane's own target. Stays None on an instance nobody built through
-    # the factory, and on a caller that has no target to name.
+    # the factory, and on a caller that has no target to name. A ``str`` and not
+    # a ``ControlTarget``: a target the caller named that does not resolve is
+    # carried as named, so the write verdict refuses it ``target_unknown``.
     _control_target: str | None = None
     # The wire this instance speaks, stamped by the same factory seam from the
     # type and the serving leaf. Stays None on an instance nobody built through
     # the factory.
-    _transport: str | None = None
+    _transport: Transport | None = None
 
     @property
-    def transport(self) -> str | None:
+    def transport(self) -> Transport | None:
         """The factory-stamped wire this instance speaks (``None`` off the factory)."""
         return self._transport
 
@@ -1168,7 +1174,7 @@ class ControlSystemConnector(ABC):
 
     def _validation_refusal(
         self,
-        channel_address: str,
+        address: str,
         # The value write_channel was given: the extension contract leaves it open.
         value: ContractAny,
         error: BaseException,
@@ -1188,15 +1194,13 @@ class ControlSystemConnector(ABC):
         (``tests/connectors/test_cross_connector_parity.py``); four private
         copies of it would be four chances to drift.
         """
-        logger.warning(
-            f"Validation error - refusing write (fail-closed): {channel_address}: {error}"
-        )
+        logger.warning(f"Validation error - refusing write (fail-closed): {address}: {error}")
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
             refusal_reason=RefusalReason.VALIDATION_ERROR,
-            error_message=f"Write to '{channel_address}' refused: validation error: {error}",
+            error_message=f"Write to '{address}' refused: validation error: {error}",
         )
 
     @override
@@ -1248,27 +1252,27 @@ class ControlSystemConnector(ABC):
 
             async def _guarded_write(
                 self: "ControlSystemConnector",
-                channel_address: str,
+                address: str,
                 value: object,
                 *args: object,
                 **kwargs: object,
             ) -> ChannelWriteResult:
                 authorization = write_authorization.named_authorization()
                 if authorization is not None:
-                    refused = _authorized_refusal(self, [(channel_address, value)], authorization)
+                    refused = _authorized_refusal(self, [(address, value)], authorization)
                     if refused is not None:
-                        return _verdict_refusal(channel_address, value, refused)
+                        return _verdict_refusal(address, value, refused)
                     with open_door():
-                        return await original_write(self, channel_address, value, *args, **kwargs)
+                        return await original_write(self, address, value, *args, **kwargs)
                 self._last_verdict = None
                 if not self._writes_enabled:
                     verdict = _refusing_verdict(self)
-                    return _verdict_refusal(channel_address, value, verdict)
+                    return _verdict_refusal(address, value, verdict)
                 held = posture_store.session_hold_refusal()
                 if held is not None:
-                    return _verdict_refusal(channel_address, value, held)
+                    return _verdict_refusal(address, value, held)
                 with open_door():
-                    return await original_write(self, channel_address, value, *args, **kwargs)
+                    return await original_write(self, address, value, *args, **kwargs)
 
             functools.update_wrapper(_guarded_write, original_write)
             cls.write_channel = _guarded_write  # type: ignore[method-assign]  # wraps the subclass's own method
@@ -1319,7 +1323,7 @@ class ControlSystemConnector(ABC):
         """
         return True
 
-    def _resolve_confirm(self, channel_address: str) -> bool:
+    def _resolve_confirm(self, address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
 
         The limits database is the single home of write policy: the channel's
@@ -1329,7 +1333,7 @@ class ControlSystemConnector(ABC):
         """
         if self._limits_validator is None:
             return True
-        return bool(self._limits_validator.resolve_confirm(channel_address))
+        return bool(self._limits_validator.resolve_confirm(address))
 
     @abstractmethod
     async def connect(self, config: dict[str, ContractAny]) -> None:
@@ -1341,6 +1345,8 @@ class ControlSystemConnector(ABC):
 
         Raises:
             ConnectorUnavailableError: If connection cannot be established
+            ConnectRefusedError: If policy refuses the connection (a readonly
+                run with no gateway it may use, for instance)
         """
 
     @abstractmethod
@@ -1348,15 +1354,13 @@ class ControlSystemConnector(ABC):
         """Close connection to control system and cleanup resources."""
 
     @abstractmethod
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         """
         Read current value of a channel.
 
         Args:
-            channel_address: Address/name of the channel
-            timeout: Optional timeout in seconds
+            address: Address/name of the channel
+            timeout_s: Optional timeout in seconds
 
         Returns:
             ChannelValue with current value, timestamp, and metadata
@@ -1365,7 +1369,6 @@ class ControlSystemConnector(ABC):
             ChannelUnreachableError: This channel cannot be reached or did not
                 answer in time; the connector stays in place
             ConnectorUnavailableError: The connector's own transport is gone
-            TimeoutError: If operation times out
             ValueError: If channel address is invalid
             ChannelNotFoundError: The address is not a channel of the facility
                 (a connector that holds the facility's address set)
@@ -1374,18 +1377,19 @@ class ControlSystemConnector(ABC):
     @abstractmethod
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: ContractAny,
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
         Write a value to a channel, confirming it unless asked not to.
 
         Args:
-            channel_address: Address/name of the channel
+            address: Address/name of the channel
             value: Value to write
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             confirm: Whether to re-read the channel and compare, or ``None`` to
                 let the connector resolve the policy for this channel
 
@@ -1451,10 +1455,11 @@ class ControlSystemConnector(ABC):
 
     async def write_channel_checked(
         self,
-        channel_address: str,
+        address: str,
         value: ContractAny,
-        # Passed straight through to write_channel, whatever this connector's takes.
-        **kwargs: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Await write_channel and enforce the reference monitor's denial contract.
 
@@ -1465,8 +1470,8 @@ class ControlSystemConnector(ABC):
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
         confirmed write returns and the scan proceeds; ``osprey.runtime.write_channel``
-        routes through it for the same reason. Extra keyword arguments (``confirm``,
-        ``timeout``) pass straight through to write_channel. The result inspection
+        routes through it for the same reason. ``timeout_s`` and ``confirm`` pass
+        straight through to write_channel, ``None`` as the omission it is there. The result inspection
         itself lives in :func:`raise_for_write_result`, which the multi-channel paths
         share.
         """
@@ -1476,25 +1481,25 @@ class ControlSystemConnector(ABC):
         )
 
         try:
-            result = await self.write_channel(channel_address, value, **kwargs)
+            result = await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
         except ChannelLimitsViolationError as exc:
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
             # so consumers key on one refusal signal. Connection failures and
             # timeouts are not caught here, so they propagate unchanged.
-            raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
+            raise ChannelWriteBlockedError(address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
 
     async def _read_concurrently(
-        self, channel_addresses: list[str], timeout: float | None
+        self, addresses: list[str], timeout_s: float | None
     ) -> dict[str, ChannelValue]:
         """Read channels concurrently, omitting failed reads and re-raising cancellations."""
         results = await asyncio.gather(
-            *(self.read_channel(address, timeout) for address in channel_addresses),
+            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
             return_exceptions=True,
         )
         values: dict[str, ChannelValue] = {}
-        for address, result in zip(channel_addresses, results, strict=True):
+        for address, result in zip(addresses, results, strict=True):
             if isinstance(result, Exception):
                 continue
             if isinstance(result, BaseException):
@@ -1504,14 +1509,14 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], *, timeout_s: float | None = None
     ) -> dict[str, ChannelValue]:
         """
         Read multiple channels efficiently (can be optimized per control system).
 
         Args:
-            channel_addresses: List of channel addresses to read
-            timeout: Optional timeout in seconds
+            addresses: List of channel addresses to read
+            timeout_s: Optional timeout in seconds
 
         Returns:
             Dictionary mapping channel address to ChannelValue
@@ -1522,7 +1527,8 @@ class ControlSystemConnector(ABC):
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
         operations: list[tuple[str, ContractAny]],
-        timeout: float | None = None,
+        *,
+        timeout_s: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         """
@@ -1572,8 +1578,8 @@ class ControlSystemConnector(ABC):
         is not known before the send: it belongs in :meth:`_write_precheck`.
 
         Args:
-            operations: List of (channel_address, value) tuples
-            timeout: Optional timeout in seconds, given to each write
+            operations: List of (address, value) tuples
+            timeout_s: Optional timeout in seconds, given to each write
             confirm: Whether every channel in the batch is confirmed, or ``None``
                 to let each channel resolve its own policy
 
@@ -1616,11 +1622,11 @@ class ControlSystemConnector(ABC):
             named, refusals = await self._check_batch(batch)
             if any(refusal is not None for refusal in refusals):
                 return _refused_batch(named, refusals)
-            return await self._send_batch(named, timeout, confirm)
+            return await self._send_batch(named, timeout_s, confirm)
 
     def _write_precheck(
         self,
-        channel_address: str,
+        address: str,
         # The value write_channel was given: the extension contract leaves it open.
         value: ContractAny,  # noqa: ARG002 - a connector's refusal carries the value
     ) -> tuple[str, ChannelWriteResult | None]:
@@ -1630,9 +1636,9 @@ class ControlSystemConnector(ABC):
         system, ahead of limits validation. The name is the one the limits,
         the send and the result use for the channel.
         """
-        return channel_address, None
+        return address, None
 
-    async def _current_values(self, channel_addresses: list[str]) -> Mapping[str, object] | None:
+    async def _current_values(self, addresses: list[str]) -> Mapping[str, object] | None:
         """What the named channels hold now, for a batch's ``max_step`` checks.
 
         ``None`` when the connector has no reader, and the step checks then
@@ -1646,7 +1652,7 @@ class ControlSystemConnector(ABC):
 
         def read_all() -> dict[str, object]:
             held: dict[str, object] = {}
-            for address in channel_addresses:
+            for address in addresses:
                 try:
                     held[address] = reader(address)
                 except Exception as exc:
@@ -1740,7 +1746,7 @@ class ControlSystemConnector(ABC):
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
         batch: list[tuple[str, ContractAny]],
-        timeout: float | None,
+        timeout_s: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:
         """Send a batch that passed every check: one result per write, in order.
@@ -1752,7 +1758,7 @@ class ControlSystemConnector(ABC):
         control system takes concurrent puts sends them together, and asks
         once, immediately before the puts start.
         """
-        kwargs: dict[str, float | bool | None] = {"timeout": timeout}
+        kwargs: dict[str, float | bool | None] = {"timeout_s": timeout_s}
         if confirm is not None:
             kwargs["confirm"] = confirm
         write = type(self)._unguarded_write_channel
@@ -1771,7 +1777,7 @@ class ControlSystemConnector(ABC):
     @abstractmethod
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None] | None = None,
@@ -1780,7 +1786,7 @@ class ControlSystemConnector(ABC):
         Subscribe to channel changes.
 
         Args:
-            channel_address: Address/name of the channel
+            address: Address/name of the channel
             callback: Function called when value changes (receives ChannelValue)
             on_connection: Optional function told the channel's connection state:
                 ``True`` when it connects (before the first value of that
@@ -1841,12 +1847,12 @@ class ControlSystemConnector(ABC):
         return address.strip()
 
     @abstractmethod
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         """
         Get metadata about a channel.
 
         Args:
-            channel_address: Address/name of the channel
+            address: Address/name of the channel
 
         Returns:
             ChannelMetadata with units, alarm status, description, and (where the
@@ -1859,12 +1865,12 @@ class ControlSystemConnector(ABC):
         """
 
     @abstractmethod
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """
         Check if channel exists and is accessible.
 
         Args:
-            channel_address: Address/name of the channel
+            address: Address/name of the channel
 
         Returns:
             True if channel is valid and accessible

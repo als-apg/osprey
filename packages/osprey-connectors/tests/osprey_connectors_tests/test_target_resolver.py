@@ -23,7 +23,6 @@ import pytest
 
 from osprey_connectors.types import (
     _ONE_REAL_MACHINE,
-    _TRANSPORT_DOOCS,
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
@@ -83,7 +82,7 @@ def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
     """The one wire the queue worker executes plans against; the rest browse."""
     for connector_type in (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN):
         assert connector_transport({"type": connector_type}) == TRANSPORT_CA
-    assert connector_transport({"type": DOOCS}) == _TRANSPORT_DOOCS
+    assert connector_transport({"type": DOOCS}) == "doocs"
     assert connector_transport(_in_process()) == TRANSPORT_IN_PROCESS
 
 

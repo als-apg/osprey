@@ -93,7 +93,7 @@ def repo_home_screen_errors(
         repo_root: The directory holding ``profile.yml``.
         overlays: The host-variant overlays the profile was resolved with.
     """
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     from .build_cmd import _layer_files
     from .build_profile import resolve_build_document

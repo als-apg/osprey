@@ -157,7 +157,7 @@ def render_projection(repo_root: Path, project_name: str) -> dict[str, dict[str,
     # Imported in-function: the deployment layer loads none of the CLI at
     # import time.
     from osprey.cli.profile_root import layer_files
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     projection: dict[str, dict[str, Any]] = {}
     sources: dict[str, Path] = {}

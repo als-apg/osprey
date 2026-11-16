@@ -51,7 +51,7 @@ from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
 from osprey.bridges.teams.config import CLOUDS, TeamsBridgeConfig
 from osprey.cli.build_profile import load_profile
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.docs._rst_blocks import code_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -756,7 +756,9 @@ def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
     repo = _fake_repo(tmp_path)
     path = sdk_helpers.switch_record_path(repo, "alice")
     path.parent.mkdir(parents=True)
-    payload = control_context.ControlContext(target=_baseline(), generation=1).to_payload()
+    payload = control_context.ControlContext(target=_baseline(), generation=1).model_dump(
+        mode="json"
+    )
     payload["switch_epoch"] = None
     path.write_text(json.dumps(payload))
     control_context.invalidate_cache()

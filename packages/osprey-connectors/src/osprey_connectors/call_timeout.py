@@ -10,6 +10,7 @@ import math
 from collections.abc import Iterable, Iterator, Mapping
 from typing import SupportsFloat
 
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
 
 __all__ = [
@@ -50,18 +51,21 @@ def call_timeout_s(config: Mapping[str, object], connector_type: str | None) -> 
         block declares none.
 
     Raises:
-        ValueError: If the block still carries ``timeout``, or if ``timeout_s``
-            is a bool, neither a number nor a numeric string, not finite, or
-            not positive.
+        ConfigurationError: If the block still carries ``timeout``, or if
+            ``timeout_s`` is a bool, neither a number nor a numeric string, not
+            finite, or not positive. ``key`` is the dotted key at fault.
     """
     block = f"control_system.connector.{connector_type or '<type>'}"
     if _RENAMED_KEY in config:
-        raise ValueError(f"{block}.{_RENAMED_KEY} is renamed to {TIMEOUT_KEY}")
+        raise ConfigurationError(
+            f"{block}.{_RENAMED_KEY} is renamed to {TIMEOUT_KEY}", key=f"{block}.{_RENAMED_KEY}"
+        )
     value = config.get(TIMEOUT_KEY, DEFAULT_TIMEOUT_S)
     seconds = _positive_seconds(value)
     if seconds is None:
-        raise ValueError(
-            f"{block}.{TIMEOUT_KEY} must be a positive number of seconds, got {value!r}"
+        raise ConfigurationError(
+            f"{block}.{TIMEOUT_KEY} must be a positive number of seconds, got {value!r}",
+            key=f"{block}.{TIMEOUT_KEY}",
         )
     return seconds
 
@@ -98,11 +102,14 @@ def refuse_renamed_timeout_keys(config: Mapping[str, object]) -> None:
         config: A whole config mapping, nested, dotted or both.
 
     Raises:
-        ValueError: Naming every old-spelled key and :data:`TIMEOUT_KEY`.
+        ConfigurationError: Naming every old-spelled key and :data:`TIMEOUT_KEY`;
+            ``key`` is the first of them.
     """
     renamed = sorted(path for path in _dotted_paths(config) if path in _RENAMED_PATHS)
     if renamed:
-        raise ValueError("; ".join(f"{path} is renamed to {TIMEOUT_KEY}" for path in renamed))
+        raise ConfigurationError(
+            "; ".join(f"{path} is renamed to {TIMEOUT_KEY}" for path in renamed), key=renamed[0]
+        )
 
 
 def _dotted_paths(node: Mapping[str, object], prefix: str = "") -> Iterator[str]:

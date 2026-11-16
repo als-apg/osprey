@@ -271,7 +271,7 @@ def _write_result(channel="TEST:PV", value=42.0):
     whole point is that the envelope an operator sees is exactly what it was.
     """
     return ChannelWriteResult(
-        channel_address=channel,
+        address=channel,
         value_written=value,
         outcome=WriteOutcome.CONFIRMED,
         observed_value=value,

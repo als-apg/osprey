@@ -154,9 +154,9 @@ N channels cost one request frame and one result frame rather than N of each.
 Requests are dispatched as tasks and may complete in any order; the parent
 matches replies by ``request_id``.
 
-``spawn_probe {channel, timeout}`` is the readiness check the parent runs
+``spawn_probe {address, timeout_s}`` is the readiness check the parent runs
 against a freshly spawned child before it swaps traffic over: a real read of
-one named channel, bounded by ``timeout``, returning that channel's
+one named channel, bounded by ``timeout_s``, returning that channel's
 :class:`~osprey_connectors.control_system.ChannelValue`. It is a distinct
 method because a probe is allowed to fail without meaning anything is wrong
 with the child — a failed probe aborts a switch, and this child keeps serving.
@@ -207,7 +207,7 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, get_args
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
@@ -227,6 +227,7 @@ __all__ = [
     "PROXY_METHODS",
     "START_MARKS_FD_ENV",
     "START_PHASES",
+    "StartPhase",
     "main",
     "scrub_epics_env",
 ]
@@ -248,8 +249,11 @@ INIT_METHOD = "init"
 #: Names the inherited descriptor a child writes its start marks to.
 START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
 
+#: One start mark a child writes (see "Start marks" above).
+StartPhase = Literal["main", "init", "imports", "connected"]
+
 #: The start marks a child writes, in the order it reaches them.
-START_PHASES = ("main", "init", "imports", "connected")
+START_PHASES: tuple[StartPhase, ...] = get_args(StartPhase)
 
 
 class _StartMarks:
@@ -269,7 +273,7 @@ class _StartMarks:
             if stat.S_ISFIFO(os.fstat(int(raw)).st_mode):
                 self._fd = int(raw)
 
-    def mark(self, phase: str) -> None:
+    def mark(self, phase: StartPhase) -> None:
         if self._fd is None:
             return
         try:
@@ -712,9 +716,12 @@ async def _build_connector(
     from osprey_connectors import types
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
+    if not types.is_control_target(target):
+        raise ValueError(
+            f"Unknown control target {target!r} in the connector host init frame; "
+            f"valid targets are {', '.join(types.CONTROL_TARGETS)}."
+        )
     connector_type = types.resolve_target(section, target)
-    # resolve_target refuses anything but one of the target names.
-    target = str(target)
     register_builtin_connectors()
     if marks is not None:
         marks.mark("imports")
@@ -732,9 +739,8 @@ async def _build_connector(
         if types.resolve_control_system_type(section) == connector_type
         else {**section, "type": connector_type}
     )
-    # The target the parent pointed this child at — already validated by
-    # resolve_target above, which refuses anything that is not one of the three
-    # literals — is what indexes the per-target narrowing the reference monitor
+    # The target the parent pointed this child at — already validated above as
+    # one of the three literals — is what indexes the per-target narrowing the reference monitor
     # reads. This child serves exactly one target, so the stamp is the payload's.
     connector = await ConnectorFactory.create_control_system_connector(
         config, control_target=target
@@ -857,14 +863,17 @@ async def _refuse(frame: _Undecodable, writer: _FrameWriter) -> None:
 
 
 async def _spawn_probe(
-    connector: ControlSystemConnector, channel: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
+    connector: ControlSystemConnector,
+    address: object,
+    *,
+    timeout_s: object = DEFAULT_PROBE_TIMEOUT_S,
 ) -> ChannelValue:
     """Read one named channel under a hard bound.
 
     Args:
         connector: The live connector.
-        channel: Channel address to read.
-        timeout: Seconds to allow, defaulting to
+        address: Channel address to read.
+        timeout_s: Seconds to allow, defaulting to
             :data:`DEFAULT_PROBE_TIMEOUT_S`. The bound is applied here as well
             as being passed to the connector: a control-system client that
             ignores its own timeout must not be able to hang the switch that is
@@ -883,20 +892,22 @@ async def _spawn_probe(
             layers up, as a switch refusal ending in ": ." that names nothing
             the operator could act on.
     """
-    if not isinstance(channel, str):
-        raise TypeError(f"spawn_probe channel must be a channel address, got {channel!r}")
-    if timeout is None:
+    if not isinstance(address, str):
+        raise TypeError(f"spawn_probe address must be a channel address, got {address!r}")
+    if timeout_s is None:
         bound = DEFAULT_PROBE_TIMEOUT_S
-    elif isinstance(timeout, str | SupportsFloat):
-        bound = float(timeout)
+    elif isinstance(timeout_s, str | SupportsFloat):
+        bound = float(timeout_s)
     else:
-        raise TypeError(f"spawn_probe timeout must be a number, got {timeout!r}")
+        raise TypeError(f"spawn_probe timeout_s must be a number, got {timeout_s!r}")
     if bound <= 0:
-        raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
+        raise ValueError(f"spawn_probe timeout_s must be positive, got {timeout_s!r}")
     try:
-        return await asyncio.wait_for(connector.read_channel(channel, timeout=bound), timeout=bound)
+        return await asyncio.wait_for(
+            connector.read_channel(address, timeout_s=bound), timeout=bound
+        )
     except TimeoutError as exc:
-        reason = f"probe read of {channel!r} timed out after {bound}s"
+        reason = f"probe read of {address!r} timed out after {bound}s"
         # A connector that reported its own timeout said something more
         # specific; it is kept, behind the subject it did not name.
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc

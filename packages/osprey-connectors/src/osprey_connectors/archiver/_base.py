@@ -12,21 +12,22 @@ from datetime import datetime
 import pandas as pd
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.archiver._timerange import ProcessingMode
+from osprey_connectors.model import FrozenModel
 
 
-class ArchiverMetadata(MutableModel):
+class ArchiverMetadata(FrozenModel):
     """Archiving metadata for one channel.
 
-    ``channel`` is the same protocol-agnostic channel address the control-system
-    connectors take, and the same value that appears in the ``channel`` column of
+    ``address`` is the same protocol-agnostic channel address the control-system
+    connectors take, and the same value that appears in the ``address`` column of
     :meth:`ArchiverConnector.get_data`.
 
     ``is_archived`` is ``None`` when this archiver cannot say whether it archives
     the channel; ``description`` then says why.
     """
 
-    channel: str
+    address: str
     is_archived: bool | None
     archival_start: datetime | None = None
     archival_end: datetime | None = None
@@ -37,12 +38,12 @@ class ArchiverMetadata(MutableModel):
 class ArchiveExtent(FrozenModel):
     """What an archive store holds, as far as the archiver can say.
 
-    Every field is ``None`` when unknown. ``channels`` is the set of channel
+    Every field is ``None`` when unknown. ``addresses`` is the set of channel
     addresses the store records now; ``oldest`` and ``newest`` are the instants
     of its oldest and newest samples; ``reason`` says why a part is unknown.
     """
 
-    channels: frozenset[str] | None = None
+    addresses: frozenset[str] | None = None
     oldest: datetime | None = None
     newest: datetime | None = None
     reason: str | None = None
@@ -63,7 +64,7 @@ class ArchiverConnector(ABC):
         >>> connector = await ConnectorFactory.create_archiver_connector()
         >>> try:
         >>>     df = await connector.get_data(
-        >>>         channels=['BEAM:CURRENT', 'BEAM:LIFETIME'],
+        >>>         addresses=['BEAM:CURRENT', 'BEAM:LIFETIME'],
         >>>         start_date=datetime(2024, 1, 1),
         >>>         end_date=datetime(2024, 1, 2)
         >>>     )
@@ -92,18 +93,19 @@ class ArchiverConnector(ABC):
     @abstractmethod
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
-        processing: str = "raw",
+        *,
+        timeout_s: float | None = None,
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data for one or more channels.
 
         Args:
-            channels: List of channel addresses to retrieve. Addresses are
+            addresses: List of channel addresses to retrieve. Addresses are
                 protocol-agnostic: EPICS PV names, DOOCS property addresses, or
                 whatever the configured backend keys its store by.
             start_date: Start of time range
@@ -116,7 +118,7 @@ class ArchiverConnector(ABC):
                 every processing mode. A backend that bins on a grid of its own
                 is the documented exception — the EPICS Archiver Appliance's
                 operators are epoch-anchored, and the window merely clips them.
-            timeout: Optional timeout in seconds
+            timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Anything
                 else raises ValueError.
@@ -134,8 +136,8 @@ class ArchiverConnector(ABC):
 
         Returns:
             A long-format DataFrame with columns ``timestamp``
-            (datetime64[ns, UTC]), ``channel`` (str), and ``value`` (``float64``
-            unless a channel is non-numeric or a waveform), sorted by channel
+            (datetime64[ns, UTC]), ``address`` (str), and ``value`` (``float64``
+            unless a channel is non-numeric or a waveform), sorted by address
             then timestamp. Each channel contributes only its own real samples or per-bin
             aggregates — no forward-fill, no shared grid, no bin for a period
             with no samples. A channel with no data in range contributes no rows; an
@@ -150,12 +152,12 @@ class ArchiverConnector(ABC):
         """
 
     @abstractmethod
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
 
         Args:
-            channel: Channel address
+            address: Channel address
 
         Returns:
             ArchiverMetadata with archiving information
@@ -166,12 +168,12 @@ class ArchiverConnector(ABC):
         """
 
     @abstractmethod
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived.
 
         Args:
-            channels: List of channel addresses to check
+            addresses: List of channel addresses to check
 
         Returns:
             Dictionary mapping channel address to availability status; ``None``

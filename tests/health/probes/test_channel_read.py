@@ -35,8 +35,8 @@ class _SpyConnector:
         self.write_calls = 0
         self.subscribe_calls = 0
 
-    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
-        self.read_calls.append((address, timeout))
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
+        self.read_calls.append((address, timeout_s))
         if self._raise_exc is not None:
             raise self._raise_exc
         return ChannelValue(

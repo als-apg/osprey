@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
 
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIR_KINDS,
@@ -42,7 +43,6 @@ from osprey.utils.workspace import (
     RETIRED_LAYER_DIRS,
     TIERS_DIRNAME,
 )
-from osprey_connectors.errors import BuildProfileError
 
 _LOGGER = logging.getLogger(__name__)
 

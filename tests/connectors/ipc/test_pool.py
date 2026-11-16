@@ -38,6 +38,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryAction,
     RecoveryRecord,
 )
 from osprey_connectors.ipc import _pool as pool_module
@@ -52,7 +53,7 @@ from osprey_connectors.ipc._pool import (
     PooledConnector,
 )
 from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
-from osprey_connectors.recovery import RecoveryAction, Timing
+from osprey_connectors.recovery import Timing
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
@@ -231,7 +232,7 @@ async def test_a_child_starts_on_first_use_and_is_shared_by_its_key(pools, spawn
     assert len(spawns) == 1
     assert len(pool.pids()) == 1
     assert len({handle.pid for handle in handles}) == 1
-    assert (await handles[0].read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await handles[0].read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
 
 
 async def test_two_keys_start_side_by_side(pools, spawns):
@@ -540,7 +541,7 @@ async def test_a_killed_child_fails_its_call_once_and_the_next_call_respawns(poo
     assert str(first_pid) in str(lost) and "'live'" in str(lost)
 
     assert pool.pids() == {}
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert live.pid not in (None, first_pid)
 
     # Exactly one write reached any connector: the lost call was not retried.
@@ -552,10 +553,10 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     live = await pool.connector("live")
     first_pid = live.pid
 
-    wedging = asyncio.create_task(live.read_channel("WEDGE:X", timeout=0.5))
+    wedging = asyncio.create_task(live.read_channel("WEDGE:X", timeout_s=0.5))
     # A second call on the wedged child fails the same way once it is killed.
     await asyncio.sleep(0.2)
-    bystander = asyncio.create_task(live.read_channel("SR:DCCT", timeout=30.0))
+    bystander = asyncio.create_task(live.read_channel("SR:DCCT", timeout_s=30.0))
 
     with pytest.raises(ConnectorHostUnresponsiveError) as caught:
         await asyncio.wait_for(wedging, 10.0)
@@ -569,7 +570,7 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     assert also.value.cause == "unresponsive"
 
     assert not pid_alive(first_pid)
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
 
@@ -582,13 +583,13 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
     # A write that outlasts its own timeout plus grace, in a child that still
     # answers: the batched/confirmed-write case. It must not be killed.
     with pytest.raises(TimeoutError) as caught:
-        await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
+        await live.write_channel("SLOW:SP", 1.0, timeout_s=0.3)
 
     assert not isinstance(caught.value, ConnectorHostError)
     assert "still answers a ping" in str(caught.value)
     assert [record.action for record in caught.value.recovery] == ["child_kept"]
     assert live.pid == pid and pid_alive(pid)
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
     _abandon(pid)
 
@@ -605,7 +606,7 @@ async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills
     # answer a ping, and is killed anyway: kept, it could still send SP=1 after
     # a newer write to SP had completed.
     with pytest.raises(ConnectorHostWriteTimeoutError) as caught:
-        await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
+        await live.write_channel("SLOW:SP", 1.0, timeout_s=0.3)
 
     timed_out = caught.value
     assert isinstance(timed_out, TimeoutError)
@@ -615,7 +616,7 @@ async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills
     assert not pid_alive(pid)
     assert pool.pids() == {}
 
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert live.pid not in (None, pid)
     # The timed-out write reached the connector once and was not sent again.
     assert [line.split() for line in log.read_text().splitlines()] == [["SLOW:SP", "1.0"]]
@@ -627,7 +628,7 @@ async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_ru
     pid = live.pid
 
     with pytest.raises(TimeoutError) as caught:
-        await live.read_channel("SLOW:X", timeout=0.3)
+        await live.read_channel("SLOW:X", timeout_s=0.3)
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
@@ -636,7 +637,7 @@ async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_ru
 
 
 async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
-    pool = pools(_section(SLOW), call_deadline_s=0.5, ping_timeout_s=0.5, terminate_grace_s=0.5)
+    pool = pools(_section(SLOW), call_timeout_s=0.5, ping_timeout_s=0.5, terminate_grace_s=0.5)
     live = await pool.connector("live")
     first_pid = live.pid
 
@@ -644,7 +645,7 @@ async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
         await live.read_channel("WEDGE:X")
 
     assert not pid_alive(first_pid)
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
 
@@ -656,7 +657,7 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     await async_wait_until(lambda: old.proxy.dead_reason is not None)
 
     # The next call replaces the child ...
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     replacement = live.pid
     assert replacement not in (None, old.pid)
 
@@ -674,7 +675,7 @@ async def test_an_unreachable_channel_in_a_healthy_child_leaves_it_in_place(pool
     with pytest.raises(ChannelUnreachableError, match="GONE:X is unreachable") as caught:
         await live.read_channel("GONE:X")
 
-    assert caught.value.channel_address == "GONE:X"
+    assert caught.value.address == "GONE:X"
     assert not isinstance(caught.value, ConnectionError)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
@@ -696,7 +697,7 @@ async def test_a_child_whose_connector_is_unavailable_is_replaced_once(pools):
     assert pool.pids() == {}
     assert not pid_alive(pid)
     # The next call starts one fresh child and is served by it.
-    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert (await live.read_channel("SR:DCCT", timeout_s=OK_TIMEOUT_S)).value is not None
     assert live.pid not in (None, pid)
 
 
@@ -740,7 +741,7 @@ class _ParityProxy:
 
     read_channel = write_channel = _fail
 
-    async def supervisor_request(self, *_request):
+    async def supervisor_request(self, *_request, **_keywords):
         if not self.answers_ping:
             raise TimeoutError("no pong")
 
@@ -1253,12 +1254,12 @@ async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(p
     pool = pools(section, config_file=config_file)
     live = await pool.connector("live")
 
-    values = await live.read_multiple_channels(["SR:A", "SR:B"], timeout=OK_TIMEOUT_S)
+    values = await live.read_multiple_channels(["SR:A", "SR:B"], timeout_s=OK_TIMEOUT_S)
     results = await live.write_multiple_channels([("SR:SP1", 1.0), ("SR:SP2", 2.0)])
 
     assert sorted(values) == ["SR:A", "SR:B"]
     assert all(value.value is not None for value in values.values())
-    assert [(r.channel_address, r.value_written) for r in results] == [
+    assert [(r.address, r.value_written) for r in results] == [
         ("SR:SP1", 1.0),
         ("SR:SP2", 2.0),
     ]
@@ -1287,10 +1288,10 @@ async def test_a_call_in_flight_on_a_child_killed_for_another_writes_timeout_is_
     live = await pool.connector("live")
     pid = live.pid
 
-    bystander = asyncio.create_task(getattr(live, method)(*args, timeout=30.0))
+    bystander = asyncio.create_task(getattr(live, method)(*args, timeout_s=30.0))
     await asyncio.sleep(0.2)
     with pytest.raises(ConnectorHostWriteTimeoutError):
-        await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
+        await live.write_channel("SLOW:SP", 1.0, timeout_s=0.3)
 
     with pytest.raises(ConnectorHostLostError) as caught:
         await asyncio.wait_for(bystander, 10.0)
@@ -1375,8 +1376,8 @@ def _doctor_init_reports(monkeypatch, doctor):
     """
 
     class DoctoringProxy(pool_module.ConnectorHostProxy):
-        async def supervisor_request(self, method, kwargs, timeout):
-            reply = await super().supervisor_request(method, kwargs, timeout)
+        async def supervisor_request(self, method, kwargs, *, timeout_s):
+            reply = await super().supervisor_request(method, kwargs, timeout_s=timeout_s)
             return doctor(reply) if method == "init" else reply
 
     monkeypatch.setattr(pool_module, "ConnectorHostProxy", DoctoringProxy)
@@ -1468,7 +1469,7 @@ async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
     assert reading.value is not None
     with pytest.raises(ChannelNotFoundError) as unknown:
         await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
-    assert unknown.value.channel_address == "NOT:SERVED"
+    assert unknown.value.address == "NOT:SERVED"
     assert len(spawns) == 1
 
 

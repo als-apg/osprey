@@ -82,7 +82,6 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import evolve
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
@@ -354,9 +353,15 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     """
     global _connector_pool
 
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.types import CONTROL_TARGETS, baseline_target, is_control_target
 
     section = _control_system_section()
+    key = target if target is not None else baseline_target(section)
+    if not is_control_target(key):
+        raise ValueError(
+            f"Unknown control target {key!r}. Valid targets are "
+            f"{', '.join(repr(name) for name in CONTROL_TARGETS)}, spelled exactly."
+        )
     if _connector_pool is None:
         from osprey_connectors.ipc import ConnectorHostPool
         from osprey_connectors.workspace import resolve_config_path
@@ -367,7 +372,6 @@ async def _pooled_connector_locked(target: str | None) -> Any:
         _connector_pool = ConnectorHostPool(
             section, config_file=str(resolve_config_path()), **options
         )
-    key = target if target is not None else baseline_target(section)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
 
@@ -878,7 +882,11 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:
     """Internal async implementation for reading from a channel."""
     connector = await _get_connector()
-    channel_value = await connector.read_channel(channel_address, **kwargs)
+    # The public keyword is ``timeout``; the connector's is ``timeout_s``.
+    channel_value = await connector.read_channel(
+        channel_address,
+        **{("timeout_s" if key == "timeout" else key): value for key, value in kwargs.items()},
+    )
     return channel_value.value
 
 
@@ -893,7 +901,7 @@ async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None
         return []
 
     connector = await _get_connector()
-    result = await connector.read_multiple_channels(distinct, timeout=timeout)
+    result = await connector.read_multiple_channels(distinct, timeout_s=timeout)
 
     # A connector drops a channel whose read raised, and the EPICS family
     # reports a read timeout as a present ``None`` — both are a failed read.
@@ -917,7 +925,7 @@ async def _read_failure_causes(
     The re-read only explains the failure: a channel that answers this time is
     still reported as failed, since the batch it belongs to did not read it.
     """
-    kwargs = {} if timeout is None else {"timeout": timeout}
+    kwargs = {} if timeout is None else {"timeout_s": timeout}
     results = await asyncio.gather(
         *(connector.read_channel(address, **kwargs) for address in failed),
         return_exceptions=True,
@@ -957,19 +965,24 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
             _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
 
         try:
+            # The public keyword is ``timeout``; the connector's is ``timeout_s``.
             results = await connector.write_multiple_channels(
-                list(channel_values.items()), **kwargs
+                list(channel_values.items()),
+                **{
+                    ("timeout_s" if key == "timeout" else key): value
+                    for key, value in kwargs.items()
+                },
             )
         except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
             # A refusal raised partway names the one channel it refused; every
             # other channel's outcome stays unknown.
-            if exc.channel_address in channel_values:
-                _notify_write(exc.channel_address, _WRITE_PHASE_REFUSED)
+            if exc.address in channel_values:
+                _notify_write(exc.address, _WRITE_PHASE_REFUSED)
             raise
         # Every channel's outcome is reported before any raise: a failure on one
         # channel must not hide that the others already went out.
         for result in results:
-            _notify_outcome(result.channel_address, result.outcome)
+            _notify_outcome(result.address, result.outcome)
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.
         raise_for_write_results(results)
@@ -1285,19 +1298,16 @@ def channel_limits(address: str) -> "ChannelLimitsConfig | None":
         address: Channel address, spelled as it appears in the limits database.
 
     Returns:
-        A copy of the channel's ``ChannelLimitsConfig`` (``min_value``,
-        ``max_value``, ``max_step``, ``writable``) when a validator is injected
-        and lists the address; ``None`` when no validator is injected or the
-        address has no entry. Editing the copy leaves the limits the runtime
-        enforces unchanged.
+        The channel's ``ChannelLimitsConfig`` (``min_value``, ``max_value``,
+        ``max_step``, ``writable``) when a validator is injected and lists the
+        address; ``None`` when no validator is injected or the address has no
+        entry. The record is frozen, so a caller cannot weaken the limits the
+        runtime enforces through it.
     """
     if _limits_validator is None:
         return None
     config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
-    if config is None:
-        return None
-    # Rebuilt from its fields, and validated like a new one.
-    return evolve(config)
+    return config
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:

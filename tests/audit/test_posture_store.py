@@ -90,7 +90,7 @@ def rewrite_record(root, switch, *, target: str = "live"):
     record = control_context.ControlContext(
         target=target, generation=0, switch=dict(switch), switch_epoch=epoch
     )
-    payload = json.dumps(record.to_payload(), indent=2).encode("utf-8")
+    payload = json.dumps(record.model_dump(mode="json"), indent=2).encode("utf-8")
     atomic_replace(path, payload, mode=0o600, sync="best_effort")
     return path
 

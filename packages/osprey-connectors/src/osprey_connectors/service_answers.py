@@ -2,7 +2,7 @@
 
 A backend is read-only and never raises: a service that gives no answer is a
 value, :class:`Unavailable`, or a page whose outcome says so. Every method is
-async and takes ``deadline``, the seconds this call may spend; the caller owns
+async and takes the keyword ``timeout_s``, the seconds this call may spend; the caller owns
 the overall budget and hands the same figure to calls it runs concurrently.
 
 Backends are built as ``Backend(spec, *, project_dir=None, **seams)``. The
@@ -18,20 +18,18 @@ service answered, as the service recorded it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Generic, Literal, Self, TypeVar
 
 from pydantic import (
-    Field,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
     model_validator,
 )
 
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping
 from osprey_connectors.types import ControlTarget
 
 #: The row record a :class:`HistoryPage` holds.
@@ -43,9 +41,19 @@ __all__ = [
     "BackendSpec",
     "HistoryPage",
     "Outcome",
+    "ServiceKind",
     "Source",
+    "SourceKind",
     "Unavailable",
 ]
+
+#: A service kind this package builds a backend for, as ``BackendSpec.kind``
+#: spells it.
+ServiceKind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
+
+#: Every kind of service an answer can come from: a :data:`ServiceKind`, or one
+#: the framework answers from itself (the logbook, the archive).
+SourceKind = Literal[ServiceKind, "logbook", "archive"]
 
 
 class Outcome(StrEnum):
@@ -99,7 +107,7 @@ class Source(FrozenModel):
     ``service`` is the backend's type name; ``rehearsal`` is true on ``standin``.
     """
 
-    kind: Literal["directory", "alarm_state", "alarm_log", "put_log", "logbook", "archive"]
+    kind: SourceKind
     target: ControlTarget
     service: str
     rehearsal: bool
@@ -108,10 +116,10 @@ class Source(FrozenModel):
 class BackendSpec(FrozenModel):
     """One backend to build; ``service_targets`` makes these from the config."""
 
-    kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
+    kind: ServiceKind
     type: str
     target: ControlTarget
-    settings: Mapping[str, object]
+    settings: ReadOnlyMapping[str, object]
     rehearsal: bool
 
 
@@ -123,7 +131,7 @@ class HistoryPage(FrozenModel, Generic[_RowT]):
 
     outcome: Outcome
     source: Source
-    rows: Sequence[_RowT] = Field(default_factory=list)
+    rows: FrozenTuple[_RowT] = ()
     truncated: bool = False
     retention_known: bool = False
     reason: str | None = None

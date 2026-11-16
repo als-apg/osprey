@@ -25,8 +25,8 @@ from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates.manager import TemplateManager
+from osprey.errors import BuildProfileError
 from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS, is_mixed_matcher
-from osprey_connectors.errors import BuildProfileError
 from tests._builds import Restorable
 from tests._preset_data import create_project_as_built
 

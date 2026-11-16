@@ -208,12 +208,12 @@ def _build_in_memory(
     """
     import tempfile
 
+    from osprey.errors import BuildProfileError
     from osprey.facility.build import LATER_STAGES
     from osprey.facility.layers.mml.response_check import check_responses
     from osprey.facility.layers.mml.response_check import report as report_responses
     from osprey.facility.render import facility_digest
     from osprey.facility.validate import report, report_warnings, run_stages
-    from osprey_connectors.errors import BuildProfileError
 
     from .build_cmd import (
         _content_dir,
@@ -968,10 +968,10 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
+    from osprey.errors import BuildProfileError
     from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
-    from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:
@@ -1031,8 +1031,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     positions for one device, when the header names an unknown column, or
     while the profile does not resolve.
     """
+    from osprey.errors import BuildProfileError
     from osprey.facility.layers.list import import_list as run_import
-    from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:
@@ -1098,8 +1098,8 @@ def import_relations(
     name is refused, when any table has a row the layer refuses, or while the
     profile does not resolve.
     """
+    from osprey.errors import BuildProfileError
     from osprey.facility.layers.relations import import_relations as run_import
-    from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:

@@ -20,6 +20,7 @@ from typing_extensions import override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
+    ProcessingMode,
     aggregate_long_frame,
     resolve_processing,
     utc_window,
@@ -82,7 +83,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         >>> connector = DOOCSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['FACILITY/DEVICE/LOCATION/PROPERTY'],
+        >>>     addresses=['FACILITY/DEVICE/LOCATION/PROPERTY'],
         >>>     start_date=datetime(2026, 7, 1),
         >>>     end_date=datetime(2026, 7, 2)
         >>> )
@@ -156,22 +157,23 @@ class DOOCSArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
-        processing: str = "raw",
+        *,
+        timeout_s: float | None = None,
+        processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from the DOOCS local histories.
 
         Args:
-            channels: List of DOOCS property addresses
+            addresses: List of DOOCS property addresses
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
-            timeout: Timeout in seconds. ``None`` falls back to the connector's
+            timeout_s: Timeout in seconds. ``None`` falls back to the connector's
                 configured default rather than waiting indefinitely.
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
@@ -190,7 +192,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         """
 
         # asyncio.wait_for(timeout=None) would block indefinitely.
-        bound: float = timeout if timeout is not None else self._timeout
+        bound: float = timeout_s if timeout_s is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
@@ -203,7 +205,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         # Quoted: ``pd.Series`` is not subscriptable at runtime.
         def fetch_all() -> "dict[str, pd.Series[float]]":
             data: dict[str, pd.Series[float]] = {}
-            for add in channels:
+            for add in addresses:
                 hist_data_dict = self._read_history(
                     add,
                     start_utc.timestamp(),
@@ -223,7 +225,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} rows "
-                f"across {len(channels)} DOOCS properties"
+                f"across {len(addresses)} DOOCS properties"
             )
             return data
 
@@ -231,10 +233,10 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """Get archiver metadata; membership is unknown (``None``), nothing is asked."""
         return ArchiverMetadata(
-            channel=channel,
+            address=address,
             is_archived=None,
             description=(
                 "the DOOCS archiver connector does not look up whether this channel "
@@ -243,7 +245,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         )
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """Check availability based on .HIST property name extension.
 
         A lookup that raises answers ``None``: the archiver could not say.
@@ -255,7 +257,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise RuntimeError("DOOCS archiver not connected")
 
         avail: dict[str, bool | None] = {}
-        for add in channels:
+        for add in addresses:
             hist_address = add
             if not hist_address.endswith(".HIST"):
                 hist_address = add + ".HIST"

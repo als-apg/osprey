@@ -94,7 +94,7 @@ def test_device_values_are_si(runtime: _Runtime, in_run: RunRecord) -> None:
     """A BPM in mm reads, writes and ranges in metres; the recorded value stays native."""
     runtime.values.update({"BPM1:x:set": 2.0, "BPM1:x:rdbk": 1.5})
     runtime.limits["BPM1:x:set"] = ChannelLimitsConfig(
-        channel_address="BPM1:x:set", min_value=-4.0, max_value=None, writable=True
+        address="BPM1:x:set", min_value=-4.0, max_value=None, writable=True
     )
     dev = _device(BPM)
     assert dev.unit() == "m"
@@ -321,7 +321,7 @@ def test_a_failed_pre_write_read_writes_nothing(runtime: _Runtime) -> None:
 def test_limits_refusal_maps_to_write_refused(runtime: _Runtime) -> None:
     """A limits violation becomes OspreyWriteRefused naming the channel."""
     err = ChannelLimitsViolationError(
-        channel_address="QF_001:Cm:set",
+        address="QF_001:Cm:set",
         value=99.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="above maximum 10.0",
@@ -357,7 +357,7 @@ def test_mapped_errors_are_pyaml_exceptions(runtime: _Runtime) -> None:
 def test_range_comes_from_channel_limits(runtime: _Runtime) -> None:
     """get_range() is [min, max] from the channel's limits entry."""
     runtime.limits["QF_001:Cm:set"] = ChannelLimitsConfig(
-        channel_address="QF_001:Cm:set", min_value=-2.0, max_value=2.0, writable=True
+        address="QF_001:Cm:set", min_value=-2.0, max_value=2.0, writable=True
     )
     assert _device(RW).get_range() == [-2.0, 2.0]
 
@@ -430,7 +430,7 @@ def test_indexed_device_reads_and_refuses_set(monkeypatch: pytest.MonkeyPatch) -
     """``A@1`` reads element 1 of ``A``; scalars, short arrays and every write are refused."""
     fake = _Runtime({"A": [0.1, 0.2, 0.3], "S": 4.0, "M": (1.0, 2.0)})
     fake.limits["A"] = ChannelLimitsConfig(
-        channel_address="A", min_value=-1.0, max_value=1.0, writable=True
+        address="A", min_value=-1.0, max_value=1.0, writable=True
     )
     fake.install(monkeypatch)
     dev = OspreyDevice(parse_reference("A@1"))

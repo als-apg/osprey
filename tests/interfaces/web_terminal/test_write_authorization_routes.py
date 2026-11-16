@@ -382,7 +382,7 @@ class TestEndedByTheLedger:
                 wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in range(1, steps + 1)
             ),
         )
-        (ledgers / f"{grant_id}.ledger.json").write_text(json.dumps(ledger.to_payload()))
+        (ledgers / f"{grant_id}.ledger.json").write_text(json.dumps(ledger.model_dump(mode="json")))
 
     def test_a_running_grant_shows_its_steps_used(self, client, requests_dir, monkeypatch):
         request = put_request(requests_dir)
@@ -420,7 +420,7 @@ class TestSelfIssued:
         assert record is not None
         epoch = record.switch_epoch
         if epoch is None:
-            with pytest.raises(control_context.StoppedSince) as stamped:
+            with pytest.raises(control_context.StoppedSinceError) as stamped:
                 control_context.set_switch([TARGET], "asked", epoch=None)
             epoch = stamped.value.epoch
         control_context.set_switch([TARGET], "allowed", epoch=epoch)
@@ -492,7 +492,7 @@ class _Pool:
     async def connector(self, _target: str) -> _Pool:
         return self
 
-    async def read_channel(self, address: str, timeout: float) -> Any:  # noqa: ARG002
+    async def read_channel(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002
         import asyncio
         from types import SimpleNamespace
 

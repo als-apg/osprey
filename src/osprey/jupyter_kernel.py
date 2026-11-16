@@ -586,7 +586,7 @@ def _refusal_subject_token(value: BaseException) -> str | None:
         if value.library is not None:
             return f"library={value.library}"
         return f"package={value.package}" if value.package else None
-    return _channel_token(value.channel_address if isinstance(value, ChannelError) else None)
+    return _channel_token(value.address if isinstance(value, ChannelError) else None)
 
 
 def _record_write(address: str, phase: str) -> None:

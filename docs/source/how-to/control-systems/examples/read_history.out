@@ -1,4 +1,4 @@
-                  timestamp        channel  value
+                  timestamp        address  value
 0 2026-11-04 23:33:24+00:00  DEMO:READBACK    1.5
 1 2026-11-04 23:34:24+00:00  DEMO:READBACK    1.6
 2 2026-11-04 23:35:24+00:00  DEMO:READBACK    1.7

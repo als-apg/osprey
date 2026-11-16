@@ -34,8 +34,8 @@ from osprey.cli.build_profile_merge import (
     refuse_inputs_outside_repository,
     resolve_profile_document,
 )
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import PROFILE_FILENAME
-from osprey_connectors.errors import BuildProfileError
 from tests._builds import init_project
 
 pytestmark = [pytest.mark.slow]

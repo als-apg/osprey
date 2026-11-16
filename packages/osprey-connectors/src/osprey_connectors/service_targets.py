@@ -33,10 +33,10 @@ job in the framework.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
+from typing import get_args
 
 from osprey_connectors.archive_targets import APPLIANCE_TARGETS
-from osprey_connectors.service_answers import BackendSpec
+from osprey_connectors.service_answers import BackendSpec, ServiceKind
 from osprey_connectors.simulator import has_simulator
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA, ControlTarget
 
@@ -46,8 +46,7 @@ _SECTION_KEY = "pv_directory"
 _SIMULATOR_VIEW = "simulator_view"
 _ALARM_REPLAY = "alarm_replay"
 
-_Kind = Literal["directory", "alarm_log", "alarm_state", "put_log"]
-_KINDS: tuple[_Kind, ...] = ("directory", "alarm_log", "alarm_state", "put_log")
+_KINDS: tuple[ServiceKind, ...] = get_args(ServiceKind)
 
 
 def service_targets(config: object) -> dict[str, dict[str, BackendSpec | None]]:
@@ -98,7 +97,7 @@ def service_targets(config: object) -> dict[str, dict[str, BackendSpec | None]]:
 
 
 def _facility_row(
-    kind: _Kind, block: Mapping[str, object], fold: Mapping[str, object] | None = None
+    kind: ServiceKind, block: Mapping[str, object], fold: Mapping[str, object] | None = None
 ) -> dict[str, BackendSpec | None]:
     """A row with *block*'s ``type`` on the facility's targets and nothing elsewhere."""
     service = _text(block.get("type"))
@@ -112,7 +111,7 @@ def _facility_row(
 
 
 def _spec(
-    kind: _Kind, service: str, target: ControlTarget, settings: Mapping[str, object]
+    kind: ServiceKind, service: str, target: ControlTarget, settings: Mapping[str, object]
 ) -> BackendSpec:
     return BackendSpec(
         kind=kind,

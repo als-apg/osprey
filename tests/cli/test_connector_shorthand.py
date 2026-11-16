@@ -36,8 +36,8 @@ from osprey.cli.build_profile_resolve import (
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_command
+from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     CLI_CONTROL_SYSTEM_TYPES,
     LIVE_STANDIN,

@@ -63,7 +63,7 @@ try:
 except ImportError:  # a connectors release whose view names no IOC health signals
     from osprey_connectors.simulation.view import PERIODIC as _FLOOR_STAND_IN  # noqa: F401
 
-    PERIODIC_IOC_HEALTH = ()  # type: ignore[assignment]
+    PERIODIC_IOC_HEALTH = ()
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView

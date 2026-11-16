@@ -38,10 +38,10 @@ from osprey.deployment.deployment_record import (
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.docs_links import DEPLOY_DOCS_URL
+from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
 from osprey.version import pins_prerelease
-from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_deploy import DeployConfig
 from .build_profile_emit import effective_web_terminals

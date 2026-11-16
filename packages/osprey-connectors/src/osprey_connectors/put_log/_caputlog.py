@@ -87,41 +87,41 @@ class CaPutLog(PutLog):
 
     @override
     async def history(
-        self, channel: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[PutRow]:
-        """The logged writes of *channel*, newest first within the page the service returned."""
+        """The logged writes of *address*, newest first within the page the service returned."""
         limit = max(1, min(limit, _MAX_ROWS))
         # One row past the limit, so a full page differs from one that just fills.
-        envelope = await self._search(f"{channel}.*", limit + 1, deadline)
+        envelope = await self._search(f"{address}.*", limit + 1, timeout_s)
         if isinstance(envelope, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=envelope.reason)
 
         results = envelope.results
-        hits = [hit for hit in results if _is_write_to(_recorded(hit, "pv"), channel)]
+        hits = [hit for hit in results if _is_write_to(_recorded(hit, "pv"), address)]
         if since is not None:
             floor = _as_utc(since)
             hits = [hit for hit in hits if (stamp := _stamp(hit)) is None or stamp >= floor]
         hits.sort(key=lambda hit: _stamp(hit) or _EARLIEST, reverse=True)
 
-        rows = [_row(hit, channel) for hit in hits[:limit]]
+        rows = [_row(hit, address) for hit in hits[:limit]]
         truncated = len(hits) > limit or _left_unread(envelope, limit)
         if not rows:
             return self._page(Outcome.NO_MATCH, truncated=truncated, reason=_NO_ROWS_REASON)
         return self._page(Outcome.FOUND, rows=rows, truncated=truncated)
 
     @override
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether a search answers; the root's status is not a request this backend may send."""
-        envelope = await self._search("", 1, deadline)
+        envelope = await self._search("", 1, timeout_s)
         return envelope if isinstance(envelope, Unavailable) else "search answered"
 
-    async def _search(self, term: str, rows: int, deadline: float) -> _Envelope | Unavailable:
+    async def _search(self, term: str, rows: int, timeout_s: float) -> _Envelope | Unavailable:
         body = {
             "state": {"searchTerm": term, "current": 1, "resultsPerPage": rows},
             "queryConfig": {"search_fields": {"pv": {}}},
         }
         answer = await self._transport.request(
-            "POST", _SEARCH_PATH, json_body=body, deadline=deadline
+            "POST", _SEARCH_PATH, json_body=body, timeout_s=timeout_s
         )
         if isinstance(answer, Unavailable):
             return answer
@@ -141,7 +141,7 @@ class CaPutLog(PutLog):
         return HistoryPage(
             outcome=outcome,
             source=self.source,
-            rows=rows or [],
+            rows=tuple(rows or ()),
             truncated=truncated,
             retention_known=False,
             reason=reason,
@@ -154,8 +154,8 @@ def _recorded(hit: Mapping[str, object], name: str) -> object:
     return value["raw"] if isinstance(value, dict) and "raw" in value else value
 
 
-def _is_write_to(recorded: object, pv: str) -> bool:
-    return isinstance(recorded, str) and (recorded == pv or recorded.startswith(f"{pv}."))
+def _is_write_to(recorded: object, address: str) -> bool:
+    return isinstance(recorded, str) and (recorded == address or recorded.startswith(f"{address}."))
 
 
 def _at(hit: Mapping[str, object]) -> object:
@@ -188,13 +188,13 @@ def _left_unread(envelope: _Envelope, limit: int) -> bool:
     return total > read if isinstance(total, int) else read > limit
 
 
-def _row(hit: Mapping[str, object], channel: str) -> PutRow:
+def _row(hit: Mapping[str, object], address: str) -> PutRow:
     # A hit is kept only when it records a string pv, so str() changes nothing.
     recorded = str(_recorded(hit, "pv"))
     return PutRow(
         at=_text(_at(hit)),
-        channel=recorded,
-        field=recorded[len(channel) :] or None,
+        address=recorded,
+        field=recorded[len(address) :] or None,
         old=_recorded(hit, "old"),
         new=_recorded(hit, "new"),
         user=_text(_recorded(hit, "user")),

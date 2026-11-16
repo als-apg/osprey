@@ -81,9 +81,9 @@ class Recording:
         self.answers = answers
         self.requests: list[dict[str, Any]] = []
 
-    async def request(self, method: str, path: str, *, params: Any = None, deadline: float) -> Any:
+    async def request(self, method: str, path: str, *, params: Any = None, timeout_s: float) -> Any:
         self.requests.append(
-            {"method": method, "path": path, "params": params, "deadline": deadline}
+            {"method": method, "path": path, "params": params, "timeout_s": timeout_s}
         )
         key = {"/": "root", "/search/alarm": "search", "/search/alarm/config": "config"}[path]
         return self.answers[key]
@@ -137,7 +137,7 @@ def loopback() -> Iterator[Any]:
 
 async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
     transport = Recording(search=RECORDED)
-    page = await _logger(transport).history(PV, None, 50, DEADLINE)
+    page = await _logger(transport).history(PV, None, 50, timeout_s=DEADLINE)
 
     assert page.outcome is Outcome.FOUND
     assert [row.kind for row in page.rows] == ["state", "config", "state", "config", "state"]
@@ -163,7 +163,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
             "method": "GET",
             "path": "/search/alarm",
             "params": {"pv": PV, "size": 51},
-            "deadline": DEADLINE,
+            "timeout_s": DEADLINE,
         }
     ]
 
@@ -175,7 +175,7 @@ async def test_history_window_is_sent_in_days_and_applied_exactly():
     stale = _state((since - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.120Z"))
     transport = Recording(search=[fresh, stale])
 
-    page = await _logger(transport).history(PV, since, 50, DEADLINE)
+    page = await _logger(transport).history(PV, since, 50, timeout_s=DEADLINE)
 
     assert [row.time for row in page.rows] == [fresh["time"]]
     params = transport.requests[0]["params"]
@@ -185,79 +185,83 @@ async def test_history_window_is_sent_in_days_and_applied_exactly():
 
 async def test_history_window_reads_a_config_row_by_its_message_time():
     since = datetime(2026, 10, 25, tzinfo=UTC)
-    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, DEADLINE)
+    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
     assert [row.kind for row in page.rows] == ["state", "config"]
 
 
 async def test_history_naive_since_reads_as_utc():
     since = datetime(2026, 10, 25)
-    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, DEADLINE)
+    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
     assert len(page.rows) == 2
 
 
 async def test_history_keeps_a_row_whose_time_cannot_be_read():
     row = {"config": f"state:{PATH}", "pv": PV, "time": "yesterday", "severity": "OK"}
     since = datetime(2026, 10, 25, tzinfo=UTC)
-    page = await _logger(Recording(search=[row])).history(PV, since, 50, DEADLINE)
+    page = await _logger(Recording(search=[row])).history(PV, since, 50, timeout_s=DEADLINE)
     assert len(page.rows) == 1
 
 
 async def test_history_a_full_page_is_truncated_at_the_limit():
-    page = await _logger(Recording(search=RECORDED[:3])).history(PV, None, 2, DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:3])).history(PV, None, 2, timeout_s=DEADLINE)
     assert len(page.rows) == 2
     assert page.truncated is True
 
 
 async def test_history_a_page_that_fills_exactly_is_not_truncated():
-    page = await _logger(Recording(search=RECORDED[:2])).history(PV, None, 2, DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:2])).history(PV, None, 2, timeout_s=DEADLINE)
     assert len(page.rows) == 2
     assert page.truncated is False
 
 
 async def test_history_reaching_the_window_end_is_not_truncated():
     since = datetime(2026, 10, 25, tzinfo=UTC)
-    page = await _logger(Recording(search=RECORDED[:3])).history(PV, since, 2, DEADLINE)
+    page = await _logger(Recording(search=RECORDED[:3])).history(PV, since, 2, timeout_s=DEADLINE)
     assert len(page.rows) == 2
     assert page.truncated is False
 
 
 async def test_history_filtered_rows_on_a_full_page_still_report_truncation():
     other = _state("2026-10-29T03:14:08.120Z", config=f"state:/Demo/{PV}-X", pv=f"{PV}-X")
-    page = await _logger(Recording(search=[other, *RECORDED[:2]])).history(PV, None, 2, DEADLINE)
+    page = await _logger(Recording(search=[other, *RECORDED[:2]])).history(
+        PV, None, 2, timeout_s=DEADLINE
+    )
     assert len(page.rows) == 2
     assert page.truncated is True
 
 
 async def test_history_no_rows_is_no_logged_events_not_no_alarm():
-    page = await _logger(Recording(search=[])).history(PV, None, 50, DEADLINE)
+    page = await _logger(Recording(search=[])).history(PV, None, 50, timeout_s=DEADLINE)
     assert page.outcome is Outcome.NO_MATCH
-    assert page.rows == []
+    assert page.rows == ()
     assert page.reason == "no logged events"
 
 
 async def test_history_drops_rows_of_a_name_the_search_matched_loosely():
     near = _state("2026-10-29T03:14:08.120Z", config=f"state:/Demo/{PV}-X", pv=f"{PV}-X")
-    page = await _logger(Recording(search=[near, "not a row"])).history(PV, None, 50, DEADLINE)
+    page = await _logger(Recording(search=[near, "not a row"])).history(
+        PV, None, 50, timeout_s=DEADLINE
+    )
     assert page.outcome is Outcome.NO_MATCH
 
 
 async def test_history_service_failure_carries_its_reason():
     page = await _logger(Recording(search=Unavailable(reason=LOGIN_PAGE_REASON))).history(
-        PV, None, 50, DEADLINE
+        PV, None, 50, timeout_s=DEADLINE
     )
     assert page.outcome is Outcome.UNAVAILABLE
     assert page.reason == LOGIN_PAGE_REASON
 
 
 async def test_history_a_bare_object_is_malformed():
-    page = await _logger(Recording(search={"hits": []})).history(PV, None, 50, DEADLINE)
+    page = await _logger(Recording(search={"hits": []})).history(PV, None, 50, timeout_s=DEADLINE)
     assert page.outcome is Outcome.UNAVAILABLE
     assert page.reason == "malformed response"
 
 
 async def test_history_a_deleted_config_row_says_so():
     row = _config("2026-10-29T03:13:00.000Z", delete="Deleting", user="opsuser")
-    page = await _logger(Recording(search=[row])).history(PV, None, 50, DEADLINE)
+    page = await _logger(Recording(search=[row])).history(PV, None, 50, timeout_s=DEADLINE)
     assert page.rows[0].message == "Deleting"
     assert page.rows[0].kind == "config"
 
@@ -267,7 +271,7 @@ async def test_history_a_deleted_config_row_says_so():
 
 async def test_config_found_reads_the_newest_config_row():
     transport = Recording(search=RECORDED)
-    record = await _logger(transport).config_for(PV, DEADLINE)
+    record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
 
     assert record == AlarmConfigRecord(
         in_tree="yes",
@@ -284,10 +288,10 @@ async def test_config_found_reads_the_newest_config_row():
 async def test_config_path_check_is_exact_on_the_last_segment():
     # The near name is newest, and is another PV's configuration.
     near = _config("2026-10-30T00:00:00.000Z", path=f"/Demo/{PV}-X")
-    record = await _logger(Recording(search=[near, *RECORDED])).config_for(PV, DEADLINE)
+    record = await _logger(Recording(search=[near, *RECORDED])).config_for(PV, timeout_s=DEADLINE)
     assert record.path == PATH
 
-    alone = await _logger(Recording(search=[near])).config_for(PV, DEADLINE)
+    alone = await _logger(Recording(search=[near])).config_for(PV, timeout_s=DEADLINE)
     assert alone.in_tree == "no"
     assert alone.path is None
 
@@ -295,18 +299,18 @@ async def test_config_path_check_is_exact_on_the_last_segment():
 async def test_config_path_check_reads_an_escaped_slash_and_a_scheme():
     pv = "loc://x/y"
     row = _config("2026-10-29T03:13:00.000Z", path="/Demo/loc:\\/\\/x\\/y")
-    record = await _logger(Recording(search=[row])).config_for(pv, DEADLINE)
+    record = await _logger(Recording(search=[row])).config_for(pv, timeout_s=DEADLINE)
     assert record.in_tree == "yes"
 
     row = _config("2026-10-29T03:13:00.000Z", path=f"/Demo/ca://{PV}")
     row["config"] = f"config:/Demo/ca:\\/\\/{PV}"
-    record = await _logger(Recording(search=[row])).config_for(PV, DEADLINE)
+    record = await _logger(Recording(search=[row])).config_for(PV, timeout_s=DEADLINE)
     assert record.in_tree == "yes"
 
 
 async def test_config_not_in_tree_when_the_logger_holds_nothing():
     transport = Recording(search=[])
-    record = await _logger(transport).config_for(PV, DEADLINE)
+    record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
     assert record == AlarmConfigRecord(in_tree="no")
     # Nothing names a path to ask the second route about.
     assert len(transport.requests) == 1
@@ -315,18 +319,18 @@ async def test_config_not_in_tree_when_the_logger_holds_nothing():
 async def test_config_search_failure_keeps_its_reason():
     # A lookup with no answer at all carries why; the record has no field for a reason.
     record = await _logger(Recording(search=Unavailable(reason="no answer within 6 s"))).config_for(
-        PV, DEADLINE
+        PV, timeout_s=DEADLINE
     )
     assert record == Unavailable(reason="no answer within 6 s")
 
 
 async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
     transport = Recording(search=[RECORDED[0]], config=[RECORDED[1]])
-    record = await _logger(transport).config_for(PV, DEADLINE)
+    record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
     assert record.in_tree == "yes"
     assert transport.requests[1]["path"] == "/search/alarm/config"
     assert transport.requests[1]["params"] == {"config": f"config:{PATH}"}
-    assert 0 < transport.requests[1]["deadline"] <= DEADLINE
+    assert 0 < transport.requests[1]["timeout_s"] <= DEADLINE
 
 
 @pytest.mark.parametrize(
@@ -342,28 +346,30 @@ async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
 async def test_config_lookup_failure_is_unknown(fallback: Any):
     # The state row proves the path; the unmeasured route's failure proves nothing.
     transport = Recording(search=[RECORDED[0]], config=fallback)
-    record = await _logger(transport).config_for(PV, DEADLINE)
+    record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
     assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
 
 
 async def test_config_state_row_without_a_path_is_unknown_with_no_second_request():
     row = {"pv": PV, "severity": "OK", "time": "2026-10-29T03:14:07.120Z"}
     transport = Recording(search=[row])
-    record = await _logger(transport).config_for(PV, DEADLINE)
+    record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
     assert record == AlarmConfigRecord(in_tree="unknown", path=None)
     assert len(transport.requests) == 1
 
 
 async def test_config_deleted_means_removed():
     deleted = _config("2026-10-29T03:13:00.000Z", delete="Deleting", user="opsuser")
-    record = await _logger(Recording(search=[deleted, *RECORDED])).config_for(PV, DEADLINE)
+    record = await _logger(Recording(search=[deleted, *RECORDED])).config_for(
+        PV, timeout_s=DEADLINE
+    )
     assert record == AlarmConfigRecord(in_tree="no", path=PATH)
 
 
 @pytest.mark.parametrize("config_msg", ["{not json", None, "[1]"], ids=["bad", "absent", "list"])
 async def test_config_row_that_cannot_be_read_is_unknown(config_msg: Any):
     row = {**_config("2026-10-29T03:13:00.000Z"), "config_msg": config_msg}
-    record = await _logger(Recording(search=[row])).config_for(PV, DEADLINE)
+    record = await _logger(Recording(search=[row])).config_for(PV, timeout_s=DEADLINE)
     assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
 
 
@@ -373,7 +379,7 @@ async def test_config_record_never_carries_the_notification_actions():
     message = json.loads(row["config_msg"])
     message["actions"] = [{"title": "Mail", "details": "mailto:someone@demo.lab"}]
     row["config_msg"] = json.dumps(message)
-    record = await _logger(Recording(search=[row])).config_for(PV, DEADLINE)
+    record = await _logger(Recording(search=[row])).config_for(PV, timeout_s=DEADLINE)
     assert "someone@demo.lab" not in record.model_dump_json()
 
 
@@ -383,27 +389,27 @@ async def test_config_record_never_carries_the_notification_actions():
 async def test_probe_on_a_text_plain_root(loopback: Any):
     url = f"http://127.0.0.1:{loopback.server_address[1]}/alarm-logger"
     logger = _logger(None, url=url)
-    answer = await logger.probe(DEADLINE)
+    answer = await logger.probe(timeout_s=DEADLINE)
     assert answer == "root answered (Alarm logging Service 4.7.3); this does not prove ingestion"
 
 
 async def test_probe_sends_only_the_slashed_root():
     transport = Recording(root={"name": "Alarm logging Service"})
-    answer = await _logger(transport).probe(DEADLINE)
+    answer = await _logger(transport).probe(timeout_s=DEADLINE)
     assert "does not prove ingestion" in answer
     assert [(r["method"], r["path"]) for r in transport.requests] == [("GET", "/")]
 
 
 async def test_probe_failure_and_a_root_that_is_not_an_object():
-    assert await _logger(Recording(root=Unavailable(reason="x"))).probe(DEADLINE) == Unavailable(
-        reason="x"
-    )
-    answer = await _logger(Recording(root=[1])).probe(DEADLINE)
+    assert await _logger(Recording(root=Unavailable(reason="x"))).probe(
+        timeout_s=DEADLINE
+    ) == Unavailable(reason="x")
+    answer = await _logger(Recording(root=[1])).probe(timeout_s=DEADLINE)
     assert answer == Unavailable(reason="malformed response")
 
 
 async def test_probe_names_nothing_it_was_not_told():
-    answer = await _logger(Recording(root={})).probe(DEADLINE)
+    answer = await _logger(Recording(root={})).probe(timeout_s=DEADLINE)
     assert answer == "root answered (unnamed service); this does not prove ingestion"
 
 
@@ -414,7 +420,7 @@ async def test_search_over_the_real_transport_reaches_the_service(loopback: Any)
     loopback.routes[path] = (rows, 200, "text/plain")
     logger = _logger(None, url=f"http://127.0.0.1:{port}/alarm-logger/")
 
-    page = await logger.history(PV, None, 50, DEADLINE)
+    page = await logger.history(PV, None, 50, timeout_s=DEADLINE)
 
     assert page.outcome is Outcome.FOUND
     assert len(page.rows) == 5

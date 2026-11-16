@@ -75,30 +75,30 @@ def _spec(**changes) -> BackendSpec:
 
 
 class _Directory(ChannelDirectory):
-    async def search(self, query, deadline):
+    async def search(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def count(self, query, deadline):
+    async def count(self, query, *, timeout_s):
         raise NotImplementedError
 
-    async def describe(self, name, deadline):
+    async def describe(self, address, *, timeout_s):
         raise NotImplementedError
 
-    async def property_names(self, deadline):
+    async def property_names(self, *, timeout_s):
         raise NotImplementedError
 
-    async def property_values(self, name, prefix, deadline):
+    async def property_values(self, property, *, prefix=None, timeout_s):
         raise NotImplementedError
 
-    async def probe(self, deadline):
+    async def probe(self, *, timeout_s):
         raise NotImplementedError
 
 
 class _Log(PutLog):
-    async def history(self, pv, since, limit, deadline):
+    async def history(self, address, since, limit, *, timeout_s):
         raise NotImplementedError
 
-    async def probe(self, deadline):
+    async def probe(self, *, timeout_s):
         raise NotImplementedError
 
 
@@ -122,7 +122,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
         (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
-        (PutRow, ["at", "channel", "field", "old", "new", "user", "client"]),
+        (PutRow, ["at", "address", "field", "old", "new", "user", "client"]),
         (
             HistoryPage,
             ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
@@ -131,7 +131,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
             AlarmStateRecord,
             ["severity", "status", "latched", "acknowledged", "message", "time", "stale"],
         ),
-        (AlarmStateRow, ["channel", "path", "state"]),
+        (AlarmStateRow, ["address", "path", "state"]),
         (AlarmStates, ["rows", "stale", "last_contact"]),
         (
             AlarmConfigRecord,
@@ -161,7 +161,7 @@ def test_unavailable_takes_its_reason_by_keyword_and_requires_it():
 
 
 def _row(channel: str, severity: str | None) -> AlarmStateRow:
-    return AlarmStateRow(channel=channel, path=None, state=AlarmStateRecord(severity=severity))
+    return AlarmStateRow(address=channel, path=None, state=AlarmStateRecord(severity=severity))
 
 
 def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
@@ -198,11 +198,11 @@ def test_an_unavailable_page_carries_its_reason(build):
         build(reason="")
 
 
-def test_pages_do_not_share_their_default_lists():
-    first = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
-    second = HistoryPage(outcome=Outcome.FOUND, source=SOURCE)
+def test_a_page_holds_its_rows_as_a_tuple():
+    assert HistoryPage(outcome=Outcome.FOUND, source=SOURCE).rows == ()
+    page = HistoryPage(outcome=Outcome.FOUND, source=SOURCE, rows=["a", "b"])
 
-    assert first.rows is not second.rows
+    assert page.rows == ("a", "b")
 
 
 # -- The ABCs -----------------------------------------------------------------
@@ -216,13 +216,14 @@ def test_an_abc_declares_exactly_its_methods(abc, methods):
 
 
 @pytest.mark.parametrize(("abc", "methods"), ABCS.items(), ids=lambda v: getattr(v, "__name__", ""))
-def test_every_method_is_async_and_a_read_takes_a_deadline_last(abc, methods):
+def test_every_method_is_async_and_a_read_takes_a_keyword_only_timeout_s_last(abc, methods):
     for method in methods:
         func = getattr(abc, method)
         assert inspect.iscoroutinefunction(func), f"{abc.__name__}.{method}"
         if method in {"start", "aclose"}:
             continue
-        assert list(inspect.signature(func).parameters)[-1] == "deadline", method
+        last = list(inspect.signature(func).parameters.values())[-1]
+        assert (last.name, last.kind) == ("timeout_s", inspect.Parameter.KEYWORD_ONLY), method
 
 
 @pytest.mark.parametrize(
@@ -235,8 +236,8 @@ def test_every_method_is_async_and_a_read_takes_a_deadline_last(abc, methods):
         (PutLog, "history"),
     ],
 )
-def test_a_read_of_one_channel_names_it_channel(abc, method):
-    assert list(inspect.signature(getattr(abc, method)).parameters)[1] == "channel"
+def test_a_read_of_one_channel_names_it_address(abc, method):
+    assert list(inspect.signature(getattr(abc, method)).parameters)[1] == "address"
 
 
 @pytest.mark.parametrize("abc", ABCS)
@@ -286,15 +287,26 @@ def test_no_answer_carries_a_display_label(record):
 
 def _public_definitions(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    defined = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
-    } | {
-        node.target.id
-        for node in tree.body
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
-    }
+    defined = (
+        {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        }
+        | {
+            node.target.id
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+        | {
+            # A named closed set is a plain alias assignment.
+            target.id
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+    )
     return {name for name in defined if not name.startswith("_")}
 
 

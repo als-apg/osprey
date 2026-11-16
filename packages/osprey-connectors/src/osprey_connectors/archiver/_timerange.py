@@ -9,7 +9,7 @@ canonical long frame without ever manufacturing a sample.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal, TypeAlias, TypeGuard
+from typing import Literal, TypeAlias, TypeGuard, get_args
 
 import pandas as pd
 from pydantic import InstanceOf
@@ -18,18 +18,12 @@ from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.config import localize_facility
 from osprey_connectors.model import FrozenModel
 
-#: A canonical processing mode, one of :data:`PROCESSING_MODES`.
+#: A canonical processing mode: the aggregation ArchiverConnector.get_data
+#: applies within each bin, or raw for none.
 ProcessingMode = Literal["raw", "mean", "min", "max", "median", "std", "count"]
 
-PROCESSING_MODES: tuple[ProcessingMode, ...] = (
-    "raw",
-    "mean",
-    "min",
-    "max",
-    "median",
-    "std",
-    "count",
-)
+#: Every :data:`ProcessingMode`, raw first.
+PROCESSING_MODES: tuple[ProcessingMode, ...] = get_args(ProcessingMode)
 
 #: One channel's samples, indexed by timestamp. The element is the archived
 #: channel value the ``value`` column of ``ArchiverConnector.get_data`` carries,
@@ -40,7 +34,7 @@ PROCESSING_MODES: tuple[ProcessingMode, ...] = (
 SampleSeries: TypeAlias = "pd.Series[ContractAny]"
 
 # The canonical long-format columns every archiver connector returns.
-LONG_COLUMNS = ("timestamp", "channel", "value")
+LONG_COLUMNS = ("timestamp", "address", "value")
 
 # EPICS Archiver Appliance operator names, keyed by our canonical mode. "raw"
 # maps to lastSample so a binned raw query keeps its long-standing behavior.
@@ -183,11 +177,11 @@ def long_frame(series: dict[str, SampleSeries]) -> pd.DataFrame:
     coerced — the input series' dtypes flow through ``concat`` promotion.
 
     Args:
-        series: Mapping of channel name to its sample series, each with a
+        series: Mapping of channel address to its sample series, each with a
             UTC-aware ``DatetimeIndex`` and values of any dtype.
 
     Returns:
-        A frame with :data:`LONG_COLUMNS`, sorted by channel then timestamp. An
+        A frame with :data:`LONG_COLUMNS`, sorted by address then timestamp. An
         empty mapping (or a mapping of only empty series) yields the empty frame
         with the same columns, ``value`` defaulting to ``float64``.
     """
@@ -198,17 +192,17 @@ def long_frame(series: dict[str, SampleSeries]) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
-                "channel": pd.Series(dtype=str),
+                "address": pd.Series(dtype=str),
                 "value": pd.Series(dtype="float64"),
             }
         )
     # Series in, Series out; with the element type unknown the stubs cannot
     # tell the Series overload of `concat` from the DataFrame one.
-    stacked: SampleSeries = pd.concat(live, names=["channel", "timestamp"])
+    stacked: SampleSeries = pd.concat(live, names=["address", "timestamp"])
     frame = stacked.rename("value").reset_index()
     # Real samples can arrive at any datetime64 resolution; the contract is ns.
     frame["timestamp"] = frame["timestamp"].astype("datetime64[ns, UTC]")
-    frame = frame.sort_values(["channel", "timestamp"], ignore_index=True)
+    frame = frame.sort_values(["address", "timestamp"], ignore_index=True)
     return frame[list(LONG_COLUMNS)]
 
 

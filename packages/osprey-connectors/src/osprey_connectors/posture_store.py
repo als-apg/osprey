@@ -135,7 +135,7 @@ import stat
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast, get_args
 
 from typing_extensions import override
 
@@ -146,6 +146,9 @@ from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     TIER_WORDS,
+    MachineKind,
+    TierWord,
+    is_control_target,
     machine_kind,
     published_machine_kind,
     resolve_target,
@@ -161,7 +164,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
+    "ArmedPosition",
     "NoOwner",
+    "OwnerTierTerm",
+    "Posture",
+    "SwitchPosition",
+    "WriteCeiling",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
     "CONTROL_OWNER_ENV_VAR",
@@ -216,16 +224,26 @@ STATE_DIR_NAME = "control_target"
 #: another user's switch.
 CONTROL_CONTEXT_DIR_ENV_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
 
+#: The two values a posture entry may spell. Everything else is dropped.
+Posture = Literal["sandbox", "writes"]
+
 #: The launch-pin value: the run started with the machine's writes off. The
 #: only posture value that ever refuses anything.
-POSTURE_SANDBOX = "sandbox"
+POSTURE_SANDBOX: Final = "sandbox"
 
 #: The run started with the machine's writes on. Recorded so a stamp states
 #: what the run launched under; it never grants anything.
-POSTURE_WRITES = "writes"
+POSTURE_WRITES: Final = "writes"
 
-#: The two values a posture entry may spell. Everything else is dropped.
-_VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
+_VALID_POSTURES: frozenset[Posture] = frozenset(get_args(Posture))
+
+#: A machine's three switch positions, narrowest first. ``off`` is never stored
+#: in the control-context record: it is a target absent from its ``switch`` map.
+SwitchPosition = Literal["off", "asked", "allowed"]
+
+#: The two positions that arm a machine — every value the record's ``switch``
+#: map stores, and the effective position an allowed verdict carries.
+ArmedPosition = Literal["asked", "allowed"]
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
@@ -657,7 +675,7 @@ def _control_context_tree() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def parse_posture_value(value: object) -> dict[str, str]:
+def parse_posture_value(value: object) -> dict[str, Posture]:
     """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
 
     The grammar of the mirror field (rule 2), in one place:
@@ -1045,10 +1063,27 @@ _LOGIN_TIERS_LEAF: Final = "login_tiers"
 #: The three values a map entry may carry — the same three :func:`tier_writes` answers.
 _LOGIN_TIERS: Final = TIER_WORDS
 
+#: What :func:`owner_tier_term` answers: the owner's tier, ``skip`` when the rung
+#: does not apply, or ``unknown`` when it applies and cannot be read.
+OwnerTierTerm = Literal["skip", TierWord, "unknown"]
 
-def owner_tier_term(
-    section: object, owner: str | NoOwner | None
-) -> Literal["skip", "never", "asked", "allowed", "unknown"]:
+#: What :func:`write_ceiling` answers: a tier word, or ``unknown`` for an owner
+#: rung that cannot be read.
+WriteCeiling = Literal[TierWord, "unknown"]
+
+
+def _tier_word(value: object) -> TierWord | None:
+    """*value* as a tier word, matched exactly, or ``None``."""
+    if value == "never":
+        return "never"
+    if value == "asked":
+        return "asked"
+    if value == "allowed":
+        return "allowed"
+    return None
+
+
+def owner_tier_term(section: object, owner: str | NoOwner | None) -> OwnerTierTerm:
     """The owner's tier out of ``control_system.login_tiers`` — the verdict's owner rung.
 
     *section* is the ``control_system`` section; *owner* the login whose record
@@ -1081,12 +1116,12 @@ def owner_tier_term(
         tier = login_tiers.get(owner)
     except Exception:  # a rung that cannot read the map refuses; it never raises
         return "unknown"
-    return tier if tier in _LOGIN_TIERS else "unknown"
+    return _tier_word(tier) or "unknown"
 
 
 def write_ceiling(
     section: object, owner: str | NoOwner | None, *, tree_bound: bool | None = None
-) -> Literal["never", "asked", "allowed", "unknown"]:
+) -> WriteCeiling:
     """The highest position a write by *owner* runs at: the verdict's ceiling.
 
     Under a bound tree the owner's rung (:func:`owner_tier_term`), otherwise
@@ -1136,8 +1171,8 @@ class WriteVerdict(FrozenModel):
     allowed: bool
     reason: str | None
     target: str | None
-    kind: Literal["real", "rehearsal", "simulator"] | None
-    position: Literal["asked", "allowed"] | None = None
+    kind: MachineKind | None
+    position: ArmedPosition | None = None
     detail: str | None = None
     authorization: str | None = None
 
@@ -1260,7 +1295,7 @@ def _write_verdict(
     """:func:`write_verdict`, recording the record it read into *seen* when given."""
     named = target if isinstance(target, str) else None
     kind = _verdict_kind(section, target)
-    position: Literal["asked", "allowed"] | None = None
+    position: ArmedPosition | None = None
     try:
         reason, position = _write_refusal(section, target, owner, ignore_launch_pin, seen)
     except Exception:  # a verdict that cannot be reached refuses; it never raises
@@ -1273,15 +1308,15 @@ def _write_verdict(
     )
 
 
-def _verdict_kind(
-    section: object, target: object
-) -> Literal["real", "rehearsal", "simulator"] | None:
+def _verdict_kind(section: object, target: object) -> MachineKind | None:
     """The machine kind a verdict on *target* names, or ``None``. Never raises.
 
     The name decides whether the target resolves at all; the published report
     decides what it is (C-KIND), so a stand-in the controls server has not
     vouched for is the real machine in the refusal's words.
     """
+    if not is_control_target(target):
+        return None
     try:
         return None if machine_kind(section, target) is None else published_machine_kind(target)
     except Exception:  # the kind is a word in a refusal; it must not decide one
@@ -1427,7 +1462,7 @@ def _write_refusal(
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
     seen: _RecordSeen | None = None,
-) -> tuple[str | None, Literal["asked", "allowed"] | None]:
+) -> tuple[str | None, ArmedPosition | None]:
     """The first term of :func:`write_verdict` that refuses, else the position.
 
     Answers ``(reason, None)`` or ``(None, position)``. May raise. The usable
@@ -1440,7 +1475,7 @@ def _write_refusal(
         return "readonly_run", None
     if not tier_allows(section):
         return "tier_never", None
-    if target is None:  # resolve_target refuses it too; said here for the type
+    if not is_control_target(target):  # resolve_target refuses it too; said here for the type
         return "target_unknown", None
     try:
         resolve_target(section, target)
@@ -1490,4 +1525,4 @@ def _write_refusal(
     if not ignore_launch_pin and _launch_pin_term(target) != "none":
         return "launch_pinned", None
     ceiling = write_ceiling(section, resolved)
-    return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))
+    return None, cast("ArmedPosition", min(stored, ceiling, key=_LOGIN_TIERS.index))

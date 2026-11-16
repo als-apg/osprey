@@ -68,8 +68,10 @@ from osprey.interfaces.web_terminal.config_view import (
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +121,7 @@ class RevokeRequest(BaseModel):
 
 
 async def read_current_values(
-    config_path: Path | None, target: str, addresses: list[str]
+    config_path: Path | None, target: ControlTarget, addresses: list[str]
 ) -> dict[str, Any]:
     """The current value of each address on *target*, read through this terminal's connector.
 
@@ -137,7 +139,7 @@ async def read_current_values(
 
     async def read_one(connector: Any, address: str) -> None:
         try:
-            reading = await connector.read_channel(address, timeout=VALUE_READ_TIMEOUT_S)
+            reading = await connector.read_channel(address, timeout_s=VALUE_READ_TIMEOUT_S)
             values[address] = reading.value
         except Exception:  # one channel unread is shown as unread
             logger.debug("Could not read %s for the approve card", address, exc_info=True)
@@ -489,13 +491,13 @@ async def approve_write_authorization(body: ApproveRequest, request: Request):
 
     try:
         grant = await run_in_threadpool(lambda: wa.approve_request(wanted, surface="chip"))
-    except wa.AuthorizationRefused as exc:
+    except wa.AuthorizationRefusedError as exc:
         status = {"auth_overlap": 409, "auth_expired": 410}.get(exc.reason, 503)
         phrase = refusal_phrase(exc.reason)
         raise refuse(
             status, exc.reason, phrase=f"{phrase} {exc.detail}" if exc.detail else phrase
         ) from exc
-    except FileExistsError as exc:
+    except AlreadyApprovedError as exc:
         raise refuse(409, REASON_ALREADY_APPROVED) from exc
     except (OSError, RuntimeError, ValueError) as exc:
         logger.warning("The approval %s was not taken", gesture, exc_info=True)

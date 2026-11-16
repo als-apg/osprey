@@ -542,7 +542,7 @@ if not _execution_dir.exists():
                 _limits_db = {{}}
                 for channel_name, config_dict in _limits_db_raw.items():
                     _limits_db[channel_name] = ChannelLimitsConfig(
-                        channel_address=channel_name,
+                        address=channel_name,
                         min_value=config_dict.get('min_value'),
                         max_value=config_dict.get('max_value'),
                         max_step=config_dict.get('max_step'),  # Include max_step from serialized config

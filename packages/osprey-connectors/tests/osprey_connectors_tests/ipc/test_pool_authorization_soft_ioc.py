@@ -138,7 +138,7 @@ def spent(grant: Grant) -> int:
 
 
 async def value(connector: Any, channel: str) -> Any:
-    return (await connector.read_channel(channel, timeout=CA_TIMEOUT_S)).value
+    return (await connector.read_channel(channel, timeout_s=CA_TIMEOUT_S)).value
 
 
 async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
@@ -165,7 +165,7 @@ async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
         )
         assert other.report["authorization"] is None
 
-        landed = await held.write_channel(sp, 5.0, confirm=True, timeout=CA_TIMEOUT_S)
+        landed = await held.write_channel(sp, 5.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
         assert spent(grant) == 1
 
@@ -183,7 +183,7 @@ async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
         assert [r.outcome for r in batch] == [WriteOutcome.CONFIRMED] * 2
         assert spent(grant) == 2
 
-        await held.write_channel_checked(sp, 8.0, confirm=True, timeout=CA_TIMEOUT_S)
+        await held.write_channel_checked(sp, 8.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert spent(grant) == 3
         with pytest.raises(ChannelWriteBlockedError) as caught:
             await held.write_channel_checked(sp, 9.0, confirm=True)
@@ -213,7 +213,7 @@ async def test_the_switch_turned_on_does_not_lift_the_bounds_and_a_stop_ends_the
 
         out = await held.write_channel(sp, 60.0, confirm=True)
         assert out.verdict_reason == "auth_range"
-        inside = await held.write_channel(sp, 20.0, confirm=True, timeout=CA_TIMEOUT_S)
+        inside = await held.write_channel(sp, 20.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert inside.outcome is WriteOutcome.CONFIRMED
 
         assert revoke_grants(by="alice", targets=["live"]) == (grant.id,)
@@ -231,7 +231,7 @@ async def test_a_child_replaced_mid_run_keeps_the_count(deployment, ioc_prefix):
     grant = grant_for({sp: ChannelRange(min=0.0, max=50.0)}, steps=2)
     try:
         held = await pool.connector("live", authorization=grant.id)
-        await held.write_channel_checked(sp, 1.5, confirm=True, timeout=CA_TIMEOUT_S)
+        await held.write_channel_checked(sp, 1.5, confirm=True, timeout_s=CA_TIMEOUT_S)
         first = held.pid
         assert first is not None
         os.kill(first, signal.SIGKILL)
@@ -239,7 +239,7 @@ async def test_a_child_replaced_mid_run_keeps_the_count(deployment, ioc_prefix):
         while held.pid is not None and time.monotonic() < deadline:
             await asyncio.sleep(0.05)
 
-        await held.write_channel_checked(sp, 2.5, confirm=True, timeout=CA_TIMEOUT_S)
+        await held.write_channel_checked(sp, 2.5, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert held.pid not in (None, first)
         exhausted = await held.write_channel(sp, 3.5, confirm=True)
         assert exhausted.verdict_reason == "auth_exhausted"
@@ -265,7 +265,7 @@ async def test_a_handle_taken_before_the_lease_is_refused_switching_like_any_ref
         first = early.pid
         start_lease(grant.id)
 
-        refused = await early.write_channel(sp, 4.0, confirm=True, timeout=CA_TIMEOUT_S)
+        refused = await early.write_channel(sp, 4.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert (refused.outcome, refused.verdict_reason) == (WriteOutcome.REFUSED, "switching")
         assert early.pid == first
         assert spent(grant) == 0
@@ -292,7 +292,7 @@ async def test_an_approved_request_ends_at_the_persons_stop(deployment, ioc_pref
     start_lease(grant.id)
     try:
         held = await pool.connector("live", authorization=grant.id)
-        landed = await held.write_channel(sp, 11.0, confirm=True, timeout=CA_TIMEOUT_S)
+        landed = await held.write_channel(sp, 11.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
 
         control_context.set_switch(stop, "off")

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility import TEXTURE
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.records import ScenarioRecord, SeedRecord, WiringRecord
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -29,7 +29,7 @@ from osprey_connectors.simulation.view import (
     Binding,
     Channel,
     Model,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
     ViewSchemaError,
 )
@@ -99,7 +99,8 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert isinstance(first, Binding)
     assert view.binding(first.address) == first
     assert dict(first.record) == wiring[first.model][0]
-    assert isinstance(first.record, MappingProxyType)
+    with pytest.raises(TypeError):
+        first.record["model"] = "elsewhere"  # type: ignore[index]
 
     channel = view.channel(first.address)
     assert isinstance(channel, Channel)
@@ -200,7 +201,7 @@ def test_a_wiring_record_without_its_description_asks_for_a_rebuild() -> None:
 
 
 def test_a_missing_view_is_no_view_and_find_says_none(tmp_path: Path) -> None:
-    with pytest.raises(NoSimulatorView, match="run osprey build"):
+    with pytest.raises(NoSimulatorViewError, match="run osprey build"):
         SimulatorView.open(tmp_path / "nowhere")
 
     assert SimulatorView.find(tmp_path) is None

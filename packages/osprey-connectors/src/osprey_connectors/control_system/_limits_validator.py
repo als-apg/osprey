@@ -7,12 +7,12 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TypeGuard
+from typing import Final, TypeGuard
 
 from pydantic import ValidationError
 
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.types import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
@@ -60,7 +60,7 @@ CurrentValueReader = Callable[[str], object]
 #: exactly like the connector's own ``timeout_s`` — a gateway two hops away
 #: answers slower than a soft IOC on the same host — so a deployment overrides
 #: it with ``control_system.connector.<type>.step_read_timeout_s``.
-DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0
+DEFAULT_STEP_READ_TIMEOUT_S = 2.0
 
 #: The per-connector key that overrides it, spelled once so the connector and
 #: the python-executor sandbox cannot read two different names.
@@ -68,7 +68,7 @@ STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
 
 #: The ``violation_type`` of a write refused because its value is not a finite
 #: real number while the channel has a numeric limit to hold it to.
-INVALID_NUMERIC_VALUE = "INVALID_NUMERIC_VALUE"
+INVALID_NUMERIC_VALUE: Final = "INVALID_NUMERIC_VALUE"
 
 
 #: C's ``isspace`` set: what EPICS's C conversion skips around a numeral.
@@ -205,7 +205,7 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
     return isinstance(value, dict)
 
 
-def step_read_timeout_seconds(
+def step_read_timeout_s(
     config: Mapping[str, object] | None, connector_type: str | None = None
 ) -> float:
     """The ``max_step`` fresh-read budget one connector block declares.
@@ -218,7 +218,7 @@ def step_read_timeout_seconds(
             placeholder in that message.
 
     Returns:
-        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_SECONDS` when
+        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_S` when
         the block declares none or declares something that is not a positive
         number. A value that cannot be used is warned about, naming the key and
         what was found, and then falls back rather than raising: this resolves
@@ -226,10 +226,10 @@ def step_read_timeout_seconds(
         that takes writes down.
     """
     if not isinstance(config, Mapping):
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     declared = config.get(STEP_READ_TIMEOUT_KEY)
     if declared is None:
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     if isinstance(declared, bool) or not isinstance(declared, int | float) or declared <= 0:
         logger.warning(
             "control_system.connector.%s.%s must be a positive number of seconds, "
@@ -237,9 +237,9 @@ def step_read_timeout_seconds(
             connector_type or "<type>",
             STEP_READ_TIMEOUT_KEY,
             declared,
-            DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+            DEFAULT_STEP_READ_TIMEOUT_S,
         )
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        return DEFAULT_STEP_READ_TIMEOUT_S
     return float(declared)
 
 
@@ -271,7 +271,7 @@ def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
     return lookup
 
 
-class ChannelLimitsConfig(MutableModel):
+class ChannelLimitsConfig(FrozenModel):
     """Configuration for a single channel's limits.
 
     A bound is a number, kept as the ``int`` or ``float`` it was given as, so a
@@ -279,7 +279,7 @@ class ChannelLimitsConfig(MutableModel):
     here too, as Python counts it: the database loader has always taken one.
     """
 
-    channel_address: str
+    address: str
     min_value: bool | int | float | None = None
     max_value: bool | int | float | None = None
     max_step: bool | int | float | None = None  # Optional: requires channel read (I/O overhead)
@@ -710,7 +710,7 @@ class LimitsValidator:
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-    def resolve_confirm(self, channel_address: str) -> bool:
+    def resolve_confirm(self, address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
 
         Resolution: the channel's own ``confirm``, else ``True``. Read off the
@@ -718,7 +718,7 @@ class LimitsValidator:
         a limit, so it never enters :class:`ChannelLimitsConfig`.
 
         Args:
-            channel_address: Channel address being written
+            address: Channel address being written
 
         Returns:
             True when the write must be confirmed (the fleet default).
@@ -727,19 +727,19 @@ class LimitsValidator:
         if not isinstance(raw_db, dict):
             return True
 
-        channel_config = raw_db.get(channel_address)
+        channel_config = raw_db.get(address)
         if _is_json_object(channel_config) and "confirm" in channel_config:
             return bool(channel_config["confirm"])
 
         return True
 
-    def measures_step(self, channel_address: str) -> bool:
+    def measures_step(self, address: str) -> bool:
         """Whether :meth:`validate` reads this channel's present value.
 
         True for a channel with a ``max_step``. A caller that validates many
         writes at once reads exactly these channels beforehand, together.
         """
-        channel_config = self.limits.get(channel_address)
+        channel_config = self.limits.get(address)
         return channel_config is not None and channel_config.max_step is not None
 
     @staticmethod
@@ -782,7 +782,7 @@ class LimitsValidator:
         except ValidationError as error:
             raise _entry_error(channel_name, error) from None
         return ChannelLimitsConfig(
-            channel_address=channel_name,
+            address=channel_name,
             min_value=entry.min_value,
             max_value=entry.max_value,
             max_step=entry.max_step,
@@ -889,7 +889,7 @@ class LimitsValidator:
 
     def validate(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         *,
         read_current: CurrentValueReader | None = None,
@@ -906,9 +906,9 @@ class LimitsValidator:
         so the caller that is about to write supplies the read.
 
         Args:
-            channel_address: Channel address to validate
+            address: Channel address to validate
             value: Value to write
-            read_current: The caller's own way to read *channel_address*'s
+            read_current: The caller's own way to read *address*'s
                 present value, used only when the channel configures
                 ``max_step``. Omitting it on such a channel fails the write
                 closed: a step that cannot be measured cannot be approved.
@@ -918,7 +918,7 @@ class LimitsValidator:
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        channel_config, numeric_value = self._validate_without_step(channel_address, value)
+        channel_config, numeric_value = self._validate_without_step(address, value)
         if channel_config is None or numeric_value is None:
             # A channel with no record under the optional mode, or a channel with no numeric limit:
             # neither one has a step size to measure.
@@ -935,11 +935,11 @@ class LimitsValidator:
                 # EPICS_CA_* environment rather than the client the write
                 # itself goes through.
                 logger.error(
-                    f"Cannot verify step size for {channel_address} - "
+                    f"Cannot verify step size for {address} - "
                     f"the caller supplied no way to read the channel"
                 )
                 raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
+                    address=address,
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
                     violation_reason=(
@@ -950,17 +950,16 @@ class LimitsValidator:
 
             try:
                 # Read current value (I/O operation)
-                logger.debug(f"Reading current value for step check: {channel_address}")
-                current_value = read_current(channel_address)
+                logger.debug(f"Reading current value for step check: {address}")
+                current_value = read_current(address)
 
                 if current_value is None:
                     # FAILSAFE: Can't read current value → block write
                     logger.warning(
-                        f"Cannot verify step size for {channel_address} - "
-                        f"channel read returned None"
+                        f"Cannot verify step size for {address} - channel read returned None"
                     )
                     raise ChannelLimitsViolationError(
-                        channel_address=channel_address,
+                        address=address,
                         value=value,
                         violation_type="STEP_CHECK_FAILED",
                         violation_reason="Cannot read current channel value to verify step size",
@@ -974,11 +973,11 @@ class LimitsValidator:
                 numeric_current, current_reason = _finite_real_or_reason(current_value)
                 if numeric_current is None:
                     logger.warning(
-                        f"Cannot verify step size for {channel_address} - "
+                        f"Cannot verify step size for {address} - "
                         f"current value {current_value!r} is not a finite number"
                     )
                     raise ChannelLimitsViolationError(
-                        channel_address=channel_address,
+                        address=address,
                         value=value,
                         violation_type="STEP_CHECK_FAILED",
                         violation_reason=(
@@ -994,11 +993,11 @@ class LimitsValidator:
                 step_size = abs(numeric_value - numeric_current)
                 if step_size > channel_config.max_step:
                     logger.warning(
-                        f"Blocked write exceeding max step: {channel_address} "
+                        f"Blocked write exceeding max step: {address} "
                         f"step={step_size:.3f} > max={channel_config.max_step}"
                     )
                     raise ChannelLimitsViolationError(
-                        channel_address=channel_address,
+                        address=address,
                         value=value,
                         violation_type="MAX_STEP_EXCEEDED",
                         violation_reason=(
@@ -1017,20 +1016,18 @@ class LimitsValidator:
                 raise
             except Exception as e:
                 # FAILSAFE: Any error during read → block write
-                logger.error(
-                    f"Failed to read current value for step check: {channel_address} - {e}"
-                )
+                logger.error(f"Failed to read current value for step check: {address} - {e}")
                 raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
+                    address=address,
                     value=value,
                     violation_type="STEP_CHECK_FAILED",
                     violation_reason=f"Channel read failed: {str(e)}",
                 ) from e
 
         # All checks passed!
-        logger.debug(f"Validated write: {channel_address}={value}")
+        logger.debug(f"Validated write: {address}={value}")
 
-    def validate_without_step_check(self, channel_address: str, value: object) -> None:
+    def validate_without_step_check(self, address: str, value: object) -> None:
         """Every limits check that can be made without reading the machine.
 
         For a caller that is *not* the one performing the write, and so has no
@@ -1043,16 +1040,16 @@ class LimitsValidator:
         path entirely rather than enforcing it.
 
         Args:
-            channel_address: Channel address to validate
+            address: Channel address to validate
             value: Value to write
 
         Raises:
             ChannelLimitsViolationError: If any of those checks fails
         """
-        self._validate_without_step(channel_address, value)
+        self._validate_without_step(address, value)
 
     def _validate_without_step(
-        self, channel_address: str, value: object
+        self, address: str, value: object
     ) -> tuple[ChannelLimitsConfig | None, float | None]:
         """Checks 1-3, shared by both entry points.
 
@@ -1066,7 +1063,7 @@ class LimitsValidator:
         from osprey_connectors.errors import ChannelLimitsViolationError
 
         # Check 1: Channel exists in database?
-        channel_config = self.limits.get(channel_address)
+        channel_config = self.limits.get(address)
 
         if channel_config is None:
             # A database that failed to load blocks everything — say so, rather
@@ -1074,17 +1071,15 @@ class LimitsValidator:
             # database" sends the operator chasing a data problem when the
             # actual failure is that no database was loaded at all.
             if self.failsafe_reason:
-                logger.warning(
-                    f"Blocked write (limits database unavailable): {channel_address}={value}"
-                )
+                logger.warning(f"Blocked write (limits database unavailable): {address}={value}")
                 raise ChannelLimitsViolationError(
-                    channel_address=channel_address,
+                    address=address,
                     value=value,
                     violation_type="LIMITS_DATABASE_UNAVAILABLE",
                     violation_reason=(
                         f"Limits database unavailable — all writes are blocked as a "
                         f"failsafe ({self.failsafe_reason}). This is not a statement "
-                        f"about channel '{channel_address}'."
+                        f"about channel '{address}'."
                     ),
                 )
             # No record - the mode decides. Only an explicit `optional` is
@@ -1101,22 +1096,22 @@ class LimitsValidator:
             # validator built from a bare policy dict carries no key; the
             # deployment-wide one is the honest answer for it.
             answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
-            logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
+            logger.warning(f"Blocked write to unlisted channel: {address}={value}")
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type="UNLISTED_CHANNEL",
                 violation_reason=(
-                    f"Channel '{channel_address}' not in limits database "
+                    f"Channel '{address}' not in limits database "
                     f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
                 ),
             )
 
         # Check 2: Channel is writable?
         if not channel_config.writable:
-            logger.warning(f"Blocked write to read-only channel: {channel_address}={value}")
+            logger.warning(f"Blocked write to read-only channel: {address}={value}")
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type="READ_ONLY_CHANNEL",
                 violation_reason="Channel is marked as read-only",
@@ -1144,9 +1139,9 @@ class LimitsValidator:
 
         numeric_value, reason = _finite_real_or_reason(value)
         if numeric_value is None:
-            logger.warning(f"Blocked non-numeric write: {channel_address}={value!r}")
+            logger.warning(f"Blocked non-numeric write: {address}={value!r}")
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type=INVALID_NUMERIC_VALUE,
                 violation_reason=reason or "Value is not a finite real number",
@@ -1157,11 +1152,11 @@ class LimitsValidator:
 
         if channel_config.min_value is not None and numeric_value < channel_config.min_value:
             logger.warning(
-                f"Blocked write below minimum: {channel_address}={numeric_value} "
+                f"Blocked write below minimum: {address}={numeric_value} "
                 f"(min={channel_config.min_value})"
             )
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type="MIN_EXCEEDED",
                 violation_reason=f"Value {numeric_value} below minimum {channel_config.min_value}",
@@ -1171,11 +1166,11 @@ class LimitsValidator:
 
         if channel_config.max_value is not None and numeric_value > channel_config.max_value:
             logger.warning(
-                f"Blocked write above maximum: {channel_address}={numeric_value} "
+                f"Blocked write above maximum: {address}={numeric_value} "
                 f"(max={channel_config.max_value})"
             )
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type="MAX_EXCEEDED",
                 violation_reason=f"Value {numeric_value} above maximum {channel_config.max_value}",

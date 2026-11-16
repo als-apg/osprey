@@ -49,6 +49,7 @@ from osprey.deployment.host_binding import (
     LISTENS_KEY,
     osprey_owns_binding,
 )
+from osprey.errors import BuildProfileError
 from osprey.optimizer_connection import OPTIMIZER_PANEL_READ_TIMEOUT_S
 from osprey.utils.config_writer import (
     anchored_append,
@@ -59,7 +60,6 @@ from osprey.utils.config_writer import (
 )
 from osprey.utils.facility import facility_name as identity_name
 from osprey_connectors import types as connector_types
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 

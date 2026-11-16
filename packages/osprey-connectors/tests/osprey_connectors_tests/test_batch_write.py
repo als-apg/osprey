@@ -41,14 +41,14 @@ pytestmark = pytest.mark.usefixtures("writes_enabled")
 
 def _validator(**channels: dict[str, Any]) -> LimitsValidator:
     limits = {
-        name: ChannelLimitsConfig(channel_address=name, writable=True, **bounds)
+        name: ChannelLimitsConfig(address=name, writable=True, **bounds)
         for name, bounds in channels.items()
     }
     return LimitsValidator(limits, {"mode": "exclusive"}, {})
 
 
 def _outcomes(results) -> list[tuple[str, WriteOutcome, RefusalReason | None]]:
-    return [(r.channel_address, r.outcome, r.refusal_reason) for r in results]
+    return [(r.address, r.outcome, r.refusal_reason) for r in results]
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +200,11 @@ class TestBaseBatch:
         send = type(fake)._unguarded_write_channel
         sent: list[str] = []
 
-        async def sending(self, channel_address, value, **kwargs):
-            result = await send(self, channel_address, value, **kwargs)
+        async def sending(self, address, value, **kwargs):
+            result = await send(self, address, value, **kwargs)
             if not sent:
                 happen()
-            sent.append(channel_address)
+            sent.append(address)
             return result
 
         monkeypatch.setattr(type(fake), "_unguarded_write_channel", sending)
@@ -279,7 +279,7 @@ class TestEpicsBatch:
 
         assert peak == len(names)
         assert [r.outcome for r in results] == [WriteOutcome.UNREQUESTED] * len(names)
-        assert [r.channel_address for r in results] == names
+        assert [r.address for r in results] == names
 
     async def test_a_batch_is_confirmed_channel_by_channel(self):
         aioca = FakeAioca(_channels(A=1.0, B=5.0))
@@ -442,7 +442,7 @@ def test_a_refused_batch_raises_for_the_refused_write_not_one_it_held_back():
 
     def refused(address, reason):
         return ChannelWriteResult(
-            channel_address=address,
+            address=address,
             value_written=1.0,
             outcome=WriteOutcome.REFUSED,
             refusal_reason=reason,
@@ -454,4 +454,4 @@ def test_a_refused_batch_raises_for_the_refused_write_not_one_it_held_back():
     with pytest.raises(ChannelWriteBlockedError) as info:
         raise_for_write_results(results)
 
-    assert (info.value.channel_address, info.value.reason) == ("B", "LIMITS")
+    assert (info.value.address, info.value.reason) == ("B", "LIMITS")

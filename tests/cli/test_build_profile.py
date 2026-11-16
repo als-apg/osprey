@@ -34,8 +34,8 @@ from osprey.cli.build_profile_presets import (
     list_presets,
     list_tiers,
 )
+from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
-from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")

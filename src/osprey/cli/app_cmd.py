@@ -226,7 +226,7 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     violation.
     """
     from osprey.apps.loader import check_deployment
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     root = find_repo_root(repo)
     try:

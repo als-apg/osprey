@@ -41,8 +41,12 @@ STATUS = "T:SIM:M:STATUS"
 
 
 def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str) -> dict[str, Any]:
-    """A wiring record stamped as the build stamps it."""
-    return {**record, "engine_role": role, "plane": plane, "refresh": refresh}
+    """A wiring record stamped as the build stamps it.
+
+    The build gives every record a ``direction``: ``write`` for a setpoint
+    channel, which the record here states, else ``read``.
+    """
+    return {"direction": "read", **record, "engine_role": role, "plane": plane, "refresh": refresh}
 
 
 VIEW: dict[str, Any] = {

@@ -48,7 +48,7 @@ from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
-from osprey_connectors.errors import ConfigurationError
+from osprey.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
     build_exemplar_repo,

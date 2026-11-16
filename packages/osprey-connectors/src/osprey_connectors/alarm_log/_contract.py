@@ -32,14 +32,16 @@ class AlarmLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, channel: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[AlarmHistoryRow]:
-        """The logged alarm events of *channel*, ``AlarmHistoryRow`` rows, newest first."""
+        """The logged alarm events of *address*, ``AlarmHistoryRow`` rows, newest first."""
 
     @abstractmethod
-    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
-        """The last logged alarm configuration of *channel*."""
+    async def config_for(
+        self, address: str, *, timeout_s: float
+    ) -> AlarmConfigRecord | Unavailable:
+        """The last logged alarm configuration of *address*."""
 
     @abstractmethod
-    async def probe(self, deadline: float) -> str | Unavailable:
+    async def probe(self, *, timeout_s: float) -> str | Unavailable:
         """Whether the service answers: the evidence in plain words, or why not."""

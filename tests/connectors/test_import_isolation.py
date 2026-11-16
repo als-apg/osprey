@@ -71,7 +71,7 @@ def test_limits_validator_reaches_for_no_control_system_client():
         "from osprey_connectors.control_system._limits_validator import ("
         "    ChannelLimitsConfig, LimitsValidator);"
         "v = LimitsValidator("
-        "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0, writable=True)},"
+        "    {'FOO': ChannelLimitsConfig(address='FOO', max_step=5.0, writable=True)},"
         "    {'mode': 'exclusive'}, {});"
         "v.validate('FOO', 1.0, read_current=lambda _a: 0.0);"
         "bad = sorted({'epics', 'p4p', 'tango', 'caproto', 'doocs4py'} & set(sys.modules));"
@@ -196,11 +196,11 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
             connector = MockArchiverConnector()
             await connector.connect({"simulator_view": sys.argv[1]})
             df = await connector.get_data(
-                channels=["T:Q1:CUR:SP"],
+                addresses=["T:Q1:CUR:SP"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
-            values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+            values = df.loc[df["address"] == "T:Q1:CUR:SP", "value"].tolist()
             assert values and all(math.isfinite(v) for v in values), values
             await connector.disconnect()
 

@@ -29,12 +29,12 @@ from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
+from osprey.errors import BuildProfileError
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
 from osprey.services.watchdog.config import WATCHDOGS_BLOCK
 from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import resolve_env_vars
-from osprey_connectors.errors import BuildProfileError
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -789,8 +789,8 @@ def _served_decks(facts: dict[str, Any], facility: dict[str, Any]) -> list[dict[
         deck to, relative to the deployment root, the directory
         ``mcp__python__execute`` runs in.
     """
-    from osprey.facility import TEXTURE
     from osprey.facility.views.simulator import served_deck_path
+    from osprey_connectors.simulation import TEXTURE
 
     paths = {
         str(model.get("name")): served_deck_path(model)

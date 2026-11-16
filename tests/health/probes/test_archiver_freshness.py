@@ -47,9 +47,10 @@ class _SpyArchiver:
         start_date: Any,
         end_date: Any,
         precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
-        timeout: int | None = None,
+        *,
+        timeout_s: int | None = None,
     ) -> pd.DataFrame:
-        self.get_data_calls.append((channels, start_date, end_date, timeout))
+        self.get_data_calls.append((channels, start_date, end_date, timeout_s))
         if self._raise_exc is not None:
             raise self._raise_exc
         return self._frame
@@ -88,7 +89,7 @@ def _frame(newest_age_s: float, value: float = 1.5) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "timestamp": pd.to_datetime(stamps),
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [value - 0.1, value],
         }
     )
@@ -100,7 +101,7 @@ def _empty_long_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
-            "channel": pd.Series(dtype=str),
+            "address": pd.Series(dtype=str),
             "value": pd.Series(dtype="float64"),
         }
     )
@@ -197,7 +198,7 @@ async def test_all_null_column_is_warning() -> None:
             "timestamp": pd.to_datetime(
                 [datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]
             ),
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [float("nan"), float("nan")],
         }
     )
@@ -244,7 +245,7 @@ async def test_nanosecond_timestamps_are_not_truncated_with_a_warning() -> None:
     frame = pd.DataFrame(
         {
             "timestamp": stamps,
-            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "address": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [1.4, 1.5],
         }
     )

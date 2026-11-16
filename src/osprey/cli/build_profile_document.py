@@ -26,9 +26,9 @@ from typing import Any
 
 import yaml
 
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     TIER_WORDS,
     baseline_target,
