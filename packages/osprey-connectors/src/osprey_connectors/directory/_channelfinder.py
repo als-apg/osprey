@@ -30,8 +30,9 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, NotRequired, TypedDict
+from typing import Annotated, Literal
 
+from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError
 from typing_extensions import override
 
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
@@ -42,13 +43,14 @@ from osprey_connectors.directory._contract import (
     DirectoryRecord,
     DirectoryRow,
 )
-from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
+from osprey_connectors.model import FrozenModel
+from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable, _Recorded
 
 _CHANNELS = "/resources/channels"
 _COUNT = "/resources/channels/count"
 _PROPERTIES = "/resources/properties"
 
-_MALFORMED = Unavailable("malformed response")
+_MALFORMED = Unavailable(reason="malformed response")
 
 #: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
 #: ``description`` is not here: its property is the section's ``description_property``.
@@ -86,12 +88,42 @@ _SEPARATORS = str.maketrans(dict.fromkeys(",|;", "?"))
 _Params = list[tuple[str, str | int]]
 
 
-class _Channel(TypedDict):
-    """A channel as the service answers it, once its ``name`` is checked a string."""
+class _Named(FrozenModel):
+    """An entry the service lists by its string ``name``: a tag, a property, a property name."""
+
+    model_config = ConfigDict(extra="ignore")
 
     name: str
-    properties: NotRequired[object]
-    tags: NotRequired[object]
+
+
+class _Property(_Named):
+    """A property of a channel; a ``None`` value is no value."""
+
+    value: object = None
+
+
+#: A list the service answers, an entry that is not one with a string name skipped.
+_Entries = list[OnErrorOmit[_Named]]
+
+
+class _Channel(FrozenModel):
+    """A channel as the service answers it.
+
+    ``name`` must be a string, or the whole answer is malformed. ``properties`` and
+    ``tags`` are lists of named entries whose other entries are skipped, and either
+    is ``None`` when it is not a list: every property is optional.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    properties: _Recorded[list[OnErrorOmit[_Property]]] = None
+    tags: _Recorded[_Entries] = None
+
+
+_CHANNELS_ANSWER = TypeAdapter(list[_Channel])
+_NAMES_ANSWER = TypeAdapter(_Entries)
+_COUNT_ANSWER: TypeAdapter[int] = TypeAdapter(Annotated[int, Field(ge=0)])
 
 
 def _one_value(text: str) -> str:
@@ -138,39 +170,35 @@ def _searched(query: DirectoryQuery) -> str:
 def _channels(body: object) -> list[_Channel] | Unavailable:
     if isinstance(body, Unavailable):
         return body
-    if not isinstance(body, list) or not all(
-        isinstance(item, Mapping) and isinstance(item.get("name"), str) for item in body
-    ):
+    try:
+        return _CHANNELS_ANSWER.validate_python(body, strict=True)
+    except ValidationError:
         return _MALFORMED
-    return body
 
 
 def _total(body: object) -> int | Unavailable:
     if isinstance(body, Unavailable):
         return body
-    return _MALFORMED if isinstance(body, bool) or not isinstance(body, int) or body < 0 else body
+    try:
+        return _COUNT_ANSWER.validate_python(body, strict=True)
+    except ValidationError:
+        return _MALFORMED
 
 
-def _names_of(entries: object) -> list[str]:
-    if not isinstance(entries, list):
-        return []
-    return [
-        name
-        for entry in entries
-        if isinstance(entry, Mapping) and isinstance(name := entry.get("name"), str)
-    ]
+def _names(body: object) -> list[str] | Unavailable:
+    if isinstance(body, Unavailable):
+        return body
+    try:
+        return [entry.name for entry in _NAMES_ANSWER.validate_python(body, strict=True)]
+    except ValidationError:
+        return _MALFORMED
 
 
 def _properties_of(channel: _Channel) -> dict[str, str]:
-    entries = channel.get("properties")
-    if not isinstance(entries, list):
-        return {}
     return {
-        name: str(value)
-        for entry in entries
-        if isinstance(entry, Mapping)
-        and isinstance(name := entry.get("name"), str)
-        and (value := entry.get("value")) is not None
+        entry.name: str(entry.value)
+        for entry in channel.properties or ()
+        if entry.value is not None
     }
 
 
@@ -260,7 +288,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         properties = _properties_of(channel)
         return DirectoryRecord(
             row=DirectoryRow(
-                name=channel["name"],
+                name=channel.name,
                 status=_STATUSES.get(properties.pop(_ROW_FIELD_PROPERTIES["status"], "")),
                 description=properties.pop(self._description_property, None),
                 channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
@@ -269,7 +297,7 @@ class ChannelFinderDirectory(ChannelDirectory):
                 last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
             ),
             properties=properties,
-            tags=_names_of(channel.get("tags")),
+            tags=[tag.name for tag in channel.tags or ()],
         )
 
     async def _get(self, path: str, params: _Params | None, deadline: float) -> object:
@@ -359,16 +387,14 @@ class ChannelFinderDirectory(ChannelDirectory):
         if isinstance(channels, Unavailable):
             return channels
         for channel in channels:
-            if channel["name"] == name:
+            if channel.name == name:
                 return self._record(channel)
         return Outcome.NOT_LISTED
 
     @override
     async def property_names(self, deadline: float) -> list[str] | Unavailable:
-        body = await self._get(_PROPERTIES, None, deadline)
-        if isinstance(body, Unavailable):
-            return body
-        return sorted(_names_of(body)) if isinstance(body, list) else _MALFORMED
+        names = _names(await self._get(_PROPERTIES, None, deadline))
+        return names if isinstance(names, Unavailable) else sorted(names)
 
     @override
     async def property_values(

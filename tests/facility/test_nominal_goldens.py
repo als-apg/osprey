@@ -172,17 +172,17 @@ def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served
 
 def test_the_added_records_serve_the_lifetime_and_the_mode_label(served: Served) -> None:
     from osprey_connectors.simulation import topoff
+    from osprey_connectors.simulation.records import SeedRecord
 
+    seeds = {address: SeedRecord.model_validate(seed) for address, seed in served.seeds.items()}
     assert served.value_type(LIFETIME) == "float"
     assert float(served.held[LIFETIME]) == served.seeds[SR_DCCT]["topoff"]["lifetime_h"]
-    assert topoff.held_value(served.seeds[LIFETIME], served.seeds.get) == float(
-        served.held[LIFETIME]
-    )
+    assert topoff.held_value(seeds[LIFETIME], seeds.get) == float(served.held[LIFETIME])
     assert served.value_type(MODE) == "enum"
     assert served.channels[MODE]["options"][0] == MODE_FIRST
     assert served.held[MODE] == MODE_LABEL
     assert served.composite.get([MODE])[MODE] == MODE_LABEL
-    assert topoff.topoff_record(served.seeds[SR_DCCT]) is not None
+    assert topoff.topoff_record(seeds[SR_DCCT]) is not None
 
 
 def test_float_nominals_equal_the_golden_but_the_declared_rebaselines(served: Served) -> None:

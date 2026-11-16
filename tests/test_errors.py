@@ -16,6 +16,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
     RefusalReason,
 )
 
@@ -137,7 +138,7 @@ class TestTheFailureRoots:
         assert str(failure) == "the transport is gone"
 
     def test_a_lost_connector_takes_the_supervisors_recovery(self):
-        record = {"action": "connector_dropped", "text": "dropped"}
+        record = RecoveryRecord(action="connector_dropped", text="dropped")
         failure = ConnectorUnavailableError("gone", recovery=(record,))
         assert failure.recovery == (record,)
 

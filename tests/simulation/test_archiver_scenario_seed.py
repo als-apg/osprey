@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
+from osprey.simulation import apply
 from osprey.simulation.apply import (
     DENSIFIED_FIELD,
     _dense_documents,
@@ -41,8 +42,6 @@ from osprey.simulation.apply import (
     apply_scenarios,
     archiver_collection,
     archiver_store_config,
-    event_subwindows,
-    event_window,
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
@@ -55,6 +54,7 @@ from osprey_connectors.simulation.archive import (
     build,
     seed_base,
 )
+from osprey_connectors.simulation.records import ArchiverEvent
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
@@ -82,6 +82,22 @@ CHANNELS = {
     TEMPERATURE: {"nominal": 25.0},
     FAULT: {"value_type": "bool", "nominal": "FALSE"},
 }
+
+
+def event_window(events: list[dict], *args, **kwargs) -> tuple[float, float]:
+    """:func:`osprey.simulation.apply.event_window` of events stated as the view states them."""
+    return apply.event_window([ArchiverEvent.model_validate(e) for e in events], *args, **kwargs)
+
+
+def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, float]]:
+    """:func:`osprey.simulation.apply.event_subwindows` of events stated as the view states them."""
+    return apply.event_subwindows(
+        [ArchiverEvent.model_validate(e) for e in events], *args, **kwargs
+    )
+
+
+def _events(*events: dict) -> list[ArchiverEvent]:
+    return [ArchiverEvent.model_validate(event) for event in events]
 
 
 def _spike(offset: float, amplitude: float = 5e-9) -> dict:
@@ -718,8 +734,8 @@ class TestComposedEvents:
         assert active_archiver_events(root, ["nominal"]) == {}
         assert list(active_archiver_events(root, ["burst"])) == [PRESSURE]
         assert active_archiver_events(root, ["twin-burst"]) == {
-            PRESSURE: [_spike(SPIKE_OFFSET_S), _spike(LATE_OFFSET_S)],
-            TEMPERATURE: [_spike(LATE_OFFSET_S, amplitude=3.0)],
+            PRESSURE: _events(_spike(SPIKE_OFFSET_S), _spike(LATE_OFFSET_S)),
+            TEMPERATURE: _events(_spike(LATE_OFFSET_S, amplitude=3.0)),
         }
 
     def test_the_scripts_are_read_from_the_simulator_view(self, tmp_path):
@@ -728,7 +744,7 @@ class TestComposedEvents:
             root, {"burst": {"archiver": [{"channel": FAULT, "events": [_spike(-60.0)]}]}}
         )
 
-        assert active_archiver_events(root, ["burst"]) == {FAULT: [_spike(-60.0)]}
+        assert active_archiver_events(root, ["burst"]) == {FAULT: _events(_spike(-60.0))}
 
     def test_the_view_is_found_under_a_deployment_repo_s_render(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)

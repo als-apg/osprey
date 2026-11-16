@@ -807,7 +807,7 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         assert refusal.as_dict()["reason"] == "no_connector_host"
         assert refusal.target == "va"
         assert refusal.generation == manager.active_generation()
-        assert [record["action"] for record in refusal.recovery] == ["child_replaced"]
+        assert [record.action for record in refusal.recovery] == ["child_replaced"]
 
     async def test_the_session_still_names_the_target_it_was_on(self, make_manager):
         """A dead child is not a switch, and claiming one would invent it."""

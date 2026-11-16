@@ -1050,7 +1050,7 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
 
     # Self-check: prove the concealment rather than assume it. The state dir is
     # included because Read is deliberately allowed for agent-data artifacts.
-    still_listed = {str(entry["name"]) for entry in SimulatorView.open(view.path).scenarios()}
+    still_listed = {entry.name for entry in SimulatorView.open(view.path).scenarios()}
     assert not still_listed & set(scenarios), f"the simulator view still lists {still_listed}"
     trees = [tree for tree in (*facility_dirs, view.path, state_dir) if tree.is_dir()]
     for name in scenarios:

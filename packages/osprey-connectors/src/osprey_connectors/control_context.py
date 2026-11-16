@@ -138,13 +138,15 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generic, Literal, TypeVar
 
+from pydantic import Field
+
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
@@ -287,8 +289,7 @@ _LOCK_POLL_S = 0.01
 # -- the record -------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class Owner:
+class Owner(FrozenModel):
     """The process currently allowed to write the record.
 
     Attributes:
@@ -309,14 +310,14 @@ class Owner:
         return {"kind": self.kind, "pid": self.pid, "port": self.port}
 
 
-@dataclass(frozen=True)
-class ControlContext:
-    """One deployment's control context. Treat an instance as immutable.
+class ControlContext(FrozenModel):
+    """One deployment's control context.
 
-    :func:`read_record` hands back the cached instance, so a caller that needs
-    a changed record builds one with :func:`dataclasses.replace` rather than
-    editing this one — an in-place edit would reach every other reader in the
-    process.
+    :func:`read_record` hands back the cached instance, which is frozen: a
+    caller that needs a changed record builds a new one. Its ``posture``,
+    ``last_switch`` and ``switch`` maps are the cached instance's own, so they
+    are not edited in place either — an in-place edit would reach every other
+    reader in the process.
 
     Attributes:
         target: The control target the deployment is pointed at.
@@ -343,9 +344,9 @@ class ControlContext:
     target: str
     generation: int
     owner: Owner | None = None
-    posture: dict[str, str] = field(default_factory=dict)
+    posture: dict[str, str] = Field(default_factory=dict)
     last_switch: dict[str, object] | None = None
-    switch: Mapping[str, str] = field(default_factory=dict)
+    switch: Mapping[str, str] = Field(default_factory=dict)
     switch_epoch: int | None = None
 
     def to_payload(self) -> dict[str, object]:
@@ -423,7 +424,7 @@ def claimed(record: ControlContext, baseline: str) -> ControlContext:
         record.target,
         baseline,
     )
-    return replace(record, target=baseline)
+    return evolve(record, target=baseline)
 
 
 # -- path resolution --------------------------------------------------------
@@ -880,9 +881,9 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
     with _record_lock(target_path):
         on_disk, _status = _read(target_path)
         if on_disk is None:
-            stored = replace(record, switch={}, switch_epoch=time.time_ns())
+            stored = evolve(record, switch={}, switch_epoch=time.time_ns())
         else:
-            stored = replace(record, switch=dict(on_disk.switch), switch_epoch=on_disk.switch_epoch)
+            stored = evolve(record, switch=dict(on_disk.switch), switch_epoch=on_disk.switch_epoch)
         _write_record_unlocked(stored, target_path)
     return target_path
 
@@ -1063,7 +1064,7 @@ def set_switch(
             return None
         on_disk_epoch = current.switch_epoch
         if names is None:
-            stored = replace(
+            stored = evolve(
                 current,
                 switch={},
                 switch_epoch=max((on_disk_epoch or 0) + 1, time.time_ns()),
@@ -1071,7 +1072,7 @@ def set_switch(
         else:
             if any(_widens(state, switch_position(current, name)) for name in names):
                 if on_disk_epoch is None:
-                    stamped = replace(current, switch_epoch=time.time_ns())
+                    stamped = evolve(current, switch_epoch=time.time_ns())
                     _write_record_unlocked(stamped, target_path)
                     raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
                 if epoch != on_disk_epoch:
@@ -1080,7 +1081,7 @@ def set_switch(
                 switch = {key: value for key, value in current.switch.items() if key not in names}
             else:
                 switch = {**current.switch, **dict.fromkeys(names, state)}
-            stored = replace(
+            stored = evolve(
                 current,
                 switch=switch,
                 switch_epoch=time.time_ns() if on_disk_epoch is None else on_disk_epoch,
@@ -1092,7 +1093,7 @@ def set_switch(
             # epoch, which ends every grant issued under the old one on every
             # machine of this record: wider than asked, never narrower. A stop
             # of every machine has moved it already.
-            stored = replace(
+            stored = evolve(
                 stored, switch_epoch=max((stored.switch_epoch or 0) + 1, time.time_ns())
             )
             _write_record_unlocked(stored, target_path)
@@ -1128,7 +1129,7 @@ def held_epoch(path: Path, target: str) -> Iterator[int]:
         if epoch is None:
             epoch = time.time_ns()
             base = ControlContext(target=target, generation=0) if current is None else current
-            _write_record_unlocked(replace(base, switch_epoch=epoch), path)
+            _write_record_unlocked(evolve(base, switch_epoch=epoch), path)
         yield epoch
 
 
@@ -1387,7 +1388,7 @@ def terminus(
             a refusal.
     """
     moved = generation is not None
-    return replace(
+    return evolve(
         record,
         target=target if moved else record.target,
         generation=generation if generation is not None else record.generation,
@@ -1439,9 +1440,8 @@ def write_terminus(updated: ControlContext, request_id: str) -> bool:
 # -- the per-server reports -------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ServerReport:
-    """What one controls server says about itself. Treat an instance as immutable.
+class ServerReport(FrozenModel):
+    """What one controls server says about itself.
 
     Rule 5 of the module contract. Every field but ``server_pid`` is an
     observation that can be absent — a server that has just started has
@@ -1482,10 +1482,10 @@ class ServerReport:
     applied_target: str | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, object] = field(default_factory=dict)
+    reachability: dict[str, object] = Field(default_factory=dict)
     last_switch: dict[str, object] | None = None
     last_posture_realign: dict[str, object] | None = None
-    targets: dict[str, object] = field(default_factory=dict)
+    targets: dict[str, object] = Field(default_factory=dict)
     updated_at: str | None = None
     statement: dict[str, dict[str, object] | None] | None = None
 

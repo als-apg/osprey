@@ -65,7 +65,7 @@ def _scenarios_carry_a_logbook(build: Path) -> bool:
         view = SimulatorView.find(build)
         if view is None:
             return False
-        return any(scenario.get("logbook") for scenario in view.scenarios())
+        return any(scenario.logbook for scenario in view.scenarios())
     except (OSError, ValueError):
         return False
 

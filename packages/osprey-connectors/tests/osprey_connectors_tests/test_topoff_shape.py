@@ -14,6 +14,14 @@ import pytest
 
 from osprey_connectors.simulation import envelope, topoff
 from osprey_connectors.simulation.archive import SeedKnobs, seed_fingerprint
+from osprey_connectors.simulation.records import (
+    NoiseRecord,
+    ScenarioRecord,
+    SeedRecord,
+    SeedsDocument,
+    TopoffRecord,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.texture import TextureModel
 
 T0 = 1_760_000_010.0  # a whole multiple of PERIOD_S: a refill instant
@@ -23,14 +31,16 @@ CEILING = 500.0
 LIFETIME_H = 8.0
 PERIOD_S = 30.0
 TAU = LIFETIME_H * 3600.0
-RECORD = {"ceiling": CEILING, "lifetime_h": LIFETIME_H, "period_s": PERIOD_S}
+_RECORD = {"ceiling": CEILING, "lifetime_h": LIFETIME_H, "period_s": PERIOD_S}
+RECORD = TopoffRecord.model_validate(_RECORD)
 # 1 - exp(-x) for a small x, taken without cancellation.
 MEAN = (TAU / PERIOD_S) * -math.expm1(-PERIOD_S / TAU)
 LEVEL = CEILING * MEAN
-SEEDS = {
-    CURRENT: {"topoff": RECORD},
+_SEEDS = {
+    CURRENT: {"topoff": _RECORD},
     LIFETIME: {"topoff_lifetime": {"of": CURRENT}},
 }
+SEEDS = {address: SeedRecord.model_validate(seed) for address, seed in _SEEDS.items()}
 
 
 def _channel(address: str) -> dict[str, Any]:
@@ -44,11 +54,12 @@ def _channel(address: str) -> dict[str, Any]:
         "writable": False,
         "value_range": None,
         "owner": "texture",
+        "on": None,
     }
 
 
 def _model(t_s: float = T0, seeds: dict[str, Any] | None = None) -> TextureModel:
-    seeds = SEEDS if seeds is None else seeds
+    seeds = _SEEDS if seeds is None else seeds
     variables = {
         "schema": "simulator-variables",
         "code": "T",
@@ -56,7 +67,11 @@ def _model(t_s: float = T0, seeds: dict[str, Any] | None = None) -> TextureModel
         "channels": [_channel(address) for address in sorted(seeds)],
     }
     clock = {"t": t_s}
-    model = TextureModel(variables, {"seeds": seeds}, clock=lambda: clock["t"])
+    model = TextureModel(
+        VariablesDocument.model_validate(variables),
+        SeedsDocument.model_validate({"schema": "simulator-seeds", "seeds": seeds}),
+        clock=lambda: clock["t"],
+    )
     model.clock = clock  # type: ignore[attr-defined]
     return model
 
@@ -144,7 +159,8 @@ def test_a_stilled_channel_serves_its_held_level():
         assert _read(model, CURRENT, T0 + offset) == pytest.approx(LEVEL, rel=1e-12)
     assert not model.has_motion(CURRENT)
     assert envelope.motion_envelope(SEEDS[CURRENT], still=True) == 0.0
-    stilled = envelope.active_envelopes(SEEDS, {"quiet": {"still": [CURRENT]}}, ["quiet"])
+    quiet = ScenarioRecord(name="quiet", still=(CURRENT,))
+    stilled = envelope.active_envelopes(SEEDS, {"quiet": quiet}, ["quiet"])
     assert stilled[CURRENT] == 0.0
 
 
@@ -166,14 +182,16 @@ def test_an_unstilled_channel_moves_and_has_an_envelope():
         topoff.tooth_depth(RECORD), rel=1e-12
     )
     # A scenario noise replacement keeps the tooth moving.
-    model.set_motion({}, {CURRENT: {"absolute": 0.0}})
+    model.set_motion({}, {CURRENT: NoiseRecord(absolute=0.0)})
     assert model.has_motion(CURRENT)
 
 
 def test_the_envelope_adds_noise_taken_of_the_held_level():
-    seed = {"topoff": RECORD, "noise": {"relative": 0.001}}
+    seed = {"topoff": _RECORD, "noise": {"relative": 0.001}}
     expected = topoff.tooth_depth(RECORD) + envelope._MOTION_SIGMAS * 0.001 * LEVEL
-    assert envelope.motion_envelope(seed) == pytest.approx(expected, rel=1e-12)
+    assert envelope.motion_envelope(SeedRecord.model_validate(seed)) == pytest.approx(
+        expected, rel=1e-12
+    )
     model = _model(seeds={CURRENT: seed})
     times = np.linspace(T0, T0 + 600.0, 20_001)
     swing = model.motion(CURRENT, times, base=LEVEL)
@@ -182,7 +200,7 @@ def test_the_envelope_adds_noise_taken_of_the_held_level():
 
 def test_a_level_moved_to_zero_reads_within_noise_of_zero():
     sigma = 0.01
-    seed = {"topoff": RECORD, "noise": {"absolute": sigma}}
+    seed = {"topoff": _RECORD, "noise": {"absolute": sigma}}
     model = _model(seeds={CURRENT: seed})
     model.set_active({CURRENT: 0.0})
     for offset in np.linspace(0.0, 3 * PERIOD_S, 61):
@@ -217,7 +235,7 @@ def test_lifetime_is_a_held_constant():
 def test_lifetime_without_a_topoff_source_holds_nothing():
     assert topoff.held_value(SEEDS[LIFETIME]) is None
     assert topoff.held_value(SEEDS[LIFETIME], {}.get) is None
-    assert topoff.held_value({"nominal": 3.0}) is None
+    assert topoff.held_value(SeedRecord(nominal=3.0)) is None
 
 
 # --- archive --------------------------------------------------------------------------

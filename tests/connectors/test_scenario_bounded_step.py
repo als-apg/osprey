@@ -18,8 +18,31 @@ import numpy as np
 import pytest
 
 from osprey.facility.scenarios import check_scenario_events
-from osprey.simulation.apply import event_subwindows, event_window
-from osprey_connectors.simulation.series import apply_events, step_end
+from osprey.simulation import apply
+from osprey_connectors.simulation import series
+from tests._archiver_events import event as _event
+from tests._archiver_events import events as _events
+
+
+def apply_events(values, scripted, n, t_abs, anchor, tz=None):
+    """:func:`series.apply_events` of events stated as mappings."""
+    return series.apply_events(values, _events(scripted), n, t_abs, anchor, tz)
+
+
+def step_end(event, anchor, tz=None):
+    """:func:`series.step_end` of an event stated as a mapping."""
+    return series.step_end(_event(event), anchor, tz)
+
+
+def event_window(scripted, anchor, horizon, **kwargs):
+    """:func:`apply.event_window` of events stated as mappings."""
+    return apply.event_window(_events(scripted), anchor, horizon, **kwargs)
+
+
+def event_subwindows(scripted, anchor, horizon, **kwargs):
+    """:func:`apply.event_subwindows` of events stated as mappings."""
+    return apply.event_subwindows(_events(scripted), anchor, horizon, **kwargs)
+
 
 UTC_ZONE = ZoneInfo("UTC")
 T0 = datetime(2026, 6, 10, 12, 0, 0, tzinfo=UTC)

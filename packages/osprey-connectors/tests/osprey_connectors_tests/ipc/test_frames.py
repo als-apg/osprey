@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import BaseModel
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -29,6 +30,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     RefusalReason,
 )
+from osprey_connectors.ipc import Endpoint
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
 
@@ -409,6 +411,91 @@ def test_numpy_scalar_round_trips_with_dtype():
 def test_unsupported_value_is_refused_at_encode_time():
     with pytest.raises(frames.FrameEncodeError, match="object"):
         frames.encode_result("req-bad", object())
+
+
+# ---------------------------------------------------------------- records as models
+
+
+def _header_of(payload: bytes) -> dict:
+    body = payload[8:]
+    (header_len,) = frames._HEADER_STRUCT.unpack_from(body, 0)
+    return json.loads(body[4 : 4 + header_len])
+
+
+def test_a_record_crosses_as_its_tag_and_its_fields_in_order():
+    metadata = ChannelMetadata(units="mA", precision=3)
+
+    payload = frames.encode_result("req-m", metadata)
+
+    node = _header_of(payload)["value"]
+    assert node[_TAG] == "ChannelMetadata"
+    assert list(node["fields"]) == list(ChannelMetadata.model_fields)
+    frame = _round_trip(payload)
+    assert type(frame.value) is ChannelMetadata
+    assert frame.value == metadata
+
+
+def test_a_model_defined_outside_the_package_is_refused_at_encode_time():
+    class Outsider(BaseModel):
+        name: str
+
+    with pytest.raises(frames.FrameEncodeError, match="'Outsider'"):
+        frames.encode_result("req-o", Outsider(name="x"))
+
+
+def test_another_package_model_is_refused_at_encode_time():
+    """Only a connector's three result records cross, not every model the package defines."""
+    with pytest.raises(frames.FrameEncodeError, match="'Endpoint'"):
+        frames.encode_result("req-e", Endpoint(host="h", port=1, mode="addr_list"))
+
+
+def test_a_frame_naming_another_package_model_is_refused():
+    """A frame cannot make the far side build a record no call returns."""
+    reader = frames.FrameReader()
+    naming = _doctored(
+        _result(),
+        _set("value", {_TAG: "Endpoint", "fields": {"host": "h", "port": 1, "mode": "addr_list"}}),
+    )
+
+    with pytest.raises(frames.FrameDecodeError, match="unknown value tag 'Endpoint'"):
+        reader.feed(naming)
+
+
+def test_a_subclass_of_a_record_is_refused_at_encode_time():
+    """Only the class the far side rebuilds crosses."""
+
+    class MyMetadata(ChannelMetadata):
+        pass
+
+    with pytest.raises(frames.FrameEncodeError, match="'MyMetadata'"):
+        frames.encode_result("req-s", MyMetadata(units="mA"))
+
+
+def test_a_model_reply_its_class_refuses_fails_only_that_call():
+    reader = frames.FrameReader()
+    refused = _doctored(_result(), _set("value", {_TAG: "ChannelMetadata", "fields": {"units": 7}}))
+    follow_up = frames.encode_result("req-next", 2)
+
+    frame, next_frame = reader.feed(refused + follow_up)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-bad"
+    assert frame.class_tag == "ChannelMetadata"
+    assert type(frame.exception) is ConnectorInternalError
+    assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
+
+
+def test_the_request_an_undecodable_frame_names_is_read_back():
+    unknown = _doctored(
+        frames.encode_request("req-u", "read_channel", {"channel_address": "SR:Q"}),
+        _set("kwargs", {_TAG: "Bogus", "fields": {}}),
+    )
+
+    with pytest.raises(frames.FrameDecodeError):
+        frames.decode_frame(unknown)
+    assert frames._request_id_of(unknown) == "req-u"
+    assert frames._request_id_of(_repack(b"{not json")) is None
+    assert frames._request_id_of(_doctored(_result(), _set("request_id", 7))) is None
 
 
 # ---------------------------------------------------------------- exceptions

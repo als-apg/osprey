@@ -14,33 +14,39 @@ stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the tra
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
 
-The module imports only the standard library and ``osprey_connectors``, so a
-reader that must not load a model can open a view.
+Each file is validated, when first read, against its document model in
+:mod:`osprey_connectors.simulation.records`; a file whose shape breaks its model
+is refused as a :class:`ViewSchemaError` naming the key and the reason.
+
+The module imports only the standard library, pydantic and ``osprey_connectors``,
+so a reader that must not load a model can open a view.
 """
 
 from __future__ import annotations
 
-import copy
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Literal, overload
+from typing import Final, Literal, overload
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation.records import (
-        AddressesDocument,
-        ChannelRecord,
-        ModelEntry,
-        ScenarioRecord,
-        ScenariosDocument,
-        SeedRecord,
-        SeedsDocument,
-        ServedModelsDocument,
-        VariablesDocument,
-        WiringRecord,
-    )
+from pydantic import BaseModel, ValidationError
+
+from osprey_connectors.model import FrozenModel
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ChannelRecord,
+    ModelEntry,
+    ScenarioRecord,
+    ScenariosDocument,
+    SeedRecord,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+    WiringRecord,
+    _ReadOnly,
+    _thaw,
+)
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -114,6 +120,17 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
     }
 )
 
+#: Each view file and the model its document validates against.
+_DOCUMENTS: Mapping[str, type[FrozenModel]] = MappingProxyType(
+    {
+        SERVED_MODELS_FILE: ServedModelsDocument,
+        ADDRESSES_FILE: AddressesDocument,
+        VARIABLES_FILE: VariablesDocument,
+        SEEDS_FILE: SeedsDocument,
+        SCENARIOS_FILE: ScenariosDocument,
+    }
+)
+
 #: The schemas this OSPREY reads besides the one it writes, per file: a released
 #: ``/3`` facility file reads as one whose models declare no inputs.
 _ALSO_READ: Mapping[str, frozenset[str]] = MappingProxyType(
@@ -162,8 +179,6 @@ _NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
-#: The key listing the marks a wiring record carries; absent when it carries none.
-_MARKS_KEY: Final = "marks"
 
 
 class NoSimulatorView(LookupError):
@@ -174,27 +189,22 @@ class ViewSchemaError(ValueError):
     """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
 
 
-@overload
-def _freeze(value: Mapping[str, object]) -> Mapping[str, object]: ...
-@overload
-def _freeze(value: object) -> object: ...
-def _freeze(value: object) -> object:
-    """A read-only copy of a JSON value: mappings as proxies, lists as tuples."""
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
-    if isinstance(value, list | tuple):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
 def _schema_error(path: Path, found: object, expected: str) -> ViewSchemaError:
     return ViewSchemaError(
         f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build"
     )
 
 
-@dataclass(frozen=True)
-class Channel:
+def _shape_error(where: object, refusal: ValidationError) -> ViewSchemaError:
+    """The first key a view file's model refuses, and why, as the view's error."""
+    error = refusal.errors()[0]
+    key = ".".join(str(part) for part in error["loc"]) or "the document"
+    return ViewSchemaError(
+        f"{where}: {key}: {error['msg']} (found {error['input']!r}): rebuild with osprey build"
+    )
+
+
+class Channel(FrozenModel):
     """One channel of the view, as ``variables.json`` states it.
 
     Attributes:
@@ -223,9 +233,9 @@ class Channel:
     unit: str | None
     description: str | None
     writable: bool
-    value_range: tuple[float, float] | None
+    value_range: tuple[int | float, int | float] | None
     owner: str
-    on: Mapping[str, str] | None
+    on: _ReadOnly[str, str] | None
     options: tuple[str, ...] | None
     shape: tuple[int, ...] | None
     precision: int | None
@@ -235,33 +245,33 @@ class Channel:
         """Read one channel entry of ``variables.json``.
 
         Raises:
-            ViewSchemaError: the entry lacks a key every channel carries.
+            ViewSchemaError: the entry's ``value_range`` is not ``[min, max]``.
         """
+        # ``value_range`` reaches the model as the entry states it, and the
+        # model holds it to ``(min, max)``: ``model_validate`` takes it untyped.
         try:
-            on = entry["on"]
-            return cls(
-                address=str(entry["address"]),
-                role=entry["role"],
-                pair=entry["pair"],
-                value_type=entry["value_type"],
-                unit=entry["unit"],
-                description=entry["description"],
-                writable=bool(entry["writable"]),
-                value_range=_bounds(entry["value_range"]),
-                owner=entry["owner"],
-                on=None if on is None else MappingProxyType(dict(on)),
-                options=tuple(entry["options"]) if "options" in entry else None,
-                shape=tuple(entry["shape"]) if "shape" in entry else None,
-                precision=entry.get("precision"),
+            return cls.model_validate(
+                {
+                    "address": entry.address,
+                    "role": entry.role,
+                    "pair": entry.pair,
+                    "value_type": entry.value_type,
+                    "unit": entry.unit,
+                    "description": entry.description,
+                    "writable": entry.writable,
+                    "value_range": entry.value_range,
+                    "owner": entry.owner,
+                    "on": entry.on,
+                    "options": entry.options,
+                    "shape": entry.shape,
+                    "precision": entry.precision,
+                }
             )
-        except KeyError as missing:
-            raise ViewSchemaError(
-                f"channel {entry.get('address')!r} lacks {missing}: rebuild with osprey build"
-            ) from None
+        except ValidationError as refusal:
+            raise _shape_error(f"channel {entry.address!r}", refusal) from None
 
 
-@dataclass(frozen=True)
-class Binding:
+class Binding(FrozenModel):
     """One wiring record of a physics model: the address it serves and what it is.
 
     Attributes:
@@ -291,7 +301,7 @@ class Binding:
     plane: str | None
     refresh: str
     element: str | None
-    record: Mapping[str, object]
+    record: _ReadOnly[str, object]
     marks: frozenset[str] = frozenset()
 
     @classmethod
@@ -300,30 +310,36 @@ class Binding:
 
         Raises:
             ViewSchemaError: the record lacks ``engine_role``, ``plane`` or
+                ``refresh``, or states ``None`` for ``engine_role`` or
                 ``refresh``.
         """
-        missing = [key for key in _DESCRIPTION_KEYS if key not in record]
+        missing = [key for key in _DESCRIPTION_KEYS if key not in record.model_fields_set]
         if missing:
             raise ViewSchemaError(
-                f"wiring record {record.get('address')!r} of model {model!r} lacks "
+                f"wiring record {record.address!r} of model {model!r} lacks "
                 f"{', '.join(missing)}: rebuild with osprey build"
             )
+        if record.engine_role is None or record.refresh is None:
+            raise ViewSchemaError(
+                f"wiring record {record.address!r} of model {model!r} states no "
+                f"{'engine_role' if record.engine_role is None else 'refresh'}: "
+                "rebuild with osprey build"
+            )
         return cls(
-            id=str(record.get("id")),
+            id=str(record.id),
             model=model,
-            address=str(record["address"]),
-            direction=str(record.get("direction")),
-            engine_role=record["engine_role"],
-            plane=record["plane"],
-            refresh=record["refresh"],
-            element=record.get("element"),
-            record=MappingProxyType(copy.deepcopy(dict(record))),
-            marks=frozenset(str(mark) for mark in record.get(_MARKS_KEY) or ()),
+            address=record.address,
+            direction=str(record.direction),
+            engine_role=record.engine_role,
+            plane=record.plane,
+            refresh=record.refresh,
+            element=record.element,
+            record=record.model_dump(mode="json", exclude_unset=True),
+            marks=frozenset(record.marks or ()),
         )
 
 
-@dataclass(frozen=True)
-class Model:
+class Model(FrozenModel):
     """One model of the view.
 
     Attributes:
@@ -343,10 +359,10 @@ class Model:
     name: str
     engine: str | None
     served: bool
-    settings: Mapping[str, object]
+    settings: _ReadOnly[str, object]
     deck: Path | None
     bindings: tuple[Binding, ...]
-    inputs: tuple[Mapping[str, object], ...] = ()
+    inputs: tuple[_ReadOnly[str, object], ...] = ()
 
 
 class SimulatorView:
@@ -366,8 +382,7 @@ class SimulatorView:
         self.path = Path(path)
         parts = PurePosixPath(*self.path.parts[-len(VIEW_RELPATH.parts) :])
         self.render_root = self.path.parents[1] if parts == VIEW_RELPATH else None
-        self._raw: dict[str, Mapping[str, object]] = {}
-        self._documents: dict[str, Mapping[str, object]] = {}
+        self._documents: dict[str, BaseModel] = {}
         self._models: tuple[Model, ...] | None = None
         self._channel_records: Mapping[str, Channel] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
@@ -423,15 +438,15 @@ class SimulatorView:
         except NoSimulatorView:
             return None
 
-    # A file of the view reaches a reader only through ``_parsed``, which
-    # refuses one whose ``schema`` is not a schema this OSPREY reads, and
-    # ``osprey build`` writes each file of a schema to that schema's shape: the
-    # overloads below state that shape, the records of
-    # :mod:`osprey_connectors.simulation.records`, for each file by name. The
-    # facility schema leaves a scenario's ``archiver`` events free-form; the
-    # build checks each one with ``osprey.facility.scenarios.check_scenario_events``
-    # before it writes ``scenarios.json``, and ``ArchiverEvent`` states what
-    # that check guarantees.
+    # A file of the view reaches a reader only through :meth:`document`, which
+    # refuses one whose ``schema`` is not a schema this OSPREY reads and
+    # validates the rest against the file's document model: the overloads below
+    # name that model, of :mod:`osprey_connectors.simulation.records`, for each
+    # file by name. The facility schema leaves a scenario's ``archiver`` events
+    # free-form; the build checks each one with
+    # ``osprey.facility.scenarios.check_scenario_events`` before it writes
+    # ``scenarios.json``, and ``ArchiverEvent`` states what that check
+    # guarantees.
     @overload
     def document(self, name: Literal["served_models.json"]) -> ServedModelsDocument: ...
     @overload
@@ -443,33 +458,23 @@ class SimulatorView:
     @overload
     def document(self, name: Literal["scenarios.json"]) -> ScenariosDocument: ...
     @overload
-    def document(self, name: str) -> Mapping[str, object]: ...
-    def document(self, name: str) -> Mapping[str, object]:
-        """One view file, parsed once and read-only.
+    def document(self, name: str) -> BaseModel: ...
+    def document(self, name: str) -> BaseModel:
+        """One view file, parsed and validated once, read-only.
 
         Args:
             name: The file's name, one of :data:`SCHEMAS`.
 
         Returns:
-            The file's document, typed by its record in
-            :mod:`osprey_connectors.simulation.records` when ``name`` is one of
-            the view's file-name constants.
+            The file's document, the model of
+            :mod:`osprey_connectors.simulation.records` for the file.
 
         Raises:
             ViewSchemaError: the file's ``schema`` is absent or neither
-                ``SCHEMAS[name]`` nor an older one this OSPREY still reads.
+                ``SCHEMAS[name]`` nor an older one this OSPREY still reads, or
+                its shape breaks the file's document model.
         """
         if name not in self._documents:
-            self._documents[name] = _freeze(self._parsed(name))
-        return self._documents[name]
-
-    @overload
-    def _parsed(self, name: Literal["variables.json"]) -> VariablesDocument: ...
-    @overload
-    def _parsed(self, name: str) -> Mapping[str, object]: ...
-    def _parsed(self, name: str) -> Mapping[str, object]:
-        """One view file as parsed, not frozen; refused when its ``schema`` is not read here."""
-        if name not in self._raw:
             path = self.path / name
             parsed: object = json.loads(path.read_text(encoding="utf-8"))
             expected = SCHEMAS[name]
@@ -478,36 +483,35 @@ class SimulatorView:
             found = parsed.get("schema")
             if found != expected and found not in _ALSO_READ.get(name, ()):
                 raise _schema_error(path, found, expected)
-            self._raw[name] = parsed
-        return self._raw[name]
+            try:
+                self._documents[name] = _DOCUMENTS[name].model_validate(parsed)
+            except ValidationError as refusal:
+                raise _shape_error(path, refusal) from None
+        return self._documents[name]
 
     @property
     def code(self) -> str:
         """The facility's identity code."""
-        return str(self.document(VARIABLES_FILE)["code"])
+        return self.document(VARIABLES_FILE).code
 
     def models(self) -> tuple[Model, ...]:
         """Every model of the facility file, sorted by name."""
         if self._models is None:
-            entries = self._parsed(VARIABLES_FILE)["models"]
+            entries = self.document(VARIABLES_FILE).models
             self._models = tuple(self._model(entry) for entry in entries)
         return self._models
 
     def _model(self, entry: ModelEntry) -> Model:
-        name = str(entry["name"])
-        engine = entry.get("engine")
-        deck = entry.get("deck")
-        wiring = entry.get("wiring") or ()
         return Model(
-            name=name,
-            engine=engine,
-            served=bool(entry.get("served")),
-            settings=MappingProxyType(copy.deepcopy(entry.get("settings") or {})),
-            deck=self.path / deck if deck else None,
+            name=entry.name,
+            engine=entry.engine,
+            served=entry.served,
+            settings={key: _thaw(value) for key, value in entry.settings.items()},
+            deck=self.path / entry.deck if entry.deck else None,
             bindings=()
-            if engine == _TEXTURE
-            else tuple(Binding.from_record(name, record) for record in wiring),
-            inputs=tuple(_freeze(copy.deepcopy(record)) for record in entry.get("inputs") or ()),
+            if entry.engine == _TEXTURE
+            else tuple(Binding.from_record(entry.name, record) for record in entry.wiring),
+            inputs=entry.inputs,
         )
 
     def model(self, name: str) -> Model:
@@ -523,7 +527,7 @@ class SimulatorView:
 
     def served(self) -> tuple[str, ...]:
         """The names of the models the render serves, in ``served_models.json`` order."""
-        return tuple(str(name) for name in self.document(SERVED_MODELS_FILE)["models"])
+        return self.document(SERVED_MODELS_FILE).models
 
     def physics_models(self) -> tuple[Model, ...]:
         """The served models whose engine is not ``texture``, sorted by name."""
@@ -531,11 +535,11 @@ class SimulatorView:
 
     def channels(self) -> tuple[str, ...]:
         """Every channel address of the facility file, sorted."""
-        return tuple(str(address) for address in self.document(ADDRESSES_FILE)["channels"])
+        return self.document(ADDRESSES_FILE).channels
 
     def status_addresses(self) -> Mapping[str, str]:
         """Each served physics model's status address, ``<code>:SIM:<model>:STATUS``."""
-        listed = set(self.document(ADDRESSES_FILE)["status"])
+        listed = set(self.document(ADDRESSES_FILE).status)
         return MappingProxyType(
             {
                 model.name: address
@@ -556,27 +560,27 @@ class SimulatorView:
         Raises:
             ViewSchemaError: a listed entry is not such an address.
         """
-        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        listed = self.document(ADDRESSES_FILE).ioc_health
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
         by_model: dict[str, dict[str, str]] = {}
         for address in listed:
-            model, _, signal = str(address).removeprefix(prefix).rpartition(":")
-            if not model or not str(address).startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
+            model, _, signal = address.removeprefix(prefix).rpartition(":")
+            if not model or not address.startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
                 raise ViewSchemaError(
                     f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
                     f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
                 )
-            by_model.setdefault(model, {})[signal] = str(address)
+            by_model.setdefault(model, {})[signal] = address
         return MappingProxyType(
             {model: MappingProxyType(signals) for model, signals in by_model.items()}
         )
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
-            entries = self._parsed(VARIABLES_FILE)["channels"]
+            entries = self.document(VARIABLES_FILE).channels
             self._channel_records = MappingProxyType(
                 {
                     channel.address: channel
@@ -637,25 +641,16 @@ class SimulatorView:
 
     def seed(self, address: str) -> SeedRecord | None:
         """The seed record of the channel at ``address``, or ``None``."""
-        return self.document(SEEDS_FILE)["seeds"].get(address)
+        return self.document(SEEDS_FILE).seeds.get(address)
 
     def scenarios(self) -> tuple[ScenarioRecord, ...]:
         """Every scenario of ``scenarios.json``, sorted by name.
 
         Raises:
-            ViewSchemaError: A scenario's ``still`` is not a list of addresses.
+            ViewSchemaError: A scenario's shape breaks :class:`ScenarioRecord`,
+                its ``still`` not a list of addresses among them.
         """
-        scenarios = tuple(self.document(SCENARIOS_FILE)["scenarios"])
-        for scenario in scenarios:
-            still = scenario.get("still")
-            if still is not None and not (
-                isinstance(still, tuple) and all(isinstance(address, str) for address in still)
-            ):
-                raise ViewSchemaError(
-                    f"{self.path / SCENARIOS_FILE}: scenario {scenario.get('name')!r} states "
-                    f"`still` as {still!r}, not a list of addresses: run osprey build"
-                )
-        return scenarios
+        return self.document(SCENARIOS_FILE).scenarios
 
     def motion_envelope(self, address: str, active: Sequence[str] = ()) -> float:
         """The band ``address``'s served motion keeps it within around its held value.
@@ -676,8 +671,8 @@ class SimulatorView:
         key = tuple(resolve_active_scenarios(active))
         if key not in self._envelopes:
             self._envelopes[key] = active_envelopes(
-                self.document(SEEDS_FILE)["seeds"],
-                {str(scenario["name"]): scenario for scenario in self.scenarios()},
+                self.document(SEEDS_FILE).seeds,
+                {scenario.name: scenario for scenario in self.scenarios()},
                 key,
             )
         return self._envelopes[key].get(address, 0.0)
@@ -687,15 +682,7 @@ class SimulatorView:
         return self.path / SCENARIOS_DIR / name
 
 
-def _bounds(value_range: Sequence[float] | None) -> tuple[float, float] | None:
-    """A channel entry's ``value_range`` as ``(min, max)``; the build writes both or ``None``."""
-    if value_range is None:
-        return None
-    low, high = value_range
-    return low, high
-
-
 def _on_nodes(channel: Channel | None) -> tuple[str, ...]:
     if channel is None or channel.on is None:
         return ()
-    return tuple(str(node) for node in channel.on.values())
+    return tuple(channel.on.values())

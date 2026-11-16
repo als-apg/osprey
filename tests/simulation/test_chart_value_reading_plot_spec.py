@@ -22,6 +22,7 @@ import yaml
 from osprey.facility.scenarios import scenario_logbook
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.logbook import PlotSpec, parse_plot_spec
+from osprey_connectors.simulation.records import SeedRecord
 from tests._preset_data import packaged_facility_dir
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
 
@@ -138,7 +139,8 @@ def test_recent_scenario_is_one_bounded_step_back_on_the_baseline() -> None:
 
 def test_the_baseline_is_the_dcct_held_level() -> None:
     seeds = yaml.safe_load(fixture.EXAMPLE_SEEDS.read_text("utf-8"))
-    assert fixture.BASELINE_MA == topoff.held_value(seeds[fixture.DCCT_CHANNEL])
+    seed = SeedRecord.model_validate(seeds[fixture.DCCT_CHANNEL])
+    assert fixture.BASELINE_MA == topoff.held_value(seed)
 
 
 def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> None:

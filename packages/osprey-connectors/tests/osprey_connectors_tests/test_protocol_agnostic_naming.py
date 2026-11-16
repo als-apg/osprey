@@ -60,7 +60,7 @@ def test_archiver_contract_speaks_channels(cls, method, expected):
 
 def test_archiver_metadata_identifies_a_channel():
     """ArchiverMetadata names what it describes the same way get_data does."""
-    fields = ArchiverMetadata.__dataclass_fields__
+    fields = ArchiverMetadata.model_fields
     assert "channel" in fields
     assert "pv_name" not in fields
 
@@ -76,7 +76,7 @@ def test_channel_metadata_display_range_is_not_named_like_a_write_bound():
     ``ChannelLimitsConfig.min_value``/``max_value`` are the bounds OSPREY refuses
     to write past. Sharing those identifiers made a display range look enforced.
     """
-    fields = ChannelMetadata.__dataclass_fields__
+    fields = ChannelMetadata.model_fields
     assert "display_low" in fields
     assert "display_high" in fields
     assert "min_value" not in fields

@@ -21,6 +21,11 @@ dependencies = [
     # `typing_extensions.override` marks a method that overrides its base on
     # Python 3.11, where `typing.override` does not exist yet.
     "typing-extensions>=4.4.0",
+    # The package's data model: every record that crosses one of its
+    # interfaces (a connector's results, the write path's records, the
+    # documents it reads, the IPC frames) is a pydantic model, validated where
+    # it is built. The framework's own range.
+    "pydantic>=2.11,<3",
     # Channel Access client for the EPICS connector. Pure Python on top of
     # epicscorelibs, which ships a libca per architecture.
     "aioca>=2.1",

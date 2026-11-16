@@ -621,6 +621,9 @@ files = [
 ]
 warn_return_any = true
 warn_unused_configs = true
+# Gives each pydantic model a typed `__init__`, so a call that names a field
+# wrongly or passes the wrong type is a type error, not a runtime one.
+plugins = ["pydantic.mypy"]
 # A suppression that no longer silences anything is reported, so a fix or a stub
 # upgrade cannot leave a `# type: ignore` behind that would hide the next error.
 warn_unused_ignores = true
@@ -675,6 +678,11 @@ enable_error_code = [
 [[tool.mypy.overrides]]
 module = ["osprey_connectors._contract_types"]
 disallow_any_explicit = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
 
 # Specific modules to ignore due to optional dependencies
 [[tool.mypy.overrides]]
@@ -965,7 +973,7 @@ layers = [
     "osprey_connectors.simulator",
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
-    "osprey_connectors._config_read | osprey_connectors._contract_types",
+    "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The

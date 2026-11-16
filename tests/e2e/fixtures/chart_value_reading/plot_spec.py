@@ -33,6 +33,7 @@ import numpy as np
 import osprey
 from osprey.facility.sources import read_yaml
 from osprey_connectors.simulation import topoff
+from osprey_connectors.simulation.records import SeedRecord
 
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
 RECENT_SCENARIO = "beam-dip-recent"
@@ -46,7 +47,7 @@ EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/see
 
 def _held_current() -> float:
     seeds = read_yaml(EXAMPLE_SEEDS.read_text(encoding="utf-8"))
-    held = topoff.held_value(seeds[DCCT_CHANNEL])
+    held = topoff.held_value(SeedRecord.model_validate(seeds[DCCT_CHANNEL]))
     if held is None:
         raise ValueError(f"{DCCT_CHANNEL} carries no topoff seed in {EXAMPLE_SEEDS}")
     return held

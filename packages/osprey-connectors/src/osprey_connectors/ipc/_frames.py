@@ -61,11 +61,27 @@ Supported values
 ``None``, ``bool``, ``int``, ``float``, ``str``, :class:`datetime.datetime`
 (ISO 8601), lists/tuples and dicts of the above (dict keys are coerced to
 strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
-shape preserved), and the connector dataclasses
-:class:`~osprey_connectors.control_system.ChannelValue`,
-``ChannelMetadata`` and ``ChannelWriteResult``, which decode as real
-instances of those classes. Anything else is refused at encode
-time rather than silently degraded.
+shape preserved), and the package's records:
+
+* the connector records a connector's calls return, ``ChannelValue``,
+  ``ChannelMetadata`` and ``ChannelWriteResult``, named by class name and
+  carried as their fields in declaration order. Each decodes as a real
+  instance of its class, validated by the class itself. A subclass is
+  refused: only the class the far side rebuilds crosses.
+
+Anything else is refused at encode time rather than silently degraded.
+
+A record decodes through its class's lax validation: the wire is JSON-shaped,
+so a tuple arrives as a list and an enum member as its string, and the field's
+declared type turns each back into what the sender held.
+
+Failures
+--------
+A stream that has lost its framing (no magic at the read point, an absurd
+length) cannot be read past. A frame that is delimited but cannot be decoded
+can: :meth:`FrameReader._feed_raw` hands frames over undecoded, and
+:func:`_request_id_of` reads the request such a frame named, so the
+connector-host child refuses that request alone and keeps serving.
 """
 
 from __future__ import annotations
@@ -74,13 +90,12 @@ import json
 import struct
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
-from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from io import BytesIO
 from typing import TypeAlias, TypeGuard
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -93,6 +108,7 @@ from osprey_connectors.ipc._exceptions import (
     exception_fields,
     reconstruct_exception,
 )
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "MAGIC",
@@ -152,13 +168,13 @@ class _UnrebuildableValueError(FrameDecodeError):
 
     def __init__(self, class_tag: str, cause: Exception) -> None:
         self.class_tag = class_tag
+        self.cause = cause
         super().__init__(
             f"connector host sent a {class_tag} reply the parent cannot rebuild: {cause!r}"
         )
 
 
-@dataclass(frozen=True)
-class RequestFrame:
+class RequestFrame(FrozenModel):
     """A decoded call request. ``method`` and ``kwargs`` are never validated by the codec:
     the child refuses a bad one in that request's error frame."""
 
@@ -167,16 +183,14 @@ class RequestFrame:
     kwargs: object
 
 
-@dataclass(frozen=True)
-class ResultFrame:
+class ResultFrame(FrozenModel):
     """A decoded successful reply."""
 
     request_id: str
     value: object
 
 
-@dataclass(frozen=True)
-class ErrorFrame:
+class ErrorFrame(FrozenModel):
     """A decoded failure reply.
 
     ``exception`` is a real, reconstructed exception instance ready to be
@@ -187,17 +201,19 @@ class ErrorFrame:
     could not rebuild (``class_tag`` then names the value's class).
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     request_id: str
     class_tag: str
     message: str
     exception: BaseException
 
 
-# Dataclasses reconstructed as real instances on the far side.
-_DATACLASSES: dict[str, type] = {
-    "ChannelValue": ChannelValue,
-    "ChannelMetadata": ChannelMetadata,
-    "ChannelWriteResult": ChannelWriteResult,
+#: The records a frame may carry, by the class name that tags them. A frame can
+#: rebuild only one of these, never an arbitrary class the far side happens to
+#: load.
+_RECORDS: dict[str, type[BaseModel]] = {
+    cls.__name__: cls for cls in (ChannelValue, ChannelMetadata, ChannelWriteResult)
 }
 
 
@@ -268,17 +284,15 @@ def _encode_value(value: object, blobs: list[bytes]) -> _Json:
             "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
     tag = type(value).__name__
-    if isinstance(value, ChannelValue | ChannelMetadata | ChannelWriteResult) and _DATACLASSES.get(
-        tag
-    ) is type(value):
-        return {
-            _TAG: tag,
-            "fields": {
-                spec.name: _encode_value(getattr(value, spec.name), blobs)
-                for spec in dataclass_fields(value)
-            },
-        }
-    raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
+    record = _RECORDS.get(tag)
+    if record is None or type(value) is not record:
+        raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
+    return {
+        _TAG: tag,
+        "fields": {
+            name: _encode_value(getattr(value, name), blobs) for name in record.model_fields
+        },
+    }
 
 
 def _decode_value(node: object, blobs: list[bytes]) -> object:
@@ -304,17 +318,19 @@ def _decode_value(node: object, blobs: list[bytes]) -> object:
         return datetime.fromisoformat(iso)
     if tag == "dict":
         return _decode_items(node["items"], blobs)
-    if not isinstance(tag, str) or tag not in _DATACLASSES:
+    record = _RECORDS.get(tag) if isinstance(tag, str) else None
+    if record is None:
         raise FrameDecodeError(f"unknown value tag {tag!r} in frame payload")
-    cls = _DATACLASSES[tag]
     fields = node["fields"]
     if not _is_json_object(fields):
         raise FrameDecodeError(f"{tag} node fields are not a JSON object")
     kwargs = {name: _decode_value(item, blobs) for name, item in fields.items()}
+    # Lax, so each field's declared type restores what the JSON-shaped wire
+    # flattened (a tuple, an enum member).
     try:
-        return cls(**kwargs)
+        return record.model_validate(kwargs, strict=False)
     except (TypeError, ValueError) as exc:
-        raise _UnrebuildableValueError(tag, exc) from exc
+        raise _UnrebuildableValueError(str(tag), exc) from exc
 
 
 def _decode_items(items: object, blobs: list[bytes]) -> dict[object, object]:
@@ -395,8 +411,8 @@ def encode_error(request_id: str, exc: BaseException) -> bytes:
     return _pack(header, blobs)
 
 
-def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
-    """Decode one complete frame, magic prefix included."""
+def _header(frame: bytes) -> tuple[dict[str, object], bytes, int]:
+    """A complete frame's JSON header, its body, and where its blobs start in that body."""
     if len(frame) < 12 or not frame.startswith(MAGIC):
         raise FrameDecodeError("frame does not start with the expected magic prefix")
     body_len = _length_at(frame, 4)
@@ -412,11 +428,30 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
         raise FrameDecodeError(f"frame header is not valid JSON: {exc}") from exc
     if not _is_json_object(header):
         raise FrameDecodeError("frame header is not a JSON object")
+    return header, body, 4 + header_len
+
+
+def _request_id_of(frame: bytes) -> str | None:
+    """The request a complete frame names, or ``None`` when its header names none it can read.
+
+    For answering a frame that would not decode: the header is read as far as
+    the request id and no further, and nothing about the frame raises here.
+    """
+    try:
+        header = _header(frame)[0]
+    except FrameDecodeError:
+        return None
+    request_id = header.get("request_id")
+    return request_id if isinstance(request_id, str) else None
+
+
+def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
+    """Decode one complete frame, magic prefix included."""
+    header, body, offset = _header(frame)
     if header.get("v") != PROTOCOL_VERSION:
         raise FrameDecodeError(f"frame protocol version {header.get('v')!r} != {PROTOCOL_VERSION}")
 
     blobs: list[bytes] = []
-    offset = 4 + header_len
     sizes = header.get("blobs", [])
     if not _is_json_array(sizes):
         raise FrameDecodeError(f"frame blob sizes are a {type(sizes).__name__}, not a list")
@@ -433,11 +468,15 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
     if not isinstance(request_id, str):
         raise FrameDecodeError("frame is missing its request id")
     if kind == "request":
-        return RequestFrame(
-            request_id=request_id,
-            method=header["method"],
-            kwargs=_decode_value(header["kwargs"], blobs),
-        )
+        method = header["method"]
+        try:
+            kwargs = _decode_value(header["kwargs"], blobs)
+        except _UnrebuildableValueError as exc:
+            raise FrameDecodeError(
+                f"request {request_id!r} carries a {exc.class_tag} the connector host "
+                f"cannot rebuild: {exc.cause!r}"
+            ) from exc
+        return RequestFrame(request_id=request_id, method=method, kwargs=kwargs)
     if kind == "result":
         try:
             value = _decode_value(header["value"], blobs)
@@ -483,8 +522,19 @@ class FrameReader:
 
     def feed(self, data: bytes) -> list[RequestFrame | ResultFrame | ErrorFrame]:
         """Absorb ``data`` and return the frames it completed."""
+        return [decode_frame(raw) for raw in self._feed_raw(data)]
+
+    def _feed_raw(self, data: bytes) -> list[bytes]:
+        """Absorb ``data`` and return the frames it completed, still encoded.
+
+        For a reader that decodes each frame itself, so that one it cannot
+        decode costs that frame alone.
+
+        Raises:
+            FrameDecodeError: The stream has lost its framing.
+        """
         self._buffer.extend(data)
-        return [decode_frame(raw) for raw in self._take_raw()]
+        return self._take_raw()
 
     def _take_raw(self) -> list[bytes]:
         frames: list[bytes] = []

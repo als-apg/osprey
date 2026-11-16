@@ -247,7 +247,7 @@ async def test_an_in_process_connector_is_dropped_once_per_instance(tmp_path, mo
         await connector.read_channel("SR:CH0")
 
     assert all(isinstance(failure, ConnectorUnavailableError) for failure in failures)
-    assert {failure.recovery[0]["action"] for failure in failures} == {"connector_dropped"}
+    assert {failure.recovery[0].action for failure in failures} == {"connector_dropped"}
     mock_c1.disconnect.assert_awaited_once()
     assert connector.connector is mock_c2
     mock_c2.read_channel.assert_awaited_once_with("SR:CH0")
@@ -269,7 +269,7 @@ async def test_a_bare_connection_error_is_the_connectors_own_loss(tmp_path, monk
             await connector.read_channel("SR:CH")
 
     assert raised.value.__cause__ is lost
-    assert [record["action"] for record in raised.value.recovery] == ["connector_dropped"]
+    assert [record.action for record in raised.value.recovery] == ["connector_dropped"]
     mock_c1.disconnect.assert_awaited_once()
 
 

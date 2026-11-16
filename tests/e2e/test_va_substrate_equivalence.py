@@ -277,8 +277,8 @@ def _seed_nominal(repo: Path, address: str) -> float:
     none, the zero of a float channel."""
     from osprey_connectors.simulation.view import SimulatorView
 
-    seed = SimulatorView.of_project(repo).seed(address) or {}
-    return float(seed.get("nominal") or 0.0)
+    seed = SimulatorView.of_project(repo).seed(address)
+    return float((None if seed is None else seed.nominal) or 0.0)
 
 
 def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
@@ -354,6 +354,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_connectors.simulation.records import WiringRecord
     from osprey_connectors.simulation.view import Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
@@ -368,7 +369,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
             continue
         name = str(model["name"])
         bindings = [
-            Binding.from_record(name, entry)
+            Binding.from_record(name, WiringRecord.model_validate(entry))
             for entry in simulator_wiring(FacilityRecords(facility), name)
         ]
         wired = {binding.address for binding in bindings}

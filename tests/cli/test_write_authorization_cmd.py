@@ -158,7 +158,7 @@ class TestLaptop:
     def test_a_missing_request_and_another_owners_are_refused(self, tmp_path):
         assert run("approve", uuid.uuid4().hex, "--yes").exit_code != 0
         foreign = wa._parse_request(
-            {**ask().to_payload(), "id": uuid.uuid4().hex, "owner": "someone-else"}
+            json.dumps({**ask().to_payload(), "id": uuid.uuid4().hex, "owner": "someone-else"})
         )
         path = tmp_path / f"{foreign.id}.json"
         path.write_text(json.dumps(foreign.to_payload()), encoding="utf-8")
@@ -168,7 +168,7 @@ class TestLaptop:
     def test_a_request_past_a_ceiling_is_refused_and_writes_nothing(self, tmp_path):
         """A file read back fine but past a ceiling: the approval's write refuses it."""
         over = wa._parse_request(
-            {**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1}
+            json.dumps({**ask().to_payload(), "id": uuid.uuid4().hex, "steps": wa.MAX_STEPS + 1})
         )
         path = tmp_path / f"{over.id}.json"
         path.write_text(json.dumps(over.to_payload()), encoding="utf-8")
@@ -226,20 +226,22 @@ class TestDeployment:
     ) -> wa.WriteRequest:
         """File a request as a program in a container does, or *on_host* with no ledger bound."""
         request = wa._parse_request(
-            {
-                "schema": 1,
-                "id": uuid.uuid4().hex,
-                "owner": owner,
-                "holder": holder,
-                "target": target,
-                "channels": channels or {"SR:A": {"min": 1.0, "max": 2.0}},
-                "steps": 3,
-                "requested_at_ns": time.time_ns(),
-                "expires_at_ns": FAR_FUTURE_NS,
-                "lease_s": 30.0,
-                "label": "run-9",
-                "completion": "none",
-            }
+            json.dumps(
+                {
+                    "schema": 1,
+                    "id": uuid.uuid4().hex,
+                    "owner": owner,
+                    "holder": holder,
+                    "target": target,
+                    "channels": channels or {"SR:A": {"min": 1.0, "max": 2.0}},
+                    "steps": 3,
+                    "requested_at_ns": time.time_ns(),
+                    "expires_at_ns": FAR_FUTURE_NS,
+                    "lease_s": 30.0,
+                    "label": "run-9",
+                    "completion": "none",
+                }
+            )
         )
         if on_host:
             directory = self._own(repo, owner) / wa.REQUESTS_DIR_NAME
@@ -408,7 +410,7 @@ class TestDeployment:
             holder="tuning-scripts",
             target="va",
             switch_epoch=epoch,
-            channels={"SR:A": wa.ChannelRange(0.0, 1.0)},
+            channels={"SR:A": wa.ChannelRange(min=0.0, max=1.0)},
             steps=50,
             issued_at_ns=now,
             expires_at_ns=FAR_FUTURE_NS,

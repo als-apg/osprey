@@ -43,7 +43,7 @@ from osprey_connectors_tests._write_fakes import RecordingConnector, config_read
 SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
-CHANNELS = {"A:SP": ChannelRange(0.0, 10.0), "B:SP": ChannelRange(-1.0, 1.0)}
+CHANNELS = {"A:SP": ChannelRange(min=0.0, max=10.0), "B:SP": ChannelRange(min=-1.0, max=1.0)}
 FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 
@@ -288,7 +288,7 @@ class TestSingleWrites:
         assert steps(grant) == 1
 
     async def test_a_write_the_limits_refuse_has_spent_its_step(self, monkeypatch):
-        grant = approve(monkeypatch, channels={"LIMITED:SP": ChannelRange(0.0, 10.0)})
+        grant = approve(monkeypatch, channels={"LIMITED:SP": ChannelRange(min=0.0, max=10.0)})
         conn = connector()
         with pytest.raises(ChannelLimitsViolationError):
             await conn.write_channel("LIMITED:SP", 5.0)
@@ -452,7 +452,10 @@ class TestBatches:
     async def test_a_limits_refusal_inside_a_batch_is_still_one_step(self, monkeypatch):
         grant = approve(
             monkeypatch,
-            channels={"A:SP": ChannelRange(0.0, 10.0), "LIMITED:SP": ChannelRange(0.0, 10.0)},
+            channels={
+                "A:SP": ChannelRange(min=0.0, max=10.0),
+                "LIMITED:SP": ChannelRange(min=0.0, max=10.0),
+            },
         )
         conn = connector()
         # This connector refuses only inside its own write: a batch answers a

@@ -146,7 +146,9 @@ async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
 ):
     sp, rb, unlisted = f"{ioc_prefix}:SP", f"{ioc_prefix}:RB", f"{ioc_prefix}:SP.DRVH"
     pool = deployment
-    grant = grant_for({sp: ChannelRange(0.0, 50.0), rb: ChannelRange(0.0, 500.0)}, steps=3)
+    grant = grant_for(
+        {sp: ChannelRange(min=0.0, max=50.0), rb: ChannelRange(min=0.0, max=500.0)}, steps=3
+    )
     try:
         held = await pool.connector("live", authorization=grant.id)
         other = await pool.connector("live")
@@ -204,7 +206,7 @@ async def test_the_switch_turned_on_does_not_lift_the_bounds_and_a_stop_ends_the
 ):
     sp = f"{ioc_prefix}:SP"
     pool = deployment
-    grant = grant_for({sp: ChannelRange(0.0, 50.0)}, steps=10)
+    grant = grant_for({sp: ChannelRange(min=0.0, max=50.0)}, steps=10)
     try:
         held = await pool.connector("live", authorization=grant.id)
         turn_switch("live", "allowed")
@@ -226,7 +228,7 @@ async def test_the_switch_turned_on_does_not_lift_the_bounds_and_a_stop_ends_the
 async def test_a_child_replaced_mid_run_keeps_the_count(deployment, ioc_prefix):
     sp = f"{ioc_prefix}:SP"
     pool = deployment
-    grant = grant_for({sp: ChannelRange(0.0, 50.0)}, steps=2)
+    grant = grant_for({sp: ChannelRange(min=0.0, max=50.0)}, steps=2)
     try:
         held = await pool.connector("live", authorization=grant.id)
         await held.write_channel_checked(sp, 1.5, confirm=True, timeout=CA_TIMEOUT_S)
@@ -253,7 +255,7 @@ async def test_a_handle_taken_before_the_lease_is_refused_switching_like_any_ref
     """The key's child came up before it could write: its refusal spends nothing and is not resent."""
     sp = f"{ioc_prefix}:SP"
     pool = deployment
-    grant = grant_for({sp: ChannelRange(0.0, 50.0)}, steps=1, lease=False)
+    grant = grant_for({sp: ChannelRange(min=0.0, max=50.0)}, steps=1, lease=False)
     try:
         early = await pool.connector("live", authorization=grant.id)
         assert (early.report["selected_role"], early.report["writes_enabled"]) == (

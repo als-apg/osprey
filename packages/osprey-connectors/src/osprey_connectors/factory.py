@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeVar
 
 from osprey_connectors import types
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -537,8 +537,7 @@ class ConnectorFactory:
         return list(cls._archiver_connectors.keys())
 
 
-@dataclass(frozen=True)
-class BuiltinConnector:
+class BuiltinConnector(FrozenModel):
     """One connector this package ships, as a registry names it.
 
     The module path names an implementation module of this package, which only
@@ -568,32 +567,32 @@ class BuiltinConnector:
 #: Every built-in connector, in registration order.
 BUILTIN_CONNECTORS: tuple[BuiltinConnector, ...] = (
     BuiltinConnector(
-        types.EPICS,
-        "control_system",
-        "osprey_connectors.control_system._epics_connector",
-        "EPICSConnector",
-        "EPICS Channel Access control system connector",
+        name=types.EPICS,
+        kind="control_system",
+        module_path="osprey_connectors.control_system._epics_connector",
+        class_name="EPICSConnector",
+        description="EPICS Channel Access control system connector",
     ),
     BuiltinConnector(
-        types.VIRTUAL_ACCELERATOR,
-        "control_system",
-        "osprey_connectors.control_system._va_connector",
-        "VirtualAcceleratorConnector",
-        "Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
+        name=types.VIRTUAL_ACCELERATOR,
+        kind="control_system",
+        module_path="osprey_connectors.control_system._va_connector",
+        class_name="VirtualAcceleratorConnector",
+        description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
     ),
     BuiltinConnector(
-        types.DOOCS,
-        "control_system",
-        "osprey_connectors.control_system._doocs_connector",
-        "DOOCSConnector",
-        "DOOCS control system connector (requires doocs4py)",
+        name=types.DOOCS,
+        kind="control_system",
+        module_path="osprey_connectors.control_system._doocs_connector",
+        class_name="DOOCSConnector",
+        description="DOOCS control system connector (requires doocs4py)",
     ),
     BuiltinConnector(
-        types.TANGO,
-        "control_system",
-        "osprey_connectors.control_system._tango_connector",
-        "TangoConnector",
-        "TANGO Controls control system connector (requires PyTango)",
+        name=types.TANGO,
+        kind="control_system",
+        module_path="osprey_connectors.control_system._tango_connector",
+        class_name="TangoConnector",
+        description="TANGO Controls control system connector (requires PyTango)",
     ),
     # The live stand-in is a soft IOC, so the EPICS connector is what reaches
     # it — but it registers under its own name rather than sharing 'epics'.
@@ -603,47 +602,47 @@ BUILTIN_CONNECTORS: tuple[BuiltinConnector, ...] = (
     # posture read from it. Registering the stand-in as 'epics' would give it
     # the facility's authored block and the facility's arming.
     BuiltinConnector(
-        types.LIVE_STANDIN,
-        "control_system",
-        "osprey_connectors.control_system._epics_connector",
-        "EPICSConnector",
-        "Live stand-in connector: the facility-shaped soft IOC a deployment runs "
+        name=types.LIVE_STANDIN,
+        kind="control_system",
+        module_path="osprey_connectors.control_system._epics_connector",
+        class_name="EPICSConnector",
+        description="Live stand-in connector: the facility-shaped soft IOC a deployment runs "
         "for itself, served over Channel Access",
     ),
     BuiltinConnector(
-        types.MOCK_ARCHIVER,
-        "archiver",
-        "osprey_connectors.archiver._mock_archiver_connector",
-        "MockArchiverConnector",
-        "Mock archiver connector for development and testing",
+        name=types.MOCK_ARCHIVER,
+        kind="archiver",
+        module_path="osprey_connectors.archiver._mock_archiver_connector",
+        class_name="MockArchiverConnector",
+        description="Mock archiver connector for development and testing",
     ),
     BuiltinConnector(
-        types.EPICS_ARCHIVER,
-        "archiver",
-        "osprey_connectors.archiver._epics_archiver_connector",
-        "EPICSArchiverConnector",
-        "EPICS Archiver Appliance connector",
+        name=types.EPICS_ARCHIVER,
+        kind="archiver",
+        module_path="osprey_connectors.archiver._epics_archiver_connector",
+        class_name="EPICSArchiverConnector",
+        description="EPICS Archiver Appliance connector",
     ),
     BuiltinConnector(
-        types.MONGODB_ARCHIVER,
-        "archiver",
-        "osprey_connectors.archiver._mongodb_archiver_connector",
-        "MongoDBArchiverConnector",
-        "MongoDB archiver connector for time-series PV data",
+        name=types.MONGODB_ARCHIVER,
+        kind="archiver",
+        module_path="osprey_connectors.archiver._mongodb_archiver_connector",
+        class_name="MongoDBArchiverConnector",
+        description="MongoDB archiver connector for time-series PV data",
     ),
     BuiltinConnector(
-        types.DOOCS_ARCHIVER,
-        "archiver",
-        "osprey_connectors.archiver._doocs_archiver_connector",
-        "DOOCSArchiverConnector",
-        "DOOCS local history connector (requires doocs4py)",
+        name=types.DOOCS_ARCHIVER,
+        kind="archiver",
+        module_path="osprey_connectors.archiver._doocs_archiver_connector",
+        class_name="DOOCSArchiverConnector",
+        description="DOOCS local history connector (requires doocs4py)",
     ),
     BuiltinConnector(
-        types.MYA_ARCHIVER,
-        "archiver",
-        "osprey_connectors.archiver._mya_archiver_connector",
-        "MYAArchiverConnector",
-        "MYA archiver connector, read over the myquery HTTP service "
+        name=types.MYA_ARCHIVER,
+        kind="archiver",
+        module_path="osprey_connectors.archiver._mya_archiver_connector",
+        class_name="MYAArchiverConnector",
+        description="MYA archiver connector, read over the myquery HTTP service "
         "(requires jlab-archiver-client)",
     ),
 )
@@ -652,8 +651,7 @@ _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind ==
 _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
-@dataclass(frozen=True)
-class _ServiceBuiltin:
+class _ServiceBuiltin(FrozenModel):
     """One service backend this package ships.
 
     Apart from :class:`BuiltinConnector` because the framework registry reads
@@ -681,46 +679,46 @@ class _ServiceBuiltin:
 #: framework's section resolver refuses them as a configured ``type``.
 _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
     _ServiceBuiltin(
-        "channelfinder",
-        "directory",
-        "osprey_connectors.directory._channelfinder",
-        "ChannelFinderDirectory",
-        "ChannelFinder directory service",
+        name="channelfinder",
+        kind="directory",
+        module_path="osprey_connectors.directory._channelfinder",
+        class_name="ChannelFinderDirectory",
+        description="ChannelFinder directory service",
     ),
     _ServiceBuiltin(
-        "simulator_view",
-        "directory",
-        "osprey_connectors.directory._simulator",
-        "SimulatorDirectory",
-        "Every PV the virtual accelerator serves, from the build's simulator view",
+        name="simulator_view",
+        kind="directory",
+        module_path="osprey_connectors.directory._simulator",
+        class_name="SimulatorDirectory",
+        description="Every PV the virtual accelerator serves, from the build's simulator view",
     ),
     _ServiceBuiltin(
-        "phoebus_alarm_logger",
-        "alarm_log",
-        "osprey_connectors.alarm_log._phoebus",
-        "PhoebusAlarmLogger",
-        "Phoebus alarm logger service",
+        name="phoebus_alarm_logger",
+        kind="alarm_log",
+        module_path="osprey_connectors.alarm_log._phoebus",
+        class_name="PhoebusAlarmLogger",
+        description="Phoebus alarm logger service",
     ),
     _ServiceBuiltin(
-        "phoebus_alarm_server",
-        "alarm_state",
-        "osprey_connectors.alarm_state._phoebus_kafka",
-        "PhoebusAlarmState",
-        "Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
+        name="phoebus_alarm_server",
+        kind="alarm_state",
+        module_path="osprey_connectors.alarm_state._phoebus_kafka",
+        class_name="PhoebusAlarmState",
+        description="Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
     ),
     _ServiceBuiltin(
-        "alarm_replay",
-        "alarm_state",
-        "osprey_connectors.alarm_state._replay",
-        "ReplayAlarmState",
-        "Alarm state replayed from a file, for the simulator",
+        name="alarm_replay",
+        kind="alarm_state",
+        module_path="osprey_connectors.alarm_state._replay",
+        class_name="ReplayAlarmState",
+        description="Alarm state replayed from a file, for the simulator",
     ),
     _ServiceBuiltin(
-        "caputlog",
-        "put_log",
-        "osprey_connectors.put_log._caputlog",
-        "CaPutLog",
-        "caPutLog put history service",
+        name="caputlog",
+        kind="put_log",
+        module_path="osprey_connectors.put_log._caputlog",
+        class_name="CaPutLog",
+        description="caPutLog put history service",
     ),
 )
 

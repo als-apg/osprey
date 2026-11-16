@@ -29,17 +29,19 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     BackendSpec,
     HistoryPage,
     Outcome,
     Unavailable,
-    _flag,
+    _Recorded,
     _text,
 )
 
@@ -54,6 +56,62 @@ _NO_LOGGED_EVENTS = "no logged events"
 _MALFORMED_REASON = "malformed response"
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
+
+
+class _LoggedRow(FrozenModel):
+    """One row of a search answer, of either kind; a field of another type is not recorded.
+
+    ``time`` and ``message_time`` stay as recorded: a row's time is whichever of the
+    two is set, and only then read as a string.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    config: _Recorded[str] = None
+    pv: _Recorded[str] = None
+    config_msg: object = None
+    time: object = None
+    message_time: object = None
+    severity: _Recorded[str] = None
+    current_message: _Recorded[str] = None
+    message: _Recorded[str] = None
+    user: _Recorded[str] = None
+
+    @property
+    def tree_path(self) -> str | None:
+        """The alarm-tree path the ``config`` key names, ``None`` for none."""
+        return (self.config.partition(":")[2] or None) if self.config is not None else None
+
+    @property
+    def is_config(self) -> bool:
+        """Whether this is an edit to the alarm tree rather than a severity change."""
+        return self.config is not None and self.config.startswith("config:")
+
+    @property
+    def stamp(self) -> object:
+        """The row's time as recorded: ``time``, or ``message_time`` when that is unset."""
+        return self.time or self.message_time
+
+
+class _ConfigBody(FrozenModel):
+    """A ``config:`` row's ``config_msg``; a ``delete`` key, whatever its value, is a removal."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    delete: _Recorded[str] = None
+    description: _Recorded[str] = None
+    guidance: object = None
+    displays: object = None
+    enabled: _Recorded[bool] = None
+    latching: _Recorded[bool] = None
+
+    @property
+    def deleted(self) -> bool:
+        return "delete" in self.model_fields_set
+
+
+#: A search answer's rows, an entry that is not a JSON object skipped.
+_ROWS = TypeAdapter(list[OnErrorOmit[_LoggedRow]])
 
 
 class PhoebusAlarmLogger(AlarmLog):
@@ -106,7 +164,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if not rows:
             return AlarmConfigRecord(in_tree="no")
         # State rows prove a path but not the tree's entry, so nothing below answers "no".
-        path = _tree_path(rows[0])
+        path = rows[0].tree_path
         if path is not None:
             remaining = deadline - (time.monotonic() - started)
             fallback = await self._transport.request(
@@ -124,7 +182,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if isinstance(answer, Unavailable):
             return answer
         if not isinstance(answer, Mapping):
-            return Unavailable(_MALFORMED_REASON)
+            return Unavailable(reason=_MALFORMED_REASON)
         service = " ".join(str(answer[key]) for key in ("name", "version") if answer.get(key))
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
@@ -139,7 +197,7 @@ class PhoebusAlarmLogger(AlarmLog):
         )
         if isinstance(answer, Unavailable | list):
             return answer
-        return Unavailable(_MALFORMED_REASON)
+        return Unavailable(reason=_MALFORMED_REASON)
 
     def _page(
         self,
@@ -158,87 +216,76 @@ class PhoebusAlarmLogger(AlarmLog):
         )
 
 
-def _rows_of(answer: list[object], pv: str) -> list[Mapping[str, object]]:
-    return [row for row in answer if isinstance(row, Mapping) and _belongs_to(row, pv)]
+def _rows_of(answer: list[object], pv: str) -> list[_LoggedRow]:
+    return [row for row in _ROWS.validate_python(answer, strict=True) if _belongs_to(row, pv)]
 
 
-def _belongs_to(row: Mapping[str, object], pv: str) -> bool:
-    path = _tree_path(row)
-    name = _UNESCAPED_SLASH.split(path)[-1] if path else row.get("pv")
-    return isinstance(name, str) and _pv_name(name) == _pv_name(pv)
+def _belongs_to(row: _LoggedRow, pv: str) -> bool:
+    path = row.tree_path
+    name = _UNESCAPED_SLASH.split(path)[-1] if path else row.pv
+    return name is not None and _pv_name(name) == _pv_name(pv)
 
 
 def _pv_name(tree_name: str) -> str:
     return _PV_SCHEME.sub("", tree_name.replace("\\/", "/"))
 
 
-def _tree_path(row: Mapping[str, object]) -> str | None:
-    config = row.get("config")
-    return (config.partition(":")[2] or None) if isinstance(config, str) else None
+def _newest_config_row(rows: list[_LoggedRow]) -> _LoggedRow | None:
+    return next((row for row in rows if row.is_config), None)
 
 
-def _is_config_row(row: Mapping[str, object]) -> bool:
-    config = row.get("config")
-    return isinstance(config, str) and config.startswith("config:")
-
-
-def _newest_config_row(rows: list[Mapping[str, object]]) -> Mapping[str, object] | None:
-    return next((row for row in rows if _is_config_row(row)), None)
-
-
-def _config_record(row: Mapping[str, object]) -> AlarmConfigRecord:
+def _config_record(row: _LoggedRow) -> AlarmConfigRecord:
     """What a ``config:`` row says; one that cannot be read leaves the answer unknown."""
-    path = _tree_path(row)
+    path = row.tree_path
     body = _config_body(row)
     if body is None:
         return AlarmConfigRecord(in_tree="unknown", path=path)
-    if "delete" in body:
+    if body.deleted:
         return AlarmConfigRecord(in_tree="no", path=path)
     return AlarmConfigRecord(
         in_tree="yes",
         path=path,
-        guidance=body.get("guidance"),
-        displays=body.get("displays"),
-        enabled=_flag(body.get("enabled")),
-        latching=_flag(body.get("latching")),
+        guidance=body.guidance,
+        displays=body.displays,
+        enabled=body.enabled,
+        latching=body.latching,
     )
 
 
-def _config_body(row: Mapping[str, object]) -> Mapping[str, object] | None:
-    text = row.get("config_msg")
+def _config_body(row: _LoggedRow) -> _ConfigBody | None:
+    text = row.config_msg
     if not isinstance(text, str | bytes | bytearray):
         return None
     try:
-        body: object = json.loads(text)
+        return _ConfigBody.model_validate(json.loads(text))
     except (ValueError, RecursionError):
         return None
-    return body if isinstance(body, Mapping) else None
 
 
-def _history_row(row: Mapping[str, object]) -> AlarmHistoryRow:
-    if _is_config_row(row):
-        body = _config_body(row) or {}
+def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
+    if row.is_config:
+        body = _config_body(row) or _ConfigBody()
         return AlarmHistoryRow(
-            time=_text(row.get("message_time")),
-            message=_text(body.get("delete", body.get("description"))),
-            user=_text(row.get("user")),
+            time=_text(row.message_time),
+            message=body.delete if body.deleted else body.description,
+            user=row.user,
             kind="config",
         )
     return AlarmHistoryRow(
-        time=_text(row.get("time") or row.get("message_time")),
-        severity=_text(row.get("severity")),
-        status=_text(row.get("current_message")),
-        message=_text(row.get("message")),
-        user=_text(row.get("user")),
+        time=_text(row.stamp),
+        severity=row.severity,
+        status=row.current_message,
+        message=row.message,
+        user=row.user,
         kind="state",
     )
 
 
-def _in_window(row: Mapping[str, object], since: datetime | None) -> bool:
+def _in_window(row: _LoggedRow, since: datetime | None) -> bool:
     """A row whose time cannot be read stays: nothing shows it fell outside the window."""
     if since is None:
         return True
-    stamp = row.get("time") or row.get("message_time")
+    stamp = row.stamp
     if not isinstance(stamp, str):
         return True
     try:

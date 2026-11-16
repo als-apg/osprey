@@ -32,8 +32,8 @@ operator and the time.
 :func:`os.lstat` and the record is opened ``O_NOFOLLOW`` and bounded, the same
 reader the posture store uses for its tree.
 
-This module imports only :mod:`~osprey_connectors.safety_file` from the
-package, so the posture store can import it.
+This module imports only :mod:`~osprey_connectors.safety_file` and the
+model bases from the package, so the posture store can import it.
 """
 
 from __future__ import annotations
@@ -48,11 +48,13 @@ import re
 import stat
 import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Literal, NotRequired, TypedDict, TypeGuard
+from typing import Annotated, Final, Literal, TypeGuard
 
+from pydantic import ConfigDict, JsonValue, Strict, TypeAdapter, ValidationError
+
+from osprey_connectors.model import FrozenModel, MutableModel
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
@@ -109,11 +111,19 @@ _RECORD_MODE: Final = 0o640
 _LOCK_MODE: Final = 0o640
 
 _ANSWERS: Final = frozenset({"stop", "continue"})
-_STR_FIELDS: Final = ("flag_id", "source", "reason", "prompt_ref", "prompt_excerpt", "opened_at")
 
 
-class _FlagEntry(TypedDict):
-    """One flag as the record holds it; :func:`_valid_flag` checks the required keys."""
+class _FlagEntry(MutableModel):
+    """One flag as the record holds it, changed in place by its answer and its stop.
+
+    The nine fields every flag carries are checked, each of its type; a flag
+    missing one, or holding one of another type, makes the record unreadable.
+    The five an answer or a stop adds are kept as read, whatever they hold, and
+    so is a key this version does not know: a rewrite writes back every key it
+    read, and only those it read or set (``model_dump(exclude_unset=True)``).
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     flag_id: str
     source: str
@@ -124,15 +134,19 @@ class _FlagEntry(TypedDict):
     state: Literal["open", "closed"]
     stop_unconfirmed: bool
     started: list[str]
-    answer: NotRequired[Literal["stop", "continue"]]
-    operator: NotRequired[str]
-    answered_at: NotRequired[str]
-    stop_operator: NotRequired[str]
-    stop_marked_at: NotRequired[str]
+    #: ``"stop"`` or ``"continue"`` as this version writes it.
+    answer: JsonValue = None
+    operator: JsonValue = None
+    answered_at: JsonValue = None
+    stop_operator: JsonValue = None
+    stop_marked_at: JsonValue = None
 
 
-@dataclass(frozen=True)
-class HoldFlag:
+#: A record's ``flags``: a list, strictly, of flag entries.
+_FLAGS: Final[TypeAdapter[list[_FlagEntry]]] = TypeAdapter(Annotated[list[_FlagEntry], Strict()])
+
+
+class HoldFlag(FrozenModel):
     """One open flag on a session, as :func:`open_flags` reports it."""
 
     flag_id: str
@@ -187,19 +201,6 @@ def _read_no_follow(path: Path) -> str:
     return text
 
 
-def _valid_flag(entry: object) -> TypeGuard[_FlagEntry]:
-    if not isinstance(entry, dict):
-        return False
-    if not all(isinstance(entry.get(name), str) for name in _STR_FIELDS):
-        return False
-    if entry.get("state") not in ("open", "closed"):
-        return False
-    if not isinstance(entry.get("stop_unconfirmed"), bool):
-        return False
-    started = entry.get("started")
-    return isinstance(started, list) and all(isinstance(s, str) for s in started)
-
-
 def _read_record(root: Path, session_key: str) -> list[_FlagEntry] | None:
     """The session's flag entries, or ``None`` when the record is missing or unreadable.
 
@@ -220,25 +221,25 @@ def _read_record(root: Path, session_key: str) -> list[_FlagEntry] | None:
         return None
     if not isinstance(payload, dict):
         return None
+    # ``!=``, as the record has always been compared: a ``schema`` of ``1.0`` reads.
     if payload.get("schema") != _SCHEMA_VERSION or payload.get("session_key") != session_key:
         return None
-    flags: object = payload.get("flags")
-    if not isinstance(flags, list):
+    try:
+        return _FLAGS.validate_python(payload.get("flags"))
+    except ValidationError:
         return None
-    entries = [entry for entry in flags if _valid_flag(entry)]
-    return entries if len(entries) == len(flags) else None
 
 
 def _to_flag(entry: _FlagEntry) -> HoldFlag:
     return HoldFlag(
-        flag_id=entry["flag_id"],
-        source=entry["source"],
-        reason=entry["reason"],
-        prompt_ref=entry["prompt_ref"],
-        prompt_excerpt=entry["prompt_excerpt"],
-        opened_at=entry["opened_at"],
-        stop_unconfirmed=entry["stop_unconfirmed"],
-        started=tuple(entry["started"]),
+        flag_id=entry.flag_id,
+        source=entry.source,
+        reason=entry.reason,
+        prompt_ref=entry.prompt_ref,
+        prompt_excerpt=entry.prompt_excerpt,
+        opened_at=entry.opened_at,
+        stop_unconfirmed=entry.stop_unconfirmed,
+        started=tuple(entry.started),
     )
 
 
@@ -268,7 +269,7 @@ def is_held(session_key: str, *, root: Path | str | None = None) -> bool:
         flags = _read_record(resolved, session_key)
         if flags is None:
             return True
-        return any(entry["state"] == "open" for entry in flags)
+        return any(entry.state == "open" for entry in flags)
     except Exception:  # a write-path reader fails closed
         logger.warning("session hold for %r could not be read; held", session_key, exc_info=True)
         try:
@@ -293,7 +294,7 @@ def open_flags(session_key: str, *, root: Path | str | None = None) -> list[Hold
     flags = _read_record(resolved, key)
     if flags is None:
         return [_SYNTHETIC]
-    return [_to_flag(entry) for entry in flags if entry["state"] == "open"]
+    return [_to_flag(entry) for entry in flags if entry.state == "open"]
 
 
 def has_no_record(session_key: str, *, root: Path | str | None = None) -> bool:
@@ -364,7 +365,8 @@ def _locked(root: Path, session_key: str) -> Iterator[Path]:
 
 
 def _write(path: Path, session_key: str, flags: list[_FlagEntry]) -> None:
-    payload = {"schema": _SCHEMA_VERSION, "session_key": session_key, "flags": flags}
+    entries = [entry.model_dump(exclude_unset=True) for entry in flags]
+    payload = {"schema": _SCHEMA_VERSION, "session_key": session_key, "flags": entries}
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     atomic_replace(path, data, mode=_RECORD_MODE)
 
@@ -384,18 +386,18 @@ def _open_entry(
     prompt_excerpt: str,
     opened_at: str,
 ) -> _FlagEntry:
-    """A new flag's record entry, with every field :func:`_valid_flag` requires."""
-    return {
-        "flag_id": flag_id,
-        "source": source,
-        "reason": reason,
-        "prompt_ref": prompt_ref,
-        "prompt_excerpt": prompt_excerpt,
-        "opened_at": opened_at,
-        "state": "open",
-        "stop_unconfirmed": False,
-        "started": [],
-    }
+    """A new flag's record entry, with the nine fields every flag carries."""
+    return _FlagEntry(
+        flag_id=flag_id,
+        source=source,
+        reason=reason,
+        prompt_ref=prompt_ref,
+        prompt_excerpt=prompt_excerpt,
+        opened_at=opened_at,
+        state="open",
+        stop_unconfirmed=False,
+        started=[],
+    )
 
 
 def ensure_session(session_key: str, *, root: Path | str | None = None) -> None:
@@ -457,8 +459,8 @@ def open_flag(
                 return False
             flags = []
         for entry in flags:
-            if entry["flag_id"] == flag_id or (
-                entry["source"] == source and entry["prompt_ref"] == prompt_ref
+            if entry.flag_id == flag_id or (
+                entry.source == source and entry.prompt_ref == prompt_ref
             ):
                 return False
         flags.append(
@@ -477,10 +479,10 @@ def open_flag(
 
 def _close(entry: _FlagEntry, answer: Literal["stop", "continue"], operator: str, at: str) -> None:
     """Mark *entry* closed with *answer*, by *operator*, at *at*."""
-    entry["state"] = "closed"
-    entry["answer"] = answer
-    entry["operator"] = operator
-    entry["answered_at"] = at
+    entry.state = "closed"
+    entry.answer = answer
+    entry.operator = operator
+    entry.answered_at = at
 
 
 def answer_flags(
@@ -532,9 +534,9 @@ def answer_flags(
         released: list[str] = []
         stamp = _now()
         for entry in flags:
-            if entry["state"] == "open" and entry["flag_id"] in wanted:
+            if entry.state == "open" and entry.flag_id in wanted:
                 _close(entry, answer, operator, stamp)
-                released.append(str(entry["flag_id"]))
+                released.append(entry.flag_id)
         if released:
             _write(path, key, flags)
     return tuple(released)
@@ -574,12 +576,12 @@ def mark_stop_unconfirmed(
         marked: list[str] = []
         stamp = _now()
         for entry in flags:
-            if entry["state"] == "open" and entry["flag_id"] in wanted:
-                entry["stop_unconfirmed"] = True
-                entry["started"] = [str(command) for command in started]
-                entry["stop_operator"] = operator
-                entry["stop_marked_at"] = stamp
-                marked.append(entry["flag_id"])
+            if entry.state == "open" and entry.flag_id in wanted:
+                entry.stop_unconfirmed = True
+                entry.started = [str(command) for command in started]
+                entry.stop_operator = operator
+                entry.stop_marked_at = stamp
+                marked.append(entry.flag_id)
         if marked:
             _write(path, key, flags)
     return tuple(marked)

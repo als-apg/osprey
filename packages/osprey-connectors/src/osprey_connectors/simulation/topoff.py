@@ -25,7 +25,9 @@ produces the decay.
 
 The module imports only the standard library and the package's
 standard-library-only :mod:`~osprey_connectors.simulation.values`, so the
-envelope rule and the facility build share it with the texture model. :data:`SHAPE_VERSION` is a
+envelope rule and the facility build share it with the texture model; the
+build reads a facility seed as a
+:class:`~osprey_connectors.simulation.records.SeedRecord` first. :data:`SHAPE_VERSION` is a
 digest of the shape constants; the archive seed fingerprint consumes it, so a
 change to the shape re-seeds the stored history.
 """
@@ -35,9 +37,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, overload
-
-from osprey_connectors.simulation.values import _real
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
@@ -51,10 +51,6 @@ __all__ = [
     "topoff_record",
 ]
 
-#: The seed key of a decaying, refilling channel.
-_TOPOFF_KEY = "topoff"
-#: The seed key of a channel holding a ``topoff`` seed's lifetime.
-_LIFETIME_KEY = "topoff_lifetime"
 #: Seconds per lifetime hour.
 _SECONDS_PER_HOUR = 3600.0
 #: Form of the decay between refills; part of the shape digest.
@@ -79,26 +75,14 @@ def _shape_version() -> str:
 SHAPE_VERSION = _shape_version()
 
 
-@overload
-def topoff_record(seed: SeedRecord | None) -> TopoffRecord | None: ...
-@overload
-def topoff_record(seed: Mapping[str, object] | None) -> Mapping[str, object] | None: ...
-def topoff_record(seed: Mapping[str, object] | None) -> Mapping[str, object] | None:
-    """The ``topoff`` record of a seed, or None when it has none.
-
-    A view's seed record answers its ``topoff`` record; any other seed mapping,
-    such as the facility build's seed before the view is written, answers the
-    mapping under ``topoff`` as it stands.
-    """
-    if not seed:
-        return None
-    record = seed.get(_TOPOFF_KEY)
-    return record if isinstance(record, Mapping) else None
+def topoff_record(seed: SeedRecord | None) -> TopoffRecord | None:
+    """The ``topoff`` record of a seed, or None when it has none."""
+    return None if seed is None else seed.topoff
 
 
 def tau_period(record: TopoffRecord) -> tuple[float, float]:
     """``(tau, period_s)`` of a ``topoff`` record, both in seconds."""
-    return record["lifetime_h"] * _SECONDS_PER_HOUR, float(record["period_s"])
+    return record.lifetime_h * _SECONDS_PER_HOUR, float(record.period_s)
 
 
 def period_mean(record: TopoffRecord) -> float:
@@ -120,17 +104,14 @@ def tooth_depth(record: TopoffRecord) -> float:
     """
     tau, period = tau_period(record)
     mean = period_mean(record)
-    return abs(float(record["ceiling"])) * max(1.0 - mean, mean - math.exp(-period / tau))
+    return abs(float(record.ceiling)) * max(1.0 - mean, mean - math.exp(-period / tau))
 
 
 def held_value(
-    seed: Mapping[str, object] | None,
-    lookup: Callable[[str], Mapping[str, object] | None] | None = None,
+    seed: SeedRecord | None,
+    lookup: Callable[[str], SeedRecord | None] | None = None,
 ) -> float | None:
     """The value a ``topoff`` or ``topoff_lifetime`` seed holds.
-
-    The seeds are read as plain mappings, not as the view's seed records: the
-    facility build asks for a held value before it writes the view.
 
     Args:
         seed: A channel's seed, or None.
@@ -145,13 +126,12 @@ def held_value(
     """
     record = topoff_record(seed)
     if record is not None:
-        tau = _real(record["lifetime_h"]) * _SECONDS_PER_HOUR
-        return _real(record["ceiling"]) * _unit_mean(tau, _real(record["period_s"]))
-    lifetime = (seed or {}).get(_LIFETIME_KEY)
-    if not isinstance(lifetime, Mapping) or lookup is None:
+        tau = float(record.lifetime_h) * _SECONDS_PER_HOUR
+        return float(record.ceiling) * _unit_mean(tau, float(record.period_s))
+    lifetime = None if seed is None else seed.topoff_lifetime
+    if lifetime is None or lookup is None:
         return None
-    named: Mapping[str, object] = lifetime
-    source = topoff_record(lookup(str(named.get("of"))))
+    source = topoff_record(lookup(lifetime.of))
     if source is None:
         return None
-    return _real(source["lifetime_h"])
+    return float(source.lifetime_h)

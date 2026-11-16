@@ -7,16 +7,15 @@ from various archiver systems (EPICS Archiver Appliance, Tango HDB++, LabVIEW, e
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 
 import pandas as pd
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.model import FrozenModel, MutableModel
 
 
-@dataclass
-class ArchiverMetadata:
+class ArchiverMetadata(MutableModel):
     """Archiving metadata for one channel.
 
     ``channel`` is the same protocol-agnostic channel address the control-system
@@ -35,8 +34,7 @@ class ArchiverMetadata:
     description: str | None = None
 
 
-@dataclass(frozen=True)
-class ArchiveExtent:
+class ArchiveExtent(FrozenModel):
     """What an archive store holds, as far as the archiver can say.
 
     Every field is ``None`` when unknown. ``channels`` is the set of channel

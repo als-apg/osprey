@@ -411,14 +411,17 @@ class EndpointProber:
         if endpoint.mode != MODE_NAME_SERVER:
             return self._row(STATUS_NOT_APPLICABLE, gateway, ADDR_LIST_DETAIL)
 
-        port = endpoint.port
+        host, port = endpoint.host, endpoint.port
         try:
+            # The address and port are whatever the config carried; one that is
+            # no host or no port is unreachable like any other address that
+            # cannot be dialled.
+            if host is not None and not isinstance(host, str):
+                raise TypeError(f"gateway host {host!r} is not a host name")
             if port is not None and not isinstance(port, int | str):
-                # The port is whatever the config carried; one that is no port
-                # is unreachable like any other address that cannot be dialled.
                 raise TypeError(f"gateway port {port!r} is not a port number")
             _reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(endpoint.host, port),
+                asyncio.open_connection(host, port),
                 timeout=self._connect_timeout_s,
             )
         except TimeoutError:

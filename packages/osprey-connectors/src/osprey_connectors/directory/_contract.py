@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, Self
 
+from pydantic import Field, field_validator, model_validator
+from typing_extensions import override
+
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     Outcome,
     Source,
@@ -21,8 +24,7 @@ from osprey_connectors.service_answers import (
 )
 
 
-@dataclass(frozen=True, kw_only=True)
-class DirectoryRow:
+class DirectoryRow(FrozenModel):
     """One channel, as the directory lists it.
 
     ``server`` is the process serving the channel and ``channel_type`` its type
@@ -40,45 +42,54 @@ class DirectoryRow:
     last_announced: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
-class DirectoryRecord:
+class DirectoryRecord(FrozenModel):
     """One PV in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
-    properties: Mapping[str, str] = field(default_factory=dict)
-    tags: list[str] = field(default_factory=list)
+    properties: Mapping[str, str] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
 
 
-@dataclass(frozen=True, kw_only=True)
-class DirectoryQuery:
+class DirectoryQuery(FrozenModel):
     """One search, built only by the service; callers pass these fields as keywords.
 
     A query keys the service's cache, so it hashes: the repeatable filters become
-    tuples and ``properties`` stays out of the hash.
+    tuples, from one string, any iterable of them or ``None``, and ``properties``
+    stays out of the hash.
     """
 
     words: str = ""
     name: str | None = None
-    properties: Mapping[str, str] = field(default_factory=dict, hash=False)
+    properties: Mapping[str, str] = Field(default_factory=dict)
     status: str | None = None
     server: tuple[str, ...] = ()
     channel_type: tuple[str, ...] = ()
     page: int = 0
     page_size: int = 50
 
-    def __post_init__(self) -> None:
-        for name in ("server", "channel_type"):
-            object.__setattr__(self, name, _filter_values(getattr(self, name)))
+    @field_validator("server", "channel_type", mode="before")
+    @classmethod
+    def _filter_values(cls, values: str | Iterable[str] | None) -> tuple[str, ...]:
+        if values is None:
+            return ()
+        return (values,) if isinstance(values, str) else tuple(values)
+
+    @override
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.words,
+                self.name,
+                self.status,
+                self.server,
+                self.channel_type,
+                self.page,
+                self.page_size,
+            )
+        )
 
 
-def _filter_values(values: str | Iterable[str] | None) -> tuple[str, ...]:
-    if values is None:
-        return ()
-    return (values,) if isinstance(values, str) else tuple(values)
-
-
-@dataclass(frozen=True, kw_only=True)
-class DirectoryPage:
+class DirectoryPage(FrozenModel):
     """One page of a search.
 
     ``searched`` is the search in plain words and ``request`` the literal request
@@ -92,15 +103,17 @@ class DirectoryPage:
     request: str
     source: Source
     total: int | None = None
-    rows: list[DirectoryRow] = field(default_factory=list)
+    rows: list[DirectoryRow] = Field(default_factory=list)
     truncated: bool = False
-    partial: list[Mapping[str, str]] = field(default_factory=list)
+    partial: list[Mapping[str, str]] = Field(default_factory=list)
     facets: Mapping[str, list[Mapping[str, object]]] | None = None
     facets_reason: str | None = None
     reason: str | None = None
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _unavailable_says_why(self) -> Self:
         _require_reason(self.outcome, self.reason)
+        return self
 
 
 class ChannelDirectory(_Backend, ABC):

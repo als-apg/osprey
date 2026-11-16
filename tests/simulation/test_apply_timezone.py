@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from osprey.simulation.apply import apply_scenarios
+from tests._archiver_events import event as view_event
 from tests._simulator_view import facility_scenarios, write_scenarios_view
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -106,7 +107,8 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
     config = yaml.safe_load((project / "config.yml").read_text())
     entries = {e["entry_id"]: e["timestamp"] for e in active_logbook_entries(config, project)}
 
-    event = {"at_when": {"days_ago": 4, "time": "03:20:00"}}  # DEMO-026's own `when`
+    # DEMO-026's own `when`.
+    event = view_event({"shape": "spike", "at_when": {"days_ago": 4, "time": "03:20:00"}})
     expected = anchored_instant(event, anchor.timestamp(), LA)
     assert entries["DEMO-026"].timestamp() == expected
     assert entries["DEMO-026"].astimezone(LA).day == 8

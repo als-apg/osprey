@@ -8,11 +8,13 @@ state: the caller supplies the channel values and events and these functions
 do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
+from __future__ import annotations
+
 import hashlib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
-from typing import TYPE_CHECKING, SupportsIndex, SupportsInt
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -23,7 +25,7 @@ from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_
 from osprey_connectors.simulation.values import _real
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
+    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord, _When
 
 __all__ = [
     "anchored_instant",
@@ -302,9 +304,7 @@ def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64]
     return np.asarray(values, dtype=np.float64)
 
 
-def anchored_instant(
-    event: Mapping[str, object], anchor: float, tz: ZoneInfo | None = None
-) -> float:
+def anchored_instant(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) -> float:
     """Epoch seconds of an event placed relative to the activation anchor.
 
     ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
@@ -322,49 +322,27 @@ def anchored_instant(
         The event's instant in epoch seconds.
 
     Raises:
-        TypeError: ``at_when`` is not a mapping.
+        KeyError: the event states neither ``at_offset`` nor ``at_when``.
     """
-    if "at_offset" in event:
-        return anchor + _real(event["at_offset"])
-    return _calendar_instant(event["at_when"], anchor, tz)
+    if event.at_offset is not None:
+        return anchor + float(event.at_offset)
+    return _calendar_instant(event.at_when, "at_when", anchor, tz)
 
 
-def _calendar_instant(when: object, anchor: float, tz: ZoneInfo | None) -> float:
+def _calendar_instant(when: _When | None, key: str, anchor: float, tz: ZoneInfo | None) -> float:
     """Epoch seconds of a ``{days_ago, time}`` placement, counted back from the anchor in ``tz``.
 
     Raises:
-        TypeError: ``when`` is not a mapping, or its ``days_ago`` is not a
-            number ``int`` takes.
+        KeyError: ``when`` is ``None``: the event does not state ``key``.
     """
-    if not isinstance(when, Mapping):
-        raise TypeError(f"a {{days_ago, time}} placement is a mapping, not {type(when).__name__!r}")
-    placement: Mapping[str, object] = when
+    if when is None:
+        raise KeyError(key)
     zone = tz if tz is not None else ZoneInfo("UTC")
-    spec = RelativeTimestamp(
-        days_ago=_whole(placement["days_ago"]),
-        time=dtime.fromisoformat(str(placement["time"])),
-    )
+    spec = RelativeTimestamp(days_ago=when.days_ago, time=dtime.fromisoformat(when.time))
     return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
 
 
-def _whole(value: object) -> int:
-    """``int(value)`` of a field the type checker sees only as ``object``.
-
-    Raises:
-        TypeError: ``value`` is not a string, a bytes object or a number,
-            worded as ``int`` words it.
-    """
-    if isinstance(value, str | bytes | bytearray | SupportsInt | SupportsIndex):
-        return int(value)
-    raise TypeError(
-        "int() argument must be a string, a bytes-like object or a real number, "
-        f"not {type(value).__name__!r}"
-    )
-
-
-def step_end(
-    event: Mapping[str, object], anchor: float, tz: ZoneInfo | None = None
-) -> float | None:
+def step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) -> float | None:
     """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
 
     ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
@@ -379,17 +357,17 @@ def step_end(
     Returns:
         The end position, or ``None`` when the step states no end.
     """
-    if "until_offset" in event:
-        return anchor + _real(event["until_offset"])
-    if "until_when" in event:
-        return _calendar_instant(event["until_when"], anchor, tz)
-    if "until" in event:
-        return _real(event["until"])
+    if event.until_offset is not None:
+        return anchor + float(event.until_offset)
+    if event.until_when is not None:
+        return _calendar_instant(event.until_when, "until_when", anchor, tz)
+    if event.until is not None:
+        return float(event.until)
     return None
 
 
 def event_positions(
-    event: "ArchiverEvent",
+    event: ArchiverEvent,
     t_frac: npt.NDArray[np.float64],
     t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
@@ -405,17 +383,28 @@ def event_positions(
     when an anchored or time-of-day event cannot be placed because the
     timestamps were not convertible to epoch seconds.
     """
-    if "at_offset" in event or "at_when" in event:
+    if event.at_offset is not None or event.at_when is not None:
         if t_abs is None:
             logger.debug("Skipping anchored event: timestamps not convertible to epoch seconds")
             return []
         return [(t_abs, anchored_instant(event, anchor, tz))]
-    if "at_time" in event:
+    if event.at_time is not None:
         if t_abs is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, at) for at in daily_occurrences(event["at_time"], t_abs, tz)]
-    return [(t_frac, float(event["at"]))]
+        return [(t_abs, at) for at in daily_occurrences(event.at_time, t_abs, tz)]
+    return [(t_frac, float(_stated(event.at, "at")))]
+
+
+def _stated(value: float | None, key: str) -> float:
+    """An event's ``key``, which the event's shape states.
+
+    Raises:
+        KeyError: the event does not state ``key``.
+    """
+    if value is None:
+        raise KeyError(key)
+    return value
 
 
 def daily_occurrences(
@@ -448,7 +437,7 @@ def daily_occurrences(
     return positions
 
 
-def _burst_profile(event: "ArchiverEvent", dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+def _burst_profile(event: ArchiverEvent, dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """A ``burst``'s excursion at ``dt`` seconds after its instant.
 
     Zero before the instant, ``amplitude`` at it, then a fast exponential
@@ -464,19 +453,20 @@ def _burst_profile(event: "ArchiverEvent", dt: npt.NDArray[np.float64]) -> npt.N
     Returns:
         The excursion, same shape as ``dt``.
     """
-    amplitude = event["amplitude"]
-    share = event.get("tail_share", 0.0)
-    tail = event.get("tail_decay_s", event["decay_s"])
+    amplitude = _stated(event.amplitude, "amplitude")
+    decay = _stated(event.decay_s, "decay_s")
+    share = 0.0 if event.tail_share is None else event.tail_share
+    tail = decay if event.tail_decay_s is None else event.tail_decay_s
     after = np.maximum(dt, 0.0)
-    shape = (1.0 - share) * np.exp(-after / event["decay_s"]) + share * np.exp(-after / tail)
+    shape = (1.0 - share) * np.exp(-after / decay) + share * np.exp(-after / tail)
     return np.where(dt >= 0.0, amplitude * shape, 0.0)
 
 
 def _loss_deficit(
-    event: "ArchiverEvent",
+    event: ArchiverEvent,
     at: float,
     x: npt.NDArray[np.float64],
-    topoff: "TopoffRecord | None",
+    topoff: TopoffRecord | None,
 ) -> npt.NDArray[np.float64]:
     """How far a ``loss`` holds a channel below its level at each instant of ``x``.
 
@@ -497,20 +487,18 @@ def _loss_deficit(
         The deficit, ``amount`` right after ``at`` and 0 before it and once
         refilled.
     """
-    amount = event["amount"]
+    amount = _stated(event.amount, "amount")
     deficit = np.where(x >= at, amount, 0.0)
     if topoff is None:
         return deficit
-    period = topoff["period_s"]
-    shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
+    period = topoff.period_s
+    shot = _REFILL_SHOT_FRACTION * abs(float(topoff.ceiling))
     refill = (np.floor(at / period) + 1.0) * period
     shots = np.where(x >= refill, np.floor((x - refill) * _REFILL_RATE_HZ) + 1.0, 0.0)
     return np.maximum(deficit - shot * shots, 0.0)
 
 
-def loss_refill_bound(
-    event: Mapping[str, object], topoff: Mapping[str, object] | None
-) -> float | None:
+def loss_refill_bound(event: ArchiverEvent, topoff: TopoffRecord | None) -> float | None:
     """Seconds after its instant by which a ``loss`` is surely refilled; None if never.
 
     One top-off period to the first refill, wherever in the period the loss
@@ -518,19 +506,19 @@ def loss_refill_bound(
     """
     if topoff is None:
         return None
-    shot = _REFILL_SHOT_FRACTION * abs(_real(topoff["ceiling"]))
-    shots = np.ceil(_real(event["amount"]) / shot) if shot > 0 else 0.0
-    return _real(topoff["period_s"]) + float(shots) / _REFILL_RATE_HZ
+    shot = _REFILL_SHOT_FRACTION * abs(float(topoff.ceiling))
+    shots = np.ceil(_stated(event.amount, "amount") / shot) if shot > 0 else 0.0
+    return float(topoff.period_s) + float(shots) / _REFILL_RATE_HZ
 
 
 def apply_events(
     series: npt.NDArray[np.float64],
-    events: "Sequence[ArchiverEvent]",
+    events: Sequence[ArchiverEvent],
     n: int,
     t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
     tz: ZoneInfo | None = None,
-    topoff: "TopoffRecord | None" = None,
+    topoff: TopoffRecord | None = None,
 ) -> npt.NDArray[np.float64]:
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
@@ -546,16 +534,20 @@ def apply_events(
     series = series.copy()
     for event in events:
         # A ``to`` is a number on the float channels whose series these events move.
-        shape = event["shape"]
-        offset_anchored = "at_offset" in event
+        shape = event.shape
+        offset_anchored = event.at_offset is not None
         for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
             if shape == "step":
                 end = step_end(event, anchor, tz)
                 inside = x >= at if end is None else (x >= at) & (x < end)
-                series[inside] = _real(event["to"])
+                series[inside] = _real(event.to)
             elif shape == "ramp":
-                until = anchor + event["until_offset"] if offset_anchored else float(event["until"])
-                to = _real(event["to"])
+                until = (
+                    anchor + _stated(event.until_offset, "until_offset")
+                    if offset_anchored
+                    else float(_stated(event.until, "until"))
+                )
+                to = _real(event.to)
                 if until <= at:
                     series[x >= at] = to
                     continue
@@ -569,7 +561,7 @@ def apply_events(
             elif shape == "loss":
                 series = series - _loss_deficit(event, at, x, topoff)
             else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
-                amplitude = event["amplitude"]
-                width = event["width"]
+                amplitude = _stated(event.amplitude, "amplitude")
+                width = _stated(event.width, "width")
                 series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
     return series

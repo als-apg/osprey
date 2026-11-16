@@ -16,12 +16,9 @@ can import it cheaply and be tested against it without spawning anything.
 
 The exception frame body
 ------------------------
-Three keys, and no more::
-
-    {"class_tag": str, "message": str, "fields": dict[str, Any]}
-
-``class_tag`` names the exception class, ``message`` is the rendered text, and
-``fields`` holds the structured attributes enumerated below. Decoding maps each
+:class:`ExceptionFrameBody`, three fields and no more: ``class_tag`` names the
+exception class, ``message`` is the rendered text, and ``fields`` holds the
+structured attributes enumerated below. Decoding maps each
 field back onto a constructor keyword and calls the real class.
 
 The registry is derived from the vocabulary
@@ -76,8 +73,8 @@ once, and to the parity tests that read the registry.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import TypedDict
+
+from pydantic import Field
 
 from osprey_connectors import errors
 from osprey_connectors.errors import (
@@ -90,6 +87,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
 )
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "EXCEPTION_SPECS",
@@ -108,7 +106,7 @@ _CONTRACT_ROOTS: tuple[type[BaseException], ...] = (
 )
 
 
-class ExceptionFrameBody(TypedDict):
+class ExceptionFrameBody(FrozenModel):
     """The exception frame body: the three keys described above."""
 
     class_tag: str
@@ -116,8 +114,7 @@ class ExceptionFrameBody(TypedDict):
     fields: dict[str, object]
 
 
-@dataclass(frozen=True)
-class ExceptionSpec:
+class ExceptionSpec(FrozenModel):
     """How one exception class crosses the boundary.
 
     ``fields`` are attribute names, in the order the class documents them.
@@ -130,16 +127,15 @@ class ExceptionSpec:
 
     cls: type[BaseException]
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = field(default_factory=dict)
+    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
     message_kwarg: str | None = None
 
 
-@dataclass(frozen=True)
-class _Detail:
+class _Detail(FrozenModel):
     """What of one vocabulary class crosses beyond its channel."""
 
     fields: tuple[str, ...] = ()
-    ctor_kwargs: dict[str, str] = field(default_factory=dict)
+    ctor_kwargs: dict[str, str] = Field(default_factory=dict)
     message_kwarg: str | None = None
 
 
@@ -182,7 +178,7 @@ def _vocabulary() -> list[type[BaseException]]:
 def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
     channel = ("channel_address",) if issubclass(cls, ChannelError) else ()
     return ExceptionSpec(
-        cls,
+        cls=cls,
         fields=(*channel, *detail.fields),
         ctor_kwargs=dict(detail.ctor_kwargs),
         message_kwarg=detail.message_kwarg,
@@ -193,8 +189,8 @@ def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
 #: closed to :class:`~osprey_connectors.errors.ConnectorInternalError`; a
 #: vocabulary class with no wire detail is left out, and the parity test names it.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
-    "ConnectionError": ExceptionSpec(ConnectionError),
-    "TimeoutError": ExceptionSpec(TimeoutError),
+    "ConnectionError": ExceptionSpec(cls=ConnectionError),
+    "TimeoutError": ExceptionSpec(cls=TimeoutError),
     **{cls.__name__: _spec(cls, _WIRE_DETAIL[cls]) for cls in _vocabulary() if cls in _WIRE_DETAIL},
 }
 
@@ -261,18 +257,14 @@ def encode_exception(exc: BaseException) -> ExceptionFrameBody:
     """
     class_tag = _registered_tag(exc)
     if class_tag is None:
-        return {
-            "class_tag": ConnectorInternalError.__name__,
-            "message": f"connector host reported an unrecognised error: {exc!r}",
-            "fields": {"class_tag": type(exc).__name__},
-        }
-    return {"class_tag": class_tag, "message": str(exc), "fields": exception_fields(exc)}
+        return ExceptionFrameBody(
+            class_tag=ConnectorInternalError.__name__,
+            message=f"connector host reported an unrecognised error: {exc!r}",
+            fields={"class_tag": type(exc).__name__},
+        )
+    return ExceptionFrameBody(class_tag=class_tag, message=str(exc), fields=exception_fields(exc))
 
 
 def decode_exception(frame: ExceptionFrameBody) -> BaseException:
     """Rebuild the exception an exception frame body describes."""
-    return reconstruct_exception(
-        str(frame.get("class_tag", "")),
-        str(frame.get("message", "")),
-        dict(frame.get("fields") or {}),
-    )
+    return reconstruct_exception(frame.class_tag, frame.message, frame.fields)

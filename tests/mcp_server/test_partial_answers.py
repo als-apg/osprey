@@ -34,6 +34,7 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 from osprey_connectors.ipc import ChildUnresponsiveError
 from tests.mcp_server.conftest import assert_raises_error
@@ -245,12 +246,12 @@ REPLACED = {
 
 def _unresponsive(message: str, record: dict) -> ChildUnresponsiveError:
     error = ChildUnresponsiveError(message)
-    error.recovery = (record,)
+    error.recovery = (RecoveryRecord(**record),)
     return error
 
 
 async def test_the_envelope_renders_the_supervisors_recovery():
-    cause = ConnectorUnavailableError("down", recovery=(DROPPED,))
+    cause = ConnectorUnavailableError("down", recovery=(RecoveryRecord(**DROPPED),))
     with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(cause, missing={"A": "x", "B": "y", "C": "z"})
@@ -331,8 +332,8 @@ async def test_a_wedged_child_is_pinged_once(monkeypatch):
 
 async def test_mixed_causes_report_every_recovery_once_in_first_seen_order():
     errors = [
-        ConnectorUnavailableError("down", recovery=(DROPPED,)),
-        ConnectorUnavailableError("refused", recovery=(DROPPED,)),
+        ConnectorUnavailableError("down", recovery=(RecoveryRecord(**DROPPED),)),
+        ConnectorUnavailableError("refused", recovery=(RecoveryRecord(**DROPPED),)),
         _unresponsive("deadline", KEPT),
         _unresponsive("deadline again", KEPT),
         TimeoutError("late"),
@@ -363,7 +364,10 @@ async def test_mixed_causes_report_the_recovery_they_carry(monkeypatch):
     from osprey.mcp_server.control_system import server_context
 
     monkeypatch.setattr(server_context, "_registry", None)
-    errors = [ConnectorUnavailableError("down", recovery=(DROPPED,)), TimeoutError("late")]
+    errors = [
+        ConnectorUnavailableError("down", recovery=(RecoveryRecord(**DROPPED),)),
+        TimeoutError("late"),
+    ]
     with assert_raises_error() as raised:
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)

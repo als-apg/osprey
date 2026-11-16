@@ -68,7 +68,6 @@ Control Target:
 import asyncio
 import atexit
 import contextlib
-import dataclasses
 import json
 import os
 import threading
@@ -83,6 +82,7 @@ from osprey.runtime.guarded_run import (
 )
 from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import evolve
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
@@ -1129,6 +1129,7 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
     """One landing per setpoint that has a bound, as the render's facility file states it."""
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
+    from osprey_connectors.simulation.records import SeedRecord
     from osprey_connectors.types import is_simulated, resolve_control_system_type
 
     path, channels = _facility_channels()
@@ -1142,12 +1143,19 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
         if simulated is None:
             section = _target_connector_config() or _control_system_section()
             simulated = is_simulated(resolve_control_system_type(section))
-        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        seed = channels.get(readback, {}).get("simulation")
+        motion = (
+            motion_envelope(None if seed is None else SeedRecord.model_validate(seed))
+            if simulated
+            else 0.0
+        )
         bound = settle_bound(
             channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
         )
         if bound is not None:
-            landings.append(Landing(address, readback, float(demand), bound))
+            landings.append(
+                Landing(setpoint=address, readback=readback, demand=float(demand), bound=bound)
+            )
     return landings
 
 
@@ -1288,7 +1296,8 @@ def channel_limits(address: str) -> "ChannelLimitsConfig | None":
     config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
     if config is None:
         return None
-    return dataclasses.replace(config)
+    # Rebuilt from its fields, and validated like a new one.
+    return evolve(config)
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:

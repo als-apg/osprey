@@ -38,6 +38,7 @@ from osprey_connectors.simulation.archive import (
     waveform_collection,
     waveform_document,
 )
+from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
 from osprey_connectors.simulation.texture import TextureModel
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import require_container_runtime
@@ -92,8 +93,8 @@ def demo_view(built_demo: BuiltProject, tmp_path_factory) -> Path:
 
 def live_texture(view: Path, clock) -> TextureModel:
     """The texture model the virtual accelerator serves SEK from, on ``clock``."""
-    variables = json.loads((view / VARIABLES_FILE).read_text())
-    seeds = json.loads((view / SEEDS_FILE).read_text())
+    variables = VariablesDocument.model_validate_json((view / VARIABLES_FILE).read_text())
+    seeds = SeedsDocument.model_validate_json((view / SEEDS_FILE).read_text())
     return TextureModel(variables, seeds, clock=clock)
 
 

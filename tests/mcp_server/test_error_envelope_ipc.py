@@ -554,7 +554,7 @@ async def test_an_unavailable_connector_is_replaced_once_for_a_whole_batch(serve
     )
 
     assert all(isinstance(failure, ConnectorUnavailableError) for failure in failures)
-    assert {failure.recovery[0]["action"] for failure in failures} == {"child_replaced"}
+    assert {failure.recovery[0].action for failure in failures} == {"child_replaced"}
     assert len(manager.spawned) == spawned + 1
     assert manager.status()["child_pid"] != pid
     assert manager.active_target() == "live"
@@ -628,7 +628,7 @@ async def test_a_dead_child_is_replaced_by_its_supervisor_and_the_envelope_repor
 
     with pytest.raises(ConnectorUnavailableError) as raised:
         await asyncio.wait_for(call, TIMEOUT_S)
-    assert [record["action"] for record in raised.value.recovery] == ["child_replaced"]
+    assert [record.action for record in raised.value.recovery] == ["child_replaced"]
 
     with assert_raises_error(error_type="connection_error") as captured:
         async with connector_error_handler("channel_read", "control_system"):

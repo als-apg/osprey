@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
-
 import pytest
 
 from osprey_connectors.directory import (
@@ -65,12 +63,12 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
     ],
 )
 def test_a_record_has_the_contract_fields_in_order(record, fields):
-    assert [f.name for f in dataclasses.fields(record)] == fields
+    assert [*record.model_fields] == fields
 
 
 def test_neither_a_row_nor_a_query_carries_an_origin():
-    assert "origin" not in {field.name for field in dataclasses.fields(DirectoryRow)}
-    assert "origin" not in {field.name for field in dataclasses.fields(DirectoryQuery)}
+    assert "origin" not in DirectoryRow.model_fields
+    assert "origin" not in DirectoryQuery.model_fields
 
 
 def test_the_directory_names_no_backends_property_map():
@@ -89,8 +87,8 @@ def test_a_page_of_any_other_outcome_needs_no_reason():
 def test_a_record_converts_to_the_json_shape():
     record = DirectoryRecord(row=DirectoryRow(name="A"), properties={"caPort": "5064"})
 
-    assert dataclasses.asdict(record)["row"]["name"] == "A"
-    assert dataclasses.asdict(record)["properties"] == {"caPort": "5064"}
+    assert record.model_dump()["row"]["name"] == "A"
+    assert record.model_dump()["properties"] == {"caPort": "5064"}
 
 
 # -- DirectoryQuery keys a cache ----------------------------------------------

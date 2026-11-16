@@ -949,6 +949,7 @@ def _project_places(document: Mapping[str, Any]) -> None:
 
 def _nominal_band(run: _Run) -> None:
     from osprey_connectors.simulation import topoff
+    from osprey_connectors.simulation.records import SeedRecord
     from osprey_connectors.simulation.values import coerce, zero
 
     channels = {c["id"]: c for c in run.document.get("channels", [])}
@@ -968,12 +969,17 @@ def _nominal_band(run: _Run) -> None:
         value = channel.get("simulation") if channel is not None else None
         return value if isinstance(value, dict) else {}
 
+    def seed_record(address: str) -> SeedRecord | None:
+        """The seed of ``address`` as the view's seed record, which the top-off rule reads."""
+        stated = seed(address)
+        return SeedRecord.model_validate(stated) if stated else None
+
     def derived(address: str) -> str | None:
         """What a seed's held value is called when the seed derives it, not states it."""
-        own = seed(address)
+        own = seed_record(address)
         if topoff.topoff_record(own) is not None:
             return "held level of `topoff`"
-        if topoff.held_value(own, seed) is not None:
+        if topoff.held_value(own, seed_record) is not None:
             return "held lifetime of `topoff_lifetime`"
         return None
 
@@ -983,7 +989,7 @@ def _nominal_band(run: _Run) -> None:
             value, record = defaults[address]
             return value, stating_files(record, None, _MODELS_FILE)
         own = seed(address)
-        held = topoff.held_value(own, seed)
+        held = topoff.held_value(seed_record(address), seed_record)
         if held is not None:
             return held, stating_files(channel, "simulation", _MODELS_FILE)
         if "nominal" in own:

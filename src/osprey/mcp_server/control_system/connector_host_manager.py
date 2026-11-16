@@ -110,7 +110,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_eligibility import (
@@ -121,7 +121,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
 from osprey_connectors.ipc import (
     DEFAULT_CALL_DEADLINE_S,
     ROLE_READ_ONLY,
@@ -141,6 +141,7 @@ from osprey_connectors.ipc import (
     stop_host,
     verify_host_report,
 )
+from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.recovery import RecoveryAction
@@ -158,20 +159,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
 
 
-class RecoveryRecord(TypedDict):
-    """One thing the supervisor did about a failure: an ``action`` word and its ``text``.
-
-    The shape a failure's ``recovery`` carries. ``osprey_connectors.errors``
-    names it ``RecoveryRecord`` too, but the released connectors floor does
-    not carry that name yet; TypedDicts are structural, so this copy and that
-    one are the same type to the checker. Import it from there once the floor
-    does.
-    """
-
-    action: str
-    text: str
-
-
 logger = logging.getLogger("osprey.mcp_server.control_system.connector_host_manager")
 
 __all__ = [
@@ -180,7 +167,6 @@ __all__ = [
     "DEFAULT_SPAWN_TIMEOUT_S",
     "ConnectorHostManager",
     "NoConnectorHostError",
-    "RecoveryRecord",
     "SwitchError",
     "baseline_target",
     "reset_target_state",
@@ -1111,16 +1097,16 @@ class ConnectorHostManager:
                 cause=f"restarting the connector host on target {self._target!r}",
             )
         except SwitchError as error:
-            return {
-                "action": RecoveryAction.RESPAWN_REFUSED,
-                "text": "Starting a fresh connector-host child on the same target failed "
+            return RecoveryRecord(
+                action=RecoveryAction.RESPAWN_REFUSED,
+                text="Starting a fresh connector-host child on the same target failed "
                 f"({error.detail}); control-system calls are refused until one is running.",
-            }
-        return {
-            "action": RecoveryAction.CHILD_REPLACED,
-            "text": "The connector-host child had exited; a fresh one was started on the "
+            )
+        return RecoveryRecord(
+            action=RecoveryAction.CHILD_REPLACED,
+            text="The connector-host child had exited; a fresh one was started on the "
             "same target. This call was refused and not retried; the next call is served.",
-        }
+        )
 
     async def replace_child(self, proxy: ConnectorHostProxy) -> bool:
         """Replace the child *proxy* belongs to, once, on the same target.
@@ -1706,7 +1692,7 @@ class ConnectorHostManager:
             return None
         if ROLE_READ_ONLY not in derivation.endpoints:
             return None
-        return replace(derivation, selected_role=ROLE_READ_ONLY)
+        return evolve(derivation, selected_role=ROLE_READ_ONLY)
 
     def _probe_channel(self, target: str, derivation: TargetDerivation) -> str:
         """The channel the destination proves itself with, or a refusal.
@@ -1787,8 +1773,7 @@ class ConnectorHostManager:
         rederived = self._derive(target)
         if without_write_gateway and ROLE_READ_ONLY in rederived.derivation.endpoints:
             rederived = replace(
-                rederived,
-                derivation=replace(rederived.derivation, selected_role=ROLE_READ_ONLY),
+                rederived, derivation=evolve(rederived.derivation, selected_role=ROLE_READ_ONLY)
             )
         child = await self._launch_once(
             target,

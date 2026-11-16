@@ -57,7 +57,9 @@ def test_a_view_without_the_field_loads_and_yields_nothing(tmp_path: Path) -> No
 
 
 def test_a_view_without_the_field_needs_no_other_file(tmp_path: Path) -> None:
-    (tmp_path / ADDRESSES_FILE).write_text(json.dumps({"schema": ADDRESSES_SCHEMA}), "utf-8")
+    (tmp_path / ADDRESSES_FILE).write_text(
+        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), "utf-8"
+    )
 
     assert SimulatorView.open(tmp_path).ioc_health_by_model() == {}
 
@@ -122,10 +124,12 @@ def test_status_addresses_ignore_the_field(tmp_path: Path, addresses: dict[str, 
     ids=["word", "other-address", "no-model", "number", "unknown-signal"],
 )
 def test_a_field_other_than_health_addresses_is_refused(tmp_path: Path, listed: Any) -> None:
-    view = SimulatorView.open(_view(tmp_path, {"status": [], "ioc_health": listed}))
-
+    # A list of addresses opens, and its addresses are judged when read; any
+    # other ``ioc_health`` is refused as the view opens.
     with pytest.raises(ViewSchemaError, match="ioc_health"):
-        view.ioc_health_by_model()
+        SimulatorView.open(
+            _view(tmp_path, {"status": [], "ioc_health": listed})
+        ).ioc_health_by_model()
 
 
 def test_another_addresses_schema_is_refused_with_the_field_present(tmp_path: Path) -> None:

@@ -161,12 +161,12 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(self.fail)
+            return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(self.fail)
+            return Unavailable(reason=self.fail)
         return self.records.get(name, Outcome.NOT_LISTED)
 
 
@@ -508,8 +508,8 @@ async def test_a_backend_that_cannot_be_built_says_why(
 
 
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
-    FakeAlarmState.state = Unavailable("alarm feed still loading")
-    FakeAlarmState.config = Unavailable("alarm feed still loading")
+    FakeAlarmState.state = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.config = Unavailable(reason="alarm feed still loading")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
@@ -527,7 +527,7 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable("no message from the feed yet")
+    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
@@ -541,7 +541,7 @@ async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Pa
 
 
 async def test_the_logger_alone_answers_the_configuration(tmp_path: Path) -> None:
-    FakeAlarmLog.config = Unavailable("second step failed")
+    FakeAlarmLog.config = Unavailable(reason="second step failed")
     section = {**FACILITY, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -713,7 +713,7 @@ async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
 
 
 async def test_active_alarms_of_a_feed_that_cannot_answer_keep_its_reason(tmp_path: Path) -> None:
-    FakeAlarmState.listed = Unavailable("alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     answer = await page.active_alarms()
@@ -783,7 +783,7 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable("no message from the feed yet")
+    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes")
     section = {
         **FACILITY,
@@ -1203,7 +1203,7 @@ async def test_a_feed_still_loading_leaves_the_ioc_alarms_unavailable_never_zero
     tmp_path: Path,
 ) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.listed = Unavailable("alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     alarms = (await page.ioc_facts("ioc-a"))["alarms"]

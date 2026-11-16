@@ -227,10 +227,10 @@ def list_command(repo: Path | None) -> None:
     names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
     active = set(resolve_active_scenarios(names))
     for scenario in view.scenarios():
-        name = str(scenario["name"])
+        name = scenario.name
         marker = "*" if name in active else " "
-        output.report(f"{marker} {name}  (logbook: {'yes' if scenario.get('logbook') else 'no'})")
-        if description := scenario.get("description"):
+        output.report(f"{marker} {name}  (logbook: {'yes' if scenario.logbook else 'no'})")
+        if description := scenario.description:
             # A second step in, on top of the one `note` already applies: the
             # marker column means the name itself does not start at column 0,
             # so a description one step in would line up under the marker

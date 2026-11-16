@@ -20,17 +20,17 @@ wires it or the texture holds it, while its scenario is active:
 
 No fault withholds a reply: a read always answers.
 
-The module imports only the standard library, so the build's validator and
-the composite share one table.
+The module imports only the standard library and the package's model base, so
+the build's validator and the composite share one table.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from types import MappingProxyType
 
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.simulation.view import READBACK, SETPOINT
 
 __all__ = [
@@ -62,8 +62,7 @@ def _not_a_number(value_type: str, snapshot: object) -> object:
     return math.nan if value_type == _FLOAT else snapshot
 
 
-@dataclass(frozen=True)
-class ChannelFault:
+class ChannelFault(FrozenModel):
     """One channel fault's semantics.
 
     Attributes:

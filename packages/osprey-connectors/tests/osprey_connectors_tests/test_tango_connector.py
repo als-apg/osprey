@@ -388,12 +388,9 @@ class TestReadChannel:
         metadata type that carries it gets the severity first-class, and one
         that does not still carries it in ``raw_metadata``.
         """
-        from dataclasses import dataclass
-
         from osprey_connectors.control_system import _tango_connector as mod
         from osprey_connectors.control_system._base import ChannelMetadata
 
-        @dataclass
         class _MetadataWithSeverity(ChannelMetadata):
             alarm_severity: int | None = None
 

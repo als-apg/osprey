@@ -894,14 +894,16 @@ def lane(terminal: Terminal) -> LaneChannels:
     view = repo_view(terminal.repo)
     channel = seeded_readback(view)
     seed = view.seed(channel)
-    assert seed is not None and "nominal" in seed, f"{channel} has no seeded nominal"
+    assert seed is not None and "nominal" in seed.model_fields_set, (
+        f"{channel} has no seeded nominal"
+    )
     write_target, write_readback, _model = bounded_corrector(terminal.repo)
     value_range = view.channel(write_target).value_range
     assert value_range is not None, f"{write_target} has no band"
     low, high = value_range
     return LaneChannels(
         channel=channel,
-        nominal=float(seed["nominal"]),
+        nominal=float(seed.nominal),
         envelope=view.motion_envelope(channel),
         write_target=write_target,
         write_readback=write_readback,

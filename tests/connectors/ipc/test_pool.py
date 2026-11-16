@@ -38,6 +38,7 @@ from osprey_connectors.errors import (
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
@@ -562,7 +563,7 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     assert isinstance(caught.value, ConnectorHostLostError)
     assert caught.value.cause == "unresponsive"
     assert "nor a ping" in str(caught.value)
-    assert [record["action"] for record in caught.value.recovery] == ["child_replaced"]
+    assert [record.action for record in caught.value.recovery] == ["child_replaced"]
     with pytest.raises(ConnectorHostUnresponsiveError) as also:
         await asyncio.wait_for(bystander, 10.0)
     assert also.value.cause == "unresponsive"
@@ -585,7 +586,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     assert not isinstance(caught.value, ConnectorHostError)
     assert "still answers a ping" in str(caught.value)
-    assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
+    assert [record.action for record in caught.value.recovery] == ["child_kept"]
     assert live.pid == pid and pid_alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
@@ -691,7 +692,7 @@ async def test_a_child_whose_connector_is_unavailable_is_replaced_once(pools):
     assert isinstance(lost, ConnectorUnavailableError)
     assert lost.cause == "unavailable"
     assert "transport is gone" in str(lost)
-    assert [record["action"] for record in lost.recovery] == ["child_replaced"]
+    assert [record.action for record in lost.recovery] == ["child_replaced"]
     assert pool.pids() == {}
     assert not pid_alive(pid)
     # The next call starts one fresh child and is served by it.
@@ -804,10 +805,9 @@ async def test_the_pool_and_the_policy_table_agree(
         assert child.retired is None
         return
     action = RecoveryAction.CHILD_KEPT if kept else RecoveryAction.CHILD_REPLACED
-    expected = {
-        "action": action,
-        "text": recovery_module._SENTENCES[(action, Timing.LAZY, failure)],
-    }
+    expected = RecoveryRecord(
+        action=action, text=recovery_module._SENTENCES[(action, Timing.LAZY, failure)]
+    )
     assert list(raised.recovery) == [expected]
     if kept:
         assert isinstance(raised, TimeoutError)
@@ -863,7 +863,7 @@ async def test_a_call_whose_deadline_passes_after_its_child_was_replaced_carries
     assert bystander.value.cause == child.retired == replaced.value.cause
     assert "was retired" in str(bystander.value)
     assert list(bystander.value.recovery) == list(replaced.value.recovery)
-    assert [record["action"] for record in bystander.value.recovery] == ["child_replaced"]
+    assert [record.action for record in bystander.value.recovery] == ["child_replaced"]
 
 
 async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_carries_no_record(

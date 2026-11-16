@@ -65,7 +65,7 @@ from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
 from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.scenarios import scenario_logbook
+from osprey.facility.scenarios import scenario_logbook, view_scenario
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
@@ -433,6 +433,7 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
                 if model not in inputs.served:
                     fault["inactive"] = INACTIVE_UNSERVED
                 entry["faults"][model] = fault
+        view_scenario(entry)
         scenarios.append(entry)
     if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
         scenarios.append(
@@ -531,19 +532,14 @@ def withdraw_scenarios(root: Path, names: Iterable[str]) -> None:
     """
     withdrawn = set(names)
     listed = SimulatorView.open(root).scenarios()
-    missing = withdrawn - {str(scenario["name"]) for scenario in listed}
+    missing = withdrawn - {scenario.name for scenario in listed}
     if missing:
         raise KeyError(f"the simulator view lists no scenario {sorted(missing)}")
-    kept = [_thawed(scenario) for scenario in listed if str(scenario["name"]) not in withdrawn]
+    kept = [
+        scenario.model_dump(mode="json", exclude_unset=True)
+        for scenario in listed
+        if scenario.name not in withdrawn
+    ]
     (root / SCENARIOS_FILE).write_bytes(view_bytes({"schema": SCENARIOS_SCHEMA, "scenarios": kept}))
     for name in withdrawn:
         shutil.rmtree(root / SCENARIOS_DIR / name, ignore_errors=True)
-
-
-def _thawed(value: Any) -> Any:
-    """A JSON value of a read-only view document, as plain dicts and lists."""
-    if isinstance(value, Mapping):
-        return {key: _thawed(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thawed(item) for item in value]
-    return value

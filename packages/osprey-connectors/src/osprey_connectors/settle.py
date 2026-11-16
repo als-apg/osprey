@@ -12,8 +12,8 @@ readback that cannot be reached, is not a channel, or times out raises
 :class:`SettleReadError`, which names it, as does one that answers no value; a
 lost connector raises its own error.
 
-This module imports only the std-lib, ``osprey_connectors.errors`` and the
-package's contract alias, and takes any connector with an awaitable
+This module imports only the std-lib, ``osprey_connectors.errors``, the
+package's contract alias and its model base, and takes any connector with an awaitable
 ``read_channel(address)`` whose result carries ``.value``.
 """
 
@@ -24,11 +24,11 @@ import math
 import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import SupportsFloat, SupportsIndex
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
+from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "Landing",
@@ -103,8 +103,7 @@ def settle_bound(
     return max(floor or 0.0, declared or 0.0)
 
 
-@dataclass(frozen=True)
-class Landing:
+class Landing(FrozenModel):
     """One written setpoint, the readback that reports it, its demand and its bound."""
 
     setpoint: str

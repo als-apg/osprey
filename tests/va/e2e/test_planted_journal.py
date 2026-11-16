@@ -108,7 +108,8 @@ def _seed_nominals(view: SimulatorView) -> dict[str, float]:
     nominals: dict[str, float] = {}
     for address in view.channels():
         channel = view.channel(address)
-        nominal = (view.seed(address) or {}).get("nominal")
+        seed = view.seed(address)
+        nominal = None if seed is None else seed.nominal
         if _writable_setpoint(channel) and channel.owner == TEXTURE and nominal is not None:
             if channel.value_type in LABELLED_TYPES:
                 nominal = list(channel.options or DEFAULT_BOOL_OPTIONS).index(nominal)

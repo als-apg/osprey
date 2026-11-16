@@ -88,7 +88,8 @@ The post-connect report
 -----------------------
 The **first frame the child sends** is the result frame answering ``init``. It
 carries what ``connect()`` actually configured, which is what the parent
-asserts its own derivation against::
+asserts its own derivation against. The child builds it as a validated record
+and sends its fields as a plain mapping, keyed as below::
 
     {
       "selected_role": "read_only" | "write_access" | None,
@@ -162,7 +163,12 @@ with the child — a failed probe aborts a switch, and this child keeps serving.
 
 **A request-level failure never kills the child.** Every exception raised while
 serving a request is encoded into an error frame for that ``request_id`` by
-:mod:`osprey_connectors.ipc._exceptions`, and the serve loop continues.
+:mod:`osprey_connectors.ipc._exceptions`, and the serve loop continues. A
+request frame that does not decode — a payload node the codec does not know, a
+record its own class refuses — is refused the same way, in an error frame for
+the request it names; a frame that names no request is logged and skipped. Only
+a stream that has lost its framing, which no later frame can be read past, ends
+the child.
 
 Lifecycle
 ---------
@@ -754,22 +760,44 @@ async def _build_connector(
 # --------------------------------------------------------------------------
 
 
+class _Undecodable:
+    """A delimited frame this child could not decode, in its place in the stream."""
+
+    def __init__(self, request_id: str | None, cause: Exception) -> None:
+        #: The request the frame named, or ``None`` when it named none that reads.
+        self.request_id = request_id
+        self.cause = cause
+
+
 class _FrameStream:
     """Frames arriving on stdin, one await at a time."""
 
     def __init__(self, reader: asyncio.StreamReader) -> None:
         self._reader = reader
         self._parser = frames.FrameReader()
-        self._ready: deque[frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame] = deque()
+        self._ready: deque[bytes] = deque()
 
-    async def next(self) -> frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame | None:
-        """The next frame, or ``None`` once the pipe reaches EOF."""
+    async def next(
+        self,
+    ) -> frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame | _Undecodable | None:
+        """The next frame, or ``None`` once the pipe reaches EOF.
+
+        Each frame is decoded on its own, so one that does not decode comes back
+        as an :class:`_Undecodable` and costs nothing past itself.
+
+        Raises:
+            FrameDecodeError: The stream has lost its framing.
+        """
         while not self._ready:
             chunk = await self._reader.read(_READ_CHUNK_BYTES)
             if not chunk:
                 return None
-            self._ready.extend(self._parser.feed(chunk))
-        return self._ready.popleft()
+            self._ready.extend(self._parser._feed_raw(chunk))
+        raw = self._ready.popleft()
+        try:
+            return frames.decode_frame(raw)
+        except Exception as exc:
+            return _Undecodable(frames._request_id_of(raw), exc)
 
 
 class _FrameWriter:
@@ -803,7 +831,7 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
     failed.
     """
     body = encode_exception(exc)
-    if body["class_tag"] != type(exc).__name__:
+    if body.class_tag != type(exc).__name__:
         exc = decode_exception(body)
     try:
         return frames.encode_error(request_id, exc)
@@ -815,6 +843,17 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
                 class_tag=type(exc).__name__,
             ),
         )
+
+
+async def _refuse(frame: _Undecodable, writer: _FrameWriter) -> None:
+    """Answer a frame that did not decode: an error frame for its request, when it named one."""
+    logger.warning(
+        "connector host: refusing a frame for request %r that does not decode: %r",
+        frame.request_id,
+        frame.cause,
+    )
+    if frame.request_id is not None:
+        await writer.send(_error_frame(frame.request_id, frame.cause))
 
 
 async def _spawn_probe(
@@ -916,6 +955,9 @@ async def _serve(
         if frame is None:
             logger.warning("connector host: stdin closed; exiting")
             break
+        if isinstance(frame, _Undecodable):
+            await _refuse(frame, writer)
+            continue
         if not isinstance(frame, frames.RequestFrame):
             # Results and errors travel the other way; a parent that sends one
             # is confused, and answering it would only confuse it further.
@@ -956,6 +998,9 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         logger.warning("connector host: stdin closed before the init frame; exiting")
         return EXIT_OK
     marks.mark("init")
+    if isinstance(init, _Undecodable):
+        await _refuse(init, writer)
+        return EXIT_INIT_FAILED
     if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
         got = init.method if isinstance(init, frames.RequestFrame) else type(init).__name__
         await writer.send(

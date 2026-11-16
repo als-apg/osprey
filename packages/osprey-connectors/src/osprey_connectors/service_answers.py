@@ -11,22 +11,33 @@ nothing about the service; ``probe`` does. Out-of-tree classes follow the same
 signature. A seam the class does not take is ignored, because the factory
 passes the same keywords to every backend of a kind.
 
-The records stay plain so one conversion makes their JSON: a list, a mapping or
-a string stays what the service answered, as the service recorded it.
+The records are frozen pydantic models, validated when built, and stay plain so
+one conversion makes their JSON: a list, a mapping or a string stays what the
+service answered, as the service recorded it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Generic, Literal, TypeVar
+from typing import Annotated, Generic, Literal, Self, TypeVar
 
+from pydantic import (
+    Field,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    model_validator,
+)
+
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.types import ControlTarget
 
 #: The row record a :class:`HistoryPage` holds.
 _RowT = TypeVar("_RowT")
+#: The type a :data:`_Recorded` field holds.
+_RecordedT = TypeVar("_RecordedT")
 
 __all__ = [
     "BackendSpec",
@@ -62,15 +73,27 @@ def _flag(recorded: object) -> bool | None:
     return recorded if isinstance(recorded, bool) else None
 
 
-@dataclass(frozen=True)
-class Unavailable:
+def _none_unless_valid(recorded: object, handler: ValidatorFunctionWrapHandler) -> object:
+    """*recorded* validated as its field's type, or ``None`` when it is not of it."""
+    try:
+        return handler(recorded)
+    except ValidationError:
+        return None
+
+
+#: A field of a service's answer read as :func:`_text` and :func:`_flag` read one:
+#: a value of another type is not that field's, so it reads as ``None``, never
+#: refusing the answer it is in.
+_Recorded = Annotated[_RecordedT | None, WrapValidator(_none_unless_valid)]
+
+
+class Unavailable(FrozenModel):
     """The service gave no answer, and why, in words a reader can act on."""
 
     reason: str
 
 
-@dataclass(frozen=True, kw_only=True)
-class Source:
+class Source(FrozenModel):
     """Which kind of service, on which machine, an answer came from.
 
     ``service`` is the backend's type name; ``rehearsal`` is true on ``standin``.
@@ -82,8 +105,7 @@ class Source:
     rehearsal: bool
 
 
-@dataclass(frozen=True, kw_only=True)
-class BackendSpec:
+class BackendSpec(FrozenModel):
     """One backend to build; ``service_targets`` makes these from the config."""
 
     kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
@@ -93,8 +115,7 @@ class BackendSpec:
     rehearsal: bool
 
 
-@dataclass(frozen=True, kw_only=True)
-class HistoryPage(Generic[_RowT]):
+class HistoryPage(FrozenModel, Generic[_RowT]):
     """Logged rows of one PV. No rows means nothing was logged, not that nothing happened.
 
     ``rows`` are the records of the kind that answered.
@@ -102,13 +123,15 @@ class HistoryPage(Generic[_RowT]):
 
     outcome: Outcome
     source: Source
-    rows: Sequence[_RowT] = field(default_factory=list)
+    rows: Sequence[_RowT] = Field(default_factory=list)
     truncated: bool = False
     retention_known: bool = False
     reason: str | None = None
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _unavailable_says_why(self) -> Self:
         _require_reason(self.outcome, self.reason)
+        return self
 
 
 class _Backend:

@@ -557,6 +557,79 @@ def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     assert isinstance(follow_up.value, ChannelValue)
 
 
+def _raw_request(request_id, method, kwargs_node):
+    """A well-delimited request frame whose ``kwargs`` node is written as given."""
+    return frames._pack(
+        {"kind": "request", "request_id": request_id, "method": method, "kwargs": kwargs_node}, []
+    )
+
+
+def _send_raw(child, payload):
+    child.proc.stdin.write(payload)
+    child.proc.stdin.flush()
+
+
+#: A request payload the codec cannot decode, and one whose record refuses its fields.
+UNDECODABLE_KWARGS = [
+    pytest.param({frames._TAG: "Bogus", "fields": {}}, id="unknown-value-tag"),
+    pytest.param(
+        {
+            frames._TAG: "dict",
+            # A record the child always has loaded: the codec's own imports define it.
+            "items": [["body", {frames._TAG: "ExceptionFrameBody", "fields": {"class_tag": 7}}]],
+        },
+        id="record-its-class-refuses",
+    ),
+    pytest.param({frames._TAG: "ndarray", "blob": 3}, id="blob-index-out-of-range"),
+]
+
+
+@pytest.mark.parametrize("kwargs_node", UNDECODABLE_KWARGS)
+def test_a_request_that_does_not_decode_is_refused_without_killing_the_child(
+    ready_child, kwargs_node
+):
+    _send_raw(ready_child, _raw_request("req-undecodable", "read_channel", kwargs_node))
+
+    frame = ready_child.next_frame()
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-undecodable"
+    assert isinstance(frame.exception, ConnectorInternalError)
+
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+
+
+def test_a_frame_that_names_no_request_is_skipped_and_the_child_keeps_serving(ready_child):
+    header = b"{not json"
+    body = frames._HEADER_STRUCT.pack(len(header)) + header
+    _send_raw(ready_child, frames.MAGIC + frames._HEADER_STRUCT.pack(len(body)) + body)
+
+    ready_child.quiet()
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+    assert "does not decode" in ready_child.stderr()
+
+
+def test_frames_behind_an_undecodable_one_in_the_same_write_are_served(ready_child):
+    good = frames.encode_request("req-good", "ping", {})
+    _send_raw(ready_child, _raw_request("req-bad", "ping", {frames._TAG: "Bogus"}) + good)
+
+    replies = {frame.request_id: frame for frame in (ready_child.next_frame() for _ in range(2))}
+    assert isinstance(replies["req-bad"], frames.ErrorFrame)
+    assert replies["req-good"] == frames.ResultFrame(
+        request_id="req-good", value=ready_child.proc.pid
+    )
+
+
+def test_an_init_frame_that_does_not_decode_fails_the_launch(child):
+    _send_raw(child, _raw_request("req-init", host.INIT_METHOD, {frames._TAG: "Bogus"}))
+
+    frame = child.next_frame()
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-init"
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
+
+
 # --------------------------------------------------------------- lifecycle
 
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import ast
-import dataclasses
 import importlib
 import inspect
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 import osprey_connectors
 from osprey_connectors import service_answers
@@ -132,7 +132,7 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
             ["severity", "status", "latched", "acknowledged", "message", "time", "stale"],
         ),
         (AlarmStateRow, ["channel", "path", "state"]),
-        (AlarmStates, ["rows", "stale", "last_contact", "counts"]),
+        (AlarmStates, ["rows", "stale", "last_contact"]),
         (
             AlarmConfigRecord,
             ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
@@ -140,17 +140,23 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
     ],
 )
 def test_a_record_has_the_contract_fields_in_order(record, fields):
-    assert [f.name for f in dataclasses.fields(record)] == fields
+    assert [*record.model_fields] == fields
+
+
+def test_the_alarm_list_dumps_its_counts_after_its_fields():
+    states = AlarmStates(rows=(), stale=False, last_contact=None)
+
+    assert [*states.model_dump()] == ["rows", "stale", "last_contact", "counts"]
 
 
 @pytest.mark.parametrize("record", RECORDS)
 def test_every_record_is_frozen(record):
-    assert record.__dataclass_params__.frozen
+    assert record.model_config["frozen"]
 
 
-def test_unavailable_takes_its_reason_positionally_and_requires_it():
-    assert Unavailable("alarm feed still loading").reason == "alarm feed still loading"
-    with pytest.raises(TypeError):
+def test_unavailable_takes_its_reason_by_keyword_and_requires_it():
+    assert Unavailable(reason="alarm feed still loading").reason == "alarm feed still loading"
+    with pytest.raises(ValidationError, match="reason"):
         Unavailable()  # type: ignore[call-arg]
 
 
@@ -164,14 +170,15 @@ def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
 
     assert dict(states.counts) == {"MAJOR": 2, "OK": 1}
     assert dict(AlarmStates(rows=(), stale=True, last_contact=None).counts) == {}
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError, match="counts"):
         AlarmStates(rows=rows, stale=False, last_contact=None, counts={"OK": 9})  # type: ignore[call-arg]
 
 
 def test_the_list_converts_to_the_json_shape_with_its_counts():
     states = AlarmStates(rows=(_row("A", "MINOR"),), stale=False, last_contact="t")
 
-    assert dataclasses.asdict(states)["counts"] == {"MINOR": 1}
+    assert states.model_dump()["counts"] == {"MINOR": 1}
+    assert '"counts":{"MINOR":1}' in states.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -270,7 +277,7 @@ def test_a_directory_answers_no_field_properties_unless_it_has_them():
 
 @pytest.mark.parametrize("record", [Source, AlarmConfigRecord, DirectoryRow])
 def test_no_answer_carries_a_display_label(record):
-    assert "label" not in {field.name for field in dataclasses.fields(record)}
+    assert "label" not in record.model_fields
     assert not hasattr(ChannelDirectory, "label")
 
 

@@ -8,7 +8,6 @@ the client's access right), the PVA metadata reply (``display`` / ``control`` /
 ``valueAlarm``) and anything a test double hands over.
 """
 
-import dataclasses
 import math
 import types
 from unittest.mock import MagicMock
@@ -107,10 +106,10 @@ class TestChannelMetadataFields:
     def test_writable_is_a_bool_or_none(self, given, stored):
         assert ChannelMetadata(writable=given).writable is stored
 
-    def test_positional_construction_is_unchanged(self):
-        """The new fields come after ``raw_metadata``: old positional calls still line up."""
-        meta = ChannelMetadata("mA", 3)
-        assert (meta.units, meta.precision) == ("mA", 3)
+    def test_construction_is_by_keyword(self):
+        """A model takes its fields by name only: a positional call is refused."""
+        with pytest.raises(TypeError):
+            ChannelMetadata("mA", 3)
 
     def test_the_ipc_round_trip_preserves_every_field(self):
         meta = ChannelMetadata(
@@ -128,7 +127,7 @@ class TestChannelMetadataFields:
         blobs: list[bytes] = []
         decoded = _decode_value(_encode_value(meta, blobs), blobs)
         assert decoded == meta
-        assert {f.name for f in dataclasses.fields(decoded)} >= set(LIMIT_FIELDS) | {"writable"}
+        assert set(type(decoded).model_fields) >= set(LIMIT_FIELDS) | {"writable"}
 
 
 # ---------------------------------------------------------------------------

@@ -315,7 +315,7 @@ async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
 async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path: Path) -> None:
     FakeAlarmState.states = {
         "SR:BPM1": AlarmStateRecord(severity="NO_ALARM"),
-        "SR:BPM2": Unavailable("alarm broker cannot be reached: refused"),
+        "SR:BPM2": Unavailable(reason="alarm broker cannot be reached: refused"),
     }
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
@@ -326,8 +326,8 @@ async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path:
 
 
 async def test_a_feed_still_loading_is_reported(tmp_path: Path) -> None:
-    FakeAlarmState.states = {"SR:BPM1": Unavailable("alarm feed still loading")}
-    FakeAlarmState.config = Unavailable("alarm feed still loading")
+    FakeAlarmState.states = {"SR:BPM1": Unavailable(reason="alarm feed still loading")}
+    FakeAlarmState.config = Unavailable(reason="alarm feed still loading")
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA})
 
     with assert_raises_error(error_type="nothing_answered") as refused:

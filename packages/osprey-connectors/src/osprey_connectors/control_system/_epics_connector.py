@@ -574,6 +574,18 @@ class _LimitFields(TypedDict):
     writable: bool | None
 
 
+def _ctrl_units(ctrl: object) -> str:
+    """The units of a channel's CTRL-form reading; ``""`` when it reports none as text."""
+    units = getattr(ctrl, "units", "")
+    return units if isinstance(units, str) else ""
+
+
+def _ctrl_precision(ctrl: object) -> int | None:
+    """The display precision of a CTRL-form reading; ``None`` when it reports no integer."""
+    precision = getattr(ctrl, "precision", None)
+    return precision if isinstance(precision, int) and not isinstance(precision, bool) else None
+
+
 def _ca_ctrl_limits(ctrl: object, writable: bool | None) -> _LimitFields:
     """The CTRL limits of a channel and this client's write access, as metadata kwargs.
 
@@ -1416,8 +1428,8 @@ class EPICSConnector(ControlSystemConnector):
             else (None, None)
         )
         metadata = ChannelMetadata(
-            units=getattr(ctrl, "units", "") or "",
-            precision=getattr(ctrl, "precision", None),
+            units=_ctrl_units(ctrl),
+            precision=_ctrl_precision(ctrl),
             alarm_status=_alarm_name(alarm_code),
             alarm_severity=_severity_int(severity),
             timestamp=timestamp,
@@ -1437,8 +1449,8 @@ class EPICSConnector(ControlSystemConnector):
     def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
         """Metadata of a subscribed channel that has delivered control data but no value yet."""
         return ChannelMetadata(
-            units=getattr(ctrl, "units", "") or "",
-            precision=getattr(ctrl, "precision", None),
+            units=_ctrl_units(ctrl),
+            precision=_ctrl_precision(ctrl),
             enum_labels=_enum_label_fields(getattr(ctrl, "enums", None), None)[0],
             **_ca_ctrl_limits(ctrl, writable),
         )

@@ -15,14 +15,14 @@ import pytest
 
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.view import SEEDS_FILE
+from osprey_connectors_tests.test_topoff_shape import _RECORD as RECORD
+from osprey_connectors_tests.test_topoff_shape import _SEEDS as SEEDS
 from osprey_connectors_tests.test_topoff_shape import (
     CEILING,
     CURRENT,
     LEVEL,
     LIFETIME,
     LIFETIME_H,
-    RECORD,
-    SEEDS,
     T0,
     _model,
     _read,

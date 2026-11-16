@@ -118,7 +118,7 @@ async def test_a_lagging_readback_settles_after_its_lag(clock: _Clock) -> None:
 
     await settle(
         connector,
-        [Landing("Q1:SP", "Q1:RB", 2.0, 0.05)],
+        [Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)],
         timeout_s=5.0,
         clock=clock,
         sleep=clock.sleep,
@@ -130,7 +130,10 @@ async def test_a_lagging_readback_settles_after_its_lag(clock: _Clock) -> None:
 
 async def test_a_batch_settles_each_landing_on_its_own(clock: _Clock) -> None:
     connector = _Connector({"Q1:RB": 2.0, "Q2:RB": 1.0}, {"Q1:RB": 2.0, "Q2:RB": 3.0}, lag=2)
-    landings = [Landing("Q1:SP", "Q1:RB", 2.0, 0.05), Landing("Q2:SP", "Q2:RB", 3.0, 0.05)]
+    landings = [
+        Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05),
+        Landing(setpoint="Q2:SP", readback="Q2:RB", demand=3.0, bound=0.05),
+    ]
 
     await settle(connector, landings, timeout_s=5.0, clock=clock, sleep=clock.sleep)
 
@@ -148,7 +151,7 @@ async def test_a_reading_that_is_no_finite_number_never_settles(
     with pytest.raises(SettleTimeoutError) as info:
         await settle(
             connector,
-            [Landing("Q1:SP", "Q1:RB", 2.0, 0.05)],
+            [Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)],
             timeout_s=0.2,
             clock=clock,
             sleep=clock.sleep,
@@ -159,7 +162,7 @@ async def test_a_reading_that_is_no_finite_number_never_settles(
 
 async def test_a_readback_that_answers_no_value_is_a_settle_read_error(clock: _Clock) -> None:
     connector = _Connector({"Q1:RB": None}, {"Q1:RB": None}, lag=0)
-    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+    landing = Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)
 
     with pytest.raises(SettleReadError) as info:
         await settle(connector, [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
@@ -180,7 +183,7 @@ async def test_a_readback_read_that_raises_is_a_settle_read_error(clock: _Clock)
             del address
             raise down
 
-    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+    landing = Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)
 
     with pytest.raises(SettleReadError) as info:
         await settle(_Dead(), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
@@ -206,7 +209,7 @@ class _Raising:
 
 async def test_a_readback_that_is_no_channel_is_a_settle_read_error(clock: _Clock) -> None:
     missing = ChannelNotFoundError("Q1:RB")
-    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+    landing = Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)
 
     with pytest.raises(SettleReadError) as info:
         await settle(_Raising(missing), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
@@ -236,7 +239,7 @@ async def test_anything_but_a_channel_failure_propagates_as_itself(
     clock: _Clock, error: BaseException
 ) -> None:
     """Only a failure about the readback names it; a lost connector says it was lost."""
-    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+    landing = Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)
 
     with pytest.raises(type(error)) as info:
         await settle(_Raising(error), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
@@ -253,7 +256,10 @@ async def test_a_timeout_names_the_readback_the_demand_the_bound_and_the_last_re
     clock: _Clock,
 ) -> None:
     connector = _Connector({"Q1:RB": 2.0, "Q2:RB": 1.5}, {"Q1:RB": 2.0, "Q2:RB": 1.5}, lag=0)
-    landings = [Landing("Q1:SP", "Q1:RB", 2.0, 0.05), Landing("Q2:SP", "Q2:RB", 3.0, 0.05)]
+    landings = [
+        Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05),
+        Landing(setpoint="Q2:SP", readback="Q2:RB", demand=3.0, bound=0.05),
+    ]
 
     with pytest.raises(SettleTimeoutError) as info:
         await settle(connector, landings, timeout_s=1.0, clock=clock, sleep=clock.sleep)
@@ -272,7 +278,7 @@ async def test_a_zero_timeout_raises_without_sleeping(clock: _Clock) -> None:
     with pytest.raises(SettleTimeoutError):
         await settle(
             connector,
-            [Landing("Q1:SP", "Q1:RB", 2.0, 0.05)],
+            [Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)],
             timeout_s=0.0,
             clock=clock,
             sleep=clock.sleep,

@@ -25,6 +25,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    RecoveryRecord,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
@@ -33,7 +34,7 @@ from osprey_connectors.ipc import _frames as frames
 def _round_trip(exc: BaseException) -> BaseException:
     """Encode ``exc`` to a frame body and rebuild it the way the parent would."""
     body = exceptions.encode_exception(exc)
-    assert set(body) == {"class_tag", "message", "fields"}
+    assert set(type(body).model_fields) == {"class_tag", "message", "fields"}
     return exceptions.decode_exception(body)
 
 
@@ -155,12 +156,10 @@ def test_limits_violation_round_trips_every_spec_field():
     )
     body = exceptions.encode_exception(original)
 
-    assert body["class_tag"] == "ChannelLimitsViolationError"
+    assert body.class_tag == "ChannelLimitsViolationError"
     # The wire spells the attribute name, not the constructor keyword.
-    assert set(body["fields"]) == set(
-        exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"].fields
-    )
-    assert body["fields"]["attempted_value"] == 999.0
+    assert set(body.fields) == set(exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"].fields)
+    assert body.fields["attempted_value"] == 999.0
 
     rebuilt = exceptions.decode_exception(body)
 
@@ -202,8 +201,8 @@ def test_write_blocked_round_trips_reason_and_custom_message():
     )
     body = exceptions.encode_exception(original)
 
-    assert body["class_tag"] == "ChannelWriteBlockedError"
-    assert body["fields"] == {
+    assert body.class_tag == "ChannelWriteBlockedError"
+    assert body.fields == {
         "channel_address": "SR:BEND:1:CUR",
         "reason": "WRITES_DISABLED",
         "verdict_reason": None,
@@ -257,7 +256,7 @@ def test_an_unreachable_channel_round_trips_as_itself():
 def test_connector_unavailable_round_trips():
     # The recovery is not a wire field: the parent's supervisor decides it.
     original = ConnectorUnavailableError(
-        "PVA client context is gone", recovery=({"action": "child_replaced", "text": "x"},)
+        "PVA client context is gone", recovery=(RecoveryRecord(action="child_replaced", text="x"),)
     )
     rebuilt = _round_trip(original)
 
@@ -289,8 +288,8 @@ def test_fields_are_read_by_spec_name_not_from_the_instance_dict():
 
     body = exceptions.encode_exception(original)
 
-    assert "internal_handle" not in body["fields"]
-    assert set(body["fields"]) == {"channel_address", "reason", "verdict_reason"}
+    assert "internal_handle" not in body.fields
+    assert set(body.fields) == {"channel_address", "reason", "verdict_reason"}
 
 
 def test_missing_attribute_encodes_as_none_without_raising():
@@ -307,8 +306,8 @@ def test_missing_attribute_encodes_as_none_without_raising():
 
     body = exceptions.encode_exception(original)
 
-    assert body["fields"]["max_step"] is None
-    assert body["fields"]["channel_address"] == "SR:W"
+    assert body.fields["max_step"] is None
+    assert body.fields["channel_address"] == "SR:W"
 
     rebuilt = exceptions.decode_exception(body)
 
@@ -334,11 +333,11 @@ def test_unknown_exception_type_encodes_fail_closed_to_the_contract_fault():
     original = SomeChildOnlyError("libca segfaulted")
     body = exceptions.encode_exception(original)
 
-    assert body["class_tag"] == "ConnectorInternalError"
-    assert body["fields"] == {"class_tag": "SomeChildOnlyError"}
+    assert body.class_tag == "ConnectorInternalError"
+    assert body.fields == {"class_tag": "SomeChildOnlyError"}
     # Fail closed, but never silently: the original repr survives.
-    assert repr(original) in body["message"]
-    assert "libca segfaulted" in body["message"]
+    assert repr(original) in body.message
+    assert "libca segfaulted" in body.message
 
     rebuilt = exceptions.decode_exception(body)
 
@@ -369,7 +368,9 @@ def test_a_subclass_crosses_as_its_nearest_vocabulary_class():
 
 def test_unknown_class_tag_decodes_fail_closed_to_the_contract_fault():
     rebuilt = exceptions.decode_exception(
-        {"class_tag": "WeirdChildError", "message": "original text", "fields": {}}
+        exceptions.ExceptionFrameBody(
+            class_tag="WeirdChildError", message="original text", fields={}
+        )
     )
 
     assert type(rebuilt) is ConnectorInternalError
@@ -380,11 +381,11 @@ def test_unknown_class_tag_decodes_fail_closed_to_the_contract_fault():
 
 def test_unusable_field_set_decodes_fail_closed_to_the_contract_fault():
     rebuilt = exceptions.decode_exception(
-        {
-            "class_tag": "ChannelWriteBlockedError",
-            "message": "refused",
-            "fields": {"channel_address": "SR:Q", "reason": "LIMITS", "bogus": 1},
-        }
+        exceptions.ExceptionFrameBody(
+            class_tag="ChannelWriteBlockedError",
+            message="refused",
+            fields={"channel_address": "SR:Q", "reason": "LIMITS", "bogus": 1},
+        )
     )
 
     assert type(rebuilt) is ConnectorInternalError
@@ -395,17 +396,17 @@ def test_unusable_field_set_decodes_fail_closed_to_the_contract_fault():
 
 def test_an_outcome_word_the_parent_lacks_decodes_fail_closed_to_the_contract_fault():
     rebuilt = exceptions.decode_exception(
-        {
-            "class_tag": "ChannelWriteFailedError",
-            "message": "write not confirmed",
-            "fields": {
+        exceptions.ExceptionFrameBody(
+            class_tag="ChannelWriteFailedError",
+            message="write not confirmed",
+            fields={
                 "channel_address": "SR:Q",
                 "reason": "FAILED",
                 "outcome": "no-such-outcome",
                 "value_written": 1.0,
                 "observed_value": None,
             },
-        }
+        )
     )
 
     assert type(rebuilt) is ConnectorInternalError
@@ -414,11 +415,13 @@ def test_an_outcome_word_the_parent_lacks_decodes_fail_closed_to_the_contract_fa
 
 
 @pytest.mark.parametrize(
-    ("body", "expected"),
-    [({}, ConnectorInternalError), ({"class_tag": "ConnectionError"}, ConnectionError)],
+    ("class_tag", "expected"),
+    [("", ConnectorInternalError), ("ConnectionError", ConnectionError)],
 )
-def test_incomplete_frame_body_still_yields_an_exception(body, expected):
-    rebuilt = exceptions.decode_exception(body)
+def test_an_empty_frame_body_still_yields_an_exception(class_tag, expected):
+    rebuilt = exceptions.decode_exception(
+        exceptions.ExceptionFrameBody(class_tag=class_tag, message="", fields={})
+    )
 
     assert type(rebuilt) is expected
 

@@ -22,7 +22,7 @@ RELEASED_SCHEMA = "osprey.facility.simulator/3"
 
 def _view(tmp_path: Path, schema: str, models: list[dict[str, Any]]) -> SimulatorView:
     (tmp_path / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA}), encoding="utf-8"
+        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), encoding="utf-8"
     )
     (tmp_path / VARIABLES_FILE).write_text(
         json.dumps({"schema": schema, "code": "AR", "models": models, "channels": []}),

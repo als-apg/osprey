@@ -21,7 +21,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "channelfinder"
 CHANNELS = "/resources/channels"
 COUNT = "/resources/channels/count"
 PROPERTIES = "/resources/properties"
-DOWN = Unavailable("no answer within 6 s")
+DOWN = Unavailable(reason="no answer within 6 s")
 
 
 def recorded(name: str) -> Any:
@@ -481,7 +481,7 @@ class TestCount:
         directory, _ = backend(always(total=body))
 
         assert await directory.count(DirectoryQuery(name="DEMO*"), DEADLINE) == Unavailable(
-            "malformed response"
+            reason="malformed response"
         )
 
 
@@ -650,7 +650,7 @@ class TestConstruction:
 
     async def test_a_login_page_reaches_the_page_as_its_reason(self):
         login = Unavailable(
-            "answered with a login page (an access proxy is in front of the service)"
+            reason="answered with a login page (an access proxy is in front of the service)"
         )
         directory, _ = backend(lambda _path, _pairs: login)
 

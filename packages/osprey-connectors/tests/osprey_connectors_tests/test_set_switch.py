@@ -249,9 +249,6 @@ def test_a_call_that_narrows_every_name_it_names_needs_no_epoch(data_root):
         ({"live": "off"}, "off"),
         ({"live": "Allowed"}, "off"),
         ({"live": "asked "}, "off"),
-        ({"live": True}, "off"),
-        ({"live": 1}, "off"),
-        ({"live": None}, "off"),
     ],
     ids=[
         "asked",
@@ -262,9 +259,6 @@ def test_a_call_that_narrows_every_name_it_names_needs_no_epoch(data_root):
         "off-word",
         "capitalised",
         "trailing-space",
-        "bool",
-        "int",
-        "none",
     ],
 )
 def test_switch_position_reads_a_built_record(switch, position):
@@ -737,7 +731,7 @@ _CHILD = """
         mark("read")
         wait(wait_for)
         me = cc.Owner(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
-        cc.write_record(replace(seen, owner=me, generation=seen.generation + 1))
+        cc.write_record(evolve(seen, owner=me, generation=seen.generation + 1))
         print(json.dumps({"confirmed": True}))
 """
 

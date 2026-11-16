@@ -21,7 +21,6 @@ The module imports neither numpy nor lume.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +29,7 @@ from typing_extensions import override
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -187,8 +187,7 @@ def resolve_active_scenarios(names: Sequence[str]) -> list[str]:
     return resolved
 
 
-@dataclass(frozen=True)
-class Overlap:
+class Overlap(FrozenModel):
     """One target written by two scenarios of one set.
 
     Attributes:
@@ -233,15 +232,14 @@ def scenario_targets(scenario: ScenarioRecord) -> set[str]:
         targets of the motion namespace, which :func:`validate_composition`
         reads apart.
     """
-    targets: set[str] = set(scenario.get("overrides") or {})
-    for fault in (scenario.get("faults") or {}).values():
-        targets.update(fault.get("writes") or {})
-    targets.update(str(address) for address in scenario.get("channel_faults") or {})
-    moved = {str(address) for address in scenario.get("couple") or {}}
-    moved.update(str(address) for address in scenario.get("noise") or {})
+    targets: set[str] = set(scenario.overrides)
+    for fault in scenario.faults.values():
+        targets.update(fault.writes)
+    targets.update(scenario.channel_faults)
+    moved = set(scenario.couple) | set(scenario.noise)
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
-    targets.update(_STILLS + str(address) for address in scenario.get("still") or ())
+    targets.update(_STILLS + address for address in scenario.still)
     return targets
 
 

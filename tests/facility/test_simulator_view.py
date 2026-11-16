@@ -725,6 +725,21 @@ def test_a_withdrawn_scenario_is_neither_listed_nor_copied(
     assert {path: path.read_bytes() for path in before} == before
 
 
+def test_the_kept_scenarios_are_written_back_byte_for_byte(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    from osprey.facility.views.simulator import withdraw_scenarios
+
+    render_dir = _render(tmp_path, built_demo, {})
+    view = render_dir / "data/simulator"
+    original = _view(render_dir, SCENARIOS)
+    kept = [entry for entry in original["scenarios"] if entry["name"] != "nominal"]
+
+    withdraw_scenarios(view, ["nominal"])
+
+    assert (render_dir / SCENARIOS).read_bytes() == view_bytes({**original, "scenarios": kept})
+
+
 def test_withdrawing_an_unlisted_scenario_withdraws_nothing(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:

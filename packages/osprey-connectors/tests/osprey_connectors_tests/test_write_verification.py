@@ -4,12 +4,11 @@ Unit tests for the shared write-result type and the protocol-agnostic core.
 The outcome vocabulary itself is pinned in ``test_write_outcome.py`` and the
 comparison rule in ``test_values_match.py``; what is left here is the shape of
 :class:`ChannelWriteResult` — its defaults, its declared types and its survival
-through a dataclass round trip — plus the guard that keeps the shared core free
+through a model round trip — plus the guard that keeps the shared core free
 of any control-system client library.
 """
 
 import ast
-from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any, get_type_hints
 
@@ -23,23 +22,20 @@ from osprey_connectors.errors import RefusalReason
 
 
 class TestChannelWriteResultShape:
-    """The result type every connector returns, pinned at the dataclass."""
+    """The result type every connector returns, pinned at the model."""
 
-    def test_optional_fields_default_to_none_on_the_dataclass(self):
+    def test_optional_fields_default_to_none_on_the_model(self):
         """Only address, value and outcome are required; every other field defaults to None.
 
         A connector states what became of the write and nothing more, so a
         ``refused`` result carries no observed value and a ``confirmed`` one
         carries no message.
         """
-        required = {
-            f.name
-            for f in fields(ChannelWriteResult)
-            if f.default is MISSING and f.default_factory is MISSING
-        }
+        model_fields = ChannelWriteResult.model_fields
+        required = {name for name, spec in model_fields.items() if spec.is_required()}
         assert required == {"channel_address", "value_written", "outcome"}
 
-        defaults = {f.name: f.default for f in fields(ChannelWriteResult)}
+        defaults = {name: spec.default for name, spec in model_fields.items()}
 
         assert defaults["refusal_reason"] is None
         assert defaults["error_message"] is None
@@ -87,8 +83,8 @@ class TestChannelWriteResultShape:
         assert reported.alarm_severity is not None
         assert absent.alarm_severity is None
 
-    def test_full_field_set_round_trips_through_asdict(self):
-        """Every field survives a dataclass -> dict -> dataclass round trip."""
+    def test_full_field_set_round_trips_through_model_dump(self):
+        """Every field survives a model -> dict -> model round trip."""
         original = ChannelWriteResult(
             channel_address="TEST:CHANNEL",
             value_written=100.0,
@@ -101,10 +97,10 @@ class TestChannelWriteResultShape:
             notes="observed 95.0, sent 100.0",
         )
 
-        restored = ChannelWriteResult(**asdict(original))
+        restored = ChannelWriteResult(**original.model_dump())
 
         assert restored == original
-        assert asdict(restored) == asdict(original)
+        assert restored.model_dump() == original.model_dump()
         assert restored.outcome is WriteOutcome.MISMATCH
 
     def test_observed_number_narrows_only_what_is_a_number(self):

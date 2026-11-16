@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
+from pydantic import BaseModel
+
 from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, LOGBOOK_SERVICE, source_label
 
 try:
@@ -152,13 +154,14 @@ def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
 
 
 def as_payload(result: Any) -> Any:
-    """*result*, a contract dataclass or a container of them, as plain JSON values.
+    """*result*, a contract record or a container of them, as plain JSON values.
 
     A ``Source`` becomes ``{target, service, label, rehearsal}``, its label named
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
     row, a put row and an alarm-state row name their fields by :data:`SERVED_FIELD`. Other
-    dataclasses become mappings field by field, enum members their values,
-    mappings and sequences their JSON forms; anything else is returned as it is.
+    records (pydantic models, and dataclasses) become mappings field by field, enum
+    members their values, mappings and sequences their JSON forms; anything else is
+    returned as it is.
     """
     if Source is not None and isinstance(result, Source):
         return {
@@ -167,6 +170,9 @@ def as_payload(result: Any) -> Any:
             "label": source_label(result.kind, result.service),
             "rehearsal": result.rehearsal,
         }
+    if isinstance(result, BaseModel):
+        names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
+        return {names.get(name, name): as_payload(value) for name, value in result}
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         names = SERVED_FIELD if isinstance(result, _SERVED_RECORDS) else {}
         return {

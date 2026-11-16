@@ -1623,20 +1623,22 @@ def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", targe
     from osprey_connectors.control_context import RECORD_FILENAME
 
     request = wa._parse_request(
-        {
-            "schema": 1,
-            "id": uuid.uuid4().hex,
-            "owner": owner,
-            "holder": holder,
-            "target": target,
-            "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
-            "steps": 4,
-            "requested_at_ns": time.time_ns(),
-            "expires_at_ns": time.time_ns() + 3600 * 10**9,
-            "lease_s": 30.0,
-            "label": "run-7",
-            "completion": "apply_best",
-        }
+        json.dumps(
+            {
+                "schema": 1,
+                "id": uuid.uuid4().hex,
+                "owner": owner,
+                "holder": holder,
+                "target": target,
+                "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
+                "steps": 4,
+                "requested_at_ns": time.time_ns(),
+                "expires_at_ns": time.time_ns() + 3600 * 10**9,
+                "lease_s": 30.0,
+                "label": "run-7",
+                "completion": "apply_best",
+            }
+        )
     )
     record = control_target_identity_dir({}, repo, owner) / RECORD_FILENAME
     return wa.approve_request(request, surface="cli", record_file=record, peers=(), approver=owner)

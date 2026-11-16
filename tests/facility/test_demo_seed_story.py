@@ -15,6 +15,7 @@ from typing import Any
 
 from osprey.facility.sources import read_yaml
 from osprey_connectors.simulation import topoff
+from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
 
 TREE = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -45,10 +46,10 @@ def test_the_stored_current_is_a_top_off_sawtooth_about_500_ma() -> None:
     assert "nominal" not in seed
     record = seed["topoff"]
     assert channels()[DCCT]["unit"] == "mA"
-    held = topoff.held_value(seed)
+    held = topoff.held_value(SeedRecord.model_validate(seed))
     assert held is not None
     assert 499.5 < held < 500.0
-    tau, period = topoff.tau_period(record)
+    tau, period = topoff.tau_period(TopoffRecord.model_validate(record))
     sawtooth = record["ceiling"] * (1 - math.exp(-(period - 1e-6) / tau))
     assert 0.5 < sawtooth < 0.7
 
@@ -64,7 +65,8 @@ def test_the_lifetime_reads_the_decay_time_of_the_stored_current() -> None:
     seed = every[LIFETIME]
     assert seed == {"topoff_lifetime": {"of": DCCT}}
     assert channels()[LIFETIME]["unit"] == "h"
-    assert topoff.held_value(seed, every.get) == every[DCCT]["topoff"]["lifetime_h"]
+    records = {address: SeedRecord.model_validate(stated) for address, stated in every.items()}
+    assert topoff.held_value(records[LIFETIME], records.get) == every[DCCT]["topoff"]["lifetime_h"]
 
 
 def test_the_booster_carries_booster_scale_current() -> None:

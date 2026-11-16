@@ -58,7 +58,7 @@ import logging
 import os
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Generic, TypeAlias, TypeVar
 
@@ -88,6 +88,7 @@ from osprey_connectors.control_context import (
     unchanged_detail,
     write_record,
 )
+from osprey_connectors.model import evolve
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +287,8 @@ class ControlContextOwner:
             return mutation.result
 
         try:
-            write_record(replace(mutation.record, owner=self._identity), path=path)
+            owned = evolve(mutation.record, owner=self._identity)
+            write_record(owned, path=path)
         except Exception as exc:  # reported to the operator as a 503
             logger.warning(
                 "Could not write the control-context record to %s; nothing was changed",

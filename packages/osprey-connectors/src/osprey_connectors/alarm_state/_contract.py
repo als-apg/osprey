@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import Literal
 
+from pydantic import SerializerFunctionWrapHandler, model_serializer
+
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import Unavailable, _Backend
 
 _SEVERITY_RANK = {"OK": 0, "MINOR": 1, "MAJOR": 2, "INVALID": 3, "UNDEFINED": 4}
@@ -22,8 +24,7 @@ def severity_rank(severity: object) -> int:
     return _SEVERITY_RANK.get(severity, unknown) if isinstance(severity, str) else unknown
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlarmStateRecord:
+class AlarmStateRecord(FrozenModel):
     """What one PV's alarm is now. The backend alone sets ``stale``; others pass it on."""
 
     severity: str | None = None
@@ -35,8 +36,7 @@ class AlarmStateRecord:
     stale: bool = False
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlarmStateRow:
+class AlarmStateRow(FrozenModel):
     """One channel the feed holds a state for.
 
     ``channel`` is the channel address; ``path`` is the alarm-tree place the state
@@ -49,32 +49,37 @@ class AlarmStateRow:
     state: AlarmStateRecord
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlarmStates:
+class AlarmStates(FrozenModel):
     """Every channel's alarm state now, and the counts per severity.
 
     ``counts`` is derived from the rows' severities, ``OK`` included and a ``None``
     severity not counted, so it cannot disagree with them. ``last_contact`` is the
     ISO-8601 UTC time the backend last heard from the feed (a message or an offset
-    check), ``None`` when it never has; ``stale`` is the backend's flag.
+    check), ``None`` when it never has; ``stale`` is the backend's flag. ``counts``
+    is derived, never passed, and is part of the record's dump.
     """
 
     rows: tuple[AlarmStateRow, ...]
     stale: bool
     last_contact: str | None
-    counts: Mapping[str, int] = field(init=False, hash=False)
 
-    def __post_init__(self) -> None:
+    @property
+    def counts(self) -> Mapping[str, int]:
+        """The rows per severity, by severity name."""
         counts: dict[str, int] = {}
         for row in self.rows:
             severity = row.state.severity
             if severity is not None:
                 counts[severity] = counts.get(severity, 0) + 1
-        object.__setattr__(self, "counts", dict(sorted(counts.items())))
+        return dict(sorted(counts.items()))
+
+    @model_serializer(mode="wrap")
+    def _dump_with_counts(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        dumped: dict[str, object] = handler(self)
+        return {**dumped, "counts": self.counts}
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlarmConfigRecord:
+class AlarmConfigRecord(FrozenModel):
     """One PV's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
@@ -90,8 +95,8 @@ class AlarmState(_Backend, ABC):
 
     :meth:`start` begins whatever feeds the snapshot and :meth:`aclose` ends it;
     both are idempotent. Until the feed has caught up, reads answer
-    ``Unavailable("alarm feed still loading")``, and once caught up with no
-    message at all, ``Unavailable("no message from the feed yet")``: never a
+    ``Unavailable(reason="alarm feed still loading")``, and once caught up with no
+    message at all, ``Unavailable(reason="no message from the feed yet")``: never a
     clear state and never ``in_tree: "no"``. A read of a started feed waits for
     catch-up up to its deadline and only then answers ``alarm feed still
     loading``; a feed that already knows its answer, unreachable or unbuildable,

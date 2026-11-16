@@ -27,7 +27,9 @@ with its channel, so a public failure needs no registry entry of its own.
 """
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING
+
+from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -444,7 +446,7 @@ class ChannelUnreachableError(ChannelError):
         super().__init__(channel_address, message or f"{channel_address} did not answer")
 
 
-class RecoveryRecord(TypedDict):
+class RecoveryRecord(FrozenModel):
     """One thing a supervisor did about a failure, as a failure's ``recovery`` carries it.
 
     ``action`` is the word naming the step
@@ -462,7 +464,7 @@ class ConnectorUnavailableError(ConnectionError):
     Every channel it serves fails alike until it is replaced, and the
     supervisor that owns the connector's lifetime replaces it at most once per
     instance. ``recovery`` is what that supervisor did, one
-    ``{"action", "text"}`` record per step, set by the supervisor and by
+    :class:`RecoveryRecord` per step, set by the supervisor and by
     nothing else; it is empty until a supervisor has acted.
     """
 

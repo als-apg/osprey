@@ -359,7 +359,7 @@ def _variables(view: Path, value_types: dict[str, str]) -> None:
         )
         for address, value_type in value_types.items()
     ]
-    document = {"schema": VARIABLES_SCHEMA, "code": "demo", "channels": channels}
+    document = {"schema": VARIABLES_SCHEMA, "code": "demo", "models": [], "channels": channels}
     (view / "variables.json").write_text(json.dumps(document), encoding="utf-8")
 
 

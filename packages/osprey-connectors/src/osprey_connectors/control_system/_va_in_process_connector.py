@@ -50,8 +50,9 @@ import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, TypeAlias
 
+from pydantic import ConfigDict
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
@@ -71,6 +72,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
@@ -217,12 +219,22 @@ def active_set_sha256(active: Sequence[str]) -> str:
 _JOURNAL_FILE_MODE = 0o600
 
 
-class _JournalDocument(TypedDict):
-    """A session-writes journal: what :func:`_is_journal` admits."""
+class _JournalDocument(FrozenModel):
+    """A session-writes journal, as the file holds it.
 
-    active_set_sha256: NotRequired[object]
+    A document with an integer ``seq`` and a list of ``writes`` is a journal,
+    whatever else it carries: a key the reader does not use is ignored, as it
+    always has been. Each write is checked on its own when the journal is
+    replayed (:func:`_journal_entry`), so one malformed write rejects the
+    journal rather than making it no journal at all. An absent
+    ``active_set_sha256`` matches no active set, as ``None`` does.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    active_set_sha256: ContractAny = None
     seq: int
-    writes: list[object]
+    writes: list[ContractAny]
 
 
 #: One journalled write, ``[seq, address, value]``.
@@ -246,15 +258,20 @@ class _Journal:
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def read(self) -> tuple[object, str]:
-        """The parsed document and its text; ``(None, "")`` when there is none."""
+    def read(self) -> tuple[_JournalDocument | None, str]:
+        """The journal and its text; ``None`` for a file that is not a journal.
+
+        ``(None, "")`` when there is no file.
+        """
         try:
             text = self.path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None, ""
         try:
-            return json.loads(text), text
+            return _JournalDocument.model_validate(json.loads(text)), text
         except ValueError:
+            # Not JSON (an over-long integer included), or JSON that is not a
+            # journal: a ValidationError is a ValueError.
             return None, text
 
     def stamp(self) -> tuple[int, int, int] | None:
@@ -274,19 +291,6 @@ class _Journal:
         )
 
 
-def _seq(document: object) -> int | None:
-    """A journal document's ``seq``, or ``None`` when it is not a journal."""
-    if not isinstance(document, dict) or not isinstance(document.get("writes"), list):
-        return None
-    seq = document.get("seq")
-    return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
-
-
-def _is_journal(document: object) -> TypeGuard[_JournalDocument]:
-    """Whether ``document`` is a journal: :func:`_seq` finds its ``seq``."""
-    return _seq(document) is not None
-
-
 def _journal_entry(entry: object) -> _JournalEntry | None:
     """One journalled ``[seq, address, value]`` write, or ``None`` when it is malformed."""
     if not isinstance(entry, list) or len(entry) != 3:
@@ -297,10 +301,9 @@ def _journal_entry(entry: object) -> _JournalEntry | None:
     return seq_no, address, value
 
 
-def _mark(document: object, text: str) -> int | str:
+def _mark(document: _JournalDocument | None, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
-    seq = _seq(document)
-    return (text or 0) if seq is None else seq
+    return (text or 0) if document is None else document.seq
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -365,7 +368,7 @@ class VAInProcessConnector(ControlSystemConnector):
         state_dir = simulation_state_dir(view.path)
         try:
             self._records = {
-                str(entry["address"]): entry for entry in view.document(VARIABLES_FILE)["channels"]
+                entry.address: entry for entry in view.document(VARIABLES_FILE).channels
             }
             self._channels = frozenset(view.channels())
             self._served = (
@@ -451,7 +454,7 @@ class VAInProcessConnector(ControlSystemConnector):
         if mark == self._journal_mark:
             return
         self._journal_mark = mark
-        self._replay(document if _is_journal(document) else None, text)
+        self._replay(document, text)
 
     def _state_stamp(self) -> int | None:
         """The ``active_scenarios`` file's mtime, ``None`` when there is none."""
@@ -472,7 +475,7 @@ class VAInProcessConnector(ControlSystemConnector):
             if text:
                 self._reject(JOURNAL_FILE, "not a journal")
             return
-        writes = document["writes"]
+        writes = document.writes
         if not writes:
             return
         rejection = self._rejection(document)
@@ -504,24 +507,23 @@ class VAInProcessConnector(ControlSystemConnector):
     def _rejection(self, document: _JournalDocument) -> tuple[str, str] | None:
         """The first address and reason that keep a journal from being replayed."""
         entries: list[_JournalEntry] = []
-        for entry in document["writes"]:
+        for entry in document.writes:
             parsed = _journal_entry(entry)
             if parsed is None:
                 return JOURNAL_FILE, f"malformed entry {entry!r}"
             entries.append(parsed)
-        if document.get("active_set_sha256") != self._active_sha:
+        if document.active_set_sha256 != self._active_sha:
             return entries[0][1], "written under another active scenario set"
         for _seq_no, address, value in entries:
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
-            if record.get("role") != SETPOINT:
+            if record.role != SETPOINT:
                 return address, "not a setpoint"
-            if record.get("writable") is not True:
+            if not record.writable:
                 return address, NOT_WRITABLE
-            # Read from the view's JSON, not trusted to its record type: a null
-            # side is unbounded, as the simulator's texture reads the band.
-            band: Sequence[float | None] | None = record.get("value_range")
+            # A null side is unbounded, as the simulator's texture reads the band.
+            band = record.value_range
             if band:
                 low, high = band
                 number = value if isinstance(value, int | float) else None
@@ -540,11 +542,11 @@ class VAInProcessConnector(ControlSystemConnector):
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
-            seq = _seq(document)
+            seq = None if document is None else document.seq
             synced = seq == self._journal_mark or (seq is None and self._journal_mark == 0)
             writes: list[object] = []
-            if _is_journal(document) and document.get("active_set_sha256") == self._active_sha:
-                writes = list(document["writes"])
+            if document is not None and document.active_set_sha256 == self._active_sha:
+                writes = list(document.writes)
             seq = (seq or 0) + 1
             writes.append([seq, address, value])
             self._journal.write(
@@ -566,13 +568,13 @@ class VAInProcessConnector(ControlSystemConnector):
             document, text = self._journal.read()
             if (
                 unless_current
-                and _is_journal(document)
-                and document.get("active_set_sha256") == self._active_sha
+                and document is not None
+                and document.active_set_sha256 == self._active_sha
             ):
                 return False
             if unless_moved and _mark(document, text) != self._journal_mark:
                 return False
-            seq = (_seq(document) or 0) + 1
+            seq = (0 if document is None else document.seq) + 1
             self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})
         self._journal_mark = seq
         self._journal_seen = None
@@ -611,7 +613,7 @@ class VAInProcessConnector(ControlSystemConnector):
         record = self._records.get(address)
         if record is None:
             return value
-        value_type = record.get("value_type")
+        value_type = record.value_type
         if value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
@@ -620,7 +622,7 @@ class VAInProcessConnector(ControlSystemConnector):
         if value_type == "waveform":
             import numpy as np
 
-            shape = tuple(int(size) for size in record.get("shape") or ())
+            shape = record.shape or ()
             return np.asarray(value, dtype=np.float64).reshape(shape or (-1,))
         return value
 
@@ -628,17 +630,17 @@ class VAInProcessConnector(ControlSystemConnector):
         """Metadata from the channel record, alarm from the composite's severity."""
         record = self._records.get(address)
         variable = composite.supported_variables[address]
-        unit = getattr(variable, "unit", None) or (record and record.get("unit")) or ""
+        unit = getattr(variable, "unit", None) or (record and record.unit) or ""
         severity = composite.output_severity([address])
         labels: list[str] | None = None
-        if record is not None and record.get("value_type") in LABELLED_TYPES:
+        if record is not None and record.value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             labels = values.channel_labels(record)
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),
-            description=None if record is None else record.get("description"),
+            description=None if record is None else record.description,
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,
             enum_labels=labels,
@@ -742,9 +744,7 @@ class VAInProcessConnector(ControlSystemConnector):
         record = self._records[address]
         if hasattr(value, "tolist"):
             value = value.tolist()
-        return values.coerce(
-            value, record.get("value_type"), record.get("options"), record.get("shape")
-        )
+        return values.coerce(value, record.value_type, record.options, record.shape)
 
     @override
     def _write_precheck(

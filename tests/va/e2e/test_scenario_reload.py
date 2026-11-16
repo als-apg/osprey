@@ -30,9 +30,9 @@ from tests.va.e2e import conftest as e2e_conftest
 #: is :data:`VAC_SEED_V`; the readback carries the seed's noise.
 VAC_WRITABLE_SP = e2e_conftest.TEXTURE_ECHO_SETPOINT
 VAC_WRITABLE_RB = e2e_conftest.TEXTURE_ECHO_READBACK
-VAC_SEED_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_SP)["nominal"])
+VAC_SEED_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_SP).nominal)
 #: The readback's seed noise, one standard deviation.
-VAC_RB_NOISE_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_RB)["noise"]["absolute"])
+VAC_RB_NOISE_V = float(e2e_conftest.PRESET_VIEW.seed(VAC_WRITABLE_RB).noise.absolute)
 #: Far below the seed, outside any readback noise bound, so a readback that
 #: kept the session write cannot pass for one back at its seed.
 SESSION_WRITE_VALUE = 3000.0
@@ -46,7 +46,7 @@ NOISE_BOUND_SIGMA = 6.0
 RELOAD_WAIT_BOUND_S = 10.0
 #: The burst gauge's seed and a threshold far above its seed noise and far
 #: below the burst override.
-BASELINE_PRESSURE = float(e2e_conftest.PRESET_VIEW.seed(e2e_conftest.BURST_CHANNEL)["nominal"])
+BASELINE_PRESSURE = float(e2e_conftest.PRESET_VIEW.seed(e2e_conftest.BURST_CHANNEL).nominal)
 BURST_THRESHOLD = 1e-6
 
 #: Floor for this module's own test count -- a guard against a refactor that

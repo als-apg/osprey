@@ -79,8 +79,10 @@ from osprey_connectors.simulation.archive import (
     seed_fingerprint,
     tier_expiry,
 )
+from osprey_connectors.simulation.records import ArchiverEvent
 from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._archive_composites import archives_closed
+from tests._archiver_events import events as view_events
 from tests._container_support import is_docker_available
 from tests._live import wait_until
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
@@ -209,11 +211,11 @@ def _cavity_trip() -> dict:
     }
 
 
-def _script(scenario: dict, channel: str) -> list[dict]:
-    """One channel's event script out of a scenario bundle."""
+def _script(scenario: dict, channel: str) -> list[ArchiverEvent]:
+    """One channel's event script out of a scenario bundle, as the view's records."""
     for entry in scenario["archiver"]:
         if entry["channel"] == channel:
-            return entry["events"]
+            return view_events(entry["events"])
     raise AssertionError(f"{channel} is not in this scenario")
 
 

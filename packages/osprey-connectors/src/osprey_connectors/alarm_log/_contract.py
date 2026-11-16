@@ -8,16 +8,15 @@ alarm tree's, from :mod:`osprey_connectors.alarm_state`.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlarmHistoryRow:
+class AlarmHistoryRow(FrozenModel):
     """One logged alarm event, as the logger recorded it."""
 
     time: str | None = None

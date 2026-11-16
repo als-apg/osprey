@@ -1053,41 +1053,41 @@ class TestResolveConfirm:
 
 
 # ---------------------------------------------------------------------------
-# _validate_channel_config
+# _channel_limits
 # ---------------------------------------------------------------------------
 
 
 class TestValidateChannelConfig:
     def test_unknown_field_raises_and_names_the_key(self):
         with pytest.raises(ValueError, match="bogus_field"):
-            LimitsValidator._validate_channel_config("FOO", {"bogus_field": 1})
+            LimitsValidator._channel_limits("FOO", {"bogus_field": 1})
 
     def test_underscore_prefixed_metadata_is_accepted(self):
         # Any '_'-prefixed key is documentation, not a closed set of four.
-        LimitsValidator._validate_channel_config(
-            "FOO", {"max_value": 1.0, "_units": "mA", "_owner": "APG"}
+        LimitsValidator._channel_limits(
+            "FOO", {"writable": True, "max_value": 1.0, "_units": "mA", "_owner": "APG"}
         )
 
     def test_retired_verification_block_raises_with_the_migration_message(self):
         with pytest.raises(ValueError) as exc:
-            LimitsValidator._validate_channel_config("FOO", {"verification": {"level": "none"}})
+            LimitsValidator._channel_limits("FOO", {"verification": {"level": "none"}})
 
         assert "'verification' was replaced by 'confirm: true|false'" in str(exc.value)
 
     def test_non_numeric_bound_raises(self):
         with pytest.raises(ValueError, match="must be numeric"):
-            LimitsValidator._validate_channel_config("FOO", {"writable": True, "min_value": "low"})
+            LimitsValidator._channel_limits("FOO", {"writable": True, "min_value": "low"})
 
     def test_non_bool_writable_raises(self):
         with pytest.raises(ValueError, match="must be boolean"):
-            LimitsValidator._validate_channel_config("FOO", {"writable": "yes"})
+            LimitsValidator._channel_limits("FOO", {"writable": "yes"})
 
     def test_non_bool_confirm_raises(self):
         with pytest.raises(ValueError, match="'confirm' must be boolean"):
-            LimitsValidator._validate_channel_config("FOO", {"writable": True, "confirm": "yes"})
+            LimitsValidator._channel_limits("FOO", {"writable": True, "confirm": "yes"})
 
     def test_bool_confirm_is_accepted(self):
-        LimitsValidator._validate_channel_config("FOO", {"writable": True, "confirm": False})
+        LimitsValidator._channel_limits("FOO", {"writable": True, "confirm": False})
 
 
 # ---------------------------------------------------------------------------

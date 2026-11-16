@@ -105,12 +105,12 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(self.fail)
+            return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
     async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail or name in self.failing:
-            return Unavailable(self.fail or "connection refused")
+            return Unavailable(reason=self.fail or "connection refused")
         return self.records.get(name, Outcome.NOT_LISTED)
 
 
@@ -119,7 +119,7 @@ class FakePutLog(FakeBackend):
 
     async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
         if pv in self.failing:
-            return Unavailable("put log did not answer")
+            return Unavailable(reason="put log did not answer")
         return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])
 
 

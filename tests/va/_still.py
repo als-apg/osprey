@@ -25,7 +25,7 @@ def assert_readings_still(view: Any, addresses: Iterable[str], active: Sequence[
         addresses: The readings the lane compares.
         active: The active scenario names, in order; ``still`` must be one.
     """
-    names = {str(scenario["name"]) for scenario in view.scenarios()}
+    names = {scenario.name for scenario in view.scenarios()}
     assert STILL_SCENARIO in names, (
         f"the view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
     )

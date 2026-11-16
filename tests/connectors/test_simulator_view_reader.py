@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility import TEXTURE
+from osprey_connectors.simulation.records import ScenarioRecord, SeedRecord, WiringRecord
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ENGINE_ROLES,
@@ -111,13 +112,15 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     seeds = _raw(demo_view, "seeds.json")["seeds"]
     seeded = next(iter(seeds))
     assert view.seed(seeded) is not None
-    assert dict(view.seed(seeded) or {}).keys() == seeds[seeded].keys()
+    seed = view.seed(seeded)
+    assert seed is not None
+    assert seed.model_dump(exclude_unset=True).keys() == seeds[seeded].keys()
     assert view.seed("NO:SUCH:ADDRESS") is None
-    assert [scenario["name"] for scenario in view.scenarios()] == [
+    assert [scenario.name for scenario in view.scenarios()] == [
         s["name"] for s in _raw(demo_view, "scenarios.json")["scenarios"]
     ]
     assert view.scenario_dir("nominal") == demo_view / SCENARIOS_DIR / "nominal"
-    assert view.document(VARIABLES_FILE)["schema"] == variables["schema"]
+    assert view.document(VARIABLES_FILE).schema_id == variables["schema"]
 
 
 def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
@@ -126,11 +129,17 @@ def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
     from osprey_connectors.simulation.envelope import active_envelopes, motion_envelope
 
     view = SimulatorView.open(demo_view)
-    seeds = _raw(demo_view, "seeds.json")["seeds"]
-    scenarios = {entry["name"]: entry for entry in _raw(demo_view, "scenarios.json")["scenarios"]}
-    noisy = next(address for address, seed in sorted(seeds.items()) if seed.get("drift"))
+    seeds = {
+        address: SeedRecord.model_validate(seed)
+        for address, seed in _raw(demo_view, "seeds.json")["seeds"].items()
+    }
+    scenarios = {
+        entry["name"]: ScenarioRecord.model_validate(entry)
+        for entry in _raw(demo_view, "scenarios.json")["scenarios"]
+    }
+    noisy = next(address for address, seed in sorted(seeds.items()) if seed.drift)
     live = active_envelopes(seeds, scenarios, ["rf-thermal-live"])
-    replaced = sorted(scenarios["rf-thermal-live"]["noise"])[0]
+    replaced = sorted(scenarios["rf-thermal-live"].noise)[0]
 
     assert view.motion_envelope(noisy) == motion_envelope(seeds[noisy]) > 0.0
     assert view.motion_envelope("NO:SUCH:CHANNEL") == 0.0
@@ -186,7 +195,8 @@ def test_a_variables_file_of_another_schema_asks_for_a_rebuild(
 
 def test_a_wiring_record_without_its_description_asks_for_a_rebuild() -> None:
     with pytest.raises(ViewSchemaError, match="rebuild"):
-        Binding.from_record("SR", {"id": "SR/A", "address": "A", "direction": "read"})
+        record = WiringRecord(id="SR/A", address="A", direction="read")
+        Binding.from_record("SR", record)
 
 
 def test_a_missing_view_is_no_view_and_find_says_none(tmp_path: Path) -> None:
@@ -218,7 +228,18 @@ def test_a_repo_and_its_render_open_the_same_view(built_demo: BuiltProject) -> N
     assert of_repo.channels() == of_render.channels()
 
 
-def test_the_reader_adds_only_the_standard_library_and_loads_no_model() -> None:
+#: What the reader imports beyond the standard library: pydantic, which its
+#: document models are built on, and pydantic's own dependencies.
+_READER_DEPENDENCIES = (
+    "pydantic",
+    "pydantic_core",
+    "typing_extensions",
+    "typing_inspection",
+    "annotated_types",
+)
+
+
+def test_the_reader_adds_only_pydantic_and_loads_no_model() -> None:
     probe = (
         "import json, sys\n"
         "import osprey_connectors.simulation\n"
@@ -227,6 +248,8 @@ def test_the_reader_adds_only_the_standard_library_and_loads_no_model() -> None:
         "added = sorted(\n"
         "    name for name in set(sys.modules) - before\n"
         "    if name.split('.')[0] not in sys.stdlib_module_names\n"
+        "    and not name.startswith('_sysconfigdata')\n"
+        f"    and name.split('.')[0] not in {_READER_DEPENDENCIES!r}\n"
         "    and name.split('.')[0] != 'osprey_connectors'\n"
         ")\n"
         "roots = {name.split('.')[0] for name in sys.modules}\n"

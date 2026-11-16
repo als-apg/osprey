@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
@@ -33,7 +34,7 @@ class TestChannelLimitsConfig:
 
     def test_writable_has_no_default(self):
         """A record states its own writability; none is assumed for it."""
-        with pytest.raises(TypeError, match="writable"):
+        with pytest.raises(ValidationError, match="writable"):
             ChannelLimitsConfig(channel_address="TEST:PV")
 
         config = ChannelLimitsConfig(channel_address="TEST:PV", writable=False)

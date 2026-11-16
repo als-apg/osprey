@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +40,7 @@ from osprey.interfaces.web_terminal.control_context_owner import (
 )
 from osprey_connectors import control_context
 from osprey_connectors.control_context import ControlContext, Owner
+from osprey_connectors.model import evolve
 
 TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=4242, port=8080)
 OTHER_TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=9999, port=8090)
@@ -90,7 +90,7 @@ def read(path: Path) -> ControlContext | None:
 
 async def test_the_returned_record_is_written(context_owner, record_file):
     def mark(record):
-        return Mutation(record=replace(record, last_switch=dict(MARK)), result=None)
+        return Mutation(record=evolve(record, last_switch=dict(MARK)), result=None)
 
     await context_owner.mutate_record(mark)
 
@@ -103,7 +103,7 @@ async def test_the_returned_record_is_written(context_owner, record_file):
 
 async def test_the_mutation_result_reaches_the_caller(context_owner):
     def switch(record):
-        return Mutation(record=replace(record, target="va", generation=4), result="applied")
+        return Mutation(record=evolve(record, target="va", generation=4), result="applied")
 
     assert await context_owner.mutate_record(switch) == "applied"
 
@@ -122,7 +122,7 @@ async def test_the_owner_is_reasserted_on_every_write(context_owner, record_file
     """A caller cannot hand ownership away by accident, or drop it entirely."""
 
     def careless(record):
-        return Mutation(record=replace(record, owner=SERVER, target="va"), result=None)
+        return Mutation(record=evolve(record, owner=SERVER, target="va"), result=None)
 
     await context_owner.mutate_record(careless)
 
@@ -187,7 +187,7 @@ async def test_a_mutation_keeps_the_switch_the_gesture_wrote(context_owner, reco
     switched = _turn_on(record_file, "standin")
 
     def move(record):
-        return Mutation(record=replace(record, target="va", generation=4), result=None)
+        return Mutation(record=evolve(record, target="va", generation=4), result=None)
 
     await context_owner.mutate_record(move)
 
@@ -314,7 +314,7 @@ async def test_a_failed_write_is_store_unavailable(context_owner, record_file, m
 
     with pytest.raises(ContextStoreUnavailable) as caught:
         await context_owner.mutate_record(
-            lambda record: Mutation(record=replace(record, target="va"), result=None)
+            lambda record: Mutation(record=evolve(record, target="va"), result=None)
         )
 
     assert caught.value.error == "store_write_failed"
@@ -335,7 +335,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
     )
 
     await context_owner.mutate_record(
-        lambda record: Mutation(record=replace(record, target="standin"), result=None)
+        lambda record: Mutation(record=evolve(record, target="standin"), result=None)
     )
 
     stored = read(path)
@@ -387,12 +387,12 @@ async def test_both_changes_land_when_the_pool_is_blocked_mid_job(context_owner,
     def mark(record):
         entered.set()
         assert release.wait(5), "the first job was never released"
-        return Mutation(record=replace(record, last_switch=dict(MARK)), result="first")
+        return Mutation(record=evolve(record, last_switch=dict(MARK)), result="first")
 
     def bump(record):
         second_entered.set()
         second_saw.append(record)
-        return Mutation(record=replace(record, generation=record.generation + 1), result="second")
+        return Mutation(record=evolve(record, generation=record.generation + 1), result="second")
 
     first = asyncio.create_task(context_owner.mutate_record(mark))
     await _until(entered.is_set)

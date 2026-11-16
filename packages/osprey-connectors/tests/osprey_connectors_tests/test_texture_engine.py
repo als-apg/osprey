@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -17,9 +18,41 @@ from lume.variables import (
 )
 
 from osprey_connectors.simulation import pulse, series
+from osprey_connectors.simulation.records import (
+    NoiseRecord,
+    ResolvedCoupling,
+    SeedsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.texture import TextureModel
 
 T0 = 1_760_000_000.0
+
+
+def _texture(
+    variables: dict[str, object], seeds: dict[str, object], **kwargs: Callable[[], float]
+) -> TextureModel:
+    """The texture model of a view's ``variables.json`` and ``seeds.json`` documents."""
+    return TextureModel(
+        VariablesDocument.model_validate(variables), SeedsDocument.model_validate(seeds), **kwargs
+    )
+
+
+def _set_motion(
+    model: TextureModel,
+    couple: dict[str, list[dict[str, object]]],
+    noise: dict[str, dict[str, object]],
+    **kwargs: frozenset[str],
+) -> None:
+    """Hold couplings and noise records, each stated as the view states it."""
+    model.set_motion(
+        {
+            address: [ResolvedCoupling.model_validate(term) for term in terms]
+            for address, terms in couple.items()
+        },
+        {address: NoiseRecord.model_validate(record) for address, record in noise.items()},
+        **kwargs,
+    )
 
 
 def _channel(address: str, **fields: Any) -> dict[str, Any]:
@@ -34,6 +67,7 @@ def _channel(address: str, **fields: Any) -> dict[str, Any]:
         "writable": fields.pop("writable", False),
         "value_range": fields.pop("value_range", None),
         "owner": fields.pop("owner", "texture"),
+        "on": fields.pop("on", None),
         **fields,
     }
 
@@ -106,7 +140,7 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _model(t_s: float = T0) -> TextureModel:
     variables, seeds = _view()
-    return TextureModel(variables, seeds, clock=lambda: t_s)
+    return _texture(variables, seeds, clock=lambda: t_s)
 
 
 def test_noise_is_keyed_on_address_and_epoch_ms():
@@ -152,7 +186,7 @@ def test_an_int_clamp_side_reads_as_a_float():
     variables["channels"].append(_channel("T:INT:CLAMPED"))
     seeds["seeds"]["T:INT:CLAMPED"] = {"nominal": 3.0, "noise": {"absolute": 5.0}, "clamp": [0, 1]}
     reads = [
-        TextureModel(variables, seeds, clock=lambda t=T0 + k * 0.137: t).get("T:INT:CLAMPED")
+        _texture(variables, seeds, clock=lambda t=T0 + k * 0.137: t).get("T:INT:CLAMPED")
         for k in range(50)
     ]
 
@@ -189,7 +223,7 @@ def test_a_refused_echo_leaves_the_setpoint_unchanged():
         _channel("T:STEP:RB", value_type="int"),
     ]
     seeds["seeds"]["T:STEP:SP"] = {"nominal": 3.0}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
 
     with pytest.raises(ValueError):
         model.set({"T:STEP:SP": 3.5})
@@ -219,7 +253,7 @@ def test_a_linear_channel_reads_a_linear_input_as_its_weighted_sum():
     variables, seeds = _view()
     variables["channels"].append(_channel("T:CHAIN"))
     seeds["seeds"]["T:CHAIN"] = {"linear": {"T:SUM": 0.5}}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
 
     assert model.get("T:CHAIN") == pytest.approx(0.5 * (2.0 * 20.0 - 10.0))
     assert model.supported_variables["T:CHAIN"].default_value == pytest.approx(15.0)
@@ -279,7 +313,7 @@ def test_a_one_sided_range_leaves_the_other_side_unbounded():
         _channel("T:HALF:SP", role="setpoint", writable=True, value_range=[None, 3.0])
     )
 
-    variable = TextureModel(variables, seeds).supported_variables["T:HALF:SP"]
+    variable = _texture(variables, seeds).supported_variables["T:HALF:SP"]
 
     assert variable.value_range == (-math.inf, 3.0)
 
@@ -305,8 +339,8 @@ def _coupled_model(couple: dict[str, Any], noise: dict[str, Any] | None = None) 
     variables["channels"] += [_channel("T:A"), _channel("T:B")]
     seeds["seeds"]["T:A"] = {"nominal": 1.0}
     seeds["seeds"]["T:B"] = {"nominal": 2.0}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
-    model.set_motion(couple, noise or {})
+    model = _texture(variables, seeds, clock=lambda: T0)
+    _set_motion(model, couple, noise or {})
     return model
 
 
@@ -386,7 +420,7 @@ def test_a_relative_seed_scales_the_reading():
     variables, seeds = _view()
     variables["channels"].append(_channel("T:REL"))
     seeds["seeds"]["T:REL"] = {"nominal": 200.0, "noise": {"relative": 1e-3}}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
     key = series.channel_key_bytes("T:REL")
     counter = np.array([round(T0 * 1000)])
     draw = series.keyed_normals(key, counter)[0]
@@ -404,7 +438,7 @@ def test_an_empty_motion_restores_the_seed_motion():
     )
     moved = model.get("T:NOISY")
 
-    model.set_motion({}, {})
+    _set_motion(model, {}, {})
 
     assert model.get("T:NOISY") == pytest.approx(_model().get("T:NOISY"))
     assert moved != model.get("T:NOISY")
@@ -483,8 +517,9 @@ def test_has_motion_mirrors_motion(value_type, seed, couple, noise, stilled, exp
     variables, seeds = _view()
     variables["channels"].append(_channel("T:X", value_type=value_type))
     seeds["seeds"]["T:X"] = seed
-    model = TextureModel(variables, seeds, clock=lambda: T0)
-    model.set_motion(
+    model = _texture(variables, seeds, clock=lambda: T0)
+    _set_motion(
+        model,
         {"T:X": couple} if couple else {},
         {"T:X": noise} if noise else {},
         still=frozenset({"T:X"}) if stilled else frozenset(),
@@ -502,11 +537,11 @@ def test_has_motion_follows_set_motion():
     assert model.has_motion("T:A") is False
     assert model.has_motion("T:NOISY") is True
 
-    model.set_motion({"T:A": _COUPLING}, {"T:NOISY": {"absolute": 0.0}})
+    _set_motion(model, {"T:A": _COUPLING}, {"T:NOISY": {"absolute": 0.0}})
     assert model.has_motion("T:A") is True
     assert model.has_motion("T:NOISY") is True  # its seed drift still moves it
 
-    model.set_motion({}, {"T:CLAMPED": {"relative": 0.0}})
+    _set_motion(model, {}, {"T:CLAMPED": {"relative": 0.0}})
     assert model.has_motion("T:A") is False
     assert model.has_motion("T:CLAMPED") is False
 
@@ -522,12 +557,12 @@ def _reads(model: TextureModel, clock: list[float], address: str) -> list[float]
 def _clocked() -> tuple[TextureModel, list[float]]:
     variables, seeds = _view()
     clock = [T0]
-    return TextureModel(variables, seeds, clock=lambda: clock[0]), clock
+    return _texture(variables, seeds, clock=lambda: clock[0]), clock
 
 
 def test_a_stilled_reading_serves_its_held_value():
     model, clock = _clocked()
-    model.set_motion({}, {}, still=frozenset({"T:NOISY", "T:CLAMPED"}))
+    _set_motion(model, {}, {}, still=frozenset({"T:NOISY", "T:CLAMPED"}))
 
     assert set(_reads(model, clock, "T:NOISY")) == {10.0}
     assert set(_reads(model, clock, "T:CLAMPED")) == {3.0}
@@ -537,7 +572,8 @@ def test_a_stilled_reading_serves_its_held_value():
 
 def test_a_still_list_stills_every_float_reading_it_names():
     model, clock = _clocked()
-    model.set_motion(
+    _set_motion(
+        model,
         {"T:ZERO": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]},
         {"T:HEAT:RB": {"absolute": 1.0}},
         still=frozenset({"T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"}),
@@ -552,7 +588,7 @@ def test_a_still_list_stills_every_float_reading_it_names():
 def test_an_unstilled_reading_keeps_its_samples():
     plain, plain_clock = _clocked()
     stilled, stilled_clock = _clocked()
-    stilled.set_motion({}, {}, still=frozenset({"T:CLAMPED"}))
+    _set_motion(stilled, {}, {}, still=frozenset({"T:CLAMPED"}))
 
     assert _reads(stilled, stilled_clock, "T:NOISY") == _reads(plain, plain_clock, "T:NOISY")
 
@@ -601,7 +637,7 @@ def _pulse_view() -> tuple[dict[str, Any], dict[str, Any]]:
 def _pulse_model() -> tuple[TextureModel, list[float]]:
     variables, seeds = _pulse_view()
     clock = [T0]
-    return TextureModel(variables, seeds, clock=lambda: clock[0]), clock
+    return _texture(variables, seeds, clock=lambda: clock[0]), clock
 
 
 def test_a_pulse_channel_reads_the_trace_at_the_read_time():
@@ -698,7 +734,7 @@ def _gate_view() -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _gate_model() -> TextureModel:
     variables, seeds = _gate_view()
-    return TextureModel(variables, seeds, clock=lambda: T0)
+    return _texture(variables, seeds, clock=lambda: T0)
 
 
 _GATED = (_GATED_SUM, _GATED_VALID, _GATED_LAMP, _GATED_COUNT, _CHAINED)
@@ -772,7 +808,7 @@ def test_the_held_value_carries_the_gate():
 def test_a_gated_float_keeps_its_noise_and_scales_a_relative_term():
     variables, seeds = _gate_view()
     seeds["seeds"][_GATED_SUM]["noise"] = {"relative": 0.1}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
     open_reading = model.get(_GATED_SUM)
 
     model.set({_PADDLE_SP: "TRUE"})
@@ -796,7 +832,7 @@ def test_an_active_write_on_an_input_gates_from_the_start_state():
 def test_a_gate_beside_a_linear_seed_scales_the_weighted_sum():
     variables, seeds = _gate_view()
     seeds["seeds"]["T:SUM"]["gate"] = {"inputs": {_GUN_ON: "FALSE"}, "gated": 0.5}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
     open_sum = model.held(["T:SUM"])["T:SUM"]
 
     model.set({_GUN_ON: "FALSE"})
@@ -825,7 +861,7 @@ def test_a_setpoint_reaches_its_echo_and_the_linear_channels_downstream():
     variables, seeds = _view()
     variables["channels"].append(_channel("T:CHAIN"))
     seeds["seeds"]["T:CHAIN"] = {"linear": {"T:SUM": 0.5}}
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
 
     assert model.reach()["T:HEAT:SP"] == {"T:HEAT:SP", "T:HEAT:RB", "T:SUM", "T:CHAIN"}
 
@@ -848,7 +884,7 @@ def test_a_pulse_driver_and_its_enable_reach_the_waveform():
 @pytest.mark.parametrize("build", [_view, _gate_view, _pulse_view])
 def test_a_write_changes_no_held_value_outside_its_reach(build):
     variables, seeds = build()
-    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model = _texture(variables, seeds, clock=lambda: T0)
     names = list(model.supported_variables)
     writes = {"float": 0.5, "bool": None, "int": 1}
 

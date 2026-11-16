@@ -15,8 +15,9 @@ record somebody else moved is a fixture, in ``tests/va/e2e/conftest.py``.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
+
+from osprey_connectors.model import evolve
 
 
 def context_for(manager: Any) -> Any:
@@ -79,7 +80,7 @@ async def move_the_deployment(manager: Any, target: str) -> dict[str, Any]:
     record = control_context.read_record()
     assert record is not None, "no control-context record to move — claim_the_record first"
     generation = record.generation + 1
-    control_context.write_record(replace(record, target=target, generation=generation))
+    control_context.write_record(evolve(record, target=target, generation=generation))
     control_context.invalidate_cache()
     return await manager.reconcile(target, generation)
 

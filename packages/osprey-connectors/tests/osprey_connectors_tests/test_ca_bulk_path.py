@@ -33,6 +33,7 @@ import sys
 import threading
 import time
 import zoneinfo
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -609,7 +610,9 @@ class TestFailedReopen:
     async def test_get_metadata_falls_back_to_a_read(self, monkeypatch):
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
-        read = AsyncMock(return_value=ChannelValue(value=1.0, timestamp=None, metadata=expected))
+        read = AsyncMock(
+            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+        )
         monkeypatch.setattr(connector, "read_channel", read)
         await self._dead(monkeypatch, connector, aioca, [])
 
@@ -619,7 +622,9 @@ class TestFailedReopen:
     async def test_a_waiter_pending_when_the_reopen_fails_falls_back_to_a_read(self, monkeypatch):
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
-        read = AsyncMock(return_value=ChannelValue(value=1.0, timestamp=None, metadata=expected))
+        read = AsyncMock(
+            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+        )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)  # down: waiters wait for CTRL
         pending = asyncio.ensure_future(connector.get_metadata(NAME))
@@ -951,7 +956,9 @@ class TestRepoint:
     async def test_a_repoint_settles_a_metadata_waiter_and_get_metadata_reads(self, monkeypatch):
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
-        read = AsyncMock(return_value=ChannelValue(value=1.0, timestamp=None, metadata=expected))
+        read = AsyncMock(
+            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+        )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)
         pending = asyncio.ensure_future(connector.get_metadata(NAME))
@@ -1019,7 +1026,9 @@ class TestMetadata:
     async def test_an_unsubscribed_address_is_read_once(self, monkeypatch):
         connector, _ = bulk_connector()
         expected = ChannelMetadata(units="kV")
-        read = AsyncMock(return_value=ChannelValue(value=1.0, timestamp=None, metadata=expected))
+        read = AsyncMock(
+            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+        )
         monkeypatch.setattr(connector, "read_channel", read)
 
         assert await connector.get_metadata(NAME) is expected
@@ -1030,7 +1039,9 @@ class TestMetadata:
     ):
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
-        read = AsyncMock(return_value=ChannelValue(value=1.0, timestamp=None, metadata=expected))
+        read = AsyncMock(
+            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+        )
         monkeypatch.setattr(connector, "read_channel", read)
         sub_id = await connector.subscribe(NAME, lambda v: None)
         pending = asyncio.ensure_future(connector.get_metadata(NAME))

@@ -7,11 +7,16 @@ resolves and checks an entry's ``attachments`` list, and
 :func:`parse_plot_spec` validates one decoded plot spec.
 """
 
-import json
-import math
-from dataclasses import dataclass
-from pathlib import Path
+from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Annotated, TypeAlias
+
+from pydantic import BeforeValidator, Field, ValidationError, ValidationInfo, field_validator
+from pydantic_core import ErrorDetails, PydanticCustomError
+
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.relative_time import RelativeTimestamp
 
 __all__ = [
@@ -32,7 +37,6 @@ _ATTACHMENT_KEYS = ("path", "plot")
 
 # Plot-spec schema: closed. Every key but 'ylim' is required.
 _PLOT_SPEC_KEYS = ("filename", "title", "ylabel", "hours_before", "series", "ylim")
-_PLOT_SERIES_KEYS = ("label", "values")
 
 # Picture formats a logbook attachment may name: suffix -> accepted file
 # signatures as (byte offset, magic bytes).
@@ -46,22 +50,34 @@ IMAGE_SIGNATURES: dict[str, tuple[tuple[int, bytes], ...]] = {
 SIGNATURE_BYTES = 16
 
 
-@dataclass(frozen=True)
-class PlotSeries:
+def _listed(value: object) -> object:
+    """A JSON list as the tuple a field holds; anything else is no list."""
+    if isinstance(value, list):
+        return tuple(value)
+    raise PydanticCustomError("not_a_list", "Input should be a list")
+
+
+#: A list of finite numbers, each an ``int`` or a ``float`` and never a ``bool``.
+_Finite: TypeAlias = Annotated[
+    tuple[Annotated[float, Field(allow_inf_nan=False)], ...], BeforeValidator(_listed)
+]
+
+
+class PlotSeries(FrozenModel):
     """One named line of a :class:`PlotSpec`, one value per axis point."""
 
-    label: str
-    values: tuple[float, ...]
+    label: str = Field(min_length=1)
+    values: _Finite
 
 
-@dataclass(frozen=True)
-class PlotSpec:
+class PlotSpec(FrozenModel):
     """A time-series picture drawn when its entry is seeded, not shipped as a file.
 
     The time axis is relative: ``hours_before`` counts back from the instant the
     entry is written (``0.0``), so the drawn picture carries that entry's real
     dates whatever anchor the narrative resolves against. Every series has one
-    value per point of that shared axis.
+    value per point of that shared axis. :func:`parse_plot_spec` reads one from
+    its decoded JSON, and names the key and the rule a spec breaks.
 
     Attributes:
         filename: Name the drawn picture is stored under (a ``.png`` file name).
@@ -75,13 +91,66 @@ class PlotSpec:
     filename: str
     title: str
     ylabel: str
-    hours_before: tuple[float, ...]
-    series: tuple[PlotSeries, ...]
-    ylim: tuple[float, float] | None = None
+    hours_before: _Finite
+    series: Annotated[tuple[PlotSeries, ...], BeforeValidator(_listed)]
+    ylim: _Finite | None = None
+
+    @field_validator("filename")
+    @classmethod
+    def _png_name(cls, filename: str) -> str:
+        path = Path(filename)
+        if path.name != filename or path.suffix.lower() != ".png" or path.stem == "":
+            raise ValueError(f"'filename' must be a .png file name, got {filename!r}")
+        return filename
+
+    @field_validator("hours_before")
+    @classmethod
+    def _axis(cls, hours: tuple[float, ...]) -> tuple[float, ...]:
+        if len(hours) < 2:
+            raise ValueError("'hours_before' needs at least two points")
+        if any(later > earlier for earlier, later in zip(hours, hours[1:], strict=False)):
+            raise ValueError("'hours_before' must be non-increasing")
+        if hours[-1] != 0.0:
+            raise ValueError(f"'hours_before' must end at 0, got {hours[-1]!r}")
+        return hours
+
+    @field_validator("series")
+    @classmethod
+    def _lines(
+        cls, series: tuple[PlotSeries, ...], info: ValidationInfo[object]
+    ) -> tuple[PlotSeries, ...]:
+        if not series:
+            raise ValueError("'series' must be a non-empty list")
+        hours = info.data.get("hours_before")
+        labels: set[str] = set()
+        for line in series:
+            if line.label in labels:
+                raise ValueError(f"two series are both labelled {line.label!r}")
+            labels.add(line.label)
+            if isinstance(hours, tuple) and len(line.values) != len(hours):
+                raise ValueError(
+                    f"series {line.label!r} has {len(line.values)} values for "
+                    f"{len(hours)} 'hours_before' points"
+                )
+        return series
+
+    @field_validator("ylim", mode="before")
+    @classmethod
+    def _stated_range(cls, ylim: object) -> object:
+        """A stated ``ylim`` is a list; only one left out is ``None``."""
+        if ylim is None:
+            raise PydanticCustomError("not_a_list", "Input should be a list")
+        return ylim
+
+    @field_validator("ylim")
+    @classmethod
+    def _range(cls, ylim: tuple[float, ...] | None) -> tuple[float, ...] | None:
+        if ylim is not None and (len(ylim) != 2 or not ylim[0] < ylim[1]):
+            raise ValueError("'ylim' must be [low, high] with low < high")
+        return ylim
 
 
-@dataclass(frozen=True)
-class ScenarioLogEntry:
+class ScenarioLogEntry(FrozenModel):
     """A logbook entry owned by a scenario.
 
     The one entry shape the ARIEL DB seed (via ``apply``) reads, whether the
@@ -207,83 +276,54 @@ def parse_plot_spec(raw: object, where: str = "plot spec") -> PlotSpec:
         where: How error messages name the spec.
 
     Raises:
-        ValueError: If the spec breaks any of those rules.
+        ValueError: If the spec breaks any of those rules; the message names
+            the key and the rule.
     """
     if not isinstance(raw, dict):
         raise ValueError(f"{where}: must be a JSON object, got {type(raw).__name__}")
-    unknown = sorted(set(raw) - set(_PLOT_SPEC_KEYS))
+    try:
+        return PlotSpec.model_validate(raw)
+    except ValidationError as refusal:
+        raise ValueError(f"{where}: {_plot_refusal(refusal.errors(), raw)}") from None
+
+
+def _plot_refusal(errors: list[ErrorDetails], raw: dict[object, object]) -> str:
+    """The rule a plot spec breaks, as :func:`parse_plot_spec` words it."""
+    unknown = sorted(
+        str(error["loc"][0])
+        for error in errors
+        if error["type"] == "extra_forbidden" and len(error["loc"]) == 1
+    )
     if unknown:
-        raise ValueError(f"{where}: unknown keys {unknown}")
+        return f"unknown keys {unknown}"
     missing = [key for key in _PLOT_SPEC_KEYS if key != "ylim" and key not in raw]
     if missing:
-        raise ValueError(f"{where}: missing keys {missing}")
-
-    filename = raw["filename"]
-    if (
-        not isinstance(filename, str)
-        or Path(filename).name != filename
-        or Path(filename).suffix.lower() != ".png"
-        or Path(filename).stem == ""
-    ):
-        raise ValueError(f"{where}: 'filename' must be a .png file name, got {filename!r}")
-    for key in ("title", "ylabel"):
-        if not isinstance(raw[key], str):
-            raise ValueError(f"{where}: {key!r} must be a string, got {raw[key]!r}")
-
-    hours = _finite_numbers(where, "'hours_before'", raw["hours_before"])
-    if len(hours) < 2:
-        raise ValueError(f"{where}: 'hours_before' needs at least two points")
-    if any(later > earlier for earlier, later in zip(hours, hours[1:], strict=False)):
-        raise ValueError(f"{where}: 'hours_before' must be non-increasing")
-    if hours[-1] != 0.0:
-        raise ValueError(f"{where}: 'hours_before' must end at 0, got {hours[-1]!r}")
-
-    series_raw = raw["series"]
-    if not isinstance(series_raw, list) or not series_raw:
-        raise ValueError(f"{where}: 'series' must be a non-empty list")
-    series: list[PlotSeries] = []
-    for item in series_raw:
-        if not isinstance(item, dict) or set(item) != set(_PLOT_SERIES_KEYS):
-            raise ValueError(
-                f"{where}: each series is a mapping with exactly 'label' and 'values', got {item!r}"
-            )
-        label = item["label"]
-        if not isinstance(label, str) or not label:
-            raise ValueError(f"{where}: series 'label' must be a non-empty string, got {label!r}")
-        if any(existing.label == label for existing in series):
-            raise ValueError(f"{where}: two series are both labelled {label!r}")
-        values = _finite_numbers(where, f"series {label!r} 'values'", item["values"])
-        if len(values) != len(hours):
-            raise ValueError(
-                f"{where}: series {label!r} has {len(values)} values for "
-                f"{len(hours)} 'hours_before' points"
-            )
-        series.append(PlotSeries(label=label, values=values))
-
-    ylim = None
-    if "ylim" in raw:
-        bounds = _finite_numbers(where, "'ylim'", raw["ylim"])
-        if len(bounds) != 2 or not bounds[0] < bounds[1]:
-            raise ValueError(f"{where}: 'ylim' must be [low, high] with low < high")
-        ylim = (bounds[0], bounds[1])
-
-    return PlotSpec(
-        filename=filename,
-        title=raw["title"],
-        ylabel=raw["ylabel"],
-        hours_before=hours,
-        series=tuple(series),
-        ylim=ylim,
-    )
+        return f"missing keys {missing}"
+    error = errors[0]
+    loc = error["loc"]
+    if error["type"] == "value_error" and len(loc) == 1:
+        return str(error["ctx"]["error"])
+    key = str(loc[0])
+    if key == "filename":
+        return f"'filename' must be a .png file name, got {raw['filename']!r}"
+    if key in ("title", "ylabel"):
+        return f"{key!r} must be a string, got {raw[key]!r}"
+    if key in ("hours_before", "ylim"):
+        return f"'{key}' must be a list of finite numbers"
+    if len(loc) == 1:
+        return "'series' must be a non-empty list"
+    item = error["input"] if len(loc) == 2 else _series_item(raw, loc[1])
+    if len(loc) == 2 or not isinstance(item, dict) or set(item) != {"label", "values"}:
+        return f"each series is a mapping with exactly 'label' and 'values', got {item!r}"
+    if loc[2] == "label":
+        return f"series 'label' must be a non-empty string, got {item['label']!r}"
+    return f"series {item['label']!r} 'values' must be a list of finite numbers"
 
 
-def _finite_numbers(where: str, key: str, raw: object) -> tuple[float, ...]:
-    """``raw`` as a tuple of floats, refusing anything but a list of finite numbers."""
-    if not isinstance(raw, list) or not all(
-        isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) for v in raw
-    ):
-        raise ValueError(f"{where}: {key} must be a list of finite numbers")
-    return tuple(float(v) for v in raw)
+def _series_item(raw: dict[object, object], index: object) -> object:
+    """The item of a plot spec's ``series`` list at ``index``."""
+    series = raw["series"]
+    return series[index] if isinstance(series, list) and isinstance(index, int) else None
 
 
 def matches_signature(head: bytes, signature: tuple[int, bytes]) -> bool:
