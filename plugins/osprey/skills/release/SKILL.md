@@ -348,6 +348,21 @@ gh run list --workflow ci.yml --commit <sha> --limit 1
 gh run view <run-id> --json jobs --jq '.jobs[] | [.conclusion, .name] | @tsv'
 ```
 
+Check the connectors floor the same way. `release.yml` refuses a tag while the
+framework imports connectors code its floor does not carry, even behind a
+stand-in, since every install already on the floor would run with that feature
+switched off:
+
+```bash
+uv run --no-project \
+  --with "osprey-connectors==$(python3 scripts/ci/connectors_compat_matrix.py floor)" \
+  python -I packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py \
+  --release src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey
+```
+
+Anything it lists means: release osprey-connectors and raise the floor first
+(see "Releasing osprey-connectors" below).
+
 **Skipped is not passed.** `All CI Checks Passed` cannot tell a lane that ran
 and won from a lane whose `if:` never fired, so an unlabeled release PR merges
 fully green with every agentic lane skipped. The conclusion has to be read per
