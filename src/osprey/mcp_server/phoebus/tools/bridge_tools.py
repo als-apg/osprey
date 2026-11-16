@@ -482,20 +482,12 @@ def _resolve_panel_resource(name: str) -> str:
 # property paths), because the agent chooses the name.
 _MACRO_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 
-# What a macro value may not contain. A value is substituted into the opened
-# display's PV names and embedded-display paths, so the registered panel must
-# stay the only thing that says which files and which other macros are in
-# play: no nested macro or environment reference, no path separator or
-# traversal, no scheme or drive separator, nothing a reader of the call
-# cannot see.
-_MACRO_VALUE_REFUSALS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\$[({]"), "a nested macro reference ('$(' or '${')"),
-    (re.compile(r"[/\\]"), "a path separator ('/' or '\\')"),
-    (re.compile(r"\.\."), "a parent-directory reference ('..')"),
-    (re.compile(r":"), "a colon (':')"),
-    (re.compile(r"\s"), "whitespace"),
-    (re.compile(r"[\x00-\x1f\x7f-\x9f]"), "a control character"),
-)
+# A macro value the tool forwards: ASCII letters, digits, ".", "_" and "-",
+# starting with a letter or digit, and never "..". An allow-list, so that the
+# value an approver or a log reader sees is the value Phoebus gets: no nested
+# macro reference, no path separator, no URI or query syntax, no look-alike or
+# invisible character.
+_MACRO_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
 def _validated_macros(macros: object) -> dict[str, str]:
@@ -504,13 +496,14 @@ def _validated_macros(macros: object) -> dict[str, str]:
     ``None`` and an empty mapping both mean "no macros".
 
     The panel registry admits display *files*; a macro value is substituted
-    into the PV names and embedded-display paths inside one. So the values
-    are held to what cannot redirect the display to another file or pull in
-    another macro: a name is a plain identifier, and a value is non-empty and
-    free of nested macro references, path separators and traversal, colons,
-    whitespace and control characters (``_MACRO_VALUE_REFUSALS``). A value
-    that is a plain token (an IOC name, a host name, a device number) passes.
-    Which PVs a parameterised panel may be pointed at is not decided here.
+    into the channel addresses and embedded-display paths inside one. A name
+    is a plain identifier and a value a plain token (``_MACRO_VALUE``), so a
+    value cannot leave the display's directory or pull in another macro.
+    Within that directory it still chooses: where the display builds a file
+    name from a macro (``$(TYPE).bob``) the value selects any sibling file,
+    and since the caller chooses the name too, it can override a site-wide
+    Phoebus preference macro for this display. Which values a parameterised
+    panel may be opened with is not decided here.
     """
     if macros is None:
         return {}
@@ -534,21 +527,18 @@ def _validated_macros(macros: object) -> dict[str, str]:
                 f"The value of macro {macro!r} must be a string (got {type(value).__name__}).",
                 ["Macro values are text: pass a number as a quoted string."],
             )
-        if not value:
-            make_error("validation_error", f"The value of macro {macro!r} must not be empty.")
-        for pattern, what in _MACRO_VALUE_REFUSALS:
-            if pattern.search(value):
-                make_error(
-                    "validation_error",
-                    f"The value of macro {macro!r} contains {what}, which a macro value "
-                    "passed to phoebus_open_panel may not.",
-                    [
-                        "A macro value is a plain token such as an IOC or host name; it "
-                        "cannot name a path, a PV with a ':' prefix, or another macro.",
-                        "If this display needs such a value, ask the operator to open it "
-                        "in Phoebus.",
-                    ],
-                )
+        if not _MACRO_VALUE.match(value) or ".." in value:
+            make_error(
+                "validation_error",
+                f"The value of macro {macro!r} is not a plain token: a macro value passed "
+                "to phoebus_open_panel is ASCII letters, digits, '.', '_' and '-', "
+                "starting with a letter or digit, without '..'.",
+                [
+                    "A value such as an IOC or host name passes; a path, a channel "
+                    "prefix with a ':', or a reference to another macro does not.",
+                    "If this display needs such a value, ask the operator to open it in Phoebus.",
+                ],
+            )
     return dict(macros)
 
 
@@ -581,12 +571,11 @@ async def phoebus_open_panel(
 
     A parameterised display (one detail screen for many IOCs, hosts or
     devices) takes its parameters as ``macros``: ``{"IOC": "injbpm"}`` opens
-    the display with ``$(IOC)`` resolved in its name, PV names and embedded
-    displays. The same panel opened with different macro values is a
-    different display, each with its own handle. Macros need a bridge that
-    reads the ``macros`` field of ``POST /open``; an older bridge ignores the
-    field and opens the display with its macros unresolved, which shows as
-    ``$(IOC)`` left in the name ``phoebus_list_displays`` reports.
+    the display with ``$(IOC)`` resolved in its name, channel addresses and
+    embedded displays. The same panel opened with different macro values is
+    a different display, each with its own handle. Macros the display file
+    defines itself keep their values. A bridge too old to apply macros is
+    refused with ``not_supported``.
 
     After a successful open the tool asks the Web Terminal (best-effort,
     never fatal) to focus this instance's panel tab, so the user sees the
@@ -601,16 +590,15 @@ async def phoebus_open_panel(
         macros: Display macros as a mapping of macro name to string value
             (e.g. ``{"IOC": "injbpm"}``). Omit for a display that takes none.
             A name is letters, digits and underscores, starting with a
-            letter. A value is a plain token: not empty, and without
-            ``$(``/``${``, ``/``, ``\\``, ``..``, ``:``, whitespace or control
-            characters, so it cannot point the display at another file or
-            macro. Anything else is refused before Phoebus is contacted.
+            letter. A value is a plain token: ASCII letters, digits, ``.``,
+            ``_`` and ``-``, starting with a letter or digit, without ``..``.
+            Anything else is refused before Phoebus is contacted.
 
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "id": "d-N",
         "resource": "<resolved-path>", "ready": <bool>, "focused": <bool>}``,
-        plus ``"macros": {...}`` echoing the macros that were sent, when any
-        were.
+        plus ``"macros": {...}``, the macros the bridge reports it applied,
+        when any were sent.
     """
     resource = _resolve_panel_resource(name)  # raises ToolError on unknown name
     sent_macros = _validated_macros(macros)  # raises ToolError on a malformed mapping
@@ -652,6 +640,25 @@ async def phoebus_open_panel(
 
     handle = f"handle:{display_id}"
     ready: bool = bool(body.get("ready", False))
+
+    # A bridge that applies macros echoes them; one that predates macro
+    # support ignores the field and has opened the display with its macros
+    # unresolved. That is not the display that was asked for, so it is not
+    # reported as a success.
+    if sent_macros and body.get("macros") != sent_macros:
+        applied = body.get("macros")
+        make_error(
+            "not_supported",
+            "The Phoebus bridge is too old for macros: it opened the display without applying them."
+            if applied is None
+            else "The Phoebus bridge did not apply the macros that were sent.",
+            [
+                "Update the Phoebus product to an agent bridge whose POST /open applies macros.",
+                f"The display is open as {handle} with its macros unresolved; "
+                "do not read or drive it as the requested display.",
+            ],
+            details={"handle": handle, "sent": sent_macros, "applied": applied},
+        )
 
     # Poll until ready=True so downstream perceive/drive calls don't race the
     # JavaFX model-loading phase.  Both the sleep and the GET /displays call are

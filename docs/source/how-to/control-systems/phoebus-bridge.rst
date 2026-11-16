@@ -138,22 +138,33 @@ display with ``$(IOC)`` resolved in its name, its PV names and its embedded
 displays. The same panel opened with different values is a different display
 with its own handle.
 
-The agent chooses the macro values, and a value is substituted into the
-display's PV names and embedded-display paths. The server therefore accepts
-only plain tokens. A macro name is letters, digits and underscores, starting
-with a letter. A value is refused when it is empty or contains ``$(`` or
-``${``, ``/``, ``\``, ``..``, ``:``, whitespace or a control character, so a
-value cannot name another file or another macro. An IOC or host name passes;
-a PV prefix with a colon (``SR01:BPM1``) does not, and such a display is
-opened by the operator. The check does not limit which PVs a parameterised
-panel reaches: register a parameterised panel only where any value of its
-macros is acceptable for the agent to see and, with drive access, to act on.
+The agent chooses the macro names and values, and a value is substituted into
+the display's PV names and embedded-display paths. The server therefore
+accepts only plain tokens. A macro name is letters, digits and underscores,
+starting with a letter. A value is ASCII letters, digits, ``.``, ``_`` and
+``-``, starting with a letter or digit and without ``..``. An IOC or host
+name passes. A PV prefix with a colon (``SR01:BPM1``) does not, and such a
+display is opened by the operator.
 
-Macros need a bridge that reads the ``macros`` field of ``POST /open``. An
-older bridge ignores the field and opens the display with its macros
-unresolved: ``phoebus_list_displays`` then reports a name that still contains
-``$(IOC)``. Without ``macros`` the request is the same for every bridge
-version.
+What the check guarantees is narrow: a value cannot leave the display's
+directory and cannot refer to another macro. It does not limit the rest:
+
+- Any value that passes is accepted, so a panel that uses ``$(IOC)`` can be
+  opened for every IOC its screen can show.
+- Where a display builds a file name from a macro (``$(TYPE).bob``), the
+  value selects any sibling file of that form.
+- The agent chooses the macro name too. A macro passed at open time
+  overrides a site-wide Phoebus preference macro of the same name for that
+  display. A macro the display file defines itself keeps the file's value.
+
+Register a parameterised panel only where any value of any macro it uses is
+acceptable for the agent to see and, with drive access, to act on.
+
+Macros need a bridge whose ``POST /open`` applies the ``macros`` field and
+reports them back. Against an older bridge, which ignores the field, the
+server refuses the call with ``not_supported`` instead of reporting a display
+whose macros are unresolved. Without ``macros`` the request is the same for
+every bridge version.
 
 Several terminals, one Phoebus
 ==============================

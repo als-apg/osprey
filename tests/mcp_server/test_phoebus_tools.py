@@ -457,8 +457,8 @@ async def test_open_panel_forwards_macros(tmp_path, monkeypatch):
     """A macros mapping goes to the bridge as the /open body's "macros" field."""
     _register_demo_panel(tmp_path, monkeypatch)
 
-    body = {"id": "d-7", "resource": "/path/osprey_demo.bob", "ready": True}
     macros = {"IOC": "injbpm", "HOST": "ioc-host-1.example", "N": "07"}
+    body = {"id": "d-7", "resource": "/path/osprey_demo.bob", "ready": True, "macros": macros}
     with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
         result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
 
@@ -497,17 +497,38 @@ async def test_open_panel_without_macros_sends_the_old_body(tmp_path, monkeypatc
         ({"$(X)": "v"}, "name"),
         ({"A.B": "v"}, "name"),
         ({"IOC\n": "v"}, "name"),
-        ({"IOC": ""}, "empty"),
-        ({"IOC": "$(HOME)"}, "nested macro"),
-        ({"IOC": "a${USER}"}, "nested macro"),
-        ({"DIR": "../other"}, "path separator"),
-        ({"DIR": "/etc"}, "path separator"),
-        ({"DIR": "sub\\panel"}, "path separator"),
-        ({"DIR": ".."}, "parent-directory"),
-        ({"P": "SR01:BPM"}, "colon"),
-        ({"IOC": "ioc host"}, "whitespace"),
-        ({"IOC": "ioc\thost"}, "whitespace"),
-        ({"IOC": "ioc\x00"}, "control character"),
+        ({"IOC": ""}, "plain token"),
+        ({"IOC": "$(HOME)"}, "plain token"),
+        ({"IOC": "a${USER}"}, "plain token"),
+        ({"IOC": "../other"}, "plain token"),
+        ({"IOC": "/etc"}, "plain token"),
+        ({"IOC": "sub\\panel"}, "plain token"),
+        ({"IOC": ".."}, "plain token"),
+        ({"IOC": "a..b"}, "plain token"),
+        ({"IOC": "SR01:BPM"}, "plain token"),
+        ({"IOC": "ioc host"}, "plain token"),
+        ({"IOC": "ioc\thost"}, "plain token"),
+        ({"IOC": "ioc\x00"}, "plain token"),
+        ({"IOC": "a%2Fb"}, "plain token"),
+        ({"IOC": "a&B=c"}, "plain token"),
+        ({"IOC": "a#x"}, "plain token"),
+        ({"IOC": "a?x"}, "plain token"),
+        ({"IOC": "a=b"}, "plain token"),
+        ({"IOC": "\uff04(HOME)"}, "plain token"),
+        ({"IOC": "a\uff0fb"}, "plain token"),
+        ({"IOC": "SR01\uff1aBPM"}, "plain token"),
+        ({"IOC": "inj\u200bbpm"}, "plain token"),
+        ({"IOC": "inj\u202ebpm"}, "plain token"),
+        ({"IOC": "a*"}, "plain token"),
+        ({"IOC": "~user"}, "plain token"),
+        ({"IOC": "a'b"}, "plain token"),
+        ({"IOC": 'a"b'}, "plain token"),
+        ({"IOC": "<x>"}, "plain token"),
+        ({"IOC": ".hidden"}, "plain token"),
+        ({"IOC": "-flag"}, "plain token"),
+        ({"IOC": "_x"}, "plain token"),
+        ({"IOC": "injbpm\n"}, "plain token"),
+        ({"IOC": "caf\u00e9"}, "plain token"),
         ({"IOC": "ok", "DIR": "a/b"}, "'DIR'"),
     ],
 )
@@ -522,16 +543,49 @@ async def test_open_panel_rejects_malformed_macros(tmp_path, monkeypatch, macros
     mock_open.assert_not_called()
 
 
-@pytest.mark.parametrize("value", ["injbpm", "ioc-host-1.example", "07", "SR01C_BPM1", "a.b"])
+@pytest.mark.parametrize("value", ["injbpm", "ioc-host-1.example", "07", "SR01C_BPM1", "a.b", "x"])
 async def test_open_panel_accepts_plain_macro_values(tmp_path, monkeypatch, value):
     """A plain token (IOC name, host name, number) is forwarded unchanged."""
     _register_demo_panel(tmp_path, monkeypatch)
 
-    body = {"id": "d-9", "resource": "/path/osprey_demo.bob", "ready": True}
+    body = {
+        "id": "d-9",
+        "resource": "/path/osprey_demo.bob",
+        "ready": True,
+        "macros": {"IOC": value},
+    }
     with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
         await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": value}, focus=False)
 
     assert mock_open.call_args.args[0]["macros"] == {"IOC": value}
+
+
+async def test_open_panel_refuses_a_bridge_too_old_for_macros(tmp_path, monkeypatch):
+    """No "macros" echo: the bridge ignored them, so the open is not a success."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-5", "resource": "/path/osprey_demo.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)):
+        with assert_raises_error(error_type="not_supported") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": "injbpm"})
+    envelope = ctx["envelope"]
+    assert "too old for macros" in envelope["error_message"]
+    assert envelope["details"] == {
+        "handle": "handle:d-5",
+        "sent": {"IOC": "injbpm"},
+        "applied": None,
+    }
+
+
+async def test_open_panel_refuses_macros_the_bridge_applied_differently(tmp_path, monkeypatch):
+    """An echo that differs from what was sent is refused, with both in the details."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-6", "resource": "/p.bob", "ready": True, "macros": {"IOC": "other"}}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)):
+        with assert_raises_error(error_type="not_supported") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": "injbpm"})
+    assert ctx["envelope"]["details"]["applied"] == {"IOC": "other"}
 
 
 async def test_open_panel_macros_rejected_by_bridge(tmp_path, monkeypatch):
