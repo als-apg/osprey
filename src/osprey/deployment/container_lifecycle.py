@@ -7668,6 +7668,38 @@ def _repo_label_filter(repo_root: Path) -> str:
     return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
 
 
+def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Every container of this checkout, running or not, as the runtime lists it.
+
+    Selected by the repo label the render bakes into every container, the same
+    filter :func:`_down_by_label` stops by, so a second project on the host is
+    never listed. Read through ``ps --format json`` and the health probe's
+    parser, so Docker's NDJSON and podman's array are one answer. Asked through
+    the runtime the deployment record names, the one the last start drove.
+
+    :param repo_root: The deployment repo whose containers are listed.
+    :return: ``(runtime, rows)``: the runtime asked and its decoded ``ps`` rows.
+    :raises RuntimeError: There is no deployment record, or ``ps`` exited non-zero.
+    :raises DeploymentRecordError: The deployment record cannot be read.
+    """
+    from osprey.health.probes.container import _parse_ps_json
+
+    record = read_deployment_record(repo_root)
+    if record is None:
+        raise RuntimeError(f"no deployment record in {repo_root}")
+    runtime = record.runtime
+    listing = subprocess.run(
+        [runtime, "ps", "-a", "--filter", _repo_label_filter(repo_root), "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    if listing.returncode != 0:
+        raise RuntimeError(f"`{runtime} ps` exited {listing.returncode}")
+    return runtime, _parse_ps_json(listing.stdout or "")
+
+
 def unhealthy_containers(repo_root: Path | str) -> list[str]:
     """This checkout's containers whose healthcheck reports ``unhealthy``, by name.
 
@@ -7677,13 +7709,8 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     healthcheck after that — the verb has already succeeded, and a card that
     says everything is running is then describing a stack that is not.
 
-    Selected by the repo label the render bakes into every container, the same
-    filter :func:`_down_by_label` stops by, so a second project on the host is
-    never reported here. Read through ``ps --format json`` and the health
-    probe's parsers, so Docker's NDJSON and podman's array are one answer.
-
-    Asked through the runtime the deployment record names, the one the last
-    start drove.
+    Read through :func:`_checkout_containers`, so a second project on the host
+    is never reported here.
 
     Advisory by contract: no deployment record, a record that cannot be read, a
     runtime that will not answer, or a listing that will not parse all yield
@@ -7694,26 +7721,12 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     :return: Container names as the runtime reports them, sorted; empty when
         nothing is unhealthy or nothing could be asked.
     """
-    from osprey.health.probes.container import _extract_health, _parse_ps_json
+    from osprey.health.probes.container import _extract_health
 
-    root = Path(repo_root)
     try:
-        record = read_deployment_record(root)
-        if record is None:
-            return []
-        runtime = record.runtime
-        listing = subprocess.run(
-            [runtime, "ps", "-a", "--filter", _repo_label_filter(root), "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=15,
-        )
-        if listing.returncode != 0:
-            logger.debug("Container health skipped: `%s ps` exited %s", runtime, listing.returncode)
-            return []
+        _runtime, rows = _checkout_containers(Path(repo_root))
         names: list[str] = []
-        for container in _parse_ps_json(listing.stdout or ""):
+        for container in rows:
             if _extract_health(container) != "unhealthy":
                 continue
             raw = container.get("Names", "")
