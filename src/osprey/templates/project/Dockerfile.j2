@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Reference container image for {{ project_name }} — rendered by `osprey build`.
 #
 # `osprey up` builds this for you. To build it by hand: the build context is the
@@ -8,6 +7,9 @@
 # When the profile states `images.platform`, the FROM below already names it.
 # Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
+#
+# No frontend directive: the engine's builtin Dockerfile frontend builds this, so
+# the only registry pulls are the FROM lines below.
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact, restores the operator's owned
