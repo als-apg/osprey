@@ -140,7 +140,7 @@ import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, NoReturn, Self, TypeVar
+from typing import Final, Literal, NoReturn, Self, TypeVar, get_args
 
 from pydantic import (
     Field,
@@ -157,6 +157,7 @@ from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
+from osprey_connectors.types import ControlTarget, is_control_target
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
 
@@ -170,7 +171,9 @@ __all__ = [
     "REQUESTS_DIR_ENV_VAR",
     "REQUESTS_DIR_NAME",
     "SELF_ISSUE_SURFACE",
+    "ApprovalSurface",
     "Approver",
+    "ApproverSurface",
     "AuthorizationRefused",
     "ChannelRange",
     "Grant",
@@ -178,6 +181,7 @@ __all__ = [
     "Ledger",
     "LedgerStep",
     "Revocation",
+    "RunCompletion",
     "WriteRequest",
     "approve_request",
     "approved_grant",
@@ -232,9 +236,19 @@ _MAX_LEASE_S: Final = 600.0
 #: it against its own.
 _LEASE_SKEW_GRACE_NS: Final = 60 * 1_000_000_000
 
+#: The surfaces a person approves from: the web terminal's chip or the CLI.
+ApprovalSurface = Literal["chip", "cli"]
+
+#: Every surface a grant's approver can name: a person's, or the switch itself.
+ApproverSurface = Literal[ApprovalSurface, "write_switch"]
+
 #: The surface of a self-issued grant: the switch itself standing at
-#: ``allowed``. A person approves from the web terminal's chip or the CLI.
+#: ``allowed``.
 SELF_ISSUE_SURFACE: Final = "write_switch"
+
+#: What a run does once its evaluations are done, each a write the budget pays
+#: for: nothing, the best point found, or the values it started from.
+RunCompletion = Literal["none", "apply_best", "restore"]
 
 _GRANT_SUFFIX: Final = ".json"
 _LEDGER_SUFFIX: Final = ".ledger.json"
@@ -386,7 +400,7 @@ class Approver(FrozenModel):
     """Who recorded the approval, from which surface, and when."""
 
     identity: str
-    surface: Literal["chip", "cli", "write_switch"]
+    surface: ApproverSurface
     at_ns: int
 
     @field_validator("identity")
@@ -440,7 +454,7 @@ class Grant(FrozenModel):
     id: str
     owner: str
     holder: str
-    target: str
+    target: ControlTarget
     switch_epoch: int
     channels: Mapping[str, ChannelRange]
     steps: int
@@ -1854,6 +1868,8 @@ def self_issue(
         return record.switch_epoch
 
     epoch = epoch_at_allowed()
+    if not is_control_target(target):  # the verdict refused it already; said for the type
+        raise AuthorizationRefused("target_unknown")
     now = _now_ns()
     holder = acting_identity()
     ranges = _channel_ranges(channels)
@@ -2151,14 +2167,14 @@ class WriteRequest(FrozenModel):
     id: str
     owner: str
     holder: str
-    target: str
+    target: ControlTarget
     channels: Mapping[str, ChannelRange]
     steps: int
     requested_at_ns: int
     expires_at_ns: int
     lease_s: float
     label: str = ""
-    completion: Literal["none", "apply_best", "restore"] = "none"
+    completion: RunCompletion = "none"
 
     def to_payload(self) -> Mapping[str, object]:
         """This request as the JSON object its file holds."""
@@ -2308,7 +2324,7 @@ def write_request(
     expires_at_ns: int,
     lease_s: float,
     label: str = "",
-    completion: Literal["none", "apply_best", "restore"] = "none",
+    completion: RunCompletion = "none",
     owner: str | NoOwner | None = None,
 ) -> WriteRequest:
     """Ask for an authorization: write a request into this holder's ledger directory.
@@ -2322,7 +2338,7 @@ def write_request(
     ``allowed`` (:func:`self_issue`).
 
     Raises:
-        ValueError: The channels, steps, expiry, lease or completion are
+        ValueError: The target, channels, steps, expiry, lease or completion are
             malformed, or the steps, expiry or lease are past a ceiling
             (:func:`_within_ceilings`); nothing is written.
         AuthorizationRefused: ``owner_unknown``; ``auth_unreadable`` for no
@@ -2332,6 +2348,8 @@ def write_request(
     resolved = _resolved_owner(owner)
     if resolved is None:
         raise AuthorizationRefused("owner_unknown")
+    if not is_control_target(target):
+        raise ValueError(f"target {target!r} is not a control target")
     request = WriteRequest(
         id=uuid.uuid4().hex,
         owner=resolved,
@@ -2375,14 +2393,13 @@ def withdraw_request(request_id: str) -> bool:
 
 # -- approval -------------------------------------------------------------------
 
-#: The surfaces a person approves from.
-_APPROVAL_SURFACES: Final = ("chip", "cli")
+_APPROVAL_SURFACES: tuple[ApprovalSurface, ...] = get_args(ApprovalSurface)
 
 
 def approve_request(
     request: WriteRequest,
     *,
-    surface: Literal["chip", "cli"],
+    surface: ApprovalSurface,
     record_file: Path | None = None,
     peers: Iterable[Path] | None = None,
     approver: str | None = None,

@@ -504,9 +504,7 @@ def test_restated_store_names_match_the_package():
 
 
 def test_tier_words_match_the_package():
-    assert reader.TIER_NEVER == types._TIER_NEVER
-    assert reader.TIER_ASKED == types._TIER_ASKED
-    assert reader.TIER_ALLOWED == types._TIER_ALLOWED
+    assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == types.TIER_WORDS
     # The order is the ceiling's rank: ``min`` on it is the cap.
     assert reader._LOGIN_TIERS == posture_store._LOGIN_TIERS == ("never", "asked", "allowed")
 

@@ -163,7 +163,7 @@ def owner(
     """An owner record, defaulting to a live web terminal at this PID.
 
     Args:
-        kind: One of :data:`control_context._OWNER_KINDS`.
+        kind: A :data:`control_context.OwnerKind`.
         pid: The owning process. Defaults to this one, which is alive.
         port: The web terminal's port, or ``None``.
     """

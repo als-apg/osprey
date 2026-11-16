@@ -42,11 +42,15 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.control_context.OwnerKind": "the record's owner names its kind in this type",
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
     ),
     "osprey_connectors.directory.ChannelDirectory": (
         "an out-of-tree directory backend subclasses it"
+    ),
+    "osprey_connectors.errors.LimitsViolationKind": (
+        "a caller branches on why the limits refused a write by this type"
     ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
@@ -75,14 +79,24 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "the pool hands every caller its connector in this type"
     ),
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
+    "osprey_connectors.posture_store.OwnerTierTerm": "the owner rung answers in this type",
     "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
     "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
+    "osprey_connectors.service_answers.SourceKind": (
+        "an answer names the kind of service it came from in this type"
+    ),
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"
     ),
     "osprey_connectors.simulation.archive.SeedReport": (
         "a seeding run reports, and reports progress, in this type"
+    ),
+    "osprey_connectors.simulation.channel_faults.DISCONNECTED": (
+        "a word of the channel-fault vocabulary a scenario states"
+    ),
+    "osprey_connectors.simulation.channel_faults.FROZEN": (
+        "a word of the channel-fault vocabulary a scenario states"
     ),
     "osprey_connectors.simulation.composite.WriteRefusedError": (
         "a caller reads which channel a refused write names"
@@ -109,7 +123,14 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "a word of the limits-mode vocabulary a config states"
     ),
     "osprey_connectors.types.SERVED": "a word of the serving vocabulary a config states",
+    "osprey_connectors.types.Serving": "resolve_serving answers the simulator's venue in this type",
+    "osprey_connectors.write_authorization.ApprovalSurface": (
+        "a person approves a request from one of these surfaces"
+    ),
     "osprey_connectors.write_authorization.Approver": "a grant says who approved it in this type",
+    "osprey_connectors.write_authorization.ApproverSurface": (
+        "a grant names the surface it was approved from in this type"
+    ),
     "osprey_connectors.write_authorization.ChannelRange": (
         "a grant and a request bound each channel in this type"
     ),

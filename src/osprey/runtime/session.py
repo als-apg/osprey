@@ -130,6 +130,7 @@ if TYPE_CHECKING:
         ControlSystemConnector,
     )
     from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.types import ControlTarget
 
 logger = get_logger("control_session")
 
@@ -222,7 +223,7 @@ class Binding:
         state: ``bound``, ``fallback`` or ``unservable``.
     """
 
-    target: str
+    target: ControlTarget
     generation: int | None
     connector_type: str | None
     display_name: str
@@ -326,7 +327,7 @@ def _record_key(record: Any) -> tuple[str, int] | None:
     return None if record is None else (record.target, record.generation)
 
 
-def _fallback_target(section: dict[str, Any]) -> str:
+def _fallback_target(section: dict[str, Any]) -> ControlTarget:
     """The target a session serves when there is no record to name one.
 
     The deployment's own baseline, except that a session never picks the

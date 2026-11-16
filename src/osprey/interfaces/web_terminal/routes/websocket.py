@@ -100,7 +100,10 @@ SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
-_POSITION_RANK = {position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)}
+#: Keyed by ``str``: it ranks request words, which a position may not be.
+_POSITION_RANK: dict[str, int] = {
+    position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)
+}
 
 
 #: The one spelling of a switch epoch on the wire: a canonical decimal string.
@@ -2459,7 +2462,9 @@ def _row_selected_role(
     ``None`` for a target this render cannot derive at all, which the collapse
     renders as ``unknown``.
     """
-    if config is UNREADABLE:
+    from osprey_connectors.types import is_control_target
+
+    if config is UNREADABLE or not is_control_target(target):
         return None
     try:
         from osprey_connectors.ipc import derive_endpoints

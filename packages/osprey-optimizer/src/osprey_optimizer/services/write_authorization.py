@@ -52,7 +52,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from osprey_optimizer.environments.write_authority import WriteAuthority
 from osprey_optimizer.models.config import OnComplete
@@ -64,6 +64,9 @@ from osprey_optimizer.models.exceptions import (
 from osprey_optimizer.models.protocols import EnvironmentProtocol
 from osprey_optimizer.utils.interval_thread import IntervalThread
 
+if TYPE_CHECKING:
+    from osprey_connectors.write_authorization import RunCompletion
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -72,15 +75,12 @@ __all__ = [
     "LEASE_S",
     "POLL_S",
     "WAIT_S",
-    "Completion",
     "RunAuthorization",
     "WritePlan",
     "completion_for",
     "retire_self_issued",
     "write_plan",
 ]
-
-Completion = Literal["none", "apply_best", "restore"]
 
 #: How long a run's authorization lasts at most, from the moment it is asked for.
 #: A value past the connectors' ceiling (:data:`~osprey_connectors.write_authorization.MAX_EXPIRES_S`,
@@ -105,7 +105,7 @@ _RELEASED = "released"
 ASK_INSTEAD = frozenset({"auth_revoked", "switch_off"})
 
 
-def completion_for(on_complete: OnComplete) -> Completion:
+def completion_for(on_complete: OnComplete) -> RunCompletion:
     """The authorization's completion word for a run's ``on_complete``."""
     return "none" if on_complete == "hold" else on_complete
 
@@ -117,7 +117,7 @@ class WritePlan:
     target: str
     channels: Mapping[str, tuple[float, float]]
     evaluations: int
-    completion: Completion
+    completion: RunCompletion
     label: str = ""
 
     @property
