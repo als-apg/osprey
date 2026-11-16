@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
@@ -15,6 +15,7 @@ from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_log._phoebus import PhoebusAlarmLogger
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
 
 DEADLINE = 6.0
@@ -142,7 +143,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
     assert page.outcome is Outcome.FOUND
     assert [row.kind for row in page.rows] == ["state", "config", "state", "config", "state"]
     assert page.rows[0] == AlarmHistoryRow(
-        time="2026-10-29T03:14:07.120Z",
+        event_at=datetime(2026, 10, 29, 3, 14, 7, 120000, tzinfo=UTC),
         severity="MAJOR",
         status="NO_ALARM",
         message="HIHI_ALARM",
@@ -150,7 +151,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
         kind="state",
     )
     assert page.rows[1] == AlarmHistoryRow(
-        time="2026-10-29T03:13:00.000Z",
+        event_at=datetime(2026, 10, 29, 3, 13, tzinfo=UTC),
         message="Cavity 1 over-temperature",
         user="opsuser",
         kind="config",
@@ -177,7 +178,7 @@ async def test_history_window_is_sent_in_days_and_applied_exactly():
 
     page = await _logger(transport).history(PV, since, 50, timeout_s=DEADLINE)
 
-    assert [row.time for row in page.rows] == [fresh["time"]]
+    assert [row.event_at for row in page.rows] == [datetime.fromisoformat(fresh["time"])]
     params = transport.requests[0]["params"]
     assert params["start"] == "3days"
     assert params["end"] == "now"
@@ -189,17 +190,31 @@ async def test_history_window_reads_a_config_row_by_its_message_time():
     assert [row.kind for row in page.rows] == ["state", "config"]
 
 
-async def test_history_naive_since_reads_as_utc():
-    since = datetime(2026, 10, 25)
-    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
-    assert len(page.rows) == 2
+async def test_history_refuses_a_naive_start_and_asks_nothing():
+    transport = Recording(search=RECORDED)
+    with pytest.raises(NaiveDatetimeError) as refused:
+        await _logger(transport).history(PV, datetime(2026, 10, 25), 50, timeout_s=DEADLINE)
+    assert refused.value.parameter == "start_at"
+    assert transport.requests == []
 
 
-async def test_history_keeps_a_row_whose_time_cannot_be_read():
-    row = {"config": f"state:{PATH}", "pv": PV, "time": "yesterday", "severity": "OK"}
-    since = datetime(2026, 10, 25, tzinfo=UTC)
+@pytest.mark.parametrize("stamp", ["yesterday", "2026-10-29T03:14:07.120"])
+async def test_history_keeps_a_row_whose_time_cannot_be_placed(stamp: str):
+    # A stamp with no zone names no instant, so none is guessed and the row stays.
+    row = {"config": f"state:{PATH}", "pv": PV, "time": stamp, "severity": "OK"}
+    since = datetime(2026, 10, 30, tzinfo=UTC)
     page = await _logger(Recording(search=[row])).history(PV, since, 50, timeout_s=DEADLINE)
     assert len(page.rows) == 1
+    assert page.rows[0].event_at is None
+
+
+async def test_history_compares_instants_across_zones():
+    pacific = timezone(timedelta(hours=-7))
+    since = datetime(2026, 10, 28, 20, 14, 7, tzinfo=pacific)  # 03:14:07Z on the 29th
+    page = await _logger(Recording(search=RECORDED)).history(PV, since, 50, timeout_s=DEADLINE)
+    assert [row.event_at for row in page.rows] == [
+        datetime(2026, 10, 29, 3, 14, 7, 120000, tzinfo=UTC)
+    ]
 
 
 async def test_history_a_full_page_is_truncated_at_the_limit():

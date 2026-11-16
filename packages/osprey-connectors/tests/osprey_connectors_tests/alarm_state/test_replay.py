@@ -142,7 +142,7 @@ async def test_reads_answer_the_folded_record():
         latched=True,
         acknowledged=False,
         message="HIHI_ALARM",
-        time="2026-11-06T11:59:30.000Z",
+        event_at=datetime(2026, 11, 6, 11, 59, 30, tzinfo=UTC),
         stale=False,
     )
     acked = await backend.state_for(ACKED_PV, timeout_s=1.0)
@@ -233,8 +233,8 @@ async def test_times_are_rebased_so_the_newest_is_the_load_moment():
 
     newest = await backend.state_for(ACKED_PV, timeout_s=1.0)
     older = await backend.state_for(PV, timeout_s=1.0)
-    assert newest.time == "2026-11-06T12:00:00.000Z"
-    assert older.time == "2026-11-06T11:59:30.000Z"
+    assert newest.event_at == datetime.fromisoformat("2026-11-06T12:00:00.000Z")
+    assert older.event_at == datetime.fromisoformat("2026-11-06T11:59:30.000Z")
 
 
 @pytest.mark.usefixtures("load_moment")
@@ -256,8 +256,12 @@ async def test_the_newest_message_need_not_be_the_last_line(tmp_path):
     )
     await backend.start()
 
-    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-11-06T12:00:00.000Z"
-    assert (await backend.state_for(ACKED_PV, timeout_s=1.0)).time == "2026-11-06T11:59:00.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).event_at == datetime.fromisoformat(
+        "2026-11-06T12:00:00.000Z"
+    )
+    assert (await backend.state_for(ACKED_PV, timeout_s=1.0)).event_at == datetime.fromisoformat(
+        "2026-11-06T11:59:00.000Z"
+    )
 
 
 @pytest.mark.usefixtures("load_moment")
@@ -271,7 +275,9 @@ async def test_a_message_with_no_time_keeps_what_its_value_recorded(tmp_path):
     )
     await backend.start()
 
-    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-10-29T03:14:07.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).event_at == datetime.fromisoformat(
+        "2026-10-29T03:14:07.000Z"
+    )
 
 
 async def test_a_replay_of_old_timestamps_is_not_stale_when_fresh_nor_a_minute_later(load_moment):
@@ -281,7 +287,9 @@ async def test_a_replay_of_old_timestamps_is_not_stale_when_fresh_nor_a_minute_l
     assert (await backend.state_for(PV, timeout_s=1.0)).stale is False
     load_moment[0] = LOAD_MOMENT + timedelta(minutes=1, seconds=1)
     assert (await backend.state_for(PV, timeout_s=1.0)).stale is False
-    assert (await backend.state_for(PV, timeout_s=1.0)).time == "2026-11-06T11:59:30.000Z"
+    assert (await backend.state_for(PV, timeout_s=1.0)).event_at == datetime.fromisoformat(
+        "2026-11-06T11:59:30.000Z"
+    )
 
 
 async def test_the_stopped_feed_is_stale():
@@ -378,6 +386,8 @@ async def test_a_missing_file_answers_with_the_reason_and_never_a_clear_state(tm
         "[1, 2]",
         '{"key": "state:/Demo/X", "value": {}, "time": "not a time"}',
         '{"key": "state:/Demo/X", "value": {}, "time": 12}',
+        # A time with no zone names no instant: no zone is guessed for it.
+        '{"key": "state:/Demo/X", "value": {}, "time": "2026-11-06T11:59:30"}',
         '{"key": "state:/Demo/X", "value": 12}',
     ],
 )
@@ -488,7 +498,7 @@ async def test_the_list_holds_every_channel_its_counts_and_the_load_moment():
         assert row.state == await backend.state_for(row.address, timeout_s=1.0)
     assert dict(states.counts) == {"MAJOR": 1, "MINOR": 1}
     assert states.stale is False
-    assert states.last_contact == "2026-11-06T12:00:00.000Z"
+    assert states.last_contact_at == LOAD_MOMENT
 
 
 async def test_the_list_of_a_stopped_feed_is_stale():

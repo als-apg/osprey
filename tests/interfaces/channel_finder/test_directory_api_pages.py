@@ -15,6 +15,7 @@ import json
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -134,7 +135,7 @@ class FakeHistory(FakeBackend):
         return HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t", address=address, old="1", new="2")],
+            rows=[PutRow(recorded_stamp="t", address=address, old="1", new="2")],
         )
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -152,10 +153,13 @@ class FakeAlarmState(FakeBackend):
 
     async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         state = AlarmStateRecord(
-            severity="MAJOR", status="NO_ALARM", latched=True, time="2026-11-11T06:00:00.000Z"
+            severity="MAJOR",
+            status="NO_ALARM",
+            latched=True,
+            event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
         )
         row = AlarmStateRow(address="SR:BPM1", path="/SR/SR:BPM1", state=state)
-        return AlarmStates(rows=(row,), stale=False, last_contact=None)
+        return AlarmStates(rows=(row,), stale=False, last_contact_at=None)
 
 
 _FAKES = {

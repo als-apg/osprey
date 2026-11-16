@@ -11,15 +11,21 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Literal
 
+from pydantic import AwareDatetime
+
 from osprey_connectors.alarm_state import AlarmConfigRecord
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 
 
 class AlarmHistoryRow(FrozenModel):
-    """One logged alarm event, as the logger recorded it."""
+    """One logged alarm event, as the logger recorded it.
 
-    time: str | None = None
+    ``event_at`` is when the logger says it happened, ``None`` when the row gave
+    no time it could be placed by.
+    """
+
+    event_at: AwareDatetime | None = None
     severity: str | None = None
     status: str | None = None
     message: str | None = None
@@ -32,9 +38,14 @@ class AlarmLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
+        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[AlarmHistoryRow]:
-        """The logged alarm events of *address*, ``AlarmHistoryRow`` rows, newest first."""
+        """The logged alarm events of *address*, ``AlarmHistoryRow`` rows, newest first.
+
+        With *start_at*, an aware instant, only events at or after it, and those
+        whose time cannot be placed; a naive one raises
+        :class:`~osprey_connectors.errors.NaiveDatetimeError`.
+        """
 
     @abstractmethod
     async def config_for(

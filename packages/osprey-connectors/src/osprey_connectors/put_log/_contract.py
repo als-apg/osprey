@@ -8,9 +8,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Self
+
+from pydantic import AwareDatetime, model_validator
 
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
+from osprey_connectors.service_answers import (
+    HistoryPage,
+    Unavailable,
+    _Backend,
+    _require_one_time,
+)
 
 
 class PutRow(FrozenModel):
@@ -18,9 +26,14 @@ class PutRow(FrozenModel):
 
     ``address`` is what was written: an EPICS PV, a Tango attribute, a DOOCS
     property. ``field`` is an EPICS field put's ``.HIHI``, else ``None``.
+    ``put_at`` is when the write happened. A log can record a stamp that cannot
+    be placed on the clock, such as an IOC's local time with no zone: then
+    ``put_at`` is ``None`` and ``recorded_stamp`` holds the stamp's text, and no
+    zone is guessed for it. ``recorded_stamp`` is ``None`` whenever ``put_at`` is set.
     """
 
-    at: str | None = None
+    put_at: AwareDatetime | None = None
+    recorded_stamp: str | None = None
     address: str
     field: str | None = None
     old: object = None
@@ -28,15 +41,25 @@ class PutRow(FrozenModel):
     user: str | None = None
     client: str | None = None
 
+    @model_validator(mode="after")
+    def _one_time(self) -> Self:
+        _require_one_time(self.put_at, self.recorded_stamp)
+        return self
+
 
 class PutLog(_Backend, ABC):
     """Read a log of channel writes."""
 
     @abstractmethod
     async def history(
-        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
+        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[PutRow]:
-        """The logged writes of *address*, ``PutRow`` rows, field puts included, newest first."""
+        """The logged writes of *address*, ``PutRow`` rows, field puts included, newest first.
+
+        With *start_at*, an aware instant, only writes at or after it, and those
+        whose time cannot be placed; a naive one raises
+        :class:`~osprey_connectors.errors.NaiveDatetimeError`.
+        """
 
     @abstractmethod
     async def probe(self, *, timeout_s: float) -> str | Unavailable:

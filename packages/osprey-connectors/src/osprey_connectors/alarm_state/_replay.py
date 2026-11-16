@@ -1,10 +1,11 @@
 """A recorded alarm feed: topic messages replayed from a file through the real fold.
 
 The file is JSONL, one topic message per line: ``{"key", "value", "time"}``, with
-``time`` an ISO-8601 string. A message with no ``time`` keeps what its value
-records. Times are rebased at load so the newest equals the load moment, so a
-replay never ages; a trailing ``{"feed": "stopped"}`` line is what makes one stale.
-A line that cannot be read fails the load: half a feed could read as a clear state.
+``time`` an ISO-8601 string with a zone (``Z`` or an offset). A message with no
+``time`` keeps what its value records. Times are rebased at load so the newest
+equals the load moment, so a replay never ages; a trailing ``{"feed": "stopped"}``
+line is what makes one stale. A line that cannot be read, a time with no zone
+among them, fails the load: half a feed could read as a clear state.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import ConfigDict, ValidationError, field_validator
+from pydantic import AwareDatetime, ConfigDict, ValidationError, field_validator
 from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
@@ -63,7 +64,7 @@ class ReplayAlarmState(AlarmState):
         self._task: asyncio.Task[None] | None = None
         self._snapshot: FeedSnapshot | None = None
         self._stopped = False
-        self._loaded_at: str | None = None
+        self._loaded_at: datetime | None = None
         self._failed: Unavailable | None = None
 
     @override
@@ -100,13 +101,13 @@ class ReplayAlarmState(AlarmState):
 
     @override
     async def states(self, *, timeout_s: float) -> AlarmStates | Unavailable:
-        """Every channel's state; ``last_contact`` is the load moment, the newest rebased time."""
+        """Every channel's state; ``last_contact_at`` is the load moment, the newest rebased time."""
         await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
         rows = state_rows(snapshot, stale=self._stopped)
-        return AlarmStates(rows=rows, stale=self._stopped, last_contact=self._loaded_at)
+        return AlarmStates(rows=rows, stale=self._stopped, last_contact_at=self._loaded_at)
 
     @override
     async def config_for(
@@ -176,26 +177,23 @@ class ReplayAlarmState(AlarmState):
 class _Message(FrozenModel):
     """One topic message of the file; a key it does not name is ignored.
 
-    ``time`` is read with :meth:`datetime.fromisoformat`, a time with no zone as
-    UTC.
+    ``time`` is read with :meth:`datetime.fromisoformat`. A time with no zone
+    names no instant, so it fails the load rather than being read in a guessed one.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     key: str | None = None
     value: dict[str, object] | str | None = None
-    time: datetime | None = None
+    time: AwareDatetime | None = None
 
     @field_validator("time", mode="before")
     @classmethod
     def _iso_time(cls, recorded: object) -> object:
-        if not isinstance(recorded, str):
-            return recorded
-        moment = datetime.fromisoformat(recorded)
-        return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+        return datetime.fromisoformat(recorded) if isinstance(recorded, str) else recorded
 
 
-def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
+def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, datetime]:
     """Fold the file at *path*.
 
     The second answer is whether it ends with the stopped marker, the third the
@@ -224,9 +222,9 @@ def _read_replay(path: Path) -> tuple[FeedSnapshot, bool, str]:
     for message in messages:
         rebased = None
         if message.time is not None and shift is not None:
-            rebased = _iso(message.time + shift)
-        fold_message(snapshot, message.key, message.value, time=rebased)
-    return snapshot, stopped, _iso(loaded_at)
+            rebased = message.time + shift
+        fold_message(snapshot, message.key, message.value, event_at=rebased)
+    return snapshot, stopped, loaded_at
 
 
 def _refused(error: ValidationError) -> str:
@@ -235,7 +233,3 @@ def _refused(error: ValidationError) -> str:
         f"{'.'.join(str(part) for part in detail['loc']) or 'a message'}: {detail['msg']}"
         for detail in error.errors(include_url=False)
     )
-
-
-def _iso(moment: datetime) -> str:
-    return moment.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")

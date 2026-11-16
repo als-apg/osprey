@@ -14,7 +14,7 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -122,7 +122,8 @@ class FakeDirectory(FakeBackend):
         "channel_type": "recordType",
         "server": "iocName",
         "host": "hostName",
-        "last_announced": "time",
+        "announced_at": "time",
+        "recorded_stamp": "time",
         "description": "recordDesc",
     }
 
@@ -206,7 +207,13 @@ class FakeAlarmLog(FakeBackend):
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
+            rows=[
+                AlarmHistoryRow(
+                    event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
+                    severity="MAJOR",
+                    user="operator one",
+                )
+            ],
         )
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -220,7 +227,9 @@ class FakePutLog(FakeBackend):
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t2", address=address, old="1", new="2", user="operator two")],
+            rows=[
+                PutRow(recorded_stamp="t2", address=address, old="1", new="2", user="operator two")
+            ],
         )
 
 
@@ -598,12 +607,13 @@ async def test_alarm_state_on_va_from_the_replay(
 
 
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
-    record = AlarmStateRecord(severity=severity, time=time, **state)
+    record = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time), **state)
     return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
 
 
 def _listed(*rows: Any, stale: bool = False) -> Any:
-    return AlarmStates(rows=rows, stale=stale, last_contact="2026-11-11T08:00:00.000Z")
+    contact = datetime(2026, 11, 11, 8, tzinfo=UTC)
+    return AlarmStates(rows=rows, stale=stale, last_contact_at=contact)
 
 
 _EVERY_SEVERITY = (

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,7 @@ def _install(tmp_path: Path, control_system: dict[str, Any], section: dict[str, 
 
 
 def _row(channel: str, severity: str, time: str) -> Any:
-    state = AlarmStateRecord(severity=severity, time=time)
+    state = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time))
     return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=state)
 
 
@@ -119,7 +120,8 @@ def _listed() -> Any:
         _row("SR:B", "MAJOR", "2026-11-11T06:00:00.000Z"),
         _row("SR:C", "OK", "2026-11-11T07:30:00.000Z"),
     )
-    return AlarmStates(rows=rows, stale=False, last_contact="2026-11-11T08:00:00.000Z")
+    contact = datetime(2026, 11, 11, 8, tzinfo=UTC)
+    return AlarmStates(rows=rows, stale=False, last_contact_at=contact)
 
 
 async def test_rows_carry_their_panel_link_and_the_counts_cover_every_channel(
