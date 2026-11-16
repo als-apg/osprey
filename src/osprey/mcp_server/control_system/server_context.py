@@ -609,7 +609,7 @@ class ControlSystemContext:
         sent to, not to whichever is active now. Nothing is retried.
         """
         try:
-            await proxy.supervisor_request("ping", {}, DEFAULT_PING_TIMEOUT_S)
+            await proxy.supervisor_request("ping", {}, timeout_s=DEFAULT_PING_TIMEOUT_S)
         except Exception:
             if not await self.invalidate_connector(name, incarnation=proxy):
                 return self._respawn_refused()

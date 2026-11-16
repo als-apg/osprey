@@ -347,4 +347,4 @@ async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name)
     connector.read_channel = read_channel
 
     with pytest.raises(asyncio.CancelledError):
-        await cls.read_multiple_channels(connector, timeout_s=addresses)
+        await cls.read_multiple_channels(connector, addresses)
