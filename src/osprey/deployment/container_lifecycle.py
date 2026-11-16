@@ -51,7 +51,8 @@ from osprey.deployment.compose_generator import (
     resolve_site_build_args,
     resolve_site_image_axes,
 )
-from osprey.deployment.compose_watch import watched_compose_up
+from osprey.deployment.compose_watch import ContainerState, watched_compose_up
+from osprey.deployment.container_ownership import COMPOSE_SERVICE_LABEL, container_label
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.deployment_record import (
     DeploymentRecord,
@@ -70,6 +71,7 @@ from osprey.deployment.errors import (
     DeploymentRecordError,
     DevModeUnavailableError,
     NoRenderedBuildError,
+    ServicesNotRunningError,
 )
 from osprey.deployment.graphdb_service import (
     GRAPHDB_REBUILD_HINT,
@@ -108,6 +110,7 @@ from osprey.deployment.service_tokens import (
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.web_terminals.artifacts import web_compose_file
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
@@ -7630,6 +7633,10 @@ def _start_as_built(
             keep_archiver_base=keep_archiver_base,
             reuse_stores=reuse_stores,
         )
+        # An attached start replaces this process and never gets here, so a start
+        # that returns has started its services in the background: each of them
+        # has a running container, or the start failed.
+        _refuse_services_not_running(config, compose_files, repo_root)
 
 
 def _warn_on_timezone_drift(config: dict) -> None:
@@ -7737,6 +7744,127 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
         logger.debug("Container health skipped: %s", exc)
         return []
     return sorted(names)
+
+
+def _run_once_services(services: Mapping[str, Any]) -> set[str]:
+    """The services another one waits on with ``condition: service_completed_successfully``.
+
+    Compose's own declaration that a service runs to completion and exits.
+    """
+    run_once: set[str] = set()
+    for spec in services.values():
+        depends = spec.get("depends_on") if isinstance(spec, Mapping) else None
+        if not isinstance(depends, Mapping):
+            continue
+        for name, condition in depends.items():
+            if (
+                isinstance(condition, Mapping)
+                and condition.get("condition") == "service_completed_successfully"
+            ):
+                run_once.add(str(name))
+    return run_once
+
+
+def _row_is_running(row: Mapping[str, Any]) -> bool:
+    """Whether a ``ps`` row is a running container, in either runtime's spelling."""
+    state = str(row.get("State") or "").lower()
+    if state:
+        return state == "running"
+    return str(row.get("Status") or "").lower().startswith("up")
+
+
+def _row_state(row: Mapping[str, Any]) -> str:
+    """A ``ps`` row's state as :class:`ContainerState` words it: ``exited (1)``, ``created``, ..."""
+    status = str(row.get("Status") or row.get("State") or "")
+    state = ContainerState("", status).state
+    exit_code = row.get("ExitCode")
+    if state == "exited" and isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        state = f"exited ({exit_code})"
+    return state or str(row.get("State") or "unknown").lower()
+
+
+def services_without_a_running_container(
+    repo_root: Path, services: Mapping[str, Any]
+) -> dict[str, str]:
+    """The *services* a start that returned has not left running, with what was seen.
+
+    A start that returns has handed every service to compose to run in the
+    background, so each one has a running container afterwards. A service that
+    another declares ``service_completed_successfully`` on runs once instead: a
+    container of it that exited 0 satisfies it. A ``restarting`` container is
+    not running.
+
+    Containers are listed by :func:`_checkout_containers` and matched to their
+    service by the label compose stamps on every container it creates.
+
+    :param repo_root: The deployment repo that was started.
+    :param services: The ``services`` mappings the start handed to compose, merged.
+    :return: Service name to ``no container`` or the states of its containers,
+        in the order of *services*; empty when every service is satisfied.
+    :raises RuntimeError: The containers could not be listed.
+    :raises DeploymentRecordError: The deployment record cannot be read.
+    """
+    _runtime, rows = _checkout_containers(repo_root)
+    run_once = _run_once_services(services)
+    by_service: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        service = container_label(row, COMPOSE_SERVICE_LABEL)
+        if service is not None:
+            by_service.setdefault(service, []).append(row)
+
+    missing: dict[str, str] = {}
+    for name in services:
+        service = str(name)
+        seen = by_service.get(service, [])
+        if any(_row_is_running(row) for row in seen):
+            continue
+        states = [_row_state(row) for row in seen]
+        if service in run_once and "exited (0)" in states:
+            continue
+        missing[service] = ", ".join(sorted(set(states))) if states else "no container"
+    return missing
+
+
+def _started_services(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> dict[str, Any]:
+    """Every service a start hands to compose: the rendered files' and the web stack's.
+
+    Relative entries of *compose_files* are resolved against *repo_root*, as the
+    compose invocation resolves them. A service several files define is merged
+    key by key, the later file winning, as compose merges its ``-f`` list.
+    """
+    files = [
+        repo_root / path if not Path(path).is_absolute() else Path(path) for path in compose_files
+    ]
+    if _web_terminals_enabled(config):
+        files.append(web_compose_file(repo_root))
+    started: dict[str, Any] = {}
+    for file in files:
+        for name, spec in (rendered_compose_services(file) or {}).items():
+            earlier = started.get(name)
+            if isinstance(earlier, Mapping) and isinstance(spec, Mapping):
+                spec = {**earlier, **spec}
+            started[name] = spec
+    return started
+
+
+def _refuse_services_not_running(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> None:
+    """Fail a start that returned unless every service it started has a running container.
+
+    :raises ServicesNotRunningError: Some service has no running container.
+    :raises RuntimeError: The containers could not be listed, so nothing is verified.
+    """
+    services = _started_services(config, compose_files, repo_root)
+    try:
+        missing = services_without_a_running_container(repo_root, services)
+    except (RuntimeError, DeploymentRecordError, OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"could not verify the start: {exc}") from exc
+    if missing:
+        raise ServicesNotRunningError(missing)
+    _report_step("every service has a running container")
 
 
 #: Why a ``down`` sweeps by label when ``build/`` holds no compose files.

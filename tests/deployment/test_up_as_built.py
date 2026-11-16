@@ -55,6 +55,9 @@ from tests._renders import tier_render
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
+# The real check, taken before the conftest seam replaces it for every test.
+_REAL_REFUSE_SERVICES_NOT_RUNNING = container_lifecycle._refuse_services_not_running
+
 
 @pytest.fixture
 def lifecycle_repo(tmp_path: Path) -> Path:
@@ -240,10 +243,13 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
 
 
 @pytest.mark.usefixtures("started")
-def test_a_detached_start_with_no_container_fails_naming_the_service(lifecycle_repo):
+def test_a_detached_start_with_no_container_fails_naming_the_service(lifecycle_repo, monkeypatch):
     """Compose's exit code is not the answer: a start that returns has to have
     started what it was handed. Here every runtime call exits 0 and lists
     nothing, the shape of a compose provider that started no container."""
+    monkeypatch.setattr(
+        container_lifecycle, "_refuse_services_not_running", _REAL_REFUSE_SERVICES_NOT_RUNNING
+    )
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
