@@ -115,6 +115,7 @@ describe('the default model', () => {
     expect(groupOf('artifacts')).toBe('workspace');
     expect(groupOf('events')).toBe('system');
     expect(groupOf('system-health')).toBe('system');
+    expect(groupOf('roster')).toBe('system');
     expect(groupOf('ariel')).toBe('tools');
     expect(groupOf('a-custom-panel')).toBe('tools');
   });

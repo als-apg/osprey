@@ -38,7 +38,7 @@ from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BUILD_PANELS, BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
@@ -2214,6 +2214,10 @@ class BuildProfile:
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
+            # A panel the build writes into the render as a page
+            # (``write_build_panels``) needs no url: the terminal serves it.
+            if panel in BUILD_PANELS:
+                continue
             url_key = f"web.panels.{panel}.url"
             if panel_leaf_spellings(self.config, panel, "url"):
                 continue
@@ -2241,7 +2245,7 @@ class BuildProfile:
             )
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
-                f"({sorted(BUILTIN_PANELS)}) and {missing}"
+                f"({sorted(BUILTIN_PANELS | set(BUILD_PANELS))}) and {missing}"
             )
 
         # An authored `web.panels.<id>.enabled` that contradicts the selection:

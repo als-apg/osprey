@@ -27,6 +27,7 @@ URL-backed panels only and is left untouched.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,7 +36,7 @@ from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
     validate_panel,
 )
-from osprey.profiles.web_panels import BUILTIN_PANELS
+from osprey.profiles.web_panels import BUILD_PANELS, BUILD_PANELS_DIRNAME, BUILTIN_PANELS
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ __all__ = [
     "PANELS_DIRNAME",
     "DiscoveredPanel",
     "discover_panels",
+    "apply_build_panels",
     "apply_discovered_panels",
 ]
 
@@ -69,7 +71,9 @@ class DiscoveredPanel:
     directory: Path
 
 
-def discover_panels(panels_root: str | Path) -> list[DiscoveredPanel]:
+def discover_panels(
+    panels_root: str | Path, *, reserved: Iterable[str] = BUILTIN_PANELS
+) -> list[DiscoveredPanel]:
     """Scan ``panels_root`` for compliant panel bundles, fail-closed.
 
     Each immediate subdirectory containing a ``manifest.json`` is a candidate.
@@ -82,6 +86,8 @@ def discover_panels(panels_root: str | Path) -> list[DiscoveredPanel]:
     Args:
         panels_root: The conventioned panels directory (``<project>/panels``).
             A non-existent or non-directory path yields an empty list.
+        reserved: Ids a bundle here may not take. The framework's own panel
+            ids by default.
 
     Returns:
         The compliant panels, ordered by directory name.  Never raises.
@@ -92,6 +98,7 @@ def discover_panels(panels_root: str | Path) -> list[DiscoveredPanel]:
 
     discovered: list[DiscoveredPanel] = []
     seen_ids: set[str] = set()
+    reserved_ids = set(reserved)
 
     for child in sorted(root.iterdir(), key=lambda p: p.name):
         # Every per-candidate step is wrapped so *any* failure inspecting one
@@ -132,7 +139,7 @@ def discover_panels(panels_root: str | Path) -> list[DiscoveredPanel]:
                 )
                 continue
 
-            if manifest.id in BUILTIN_PANELS:
+            if manifest.id in reserved_ids:
                 logger.warning(
                     "Panel %r is not served: id %r collides with a built-in panel.",
                     child.name,
@@ -238,4 +245,59 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
             PANELS_DIRNAME,
             ", ".join(p.id for p in applied),
         )
+    return applied
+
+
+def apply_build_panels(app) -> list[DiscoveredPanel]:
+    """Wire the panels ``osprey build`` wrote into this render into ``app.state``.
+
+    A panel in :data:`~osprey.profiles.web_panels.BUILD_PANELS` is declared by
+    the render's config like any custom panel and has no url: its page is a
+    bundle the build wrote under
+    :data:`~osprey.profiles.web_panels.BUILD_PANELS_DIRNAME`. Each one the config
+    enables is given the same-origin ``/panel-static/{id}/`` URL a discovered
+    bundle has and recorded in ``app.state.discovered_panel_dirs``, so the one
+    route serves both. The config is the opt-in here, so this runs whatever
+    ``web.allow_runtime_panels`` says.
+
+    A block that names its own ``url`` is the deployment's own panel under that
+    id and is left alone. A bundle that is missing or fails the panel contract
+    takes its panel off the rail, with a warning: an entry that could only
+    answer 404 is not shown.
+
+    Args:
+        app: The FastAPI app whose ``state`` has ``project_cwd``,
+            ``custom_panels`` and ``visible_panels`` populated.
+
+    Returns:
+        The panels wired.
+    """
+    custom_panels: list[dict] = list(getattr(app.state, "custom_panels", []))
+    visible_panels: list[str] = list(getattr(app.state, "visible_panels", []))
+    panel_dirs: dict[str, DiscoveredPanel] = dict(getattr(app.state, "discovered_panel_dirs", {}))
+    root = Path(app.state.project_cwd) / BUILD_PANELS_DIRNAME
+
+    applied: list[DiscoveredPanel] = []
+    kept: list[dict] = []
+    for entry in custom_panels:
+        panel_id = entry.get("id")
+        if panel_id not in BUILD_PANELS or entry.get("url"):
+            kept.append(entry)
+            continue
+        found = [panel for panel in discover_panels(root, reserved=()) if panel.id == panel_id]
+        if not found:
+            logger.warning(
+                "Panel %r is not served: no valid bundle under %s; rebuild the project.",
+                panel_id,
+                root / str(panel_id),
+            )
+            visible_panels = [pid for pid in visible_panels if pid != panel_id]
+            continue
+        kept.append({**entry, "url": f"/panel-static/{panel_id}/", "discovered": True})
+        panel_dirs[panel_id] = found[0]
+        applied.append(found[0])
+
+    app.state.custom_panels = kept
+    app.state.visible_panels = visible_panels
+    app.state.discovered_panel_dirs = panel_dirs
     return applied
