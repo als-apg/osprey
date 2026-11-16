@@ -3302,9 +3302,11 @@ keys:
   phoebus.panels:
     rendered: false
     data-map: true
-    evidence: 'config\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
+    evidence: 'load_osprey_config\(\)\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
     note: >-
-      Panel name to display-file path, the names phoebus_open_panel opens. The
+      Panel name to display-file path, the names phoebus_open_panel opens. An
+      entry may instead be a mapping: `file`, the path, and `macros`, the list
+      of macro names the panel takes; a panel that lists none takes none. The
       names are the deployment's own vocabulary, so this is a data map; no
       preset carries it.
     default: {}

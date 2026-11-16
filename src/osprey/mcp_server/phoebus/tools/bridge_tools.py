@@ -72,7 +72,9 @@ Panel name registry
 
 1. ``phoebus.panels.<name>`` in config.yml — value may be an absolute path,
    a ``file:`` URL, or a path relative to the config file's directory. This is
-   the deployment path for every facility.
+   the deployment path for every facility. The value may instead be a mapping
+   with that path as ``file`` and, as ``macros``, the list of macro names the
+   panel takes; :func:`_panel_declaration` is the one reader of both forms.
 2. An optional framework built-in registry (empty by default; a framework
    built-in, if ever added, is resolved relative to the osprey repository root
    in a development checkout).
@@ -93,6 +95,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -362,14 +365,94 @@ _OSPREY_REPO_ROOT: Path = Path(__file__).resolve().parents[5]
 _OPEN_READY_TIMEOUT = 30  # seconds to wait for ready=True after /open
 
 
+# A macro name: a plain identifier. Narrower than what Phoebus itself accepts
+# (which also allows ".", "-", "[" and "]" for property paths). It is the form
+# a panel declares and the form a caller passes.
+_MACRO_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+
+_PANEL_ENTRY_KEYS = frozenset({"file", "macros"})
+
+
+@dataclass(frozen=True)
+class _PanelDeclaration:
+    """One ``phoebus.panels`` entry: the display file and the macros it takes."""
+
+    file: str
+    macros: tuple[str, ...] = ()
+
+
+def _panel_declaration(name: str, panels: object) -> _PanelDeclaration | None:
+    """Read the ``phoebus.panels`` entry for *name*; ``None`` when there is none.
+
+    The one reader of an entry's shape. Two forms::
+
+        phoebus.panels.overview: overview.bob        # short: the file, no macros
+        phoebus.panels.bpm.file: bpm.bob             # long: the file ...
+        phoebus.panels.bpm.macros: [IOC]             # ... and the macro names it takes
+
+    ``macros`` is a list of names today. A panel that lists none, in either
+    form, takes none.
+
+    Raises:
+        ValueError: The entry is neither form, with what is wrong with it.
+    """
+    entry = panels.get(name) if isinstance(panels, dict) else None
+    if entry is None:
+        return None
+    if isinstance(entry, str):
+        return _PanelDeclaration(entry)
+    if not isinstance(entry, dict):
+        raise ValueError(
+            "the entry must be a display-file path, or a mapping with 'file' and "
+            f"optional 'macros' (got {type(entry).__name__})"
+        )
+    unknown = sorted(str(key) for key in entry if key not in _PANEL_ENTRY_KEYS)
+    if unknown:
+        raise ValueError(f"unknown key(s) {unknown}; an entry takes 'file' and 'macros'")
+    file = entry.get("file")
+    if not isinstance(file, str) or not file.strip():
+        raise ValueError("'file' must be a display-file path")
+    declared = entry.get("macros", [])
+    if declared is None:
+        declared = []
+    if not isinstance(declared, list):
+        raise ValueError(f"'macros' must be a list of macro names (got {type(declared).__name__})")
+    for macro in declared:
+        if not isinstance(macro, str) or not _MACRO_NAME.match(macro):
+            raise ValueError(
+                f"'macros' names {macro!r}: a macro name is letters, digits and "
+                "underscores, starting with a letter"
+            )
+    return _PanelDeclaration(file, tuple(dict.fromkeys(declared)))
+
+
+def _panels() -> dict:
+    """The ``phoebus.panels`` map of this terminal's config, ``{}`` when unset or malformed."""
+    panels = load_osprey_config().get("phoebus", {}).get("panels", {})
+    return panels if isinstance(panels, dict) else {}
+
+
+def _declared_macros(name: str, panels: dict) -> tuple[str, ...]:
+    """The macro names panel *name* declares; none for a built-in or a malformed entry."""
+    try:
+        declaration = _panel_declaration(name, panels)
+    except ValueError:
+        return ()
+    return declaration.macros if declaration is not None else ()
+
+
 def _panel_resource(name: str, panels: dict) -> str | None:
     """Bridge-ready resource for *name*, or ``None`` when no source registers it.
 
     The resolution order of :func:`_resolve_panel_resource` without its
     refusal, so the lookup tool answers about exactly the resource an open
     would forward rather than about a second reading of the registry.
+
+    Raises:
+        ValueError: The ``phoebus.panels`` entry for *name* is malformed.
     """
-    resource: str | None = panels.get(name)
+    declaration = _panel_declaration(name, panels)
+    resource: str | None = declaration.file if declaration is not None else None
 
     if resource is None:
         builtin_relative = _BUILTIN_PANELS.get(name)
@@ -424,18 +507,51 @@ def _panel_index() -> dict[str, str]:
     the first one wins, so two names on one file answer with one of them
     deterministically.
     """
-    config = load_osprey_config()
-    panels = config.get("phoebus", {}).get("panels", {})
-    if not isinstance(panels, dict):
-        panels = {}
-    registered = {name for name, value in panels.items() if isinstance(value, str)}
+    panels = _panels()
     index: dict[str, str] = {}
-    for name in sorted(registered | set(_BUILTIN_PANELS)):
-        resource = _panel_resource(name, panels)
+    for name in sorted({str(name) for name in panels} | set(_BUILTIN_PANELS)):
+        try:
+            resource = _panel_resource(name, panels)
+        except ValueError:
+            continue
         if resource is None:
             continue
         index.setdefault(_display_key(resource), name)
     return index
+
+
+def _panel_listing(name: str, panels: dict) -> str:
+    """*name* as a refusal lists it: with the macros it declares, when it declares any."""
+    declared = _declared_macros(name, panels)
+    return f"{name} (macros: {', '.join(declared)})" if declared else name
+
+
+def _check_macros_declared(name: str, macros: dict[str, str]) -> None:
+    """Refuse macros panel *name* does not declare in its ``phoebus.panels`` entry.
+
+    The facility says which parameters a screen takes; a panel that declares
+    none takes none. Runs before the bridge is contacted.
+    """
+    if not macros:
+        return
+    declared = _declared_macros(name, _panels())
+    undeclared = sorted(macro for macro in macros if macro not in declared)
+    if not undeclared:
+        return
+    takes = f"declares {', '.join(declared)}" if declared else "declares no macros"
+    make_error(
+        "validation_error",
+        f"Panel '{name}' does not take the macro(s) {', '.join(undeclared)}: its "
+        f"phoebus.panels entry {takes}.",
+        [
+            f"Pass only the declared macros: {list(declared)}."
+            if declared
+            else f"Open '{name}' without macros.",
+            f"An administrator can declare a macro with 'phoebus.panels.{name}.macros' "
+            "in the build profile, then rebuild and redeploy.",
+        ],
+        details={"panel": name, "declared": list(declared), "undeclared": undeclared},
+    )
 
 
 def _resolve_panel_resource(name: str) -> str:
@@ -457,12 +573,27 @@ def _resolve_panel_resource(name: str) -> str:
     Raises:
         ToolError(unknown_panel): When *name* is not found in either source.
     """
-    config = load_osprey_config()
-    panels: dict = config.get("phoebus", {}).get("panels", {})
-    resource = _panel_resource(name, panels)
+    panels = _panels()
+    try:
+        resource = _panel_resource(name, panels)
+    except ValueError as exc:
+        make_error(
+            "configuration_error",
+            f"The phoebus.panels entry for '{name}' is malformed: {exc}.",
+            [
+                f"Write it as 'phoebus.panels.{name}: /path/to/file.bob', or as "
+                f"'phoebus.panels.{name}.file: /path/to/file.bob' with "
+                f"'phoebus.panels.{name}.macros: [NAME, ...]', in the build profile, "
+                "then rebuild and redeploy."
+            ],
+            details={"key": f"phoebus.panels.{name}"},
+        )
 
     if resource is None:
-        known = sorted(set(panels) | set(_BUILTIN_PANELS))
+        known = [
+            _panel_listing(known_name, panels)
+            for known_name in sorted({str(key) for key in panels} | set(_BUILTIN_PANELS))
+        ]
         make_error(
             "unknown_panel",
             f"Unknown panel name '{name}'.",
@@ -476,11 +607,6 @@ def _resolve_panel_resource(name: str) -> str:
 
     return resource
 
-
-# A macro name the tool forwards: a plain identifier. Narrower than what
-# Phoebus itself accepts (which also allows ".", "-", "[" and "]" for
-# property paths), because the agent chooses the name.
-_MACRO_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 
 # A macro value the tool forwards: ASCII letters, digits, ".", "_" and "-",
 # starting with a letter or digit, and never "..". An allow-list, so that the
@@ -565,15 +691,20 @@ async def phoebus_open_panel(
 
     Panel name resolution (in order):
 
-    1. ``phoebus.panels.<name>`` in config.yml — accepts an absolute path, a
-       ``file:`` URL, or a path relative to the config file's directory.
+    1. ``phoebus.panels.<name>`` in config.yml — an absolute path, a
+       ``file:`` URL, or a path relative to the config file's directory;
+       or a mapping with that path as ``file`` and the macro names the
+       panel takes as ``macros``.
     2. An optional framework built-in registry (empty by default).
 
     A parameterised display (one detail screen for many IOCs, hosts or
     devices) takes its parameters as ``macros``: ``{"IOC": "injbpm"}`` opens
     the display with ``$(IOC)`` resolved in its name, channel addresses and
-    embedded displays. The same panel opened with different macro values is
-    a different display, each with its own handle. Macros the display file
+    embedded displays. A panel takes only the macros its ``phoebus.panels``
+    entry declares, and a panel that declares none takes none; a refusal
+    names the declared macros, and ``phoebus_panel_lookup`` lists them. The
+    same panel opened with different macro values is a different display,
+    each with its own handle. Macros the display file
     defines itself keep their values. A bridge too old to apply macros is
     refused with ``not_supported``.
 
@@ -589,6 +720,7 @@ async def phoebus_open_panel(
             background opens that should not steal the user's view.
         macros: Display macros as a mapping of macro name to string value
             (e.g. ``{"IOC": "injbpm"}``). Omit for a display that takes none.
+            Every name must be one the panel declares.
             A name is letters, digits and underscores, starting with a
             letter. A value is a plain token: ASCII letters, digits, ``.``,
             ``_`` and ``-``, starting with a letter or digit, without ``..``.
@@ -602,6 +734,7 @@ async def phoebus_open_panel(
     """
     resource = _resolve_panel_resource(name)  # raises ToolError on unknown name
     sent_macros = _validated_macros(macros)  # raises ToolError on a malformed mapping
+    _check_macros_declared(name, sent_macros)  # raises ToolError on an undeclared macro
 
     # "macros" is left out when there are none, so the body stays the one a
     # bridge that predates macro support was always sent.
@@ -729,6 +862,8 @@ async def phoebus_panel_lookup(path: str) -> str:
     Returns:
         JSON ``{"status": "success", "openable": true, "name": "<panel>",
         "path": "<resolved path>"}`` when this terminal registers the file,
+        with ``"macros": [...]`` naming the macros that panel takes when it
+        declares any,
         and ``{"status": "success", "openable": false, "path": "<resolved
         path>"}`` when it does not.
     """
@@ -740,6 +875,9 @@ async def phoebus_panel_lookup(path: str) -> str:
     answer: dict = {"status": "success", "openable": name is not None, "path": key}
     if name is not None:
         answer["name"] = name
+        declared = _declared_macros(name, _panels())
+        if declared:
+            answer["macros"] = list(declared)
     return json.dumps(answer)
 
 

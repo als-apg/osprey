@@ -130,16 +130,42 @@ display path, it returns the name that opens it.
 
 The names belong to the deployment. OSPREY ships none.
 
-A parameterised display, one detail screen that serves many IOCs, hosts or
-devices, is registered once. The caller gives its parameters when opening it:
-``phoebus_open_panel`` takes an optional ``macros`` argument, a mapping of
-macro name to string value such as ``{"IOC": "injbpm"}``. Phoebus opens the
-display with ``$(IOC)`` resolved in its name, its PV names and its embedded
-displays. The same panel opened with different values is a different display
-with its own handle.
+Declare the parameters a screen takes
+------------------------------------
 
-The agent chooses the macro names and values, and a value is substituted into
-the display's PV names and embedded-display paths. The server therefore
+A parameterised display, one detail screen that serves many IOCs, hosts or
+devices, is registered once, and the facility declares which parameters it
+takes. Write the entry in its long form: ``file`` is the display, ``macros``
+the list of macro names the agent may pass.
+
+.. code-block:: yaml
+
+   config:
+     phoebus.panels.orbit: /opt/displays/orbit.bob
+     phoebus.panels.bpm.file: /opt/displays/bpm.bob
+     phoebus.panels.bpm.macros: [IOC]
+
+The caller gives the parameters when opening the panel: ``phoebus_open_panel``
+takes an optional ``macros`` argument, a mapping of macro name to string value
+such as ``{"IOC": "injbpm"}``. Phoebus opens the display with ``$(IOC)``
+resolved in its name, its PV names and its embedded displays. The same panel
+opened with different values is a different display with its own handle.
+
+Macros are off until a panel declares them. With the entries above:
+
+- ``bpm`` with ``{"IOC": "injbpm"}`` opens.
+- ``bpm`` with ``{"TYPE": "other"}`` is refused: ``TYPE`` is not declared. The
+  refusal names the panel and the macros it does declare.
+- ``orbit`` with ``{"IOC": "injbpm"}`` is refused: the short form declares no
+  macros, so the panel takes none.
+
+``phoebus_panel_lookup`` reports a panel's declared macros beside its name. A
+``file`` follows the same path rules as the short form. An entry that is
+neither form is refused when the panel is opened, and the refusal names the
+key.
+
+The agent chooses the values of the declared macros, and a value is
+substituted into the display's PV names and embedded-display paths. The server therefore
 accepts only plain tokens. A macro name is letters, digits and underscores,
 starting with a letter. A value is ASCII letters, digits, ``.``, ``_`` and
 ``-``, starting with a letter or digit and without ``..``. An IOC or host
@@ -149,16 +175,18 @@ display is opened by the operator.
 What the check guarantees is narrow: a value cannot leave the display's
 directory and cannot refer to another macro. It does not limit the rest:
 
-- Any value that passes is accepted, so a panel that uses ``$(IOC)`` can be
-  opened for every IOC its screen can show.
-- Where a display builds a file name from a macro (``$(TYPE).bob``), the
-  value selects any sibling file of that form.
-- The agent chooses the macro name too. A macro passed at open time
-  overrides a site-wide Phoebus preference macro of the same name for that
-  display. A macro the display file defines itself keeps the file's value.
+- Any value that passes is accepted for a declared macro, so a panel that
+  declares ``IOC`` can be opened for every IOC its screen can show. The
+  declaration names macros; it does not yet restrict their values.
+- Where a display builds a file name from a declared macro
+  (``$(TYPE).bob``), the value selects any sibling file of that form.
+- A macro passed at open time overrides a site-wide Phoebus preference macro
+  of the same name for that display, so declaring a name that is also a
+  preference macro hands that setting to the agent. A macro the display file
+  defines itself keeps the file's value.
 
-Register a parameterised panel only where any value of any macro it uses is
-acceptable for the agent to see and, with drive access, to act on.
+Declare a macro only where any value of it is acceptable for the agent to
+see and, with drive access, to act on.
 
 Macros need a bridge whose ``POST /open`` applies the ``macros`` field and
 reports them back. Against an older bridge, which ignores the field, the

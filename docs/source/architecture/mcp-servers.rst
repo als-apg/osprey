@@ -432,8 +432,8 @@ Phoebus product, not a connector: see :ref:`A Phoebus drive
 - ``phoebus_list_displays`` -- List the displays open in the Phoebus product, with
   whether each is ready and which is focused.
 - ``phoebus_open_panel`` -- Open a display by its name in ``phoebus.panels``,
-  with optional ``macros`` for a parameterised display, and return a handle
-  later calls can address it by.
+  with the ``macros`` that panel declares for a parameterised display, and
+  return a handle later calls can address it by.
 - ``phoebus_panel_lookup`` -- Answer whether a display file is registered in this
   terminal's ``phoebus.panels``, and under which name.
 - ``phoebus_perceive`` -- Walk a display's widget tree and report each widget with
