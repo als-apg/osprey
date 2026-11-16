@@ -159,6 +159,7 @@ from osprey_connectors.model import (
     FrozenModel,
     Instant,
     ReadOnlyMapping,
+    _stored_instant,
     empty_mapping,
     evolve,
     parse_instant,
@@ -1435,7 +1436,9 @@ def terminus(
     """
     moved = generation is not None
     stamp = (
-        None if requested_at is None else _stored(require_aware(requested_at, name="requested_at"))
+        None
+        if requested_at is None
+        else _stored_instant(require_aware(requested_at, name="requested_at"))
     )
     return evolve(
         record,
@@ -1608,11 +1611,6 @@ def _instant(value: object) -> datetime | None:
         return parse_instant(value)
     except ValueError:
         return None
-
-
-def _stored(moment: datetime) -> str:
-    """*moment* as the record stores a stamp: ISO-8601 in UTC with ``+00:00``."""
-    return moment.astimezone(UTC).isoformat()
 
 
 def _mapping(value: object) -> dict[str, object]:
