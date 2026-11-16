@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from datetime import UTC, datetime
 
 import pytest
 
@@ -31,24 +32,30 @@ def test_an_unknown_scenario_is_refused_by_name():
 def test_the_state_file_parser_reads_names_and_the_anchor():
     text = "# a comment\n\nanchor=2026-01-01T00:00:00+00:00\nburst\nmode=x\n  late-burst  \n"
 
-    names, anchor = state.parse_active_state(text)
+    active = state.parse_active_state(text)
 
-    assert names == ["burst", "late-burst"]
-    assert anchor == 1767225600.0
+    assert active.names == ("burst", "late-burst")
+    assert active.anchor_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def test_the_state_file_parser_reads_a_naive_anchor_in_the_facility_zone(monkeypatch):
-    from zoneinfo import ZoneInfo
+def test_the_state_file_parser_reads_a_z_anchor():
+    assert state.parse_active_state("anchor=2026-01-01T00:00:00Z\n").anchor_at == datetime(
+        2026, 1, 1, tzinfo=UTC
+    )
 
-    monkeypatch.setattr(state, "get_facility_timezone", lambda: ZoneInfo("America/Los_Angeles"))
 
-    _names, anchor = state.parse_active_state("anchor=2026-01-01T00:00:00\n")
+def test_the_state_file_parser_ignores_an_anchor_without_an_offset(caplog):
+    """No zone is guessed: an anchor the writer never writes is ignored, as a malformed one is."""
+    active = state.parse_active_state("anchor=2026-01-01T00:00:00\nburst\n")
 
-    assert anchor == 1767225600.0 + 8 * 3600
+    assert active == state.ActiveState(names=("burst",))
+    assert "without a UTC offset" in caplog.text
 
 
 def test_the_state_file_parser_ignores_a_malformed_anchor():
-    assert state.parse_active_state("anchor=not-a-time\nburst\n") == (["burst"], None)
+    assert state.parse_active_state("anchor=not-a-time\nburst\n") == state.ActiveState(
+        names=("burst",)
+    )
 
 
 def test_the_composite_reads_the_state_file_through_the_state_parser():

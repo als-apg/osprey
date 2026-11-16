@@ -224,7 +224,7 @@ def list_command(repo: Path | None) -> None:
 
     repo_root, config = _resolve_deployment(repo)
     view = _require_simulator_view(repo_root)
-    names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
+    names = read_active_state(resolve_simulation_state_dir(config, repo_root)).names
     active = set(resolve_active_scenarios(names))
     for scenario in view.scenarios():
         name = scenario.name

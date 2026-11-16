@@ -4798,7 +4798,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     :raises RuntimeError: The render carries no simulator view.
     :raises ViewSchemaError: The render's view is from an older build.
     """
-    from osprey.simulation.apply import persisted_scenario_anchor
+    from osprey_connectors.config import get_facility_timezone
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.simulation.view import SimulatorView
@@ -4811,9 +4811,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
             f"{SimulatorView.path_for_project(project_dir)}. "
             "Run `osprey build`; the seed never invents a namespace."
         )
-    names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
-    anchor = persisted_scenario_anchor(config, project_dir)
-    return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
+    active = read_active_state(resolve_simulation_state_dir(config, project_dir))
+    return build(view, active.names, anchor_at=active.anchor_at, tz=get_facility_timezone())
 
 
 def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
@@ -4854,7 +4853,7 @@ def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
         return
 
     names = resolve_active_scenarios(
-        read_active_state(resolve_simulation_state_dir(config, project_dir))[0]
+        read_active_state(resolve_simulation_state_dir(config, project_dir)).names
     )
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
@@ -5202,7 +5201,7 @@ def _stage_archiver_store(
                 collection,
                 archive,
                 knobs,
-                t0=datetime.now(UTC),
+                anchor_at=datetime.now(UTC),
                 compression=compression,
                 progress=_seed_progress_reporter(),
             )

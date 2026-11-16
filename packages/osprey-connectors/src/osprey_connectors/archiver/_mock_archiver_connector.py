@@ -126,20 +126,21 @@ class MockArchiverConnector(ArchiverConnector):
         build keeps the previous composite serving.
         """
         from osprey_connectors.simulation.archive import build
-        from osprey_connectors.simulation.state import parse_active_state
+        from osprey_connectors.simulation.state import ActiveState, parse_active_state
 
         assert self._view is not None
         # The signature is taken before the file is read, so a rewrite between
         # the two shows as a change on the next read.
         signature = self._signature()
-        names: list[str] = []
-        anchor_s: float | None = None
+        active = ActiveState()
         if signature is not None and self._state_file is not None:
             try:
-                names, anchor_s = parse_active_state(self._state_file.read_text(encoding="utf-8"))
+                active = parse_active_state(self._state_file.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 signature = None
-        archive = build(self._view, names, anchor_s=anchor_s)
+        archive = build(
+            self._view, active.names, anchor_at=active.anchor_at, tz=get_facility_timezone()
+        )
         if self._archive is not None:
             self._archive.close()
         self._archive = archive

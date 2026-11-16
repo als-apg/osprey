@@ -153,12 +153,14 @@ def _ringing(key: bytes, t_ms: float, x: npt.NDArray[np.float64]) -> npt.NDArray
 
 def _clean(key: bytes, t_ms: float) -> npt.NDArray[np.float64]:
     """The noise-free trace of unit driver level for the shot at epoch millisecond ``t_ms``."""
-    t_abs = np.asarray(t_ms / _MS_PER_S, dtype=np.float64)
+    times_s = np.asarray(t_ms / _MS_PER_S, dtype=np.float64)
     gain = 1.0 + float(
-        series.wander(key + _AMPLITUDE_SUBKEY, t_abs, _AMPLITUDE_DRIFT_FRACTION, _DRIFT_PERIOD_S)
+        series.wander(key + _AMPLITUDE_SUBKEY, times_s, _AMPLITUDE_DRIFT_FRACTION, _DRIFT_PERIOD_S)
     )
     shift = float(
-        series.wander(key + _TIMING_SUBKEY, t_abs, _MAX_TIMING_DRIFT_SAMPLES / 2.0, _DRIFT_PERIOD_S)
+        series.wander(
+            key + _TIMING_SUBKEY, times_s, _MAX_TIMING_DRIFT_SAMPLES / 2.0, _DRIFT_PERIOD_S
+        )
     )
     x = np.arange(_TRACE_POINTS, dtype=np.float64) - (
         _RISE_START_SAMPLE + shift + _edge_jitter(key, t_ms)

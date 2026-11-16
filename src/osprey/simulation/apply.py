@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
     from osprey_connectors.simulation.records import ArchiverEvent, ScenarioRecord, TopoffRecord
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
@@ -230,10 +231,10 @@ def apply_scenarios(
     # reseed closes with a step naming the same scenarios. The anchor is
     # internal -- the reseed reuses the persisted one precisely so nothing slides.
     active = write_active_state(
-        resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME,
+        resolve_simulation_state_dir(config, project_dir),
         {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
         names,
-        anchor=t0,
+        anchor_at=t0,
     )
 
     seeded = 0
@@ -339,7 +340,7 @@ def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
     return scenarios
 
 
-def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
+def _active_state(config: dict, project_dir: Path) -> ActiveState:
     """The scenario names and anchor the project's state file records."""
     return read_active_state(resolve_simulation_state_dir(config, project_dir))
 
@@ -439,11 +440,11 @@ def _seed_scenario_sessions(config: dict, project_dir: Path, active: Sequence[st
         scenarios = view_scenarios(project_dir) or {}
         if not any(name in scenarios and scenarios[name].sessions for name in active):
             return
-        _, epoch = _active_state(config, project_dir)
-        if epoch is None:
+        anchor_at = _active_state(config, project_dir).anchor_at
+        if anchor_at is None:
             logger.warning("Scenario sessions not seeded: the scenario state records no anchor")
             return
-        anchor = datetime.fromtimestamp(epoch, UTC).astimezone(get_facility_timezone())
+        anchor = anchor_at.astimezone(get_facility_timezone())
         write_scenario_sessions(config, project_dir, active, anchor)
     except Exception as e:
         logger.warning(f"Scenario sessions not seeded: {type(e).__name__}: {e}")
@@ -668,7 +669,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
         return [], anchor
 
     names: list[str] = []
-    for name in _active_state(config, project_dir)[0]:
+    for name in _active_state(config, project_dir).names:
         if name in scenarios:
             names.append(name)
         else:
@@ -923,12 +924,10 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         anchor is the right answer.
     """
     # The state file's one parser, shared with every reader of the active set,
-    # so the anchor line's format and its naive-value timezone rule cannot
-    # differ between the file the simulator reads and the anchor read here.
-    _names, anchor_epoch = _active_state(config, project_dir)
-    if anchor_epoch is not None:
-        return datetime.fromtimestamp(anchor_epoch, UTC)
-    return None
+    # so the anchor line's format and its UTC-offset rule cannot differ between
+    # the file the simulator reads and the anchor read here.
+    anchor_at = _active_state(config, project_dir).anchor_at
+    return None if anchor_at is None else anchor_at.astimezone(UTC)
 
 
 def _require_pymongo() -> None:
@@ -1029,10 +1028,10 @@ def _require_events(events: Sequence[ArchiverEvent]) -> None:
 
 def event_window(
     events: Sequence[ArchiverEvent],
-    anchor: float,
+    anchor_s: float,
     horizon_start: float,
     *,
-    tz: ZoneInfo | None = None,
+    tz: ZoneInfo,
     topoff: TopoffRecord | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
@@ -1042,7 +1041,7 @@ def event_window(
     position onward, so its span runs to the end of the archive, unless the step
     states an end, in which case its span stops there; a daily
     ``at_time`` event recurs on every date the archive covers, so its span is
-    the whole archive. Both are measured against ``anchor`` — the apply-time T0
+    the whole archive. Both are measured against ``anchor_s`` — the apply-time T0
     written into the scenario state file, not this process's wall clock (a
     deploy's post-reseed re-apply passes the anchor the running world is already
     on; see :func:`seed_archiver`).
@@ -1055,16 +1054,16 @@ def event_window(
 
     Args:
         events: One channel's event script; must be non-empty.
-        anchor: T0 in epoch seconds.
+        anchor_s: T0 in epoch seconds.
         horizon_start: Oldest instant the archive covers; clamps a span whose
             event is anchored further back than the archive reaches.
-        tz: Timezone ``at_when`` calendar days are counted in. Defaults to the
-            facility zone, matching where the engine places them.
+        tz: The facility zone ``at_when`` calendar days are counted in, where
+            the engine places them.
         topoff: The channel's ``topoff`` seed record, which bounds how long a
             ``loss`` lasts; without one a loss runs to the anchor.
 
     Returns:
-        ``(start, end)`` in epoch seconds. ``end`` is ``anchor`` for anything
+        ``(start, end)`` in epoch seconds. ``end`` is ``anchor_s`` for anything
         persistent.
 
     Raises:
@@ -1073,27 +1072,29 @@ def event_window(
             happens to ask for, which is not a place in stored history at all —
             there is no honest timestamp to write it at.
     """
+    from osprey_connectors.simulation.series import anchored_instant
+
     _require_events(events)
-    start = anchor
+    start = anchor_s
     end = horizon_start
     for event in events:
         _refuse_window_fraction(event)
         if event.at_time is not None:
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
-            return horizon_start, anchor
-        at = _anchored_instant(event, anchor, tz)
-        low, high = _occurrence_span(event, at, anchor, tz, topoff)
+            return horizon_start, anchor_s
+        at = anchored_instant(event, anchor_s=anchor_s, tz=tz)
+        low, high = _occurrence_span(event, at, anchor_s, tz, topoff)
         start, end = min(start, low), max(end, high)
-    return max(start, horizon_start), min(end, anchor)
+    return max(start, horizon_start), min(end, anchor_s)
 
 
 def event_subwindows(
     events: Sequence[ArchiverEvent],
-    anchor: float,
+    anchor_s: float,
     horizon_start: float,
     *,
-    tz: ZoneInfo | None = None,
+    tz: ZoneInfo,
     topoff: TopoffRecord | None = None,
 ) -> list[tuple[float, float]]:
     """The stretches one channel's events are actually *evidence* over.
@@ -1112,13 +1113,12 @@ def event_subwindows(
 
     Args:
         events: One channel's event script; must be non-empty.
-        anchor: T0 in epoch seconds.
+        anchor_s: T0 in epoch seconds.
         horizon_start: Oldest instant the archive covers. Occurrences are
-            clamped to ``[horizon_start, anchor]``, and one that falls entirely
+            clamped to ``[horizon_start, anchor_s]``, and one that falls entirely
             outside it contributes nothing.
-        tz: Timezone daily ``at_time`` occurrences and ``at_when`` calendar
-            days are placed in. Defaults to the facility zone, matching where
-            the engine places them.
+        tz: The facility zone daily ``at_time`` occurrences and ``at_when``
+            calendar days are placed in, where the engine places them.
         topoff: The channel's ``topoff`` seed record, which bounds how long a
             ``loss`` lasts; without one a loss runs to the anchor.
 
@@ -1134,13 +1134,13 @@ def event_subwindows(
     for event in events:
         _refuse_window_fraction(event)
         windows.extend(
-            _occurrence_span(event, at, anchor, tz, topoff)
-            for at in _event_instants(event, anchor, horizon_start, tz)
+            _occurrence_span(event, at, anchor_s, tz, topoff)
+            for at in _event_instants(event, anchor_s, horizon_start, tz)
         )
     clamped = [
-        (max(start, horizon_start), min(end, anchor))
+        (max(start, horizon_start), min(end, anchor_s))
         for start, end in windows
-        if end >= horizon_start and start <= anchor
+        if end >= horizon_start and start <= anchor_s
     ]
     return _merge_intervals(clamped)
 
@@ -1148,8 +1148,8 @@ def event_subwindows(
 def _occurrence_span(
     event: ArchiverEvent,
     at: float,
-    anchor: float,
-    tz: ZoneInfo | None,
+    anchor_s: float,
+    tz: ZoneInfo,
     topoff: TopoffRecord | None,
 ) -> tuple[float, float]:
     """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
@@ -1160,7 +1160,7 @@ def _occurrence_span(
     to the anchor on a channel no top-off refills. A step or a ramp runs from its
     instant to its end, or to the anchor.
     """
-    from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound
+    from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound, step_end
 
     shape = event.shape
     if shape == "spike":
@@ -1172,9 +1172,10 @@ def _occurrence_span(
         return at, at + BURST_WINDOW_TAUS * slowest
     if shape == "loss":
         bound = loss_refill_bound(event, topoff)
-        return at, anchor if bound is None else at + bound
-    until = _step_end(event, anchor, tz)
-    return at, anchor if until is None else until
+        return at, anchor_s if bound is None else at + bound
+    # Only a ``step`` states an end; any other event persists to the anchor.
+    until = step_end(event, anchor_s=anchor_s, tz=tz) if shape == "step" else None
+    return at, anchor_s if until is None else until
 
 
 def _event_number(value: float | None) -> float:
@@ -1192,32 +1193,14 @@ def _event_number(value: float | None) -> float:
 
 
 def _event_instants(
-    event: ArchiverEvent, anchor: float, horizon_start: float, tz: ZoneInfo | None
+    event: ArchiverEvent, anchor_s: float, horizon_start: float, tz: ZoneInfo
 ) -> list[float]:
-    """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
+    """Every instant one event fires at, inside ``[horizon_start, anchor_s]``."""
+    from osprey_connectors.simulation.series import anchored_instant, daily_occurrences
+
     if event.at_time is not None:
-        from osprey_connectors.simulation.series import daily_occurrences
-
-        if tz is None:
-            tz = get_facility_timezone()
-        return daily_occurrences(event.at_time, _np_array([horizon_start, anchor]), tz)
-    return [_anchored_instant(event, anchor, tz)]
-
-
-def _anchored_instant(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None) -> float:
-    """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
-    from osprey_connectors.simulation.series import anchored_instant
-
-    return anchored_instant(event, anchor, tz if tz is not None else get_facility_timezone())
-
-
-def _step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None) -> float | None:
-    """A bounded ``step``'s end instant, or ``None`` for an event that persists to the anchor."""
-    if event.shape != "step":
-        return None
-    from osprey_connectors.simulation.series import step_end
-
-    return step_end(event, anchor, tz if tz is not None else get_facility_timezone())
+        return daily_occurrences(event.at_time, _np_array([horizon_start, anchor_s]), tz=tz)
+    return [anchored_instant(event, anchor_s=anchor_s, tz=tz)]
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -1326,9 +1309,7 @@ def seed_archiver(
 
         persisted = persisted_scenario_anchor(config, project_dir)
         with build(
-            SimulatorView.of_project(project_dir),
-            names,
-            anchor_s=None if persisted is None else persisted.timestamp(),
+            SimulatorView.of_project(project_dir), names, anchor_at=persisted, tz=tz
         ) as archive:
             # A channel the view does not archive has no stored history to rewrite.
             archived = set(archive.addresses)

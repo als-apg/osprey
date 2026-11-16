@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -102,10 +101,10 @@ def _lay_down_session_1(repo: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     # The logbook is not part of what this test asks, so no ARIEL is needed.
     result = apply_scenarios(repo, SCENARIOS, seed_logbook=False)
     assert "demo-history" in result.active, result.active
-    _, epoch = read_active_state(resolve_simulation_state_dir(config, repo))
-    assert epoch is not None, "the activation persisted no anchor"
+    anchor_at = read_active_state(resolve_simulation_state_dir(config, repo)).anchor_at
+    assert anchor_at is not None, "the activation persisted no anchor"
     tz = ZoneInfo(((config.get("system") or {}).get("timezone")) or "UTC")
-    anchor = datetime.fromtimestamp(epoch, UTC).astimezone(tz)
+    anchor = anchor_at.astimezone(tz)
 
     written = write_scenario_sessions(config, repo, result.active, anchor)
     seed = scenario_sessions_dir(config, repo, host) / SCENARIO_SESSIONS_FILENAME

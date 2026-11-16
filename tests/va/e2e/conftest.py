@@ -418,7 +418,6 @@ def demo_state_dir() -> Path:
     the container's user, which is not this process's.
     """
     from osprey_connectors.simulation.state import (
-        ACTIVE_SCENARIOS_FILENAME,
         scenario_targets,
         write_active_state,
     )
@@ -429,7 +428,7 @@ def demo_state_dir() -> Path:
         state_dir = Path(tempfile.mkdtemp(prefix="osprey-va-demo-state-"))
         atexit.register(shutil.rmtree, state_dir, ignore_errors=True)
         active = write_active_state(
-            state_dir / ACTIVE_SCENARIOS_FILENAME,
+            state_dir,
             {scenario.name: scenario_targets(scenario) for scenario in view.scenarios()},
             SUITE_SCENARIOS,
         )

@@ -49,7 +49,12 @@ def facility(built_demo) -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def archive(built_demo) -> ArchiveComposite:
     view = built_demo.build_dir / "data" / "simulator"
-    return build(view, ["rf-thermal"], anchor_s=RF_ANCHOR_S)
+    return build(
+        view,
+        ["rf-thermal"],
+        anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC),
+        tz=get_facility_timezone(),
+    )
 
 
 @pytest.fixture(scope="module")
@@ -59,8 +64,8 @@ def dump(facility) -> dict[str, Any]:
         item["events"] for item in facility["scenario"]["archiver"] if item["channel"] == DCCT
     )
     tz = get_facility_timezone()
-    start = anchored_instant(view_event(stated), RF_ANCHOR_S, tz)
-    end = step_end(view_event(stated), RF_ANCHOR_S, tz)
+    start = anchored_instant(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
+    end = step_end(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
     assert end is not None, "the dump is a bounded step"
     return {"event": stated, "start": start, "end": end}
 

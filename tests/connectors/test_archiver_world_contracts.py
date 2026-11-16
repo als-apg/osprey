@@ -65,6 +65,7 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -327,7 +328,7 @@ class World:
             self.collection,
             _archiver_seed_inputs(self.config(), self.root),
             knobs or self.knobs(),
-            t0=t0,
+            anchor_at=t0,
             compression=COMPRESSION,
             chunk_size=512,
         )
@@ -383,7 +384,9 @@ class World:
         """
         epochs = epoch_seconds_array(stamps)
         assert epochs is not None
-        archive = build(self.root / "data" / "simulator", [], anchor_s=T0.timestamp())
+        archive = build(
+            self.root / "data" / "simulator", [], anchor_at=T0, tz=get_facility_timezone()
+        )
         documents = _synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}
 
@@ -518,7 +521,9 @@ class TestEventWindowRewrite:
         assert result.archiver.skipped is None
 
         horizon = oldest_sample(world.collection).timestamp()
-        start_s, end_s = event_window(_script(_rf_thermal(), CAVITY_TEMP), T0.timestamp(), horizon)
+        start_s, end_s = event_window(
+            _script(_rf_thermal(), CAVITY_TEMP), T0.timestamp(), horizon, tz=get_facility_timezone()
+        )
         start = datetime.fromtimestamp(start_s, UTC)
         end = datetime.fromtimestamp(end_s, UTC)
         boundary = T0 - timedelta(seconds=KNOBS.hot_span_s)
@@ -779,8 +784,12 @@ class TestScenarioSwitchHonesty:
         anchor_s = T0.timestamp()
         horizon = oldest_sample(collection).timestamp()
 
-        old_window = event_window(_script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon)
-        new_window = event_window(_script(_cavity_trip(), CAVITY_TEMP), anchor_s, horizon)
+        old_window = event_window(
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+        )
+        new_window = event_window(
+            _script(_cavity_trip(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+        )
         assert old_window[1] < new_window[0], "the two windows must leave a gap between them"
         span = (old_window[0], new_window[1])
         gap = (old_window[1], new_window[0])
@@ -791,7 +800,9 @@ class TestScenarioSwitchHonesty:
         world.apply(["cavity-trip"])
 
         live = {
-            pv: event_subwindows(_script(_cavity_trip(), pv), anchor_s, horizon)
+            pv: event_subwindows(
+                _script(_cavity_trip(), pv), anchor_s, horizon, tz=get_facility_timezone()
+            )
             for pv in (CAVITY_TEMP,)
         }
         stranded, mis_stamped = [], []
@@ -831,7 +842,9 @@ class TestScenarioSwitchHonesty:
         world.seed(T0)
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
-        old_window = event_window(_script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon)
+        old_window = event_window(
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+        )
         start = datetime.fromtimestamp(old_window[0], UTC)
         end = datetime.fromtimestamp(old_window[1], UTC)
 
@@ -866,8 +879,12 @@ class TestOverlappingWindows:
         world.seed(T0)
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
-        temp = event_subwindows(_script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon)
-        power = event_subwindows(_script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon)
+        temp = event_subwindows(
+            _script(_rf_thermal(), CAVITY_TEMP), anchor_s, horizon, tz=get_facility_timezone()
+        )
+        power = event_subwindows(
+            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=get_facility_timezone()
+        )
         assert len(temp) == len(power) == 1
         assert temp[0][0] < power[0][0] < temp[0][1] < power[0][1], (
             "the two windows must overlap without being the same window"
@@ -911,7 +928,9 @@ class TestOverlappingWindows:
         world.seed(T0)
         anchor_s = T0.timestamp()
         horizon = oldest_sample(world.collection).timestamp()
-        power = event_subwindows(_script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon)
+        power = event_subwindows(
+            _script(_rf_thermal(), CAVITY_POWER), anchor_s, horizon, tz=get_facility_timezone()
+        )
 
         world.apply(["rf-thermal"])
 

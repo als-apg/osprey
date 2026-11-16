@@ -267,7 +267,7 @@ class Deployment:
         """The scenarios the container serves, as the state directory records them."""
         from osprey_connectors.simulation.state import read_active_state
 
-        names, _anchor = read_active_state(self.state_dir)
+        names = read_active_state(self.state_dir).names
         return [str(name) for name in names]
 
     def activate_default_scenarios(self) -> None:

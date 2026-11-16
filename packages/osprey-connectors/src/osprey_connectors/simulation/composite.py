@@ -755,7 +755,7 @@ class Composite(LUMEModel):
                 text = self._state_path.read_text(encoding="utf-8")
             except FileNotFoundError:
                 text = ""
-            for name in parse_active_state(text)[0]:
+            for name in parse_active_state(text).names:
                 if name in self._scenarios:
                     names.append(name)
                 else:
@@ -1154,7 +1154,7 @@ class Composite(LUMEModel):
         return self._children[owner].partners.get(address, (address,))
 
     def readings(
-        self, levels: Mapping[str, float | npt.NDArray[np.float64]], t_s: object
+        self, levels: Mapping[str, float | npt.NDArray[np.float64]], times_s: object
     ) -> dict[str, npt.NDArray[np.float64]]:
         """Float channels as served at epoch seconds, from levels in place of held values.
 
@@ -1165,12 +1165,12 @@ class Composite(LUMEModel):
 
         Args:
             levels: Float channel levels by address, each a scalar or an array
-                shaped like ``t_s``; a monitor plane needs every channel of its
+                shaped like ``times_s``; a monitor plane needs every channel of its
                 :meth:`readout_group`.
-            t_s: Epoch seconds, one-dimensional.
+            times_s: Epoch seconds, one-dimensional.
 
         Returns:
-            One float64 array shaped like ``t_s`` per address of ``levels``.
+            One float64 array shaped like ``times_s`` per address of ``levels``.
 
         Raises:
             ValueError: A name is not a float channel of the view, or a
@@ -1183,7 +1183,7 @@ class Composite(LUMEModel):
             if channel is None or not is_float_channel(channel):
                 raise ValueError(f"{name} is not a float channel of the view")
         self._refresh()
-        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        times = np.asarray(times_s, dtype=np.float64).reshape(-1)
         out: dict[str, npt.NDArray[np.float64]] = {}
         readbacks: dict[str, dict[str, npt.NDArray[np.float64]]] = {}
         for name in names:
