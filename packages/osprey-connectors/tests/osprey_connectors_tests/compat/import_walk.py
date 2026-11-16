@@ -38,6 +38,14 @@ SKIPPED: dict[str, str] = {
     # The soft-IOC server process. Its server library (pcaspy, later lume-pva)
     # comes with the `va` extra, which a plain install does not carry.
     "osprey.services.virtual_accelerator.serving.runner": "needs the `va` extra",
+    # The pytest plugin an app's own test suite loads; pytest comes with the
+    # `dev` extra, or with the app that tests against the SDK.
+    "osprey.apps.sdk.testing.pytest_plugin": "needs pytest",
+    # The two modules of the CANOPY integration that import the `canopy`
+    # package itself, which a deployment installs beside the framework. The
+    # rest of the integration imports without it and is walked.
+    "osprey.integrations.canopy.backend": "needs the `canopy` package",
+    "osprey.integrations.canopy.mongo_recorder": "needs the `canopy` package",
 }
 
 
