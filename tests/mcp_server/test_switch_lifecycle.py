@@ -2125,7 +2125,7 @@ class TestServingFromTheChild:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
-        assert result.channel_address == "SR:CORR:1:SP"
+        assert result.address == "SR:CORR:1:SP"
 
     async def test_the_archiver_is_never_routed_through_the_connector_host(self, make_manager):
         manager = await started_on(make_manager, "live")

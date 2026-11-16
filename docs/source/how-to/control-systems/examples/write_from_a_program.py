@@ -48,9 +48,9 @@ async def write(pool: ConnectorHostPool, grant: wa.Grant) -> None:
     # docs: outcome begins
     for result in results:
         if result.outcome is WriteOutcome.CONFIRMED:
-            print(result.channel_address, "now holds", result.value_written)
+            print(result.address, "now holds", result.value_written)
         else:
-            print(result.channel_address, result.outcome.value, result.verdict_reason)
+            print(result.address, result.outcome.value, result.verdict_reason)
     # docs: outcome ends
     # docs: renew begins
     if not wa.renew_lease(grant.id):  # False: the lease has lapsed, stop

@@ -33,7 +33,7 @@ class DirectoryRow(FrozenModel):
     type. ``last_announced`` is RecSync's ``time`` or Tango's last export time.
     """
 
-    name: str
+    address: str
     status: Literal["Active", "Inactive"] | None = None
     description: str | None = None
     channel_type: str | None = None
@@ -43,7 +43,7 @@ class DirectoryRow(FrozenModel):
 
 
 class DirectoryRecord(FrozenModel):
-    """One PV in full. Every property is optional and a string, as measured."""
+    """One channel in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
     properties: Mapping[str, str] = Field(default_factory=dict)
@@ -55,11 +55,11 @@ class DirectoryQuery(FrozenModel):
 
     A query keys the service's cache, so it hashes: the repeatable filters become
     tuples, from one string, any iterable of them or ``None``, and ``properties``
-    stays out of the hash.
+    stays out of the hash. ``address_pattern`` is a glob over channel addresses.
     """
 
     words: str = ""
-    name: str | None = None
+    address_pattern: str | None = None
     properties: Mapping[str, str] = Field(default_factory=dict)
     status: str | None = None
     server: tuple[str, ...] = ()
@@ -79,7 +79,7 @@ class DirectoryQuery(FrozenModel):
         return hash(
             (
                 self.words,
-                self.name,
+                self.address_pattern,
                 self.status,
                 self.server,
                 self.channel_type,
@@ -117,7 +117,7 @@ class DirectoryPage(FrozenModel):
 
 
 class ChannelDirectory(_Backend, ABC):
-    """Search the control system's own directory of PVs."""
+    """Search the control system's own directory of channels."""
 
     @property
     def field_properties(self) -> Mapping[str, str]:
@@ -137,9 +137,9 @@ class ChannelDirectory(_Backend, ABC):
 
     @abstractmethod
     async def describe(
-        self, name: str, deadline: float
+        self, address: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        """The record of the PV called exactly *name*, or ``NOT_LISTED``."""
+        """The record of the channel at exactly *address*, or ``NOT_LISTED``."""
 
     @abstractmethod
     async def property_names(self, deadline: float) -> list[str] | Unavailable:
@@ -147,9 +147,9 @@ class ChannelDirectory(_Backend, ABC):
 
     @abstractmethod
     async def property_values(
-        self, name: str, prefix: str | None, deadline: float
+        self, property: str, *, prefix: str | None = None, deadline: float
     ) -> list[str] | Unavailable:
-        """The values of property *name*, those starting with *prefix* if given."""
+        """The values of *property*, those starting with *prefix* if given."""
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

@@ -59,53 +59,53 @@ class BaseBatchConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, timeout: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, timeout=None):
         raise NotImplementedError
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes this signature
     ) -> ChannelWriteResult:
-        if channel_address == "LIMITED:SP":
+        if address == "LIMITED:SP":
             raise ChannelLimitsViolationError(
-                channel_address=channel_address,
+                address=address,
                 value=value,
                 violation_type="MAX_EXCEEDED",
                 violation_reason="above the limits database's max",
             )
-        self.writes.append((channel_address, value))
+        self.writes.append((address, value))
         return ChannelWriteResult(
-            channel_address=channel_address, value_written=value, outcome=WriteOutcome.CONFIRMED
+            address=address, value_written=value, outcome=WriteOutcome.CONFIRMED
         )
 
-    async def subscribe(self, channel_address, callback, *, on_connection=None):
+    async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id):
         raise NotImplementedError
 
-    async def get_metadata(self, channel_address):
+    async def get_metadata(self, address):
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address) -> bool:  # noqa: ARG002 - the connector interface fixes this signature
+    async def validate_channel(self, address) -> bool:  # noqa: ARG002 - the connector interface fixes this signature
         return True
 
 
 class StoppedAfterFirstWrite(BaseBatchConnector):
     """A person stops the run's grants while its first write is on the wire."""
 
-    async def write_channel(self, channel_address, value, timeout=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
-        self.writes.append((channel_address, value))
+    async def write_channel(self, address, value, timeout=None, confirm=None):  # noqa: ARG002 - the connector interface fixes this signature
+        self.writes.append((address, value))
         if len(self.writes) == 1:
             revoke_grants(by="alice", targets=[TARGET])
         return ChannelWriteResult(
-            channel_address=channel_address, value_written=value, outcome=WriteOutcome.CONFIRMED
+            address=address, value_written=value, outcome=WriteOutcome.CONFIRMED
         )
 
 

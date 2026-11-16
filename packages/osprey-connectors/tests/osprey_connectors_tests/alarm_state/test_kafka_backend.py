@@ -595,7 +595,7 @@ async def test_a_caught_up_feed_lists_its_rows_and_last_contact(wall):
 
     states = await backend.states(deadline=1.0)
 
-    assert [(row.channel, row.path) for row in states.rows] == [(PV, f"/Demo/RF/{PV}")]
+    assert [(row.address, row.path) for row in states.rows] == [(PV, f"/Demo/RF/{PV}")]
     assert states.rows[0].state == await _answer(backend)
     assert dict(states.counts) == {"MAJOR": 1}
     assert states.stale is False

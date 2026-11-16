@@ -92,23 +92,23 @@ class _GatedConnector(FakeConnector):
         super().__init__(readbacks={_CHANNEL: 0.0})
         self.write_owners: list[Any] = []
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
+    async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):
         self.write_owners.append(current_owner())
         verdict = write_verdict(_SECTION, _TARGET)
         if not verdict.allowed:
             # The reason word is the verdict's own spelling, not a second one:
             # what the verdict answered is what the operator reads.
             raise ChannelWriteBlockedError(
-                channel_address,
+                address,
                 "WRITES_DISABLED",
                 message=(
-                    f"Write to '{channel_address}' blocked: writes are off for the "
+                    f"Write to '{address}' blocked: writes are off for the "
                     f"'{_TARGET}' control target — turn them back on from the "
                     f"control-target chip if the write is intended. "
                     f"The verdict answered {verdict.reason}."
                 ),
             )
-        return await super().write_channel_checked(channel_address, value, **kwargs)
+        return await super().write_channel_checked(address, value, **kwargs)
 
 
 class _Params(BaseModel):
@@ -320,7 +320,7 @@ def test_a_switch_off_for_the_owner_refuses_the_write_and_fails_the_run(
         RunEngine(context_managers=[])(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert isinstance(failure.value.__cause__, ChannelWriteBlockedError)
-    assert failure.value.__cause__.channel_address == _CHANNEL
+    assert failure.value.__cause__.address == _CHANNEL
     assert connector.write_calls == []
     assert connector.readbacks[_CHANNEL] == 0.0
 

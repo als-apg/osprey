@@ -784,7 +784,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         # The vocabulary is the shared one, so a reason the error type would
         # reject can never reach an operator through this path.
         assert result.refusal_reason is RefusalReason.CONTROL_SYSTEM_REFUSED
-        assert result.channel_address == PROTECTED_SP
+        assert result.address == PROTECTED_SP
         assert PROTECTED_SP in (result.error_message or "")
         assert "access security" in (result.error_message or "")
         # No value was written, which is the claim `blocked` makes.
@@ -814,9 +814,9 @@ class TestTheControlSystemsOwnWriteRefusal:
             )
 
         assert blocked.value.reason == "CONTROL_SYSTEM_REFUSED"
-        assert blocked.value.channel_address == PROTECTED_SP
+        assert blocked.value.address == PROTECTED_SP
         assert type(violated.value) is ChannelLimitsViolationError
-        assert violated.value.channel_address == WRITABLE_SP
+        assert violated.value.address == WRITABLE_SP
         assert violated.value.max_value == pytest.approx(LIMITS_MAX)
 
         # The distinction as the agent meets it: two error types, two accounts

@@ -56,9 +56,9 @@ class FakeDirectory:
     """A directory of three PVs on two IOCs."""
 
     rows = (
-        DirectoryRow(name="SR:BPM1", server="sim-SR"),
-        DirectoryRow(name="SR:BPM2", server="sim-SR"),
-        DirectoryRow(name="BR:BPM1", server="sim-BR"),
+        DirectoryRow(address="SR:BPM1", server="sim-SR"),
+        DirectoryRow(address="SR:BPM2", server="sim-SR"),
+        DirectoryRow(address="BR:BPM1", server="sim-BR"),
     )
 
     def __init__(self, spec: Any, **seams: Any) -> None:
@@ -91,7 +91,7 @@ class FakeStore:
 
     async def store_extent(self) -> Any:
         return SimpleNamespace(
-            channels=frozenset({"SR:BPM1", "BR:BPM1"}),
+            addresses=frozenset({"SR:BPM1", "BR:BPM1"}),
             oldest=datetime(2026, 10, 13, 8),
             newest=datetime(2026, 11, 12, 8, 0, 4),
             reason=None,

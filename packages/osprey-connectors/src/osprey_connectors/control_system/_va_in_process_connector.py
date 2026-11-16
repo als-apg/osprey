@@ -667,7 +667,7 @@ class VAInProcessConnector(ControlSystemConnector):
     @override
     async def read_channel(
         self,
-        channel_address: str,
+        address: str,
         timeout: float
         | None = None,  # ControlSystemConnector.read_channel signature; an in-process read never blocks
     ) -> ChannelValue:
@@ -678,9 +678,9 @@ class VAInProcessConnector(ControlSystemConnector):
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
-        return self._reading(channel_address, held=False)
+        return self._reading(address, held=False)
 
-    async def _confirming_read(self, channel_address: str) -> ChannelValue:
+    async def _confirming_read(self, address: str) -> ChannelValue:
         """Read a channel back to confirm a write: the held value, without motion.
 
         Confirmation reports what the simulated control system holds; the
@@ -689,7 +689,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
-        return self._reading(channel_address, held=True)
+        return self._reading(address, held=True)
 
     @override
     def current_value_reader(self) -> CurrentValueReader:
@@ -699,34 +699,34 @@ class VAInProcessConnector(ControlSystemConnector):
     @override
     async def read_multiple_channels(
         self,
-        channel_addresses: list[str],
+        addresses: list[str],
         timeout: float | None = None,
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(channel_addresses, timeout)
+        return await self._read_concurrently(addresses, timeout)
 
     @override
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         """The channel record's description and its variable's unit.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        composite = self._require(channel_address)
+        composite = self._require(address)
         self._sync()
-        return self._metadata(channel_address, composite)
+        return self._metadata(address, composite)
 
     @override
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """Whether the built facility file holds the address."""
-        return channel_address in self._served
+        return address in self._served
 
     # -- writes ----------------------------------------------------------------
 
     def _refused(self, address: str, value: object, message: str) -> ChannelWriteResult:
         logger.warning(f"In-process write refused: {address}: {message}")
         return ChannelWriteResult(
-            channel_address=address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
             refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
@@ -747,34 +747,32 @@ class VAInProcessConnector(ControlSystemConnector):
         return values.coerce(value, record.value_type, record.options, record.shape)
 
     @override
-    def _write_precheck(
-        self, channel_address: str, value: object
-    ) -> tuple[str, ChannelWriteResult | None]:
+    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
         """Refuse an address outside the view and a channel that is no writable setpoint."""
         if self._composite is None:
             raise ConnectorUnavailableError(NOT_CONNECTED)
-        if channel_address not in self._served:
-            unknown = ChannelNotFoundError(channel_address)
-            logger.warning(f"In-process write refused: {channel_address}: {unknown}")
-            return channel_address, ChannelWriteResult(
-                channel_address=channel_address,
+        if address not in self._served:
+            unknown = ChannelNotFoundError(address)
+            logger.warning(f"In-process write refused: {address}: {unknown}")
+            return address, ChannelWriteResult(
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=ChannelNotFoundError.reason,
                 error_message=str(unknown),
             )
         self._sync()
-        if self._composite.supported_variables[channel_address].read_only:
-            return channel_address, self._refused(
-                channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
+        if self._composite.supported_variables[address].read_only:
+            return address, self._refused(
+                address, value, f"Write to '{address}' refused: {NOT_WRITABLE}"
             )
-        return channel_address, None
+        return address, None
 
     @override
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, object] | None:
+    async def _current_values(self, addresses: list[str]) -> dict[str, object] | None:
         """What the simulated control system holds: read in process, no thread."""
         held: dict[str, object] = {}
-        for address in channel_addresses:
+        for address in addresses:
             try:
                 held[address] = self._held_value(address)
             except Exception as exc:
@@ -784,7 +782,7 @@ class VAInProcessConnector(ControlSystemConnector):
     @override
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float
         | None = None,  # ControlSystemConnector.write_channel signature; an in-process write never blocks
@@ -798,7 +796,7 @@ class VAInProcessConnector(ControlSystemConnector):
         subscriptions fire; the channel is re-read and compared.
 
         Args:
-            channel_address: A writable setpoint of the view.
+            address: A writable setpoint of the view.
             value: Value to write.
             timeout: Ignored in process.
             confirm: Whether to re-read the channel and compare, or ``None`` to
@@ -812,7 +810,7 @@ class VAInProcessConnector(ControlSystemConnector):
             ChannelLimitsViolationError: If limits validation fails (when enabled)
             ConnectorUnavailableError: The connector is not connected.
         """
-        channel_address, refusal = self._write_precheck(channel_address, value)
+        address, refusal = self._write_precheck(address, value)
         if refusal is not None:
             return refusal
 
@@ -824,25 +822,25 @@ class VAInProcessConnector(ControlSystemConnector):
 
             try:
                 self._limits_validator.validate(
-                    channel_address, value, read_current=self.current_value_reader()
+                    address, value, read_current=self.current_value_reader()
                 )
-                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                logger.debug(f"✓ Limits validation passed: {address}={value}")
             except ChannelLimitsViolationError:
                 raise
             except Exception as e:
-                return self._validation_refusal(channel_address, value, e)
+                return self._validation_refusal(address, value, e)
 
         if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+            confirm = self._resolve_confirm(address)
 
         await asyncio.sleep(self._response_delay)
 
         try:
-            stored = self._coerce(channel_address, value)
+            stored = self._coerce(address, value)
         except Exception as e:
-            logger.warning(f"In-process write failed for {channel_address}: {e}")
+            logger.warning(f"In-process write failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=f"In-process write failed: {e}",
@@ -850,25 +848,25 @@ class VAInProcessConnector(ControlSystemConnector):
 
         before = self._subscribed_held()
         try:
-            self._put(channel_address, stored)
+            self._put(address, stored)
         except Exception as e:
             from lume.exceptions import ReadOnlyError
 
             if isinstance(e, ValueError | ReadOnlyError):
                 return self._refused(
-                    channel_address,
+                    address,
                     value,
-                    str(e) or f"Write to '{channel_address}' refused by the simulator",
+                    str(e) or f"Write to '{address}' refused by the simulator",
                 )
-            logger.warning(f"In-process write failed for {channel_address}: {e}")
+            logger.warning(f"In-process write failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=f"In-process write failed: {e}",
             )
         try:
-            self._append(channel_address, stored)
+            self._append(address, stored)
         except OSError as exc:
             # The composite holds the write; only its survival across
             # connectors is lost.
@@ -877,20 +875,20 @@ class VAInProcessConnector(ControlSystemConnector):
         await self._notify(before)
 
         if not confirm:
-            logger.debug(f"In-process write (unconfirmed by policy): {channel_address} = {value}")
+            logger.debug(f"In-process write (unconfirmed by policy): {address} = {value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
                 notes="Confirmation not requested (in process)",
             )
 
         try:
-            observed = await self._confirming_read(channel_address)
+            observed = await self._confirming_read(address)
         except Exception as e:
-            logger.warning(f"In-process confirming read failed for {channel_address}: {e}")
+            logger.warning(f"In-process confirming read failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=f"In-process confirming read failed: {e}",
@@ -904,11 +902,9 @@ class VAInProcessConnector(ControlSystemConnector):
             else WriteOutcome.MISMATCH
         )
         if outcome is WriteOutcome.MISMATCH:
-            logger.warning(
-                f"In-process write mismatch: {channel_address} sent {value}, observed {held}"
-            )
+            logger.warning(f"In-process write mismatch: {address} sent {value}, observed {held}")
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=outcome,
             observed_value=held,
@@ -917,16 +913,16 @@ class VAInProcessConnector(ControlSystemConnector):
             notes=f"Observed {held}, sent {value} (in process)",
         )
 
-    def _put(self, channel_address: str, value: object) -> None:
+    def _put(self, address: str, value: object) -> None:
         """Set ``value`` in the composite; raises whatever the composite raises."""
-        self._require(channel_address).set({channel_address: value})
+        self._require(address).set({address: value})
 
     # -- subscriptions and the tick ------------------------------------------
 
     @override
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None] | None = None,
@@ -940,19 +936,17 @@ class VAInProcessConnector(ControlSystemConnector):
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        self._require(channel_address)
+        self._require(address)
         self._sync()
-        sub_id = f"inprocess_{channel_address}_{id(callback)}"
-        self._subscriptions[sub_id] = (channel_address, callback)
-        self._last_held[channel_address] = self._held_value(channel_address)
+        sub_id = f"inprocess_{address}_{id(callback)}"
+        self._subscriptions[sub_id] = (address, callback)
+        self._last_held[address] = self._held_value(address)
         logger.debug(f"In-process subscription created: {sub_id}")
         if on_connection is not None:
             try:
                 on_connection(True)
             except Exception as exc:
-                logger.warning(
-                    f"In-process connection callback for {channel_address} raised: {exc}"
-                )
+                logger.warning(f"In-process connection callback for {address} raised: {exc}")
         return sub_id
 
     @override

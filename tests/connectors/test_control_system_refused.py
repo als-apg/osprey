@@ -118,7 +118,7 @@ class TestResultInvariants:
     def test_a_refused_result_without_a_known_reason_cannot_be_built(self, reason):
         with pytest.raises(ValueError) as excinfo:
             ChannelWriteResult(
-                channel_address=CHANNEL,
+                address=CHANNEL,
                 value_written=1.0,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=reason,
@@ -132,7 +132,7 @@ class TestResultInvariants:
     @pytest.mark.parametrize("reason", list(RefusalReason))
     def test_a_known_reason_string_is_coerced_to_its_member(self, reason):
         result = ChannelWriteResult(
-            channel_address=CHANNEL,
+            address=CHANNEL,
             value_written=1.0,
             outcome="refused",
             refusal_reason=reason.value,
@@ -145,7 +145,7 @@ class TestResultInvariants:
     def test_a_reason_on_a_result_that_is_not_refused_cannot_be_built(self, outcome):
         with pytest.raises(ValueError) as excinfo:
             ChannelWriteResult(
-                channel_address=CHANNEL,
+                address=CHANNEL,
                 value_written=1.0,
                 outcome=outcome,
                 refusal_reason=RefusalReason.LIMITS,
@@ -162,7 +162,7 @@ class TestResultInvariants:
         needs_message = outcome in _MESSAGE_OUTCOMES
 
         built = ChannelWriteResult(
-            channel_address=CHANNEL,
+            address=CHANNEL,
             value_written=1.0,
             outcome=outcome,
             refusal_reason=reason,
@@ -173,7 +173,7 @@ class TestResultInvariants:
         for wrong in (None, "") if needs_message else ("message",):
             with pytest.raises(ValueError) as excinfo:
                 ChannelWriteResult(
-                    channel_address=CHANNEL,
+                    address=CHANNEL,
                     value_written=1.0,
                     outcome=outcome,
                     refusal_reason=reason,
@@ -196,13 +196,13 @@ class TestDenialContract:
             raise_for_write_result(result)
 
         assert excinfo.value.reason == "CONTROL_SYSTEM_REFUSED"
-        assert excinfo.value.channel_address == CHANNEL
+        assert excinfo.value.address == CHANNEL
 
     def test_a_refusal_without_a_reason_keeps_no_reason(self):
         """A refused result that names no reason cannot be built at all."""
         with pytest.raises(ValueError, match="refusal_reason"):
             ChannelWriteResult(
-                channel_address=CHANNEL,
+                address=CHANNEL,
                 value_written=1.0,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=None,
@@ -306,7 +306,7 @@ class TestEnvelopeRendering:
 def _write_result_stub(channel, reason):
     """A minimal connector result the channel_write tool serialises unchanged."""
     return ChannelWriteResult(
-        channel_address=channel,
+        address=channel,
         value_written=1.0,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=reason,
@@ -395,7 +395,7 @@ def _row_facts(rows):
 
 
 def _result_facts(results):
-    return [(r.channel_address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
+    return [(r.address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
 
 
 class TestAllBlockedBatchAttribution:

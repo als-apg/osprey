@@ -154,8 +154,8 @@ def normalise_address(address: str) -> str:
     return address.removeprefix(CA_SCHEME)
 
 
-def _ca_write_access(aioca: Aioca, name: str) -> bool | None:
-    """This client's write access to channel ``name``, or ``None`` if it cannot be told.
+def _ca_write_access(aioca: Aioca, address: str) -> bool | None:
+    """This client's write access to channel ``address``, or ``None`` if it cannot be told.
 
     A local libca query on the connected channel, no round trip; callable only
     on the CA loop. A stand-in aioca answers through its ``write_access`` hook.
@@ -163,15 +163,15 @@ def _ca_write_access(aioca: Aioca, name: str) -> bool | None:
     hook = getattr(aioca, "write_access", None)
     try:
         if hook is not None:
-            return None if (answer := hook(name)) is None else bool(answer)
+            return None if (answer := hook(address)) is None else bool(answer)
         catools = aioca._catools
-        return bool(catools.cadef.ca_write_access(catools.get_channel(name)))
+        return bool(catools.cadef.ca_write_access(catools.get_channel(address)))
     except Exception:
         return None
 
 
-def _ca_channel_connected(aioca: Aioca, name: str) -> bool | None:
-    """Whether libca holds channel ``name`` connected right now; ``None`` if it cannot be told.
+def _ca_channel_connected(aioca: Aioca, address: str) -> bool | None:
+    """Whether libca holds channel ``address`` connected right now; ``None`` if it cannot be told.
 
     Called from record handlers only: they never run on a purged channel, and
     ``get_channel`` on a purged name would open a new channel rather than answer.
@@ -180,9 +180,9 @@ def _ca_channel_connected(aioca: Aioca, name: str) -> bool | None:
     hook = getattr(aioca, "channel_connected", None)
     try:
         if hook is not None:
-            return None if (answer := hook(name)) is None else bool(answer)
+            return None if (answer := hook(address)) is None else bool(answer)
         catools = aioca._catools
-        return bool(catools.cadef.ca_state(catools.get_channel(name)) == catools.cadef.cs_conn)
+        return bool(catools.cadef.ca_state(catools.get_channel(address)) == catools.cadef.cs_conn)
     except Exception:
         return None
 
@@ -614,9 +614,9 @@ class CABulk:
             (r.name, r.connected, r.down_since, r.ever_connected) for r in self._records.values()
         ]
 
-    def is_down(self, name: str) -> bool | None:
-        """Whether the record for ``name`` is down; ``None`` with no record. CA loop."""
-        record = self._records.get(name)
+    def is_down(self, address: str) -> bool | None:
+        """Whether the record for ``address`` is down; ``None`` with no record. CA loop."""
+        record = self._records.get(address)
         return None if record is None else not record.connected
 
 

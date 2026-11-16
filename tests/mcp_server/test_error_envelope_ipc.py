@@ -286,7 +286,7 @@ async def test_a_write_refusal_arrives_with_its_reason_and_its_own_message(raisi
         await raising_pair.write_channel(BLOCKED_CHANNEL, 1.0)
 
     exc = exc_info.value
-    assert exc.channel_address == BLOCKED_CHANNEL
+    assert exc.address == BLOCKED_CHANNEL
     assert exc.reason == BLOCKED_REASON
     assert str(exc) == BLOCKED_MESSAGE
 
@@ -359,7 +359,7 @@ async def test_a_real_limits_database_refusal_renders_its_range_across_the_bound
         await limits_pair.write_channel(BOUNDED_CHANNEL, 150.0)
 
     exc = exc_info.value
-    assert exc.channel_address == BOUNDED_CHANNEL
+    assert exc.address == BOUNDED_CHANNEL
     assert exc.attempted_value == 150.0
     assert exc.violation_type == "MAX_EXCEEDED"
     assert (exc.min_value, exc.max_value) == (0.0, 100.0)

@@ -181,11 +181,11 @@ class ReplicaRuntime:
         self.writes.append((address, value))
         self.composite.set({address: value})
         return ChannelWriteResult(
-            channel_address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
+            address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
         )
 
-    async def read_channel(self, channel_address: str, **_kwargs: Any) -> Any:
-        return self._reading(self.composite.get([channel_address])[channel_address])
+    async def read_channel(self, address: str, **_kwargs: Any) -> Any:
+        return self._reading(self.composite.get([address])[address])
 
     async def read_multiple_channels(
         self, addresses: Sequence[str], timeout: float | None = None
@@ -194,8 +194,8 @@ class ReplicaRuntime:
         values = self.composite.get(list(addresses))
         return {address: self._reading(values[address]) for address in addresses}
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **_kwargs: Any) -> Any:
-        return self._write(channel_address, value)
+    async def write_channel_checked(self, address: str, value: Any, **_kwargs: Any) -> Any:
+        return self._write(address, value)
 
     async def write_multiple_channels(
         self, channel_values: Sequence[tuple[str, Any]], **_kwargs: Any

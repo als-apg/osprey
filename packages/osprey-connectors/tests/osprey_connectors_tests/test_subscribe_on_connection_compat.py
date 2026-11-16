@@ -1,6 +1,6 @@
 """``subscribe(..., on_connection=...)`` reaches connectors written before the keyword.
 
-A facility's own connector may define ``subscribe(self, channel_address,
+A facility's own connector may define ``subscribe(self, address,
 callback)``. The base class wraps it, so every framework caller can pass
 ``on_connection`` to any connector: the wrapper reports ``True`` before the
 first value and passes the keyword through untouched to a ``subscribe`` that
@@ -34,29 +34,29 @@ class _Stub(ControlSystemConnector):
     async def disconnect(self):
         pass
 
-    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - interface signature
+    async def read_channel(self, address, timeout=None):  # noqa: ARG002 - interface signature
         return _value(0.0)
 
-    async def write_channel(self, channel_address, value, timeout=None, confirm=None):
+    async def write_channel(self, address, value, timeout=None, confirm=None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):  # noqa: ARG002 - interface signature
+    async def read_multiple_channels(self, addresses, timeout=None):  # noqa: ARG002 - interface signature
         return {}
 
     async def unsubscribe(self, subscription_id):
         pass
 
-    async def get_metadata(self, channel_address):
+    async def get_metadata(self, address):
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address):  # noqa: ARG002 - interface signature
+    async def validate_channel(self, address):  # noqa: ARG002 - interface signature
         return True
 
 
 class _Legacy(_Stub):
     """A ``subscribe`` from before ``on_connection``: delivers two values inline."""
 
-    async def subscribe(self, channel_address, callback):  # noqa: ARG002 - legacy signature
+    async def subscribe(self, address, callback):  # noqa: ARG002 - legacy signature
         callback(_value(1.0))
         callback(_value(2.0))
         return "legacy-1"
@@ -68,7 +68,7 @@ class _Current(_Stub):
     def __init__(self) -> None:
         self.received: list = []
 
-    async def subscribe(self, channel_address, callback, *, on_connection=None):  # noqa: ARG002 - interface signature
+    async def subscribe(self, address, callback, *, on_connection=None):  # noqa: ARG002 - interface signature
         self.received.append(on_connection)
         if on_connection is not None:
             on_connection(True)
@@ -79,9 +79,9 @@ class _Current(_Stub):
 class _LegacyWithExtra(_Stub):
     """A legacy ``subscribe`` with an extra positional parameter of its own."""
 
-    async def subscribe(self, channel_address, callback, period=1.0):
+    async def subscribe(self, address, callback, period=1.0):
         callback(_value(period))
-        return f"extra-{channel_address}"
+        return f"extra-{address}"
 
 
 class TestLegacySignature:
@@ -118,7 +118,7 @@ class TestLegacySignature:
 
     def test_the_wrapped_signature_offers_on_connection(self):
         params = inspect.signature(_Legacy.subscribe).parameters
-        assert list(params)[:3] == ["self", "channel_address", "callback"]
+        assert list(params)[:3] == ["self", "address", "callback"]
         assert params["on_connection"].kind is inspect.Parameter.KEYWORD_ONLY
         assert params["on_connection"].default is None
 
@@ -141,7 +141,7 @@ class TestDeprecation:
         with pytest.warns(DeprecationWarning, match="_LateLegacy.subscribe") as caught:
 
             class _LateLegacy(_Stub):
-                async def subscribe(self, channel_address, callback):  # noqa: ARG002 - legacy signature
+                async def subscribe(self, address, callback):  # noqa: ARG002 - legacy signature
                     return "late-1"
 
         assert len(caught) == 1
@@ -151,7 +151,7 @@ class TestDeprecation:
             warnings.simplefilter("error", DeprecationWarning)
 
             class _LateCurrent(_Stub):
-                async def subscribe(self, channel_address, callback, *, on_connection=None):  # noqa: ARG002 - interface signature
+                async def subscribe(self, address, callback, *, on_connection=None):  # noqa: ARG002 - interface signature
                     return "late-2"
 
 

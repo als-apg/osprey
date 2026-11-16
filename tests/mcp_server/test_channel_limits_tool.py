@@ -53,16 +53,16 @@ TEST_LIMITS_DB = {
 
 @dataclass
 class FakeChannelLimitsConfig:
-    channel_address: str
+    address: str
     min_value: float | None = None
     max_value: float | None = None
     max_step: float | None = None
     writable: bool = True
 
 
-def _resolve_confirm(channel_address: str) -> bool:
+def _resolve_confirm(address: str) -> bool:
     """Mirror LimitsValidator.resolve_confirm: channel → True."""
-    cfg = TEST_LIMITS_DB.get(channel_address)
+    cfg = TEST_LIMITS_DB.get(address)
     if isinstance(cfg, dict) and "confirm" in cfg:
         return bool(cfg["confirm"])
     return True
@@ -93,7 +93,7 @@ def _make_validator(
         if addr.startswith("_") or not isinstance(cfg, dict):
             continue
         limits[addr] = FakeChannelLimitsConfig(
-            channel_address=addr,
+            address=addr,
             min_value=cfg.get("min_value"),
             max_value=cfg.get("max_value"),
             max_step=cfg.get("max_step"),

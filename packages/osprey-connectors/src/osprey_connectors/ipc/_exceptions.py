@@ -31,7 +31,7 @@ The registry is derived from the vocabulary
 :class:`~osprey_connectors.errors.ConnectorInternalError`). It is computed at
 import, never listed by hand, so every public failure crosses as itself with
 no entry here to keep in step. A :class:`~osprey_connectors.errors.ChannelError` spec
-carries ``channel_address`` first, by construction; what else a class carries
+carries ``address`` first, by construction; what else a class carries
 is its wire detail, held here and nowhere in the class itself, because the
 vocabulary says what a failure is and this module says what of it crosses.
 
@@ -140,7 +140,7 @@ class _Detail(FrozenModel):
 
 
 #: The wire detail of each vocabulary class. A ``ChannelError`` subclass's
-#: ``channel_address`` is not listed: the registry puts it first for every one.
+#: ``address`` is not listed: the registry puts it first for every one.
 _WIRE_DETAIL: dict[type[BaseException], _Detail] = {
     ChannelError: _Detail(message_kwarg="message"),
     ChannelLimitsViolationError: _Detail(
@@ -176,7 +176,7 @@ def _vocabulary() -> list[type[BaseException]]:
 
 
 def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
-    channel = ("channel_address",) if issubclass(cls, ChannelError) else ()
+    channel = ("address",) if issubclass(cls, ChannelError) else ()
     return ExceptionSpec(
         cls=cls,
         fields=(*channel, *detail.fields),

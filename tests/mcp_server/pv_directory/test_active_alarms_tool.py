@@ -110,7 +110,7 @@ def _install(tmp_path: Path, control_system: dict[str, Any], section: dict[str, 
 
 def _row(channel: str, severity: str, time: str) -> Any:
     state = AlarmStateRecord(severity=severity, time=time)
-    return AlarmStateRow(channel=channel, path=f"/SR/{channel}", state=state)
+    return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=state)
 
 
 def _listed() -> Any:

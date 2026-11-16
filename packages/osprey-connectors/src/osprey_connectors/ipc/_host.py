@@ -154,7 +154,7 @@ N channels cost one request frame and one result frame rather than N of each.
 Requests are dispatched as tasks and may complete in any order; the parent
 matches replies by ``request_id``.
 
-``spawn_probe {channel, timeout}`` is the readiness check the parent runs
+``spawn_probe {address, timeout}`` is the readiness check the parent runs
 against a freshly spawned child before it swaps traffic over: a real read of
 one named channel, bounded by ``timeout``, returning that channel's
 :class:`~osprey_connectors.control_system.ChannelValue`. It is a distinct
@@ -857,13 +857,13 @@ async def _refuse(frame: _Undecodable, writer: _FrameWriter) -> None:
 
 
 async def _spawn_probe(
-    connector: ControlSystemConnector, channel: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
+    connector: ControlSystemConnector, address: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
 ) -> ChannelValue:
     """Read one named channel under a hard bound.
 
     Args:
         connector: The live connector.
-        channel: Channel address to read.
+        address: Channel address to read.
         timeout: Seconds to allow, defaulting to
             :data:`DEFAULT_PROBE_TIMEOUT_S`. The bound is applied here as well
             as being passed to the connector: a control-system client that
@@ -883,8 +883,8 @@ async def _spawn_probe(
             layers up, as a switch refusal ending in ": ." that names nothing
             the operator could act on.
     """
-    if not isinstance(channel, str):
-        raise TypeError(f"spawn_probe channel must be a channel address, got {channel!r}")
+    if not isinstance(address, str):
+        raise TypeError(f"spawn_probe address must be a channel address, got {address!r}")
     if timeout is None:
         bound = DEFAULT_PROBE_TIMEOUT_S
     elif isinstance(timeout, str | SupportsFloat):
@@ -894,9 +894,9 @@ async def _spawn_probe(
     if bound <= 0:
         raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
     try:
-        return await asyncio.wait_for(connector.read_channel(channel, timeout=bound), timeout=bound)
+        return await asyncio.wait_for(connector.read_channel(address, timeout=bound), timeout=bound)
     except TimeoutError as exc:
-        reason = f"probe read of {channel!r} timed out after {bound}s"
+        reason = f"probe read of {address!r} timed out after {bound}s"
         # A connector that reported its own timeout said something more
         # specific; it is kept, behind the subject it did not name.
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc

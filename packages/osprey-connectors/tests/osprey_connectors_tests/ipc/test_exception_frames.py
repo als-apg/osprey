@@ -58,7 +58,7 @@ _SAMPLES: dict[str, Callable[[], BaseException]] = {
     "TimeoutError": lambda: TimeoutError("read timed out after 2.0s"),
     "ChannelError": lambda: ChannelError("SR:Q", "SR:Q failed its own way"),
     "ChannelLimitsViolationError": lambda: ChannelLimitsViolationError(
-        channel_address="SR:Q",
+        address="SR:Q",
         value=999.0,
         violation_type="range",
         violation_reason="Value 999.0 above maximum 500.0",
@@ -95,7 +95,7 @@ def test_the_registry_is_the_builtins_plus_the_vocabulary():
 
 def test_write_blocked_field_list_is_the_published_spec():
     spec = exceptions.EXCEPTION_SPECS["ChannelWriteBlockedError"]
-    assert spec.fields == ("channel_address", "reason", "verdict_reason")
+    assert spec.fields == ("address", "reason", "verdict_reason")
     # Its text is not a field: the frame's own message feeds the ctor keyword.
     assert spec.message_kwarg == "message"
 
@@ -108,8 +108,8 @@ def test_every_vocabulary_class_has_its_wire_detail():
 def test_every_channel_error_carries_its_channel_first():
     for spec in exceptions.EXCEPTION_SPECS.values():
         if issubclass(spec.cls, ChannelError):
-            assert spec.fields[0] == "channel_address", spec.cls.__name__
-            assert spec.fields.count("channel_address") == 1, spec.cls.__name__
+            assert spec.fields[0] == "address", spec.cls.__name__
+            assert spec.fields.count("address") == 1, spec.cls.__name__
 
 
 @pytest.mark.parametrize("tag", list(exceptions.EXCEPTION_SPECS))
@@ -145,7 +145,7 @@ def test_the_contract_fault_is_no_connection_error():
 
 def test_limits_violation_round_trips_every_spec_field():
     original = ChannelLimitsViolationError(
-        channel_address="SR:BEND:1:CUR",
+        address="SR:BEND:1:CUR",
         value=999.0,
         violation_type="range",
         violation_reason="Value 999.0 above maximum 500.0",
@@ -164,7 +164,7 @@ def test_limits_violation_round_trips_every_spec_field():
     rebuilt = exceptions.decode_exception(body)
 
     assert isinstance(rebuilt, ChannelLimitsViolationError)
-    assert rebuilt.channel_address == "SR:BEND:1:CUR"
+    assert rebuilt.address == "SR:BEND:1:CUR"
     assert rebuilt.attempted_value == 999.0
     assert rebuilt.violation_type == "range"
     assert rebuilt.violation_reason == "Value 999.0 above maximum 500.0"
@@ -178,7 +178,7 @@ def test_limits_violation_round_trips_every_spec_field():
 
 def test_limits_violation_keeps_unset_bounds_as_none():
     original = ChannelLimitsViolationError(
-        channel_address="SR:X",
+        address="SR:X",
         value="on",
         violation_type="unlisted",
         violation_reason="Channel not in the limits registry",
@@ -195,7 +195,7 @@ def test_limits_violation_keeps_unset_bounds_as_none():
 
 def test_write_blocked_round_trips_reason_and_custom_message():
     original = ChannelWriteBlockedError(
-        channel_address="SR:BEND:1:CUR",
+        address="SR:BEND:1:CUR",
         reason="WRITES_DISABLED",
         message="Writes are disabled for this deployment",
     )
@@ -203,7 +203,7 @@ def test_write_blocked_round_trips_reason_and_custom_message():
 
     assert body.class_tag == "ChannelWriteBlockedError"
     assert body.fields == {
-        "channel_address": "SR:BEND:1:CUR",
+        "address": "SR:BEND:1:CUR",
         "reason": "WRITES_DISABLED",
         "verdict_reason": None,
     }
@@ -211,7 +211,7 @@ def test_write_blocked_round_trips_reason_and_custom_message():
     rebuilt = exceptions.decode_exception(body)
 
     assert isinstance(rebuilt, ChannelWriteBlockedError)
-    assert rebuilt.channel_address == "SR:BEND:1:CUR"
+    assert rebuilt.address == "SR:BEND:1:CUR"
     assert rebuilt.reason == "WRITES_DISABLED"
     assert str(rebuilt) == "Writes are disabled for this deployment"
 
@@ -226,11 +226,11 @@ def test_write_blocked_round_trips_the_verdict_reason():
 
 
 def test_write_blocked_default_message_survives():
-    original = ChannelWriteBlockedError(channel_address="SR:Y", reason="LIMITS")
+    original = ChannelWriteBlockedError(address="SR:Y", reason="LIMITS")
     rebuilt = _round_trip(original)
 
     assert isinstance(rebuilt, ChannelWriteBlockedError)
-    assert rebuilt.channel_address == "SR:Y"
+    assert rebuilt.address == "SR:Y"
     assert rebuilt.reason == "LIMITS"
     assert str(rebuilt) == str(original)
 
@@ -240,7 +240,7 @@ def test_an_unknown_channel_round_trips_as_itself():
     rebuilt = _round_trip(original)
 
     assert type(rebuilt) is ChannelNotFoundError
-    assert rebuilt.channel_address == "X"
+    assert rebuilt.address == "X"
     assert str(rebuilt) == str(original)
 
 
@@ -249,7 +249,7 @@ def test_an_unreachable_channel_round_trips_as_itself():
     rebuilt = _round_trip(original)
 
     assert type(rebuilt) is ChannelUnreachableError
-    assert rebuilt.channel_address == "SR:DEAD:IOC"
+    assert rebuilt.address == "SR:DEAD:IOC"
     assert str(rebuilt) == "SR:DEAD:IOC timed out"
 
 
@@ -283,18 +283,18 @@ def test_timeout_error_round_trips():
 
 
 def test_fields_are_read_by_spec_name_not_from_the_instance_dict():
-    original = ChannelWriteBlockedError(channel_address="SR:Z", reason="VALIDATION_ERROR")
+    original = ChannelWriteBlockedError(address="SR:Z", reason="VALIDATION_ERROR")
     original.internal_handle = "a child-only attribute"  # type: ignore[attr-defined]
 
     body = exceptions.encode_exception(original)
 
     assert "internal_handle" not in body.fields
-    assert set(body.fields) == {"channel_address", "reason", "verdict_reason"}
+    assert set(body.fields) == {"address", "reason", "verdict_reason"}
 
 
 def test_missing_attribute_encodes_as_none_without_raising():
     original = ChannelLimitsViolationError(
-        channel_address="SR:W",
+        address="SR:W",
         value=5.0,
         violation_type="step",
         violation_reason="Step 5.0 above maximum step 1.0",
@@ -307,7 +307,7 @@ def test_missing_attribute_encodes_as_none_without_raising():
     body = exceptions.encode_exception(original)
 
     assert body.fields["max_step"] is None
-    assert body.fields["channel_address"] == "SR:W"
+    assert body.fields["address"] == "SR:W"
 
     rebuilt = exceptions.decode_exception(body)
 
@@ -358,7 +358,7 @@ def test_a_subclass_crosses_as_its_nearest_vocabulary_class():
     slow = _round_trip(SlowLinkError("SR:Q did not answer"))
 
     assert type(mine) is ChannelUnreachableError
-    assert mine.channel_address == "SR:Q"
+    assert mine.address == "SR:Q"
     assert str(mine) == "SR:Q went quiet"
     assert type(refused) is ConnectionError
     assert str(refused) == "SR:Q refused the connection"
@@ -384,7 +384,7 @@ def test_unusable_field_set_decodes_fail_closed_to_the_contract_fault():
         exceptions.ExceptionFrameBody(
             class_tag="ChannelWriteBlockedError",
             message="refused",
-            fields={"channel_address": "SR:Q", "reason": "LIMITS", "bogus": 1},
+            fields={"address": "SR:Q", "reason": "LIMITS", "bogus": 1},
         )
     )
 
@@ -400,7 +400,7 @@ def test_an_outcome_word_the_parent_lacks_decodes_fail_closed_to_the_contract_fa
             class_tag="ChannelWriteFailedError",
             message="write not confirmed",
             fields={
-                "channel_address": "SR:Q",
+                "address": "SR:Q",
                 "reason": "FAILED",
                 "outcome": "no-such-outcome",
                 "value_written": 1.0,

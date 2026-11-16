@@ -78,17 +78,17 @@ class _CountingConnector(DictConnector):
         self.served: list[tuple[str, str]] = []
         self.read_error: Exception | None = None
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        self.reads.append(channel_address)
-        self.served.append(("read", channel_address))
+    async def read_channel(self, address: str, timeout: float | None = None):
+        self.reads.append(address)
+        self.served.append(("read", address))
         if self.read_error is not None:
             raise self.read_error
-        return await super().read_channel(channel_address, timeout)
+        return await super().read_channel(address, timeout)
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        self.puts.append((channel_address, value))
-        self.served.append(("put", channel_address))
-        super()._put(channel_address, value)
+    def _put(self, address: str, value: Any) -> None:
+        self.puts.append((address, value))
+        self.served.append(("put", address))
+        super()._put(address, value)
 
 
 @pytest.fixture(scope="module")
@@ -194,7 +194,7 @@ def _limits_net(ceiling: float) -> LimitsValidator:
     return LimitsValidator(
         {
             SETPOINT: ChannelLimitsConfig(
-                channel_address=SETPOINT, min_value=0.0, max_value=ceiling, writable=True
+                address=SETPOINT, min_value=0.0, max_value=ceiling, writable=True
             )
         },
         {"mode": LIMITS_MODE_EXCLUSIVE},
@@ -225,16 +225,16 @@ class _BatchConnector(DictConnector):
         super().__init__(BATCH_HOME)
         self.answer = answer
 
-    async def write_channel(self, channel_address: str, value: Any, **kwargs: Any):
-        result = self.answer(channel_address, value)
+    async def write_channel(self, address: str, value: Any, **kwargs: Any):
+        result = self.answer(address, value)
         if result is not None:
             return result
-        return await super().write_channel(channel_address, value, **kwargs)
+        return await super().write_channel(address, value, **kwargs)
 
 
 def _refused(address: str, value: Any, reason: str) -> ChannelWriteResult:
     return ChannelWriteResult(
-        channel_address=address,
+        address=address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=reason,
@@ -419,7 +419,7 @@ class TestMovedListsOnlyWhatMoved:
                     self._state[address] = value
                     results.append(
                         ChannelWriteResult(
-                            channel_address=address + ".VAL",
+                            address=address + ".VAL",
                             value_written=value,
                             outcome=WriteOutcome.UNREQUESTED,
                         )

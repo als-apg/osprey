@@ -329,7 +329,7 @@ def _refused(reason):
     def results(operations):
         return [
             ChannelWriteResult(
-                channel_address=address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=RefusalReason.WRITES_DISABLED,
@@ -427,7 +427,7 @@ def test_a_limits_refusal_out_of_the_batch_is_a_refusal():
     from osprey_connectors.errors import ChannelLimitsViolationError
 
     exc = ChannelLimitsViolationError(
-        channel_address="A:SP", value=9.0, violation_type="MAX_EXCEEDED", violation_reason="max"
+        address="A:SP", value=9.0, violation_type="MAX_EXCEEDED", violation_reason="max"
     )
     with pytest.raises(WriteRefusedError) as caught:
         ConnectorInterface("live", bridge=_KeyedBridge(exc=exc)).set_values({"A:SP": 9.0})

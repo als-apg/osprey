@@ -289,7 +289,7 @@ class TestReadChannel:
             ChannelUnreachableError, match="Failed to connect to PV 'SR:NOPE'"
         ) as raised:
             await connector.read_channel("SR:NOPE", timeout=0.5)
-        assert raised.value.channel_address == "SR:NOPE"
+        assert raised.value.address == "SR:NOPE"
 
     @pytest.mark.asyncio
     async def test_a_get_that_times_out_on_a_connected_channel_is_unreachable(self):
@@ -298,7 +298,7 @@ class TestReadChannel:
 
         with pytest.raises(ChannelUnreachableError, match="SR:CH.*timed out") as raised:
             await connector.read_channel("SR:CH", timeout=0.5)
-        assert raised.value.channel_address == "SR:CH"
+        assert raised.value.address == "SR:CH"
 
     @pytest.mark.asyncio
     async def test_a_get_lost_to_a_disconnect_is_an_unreachable_channel(self):
@@ -901,7 +901,7 @@ class TestWriteFailClosed:
 
         limits = MagicMock()
         limits.validate.side_effect = ChannelLimitsViolationError(
-            channel_address="SR:CH",
+            address="SR:CH",
             value=1.0,
             violation_type="MAX_EXCEEDED",
             violation_reason="too big",

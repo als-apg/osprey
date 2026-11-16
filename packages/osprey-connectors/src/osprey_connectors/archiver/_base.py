@@ -18,7 +18,7 @@ from osprey_connectors.model import FrozenModel, MutableModel
 class ArchiverMetadata(MutableModel):
     """Archiving metadata for one channel.
 
-    ``channel`` is the same protocol-agnostic channel address the control-system
+    ``address`` is the same protocol-agnostic channel address the control-system
     connectors take, and the same value that appears in the ``channel`` column of
     :meth:`ArchiverConnector.get_data`.
 
@@ -26,7 +26,7 @@ class ArchiverMetadata(MutableModel):
     the channel; ``description`` then says why.
     """
 
-    channel: str
+    address: str
     is_archived: bool | None
     archival_start: datetime | None = None
     archival_end: datetime | None = None
@@ -37,12 +37,12 @@ class ArchiverMetadata(MutableModel):
 class ArchiveExtent(FrozenModel):
     """What an archive store holds, as far as the archiver can say.
 
-    Every field is ``None`` when unknown. ``channels`` is the set of channel
+    Every field is ``None`` when unknown. ``addresses`` is the set of channel
     addresses the store records now; ``oldest`` and ``newest`` are the instants
     of its oldest and newest samples; ``reason`` says why a part is unknown.
     """
 
-    channels: frozenset[str] | None = None
+    addresses: frozenset[str] | None = None
     oldest: datetime | None = None
     newest: datetime | None = None
     reason: str | None = None
@@ -63,7 +63,7 @@ class ArchiverConnector(ABC):
         >>> connector = await ConnectorFactory.create_archiver_connector()
         >>> try:
         >>>     df = await connector.get_data(
-        >>>         channels=['BEAM:CURRENT', 'BEAM:LIFETIME'],
+        >>>         addresses=['BEAM:CURRENT', 'BEAM:LIFETIME'],
         >>>         start_date=datetime(2024, 1, 1),
         >>>         end_date=datetime(2024, 1, 2)
         >>>     )
@@ -92,7 +92,7 @@ class ArchiverConnector(ABC):
     @abstractmethod
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -103,7 +103,7 @@ class ArchiverConnector(ABC):
         Retrieve historical data for one or more channels.
 
         Args:
-            channels: List of channel addresses to retrieve. Addresses are
+            addresses: List of channel addresses to retrieve. Addresses are
                 protocol-agnostic: EPICS PV names, DOOCS property addresses, or
                 whatever the configured backend keys its store by.
             start_date: Start of time range
@@ -150,12 +150,12 @@ class ArchiverConnector(ABC):
         """
 
     @abstractmethod
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
 
         Args:
-            channel: Channel address
+            address: Channel address
 
         Returns:
             ArchiverMetadata with archiving information
@@ -166,12 +166,12 @@ class ArchiverConnector(ABC):
         """
 
     @abstractmethod
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived.
 
         Args:
-            channels: List of channel addresses to check
+            addresses: List of channel addresses to check
 
         Returns:
             Dictionary mapping channel address to availability status; ``None``

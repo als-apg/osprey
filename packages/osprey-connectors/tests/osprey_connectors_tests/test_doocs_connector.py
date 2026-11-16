@@ -280,7 +280,7 @@ class TestReadChannel:
         with pytest.raises(ChannelUnreachableError, match="channel not found") as raised:
             await conn.read_channel("INVALID/ADDR")
 
-        assert raised.value.channel_address == "INVALID/ADDR"
+        assert raised.value.address == "INVALID/ADDR"
         assert "INVALID/ADDR" in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -499,7 +499,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+        def blocking_validate(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)

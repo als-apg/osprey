@@ -79,7 +79,7 @@ connector itself, and the supervisor that owns the connector's lifetime acts
 on the difference:
 
 - ``ChannelUnreachableError`` -- one channel could not be reached, or did not
-  answer in time. It names the channel under ``channel_address`` and is no
+  answer in time. It names the channel under ``address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
   ``channel_unreachable``, naming the channel under ``details.channel``. The
@@ -103,7 +103,7 @@ the next call is served by it.
 
 Every failure about one channel -- an unreachable or unknown channel, a
 refused, failed or limits-violating write -- is a ``ChannelError`` whose
-``channel_address`` names the channel, in process or across the connector
+``address`` names the channel, in process or across the connector
 host. The registry that carries failures across the host is derived from
 ``osprey_connectors.errors``: each public class there crosses as itself, and a
 connector's own subclass crosses as the nearest public class it extends.

@@ -328,8 +328,8 @@ class TestOpen:
         write_record(mock_va)
         reads = []
 
-        async def read_channel(_self, channel_address, **_kwargs):
-            reads.append(channel_address)
+        async def read_channel(_self, address, **_kwargs):
+            reads.append(address)
             raise AssertionError("open must not read a channel")
 
         monkeypatch.setattr(_CountingFake, "read_channel", read_channel)

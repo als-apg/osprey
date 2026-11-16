@@ -172,14 +172,14 @@ class DOOCSConnector(ControlSystemConnector):
     @override
     async def read_channel(
         self,
-        channel_address: str,
+        address: str,
         timeout: float | None = None,
     ) -> ChannelValue:
         """
         Read current value from a DOOCS property.
 
         Args:
-            channel_address: DOOCS address (e.g., 'FACILITY/DEVICE/LOCATION/PROPERTY')
+            address: DOOCS address (e.g., 'FACILITY/DEVICE/LOCATION/PROPERTY')
             timeout: Seconds the read is given; the block's ``timeout_s`` when omitted
 
         Returns:
@@ -193,11 +193,11 @@ class DOOCSConnector(ControlSystemConnector):
         bound = self._bound(timeout)
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._read_channel_sync, channel_address), bound
+                asyncio.to_thread(self._read_channel_sync, address), bound
             )
         except TimeoutError:
             raise TimeoutError(
-                f"DOOCS property '{channel_address}' did not answer within {bound}s"
+                f"DOOCS property '{address}' did not answer within {bound}s"
             ) from None
 
     def _read_channel_sync(self, address: str) -> ChannelValue:
@@ -250,15 +250,15 @@ class DOOCSConnector(ControlSystemConnector):
         metadata a full read builds around it.
         """
 
-        def read_current(channel_address: str) -> object:
-            return self._doocs.get(channel_address).get_data()
+        def read_current(address: str) -> object:
+            return self._doocs.get(address).get_data()
 
         return read_current
 
     @override
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -274,7 +274,7 @@ class DOOCSConnector(ControlSystemConnector):
         label and the alarm fields stay unset.
 
         Args:
-            channel_address: DOOCS address
+            address: DOOCS address
             value: Value to write
             timeout: Seconds the send (limits check included) is given, and
                 then the confirming read; the block's ``timeout_s`` when
@@ -310,15 +310,15 @@ class DOOCSConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self.current_value_reader()
+                        address, value, read_current=self.current_value_reader()
                     )
-                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                    logger.debug(f"✓ Limits validation passed: {address}={value}")
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
                     return _CheckNotMade(e)  # no set issued
             try:
-                self._doocs.set(channel_address, value)
+                self._doocs.set(address, value)
             except Exception as e:
                 return _SendFailed(e)
             return None
@@ -327,27 +327,27 @@ class DOOCSConnector(ControlSystemConnector):
         try:
             step = await asyncio.wait_for(asyncio.to_thread(_validate_and_set), bound)
         except TimeoutError:
-            logger.warning(f"DOOCS set of {channel_address} did not return within {bound}s")
+            logger.warning(f"DOOCS set of {address} did not return within {bound}s")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=(
-                    f"Write to '{channel_address}' could not be confirmed — "
+                    f"Write to '{address}' could not be confirmed — "
                     f"DOOCS did not return from the set within {bound}s"
                 ),
                 notes="The value may still arrive; what the property holds is unknown",
             )
 
         if isinstance(step, _CheckNotMade):
-            return self._validation_refusal(channel_address, value, step.error)
+            return self._validation_refusal(address, value, step.error)
 
         if isinstance(step, _SendFailed):
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {step.error}",
+                error_message=f"Failed to write to '{address}': {step.error}",
                 notes="DOOCS did not take the value",
             )
 
@@ -358,12 +358,12 @@ class DOOCSConnector(ControlSystemConnector):
         # pure in-memory read, so resolving it after the send changes nothing an
         # observer can see.
         if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+            confirm = self._resolve_confirm(address)
 
         if not confirm:
-            logger.debug(f"DOOCS write (unconfirmed by request): {channel_address} = {value}")
+            logger.debug(f"DOOCS write (unconfirmed by request): {address} = {value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
                 notes="No confirmation requested",
@@ -371,14 +371,14 @@ class DOOCSConnector(ControlSystemConnector):
 
         # Step 3: Confirm with one fresh read
         try:
-            readback = await self.read_channel(channel_address, timeout=timeout)
+            readback = await self.read_channel(address, timeout=timeout)
         except Exception as e:
-            logger.warning(f"DOOCS confirming read failed for {channel_address}: {e}")
+            logger.warning(f"DOOCS confirming read failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Confirming read of '{channel_address}' failed: {e}",
+                error_message=f"Confirming read of '{address}' failed: {e}",
                 notes="The value was sent; what the property holds is unknown",
             )
 
@@ -387,11 +387,11 @@ class DOOCSConnector(ControlSystemConnector):
 
         logger.debug(
             f"DOOCS write ({'confirmed' if confirmed else 'mismatch'}): "
-            f"{channel_address} = {value!r}, observed {observed!r}"
+            f"{address} = {value!r}, observed {observed!r}"
         )
 
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
             observed_value=observed,
@@ -402,15 +402,15 @@ class DOOCSConnector(ControlSystemConnector):
 
     @override
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(channel_addresses, timeout)
+        return await self._read_concurrently(addresses, timeout)
 
     @override
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None]
@@ -420,7 +420,7 @@ class DOOCSConnector(ControlSystemConnector):
         Subscribe to property value changes.
 
         Args:
-            channel_address: DOOCS address
+            address: DOOCS address
             callback: Function to call when value changes
             on_connection: Accepted for the base-class contract and ignored —
                 DOOCS reports no connection state to this connector.
@@ -456,12 +456,12 @@ class DOOCSConnector(ControlSystemConnector):
             loop.call_soon_threadsafe(callback, prop_value)
 
         # Subscribe
-        address = self._doocs.Address(channel_address)
-        self._doocs.subscribe(address, doocs_callback)
+        doocs_address = self._doocs.Address(address)
+        self._doocs.subscribe(doocs_address, doocs_callback)
 
         # Generate subscription ID
-        sub_id = f"{channel_address}_{secrets.token_hex(8)}"
-        self._subscriptions[sub_id] = self._doocs.Address(channel_address)
+        sub_id = f"{address}_{secrets.token_hex(8)}"
+        self._subscriptions[sub_id] = self._doocs.Address(address)
 
         logger.debug(f"DOOCS subscription created: {sub_id}")
         return sub_id
@@ -476,25 +476,25 @@ class DOOCSConnector(ControlSystemConnector):
             logger.debug(f"DOOCS subscription removed: {subscription_id}")
 
     @override
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         """Get metadata for a channel."""
-        channel_value = await self.read_channel(channel_address)
+        channel_value = await self.read_channel(address)
         return channel_value.metadata
 
     @override
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """
         Check if property exists and is accessible.
 
         Args:
-            channel_address: DOOCS address
+            address: DOOCS address
 
         Returns:
             True if channel can be accessed
         """
         try:
-            await self.read_channel(channel_address)
+            await self.read_channel(address)
             return True
         except Exception as e:
-            logger.debug(f"DOOCS property validation failed for {channel_address}: {e}")
+            logger.debug(f"DOOCS property validation failed for {address}: {e}")
             return False

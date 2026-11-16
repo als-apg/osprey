@@ -39,7 +39,7 @@ from osprey.services.pv_directory._connectors import (
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
-    SERVED_FIELD,
+    SERVED_QUERY_FIELD,
     DirectoryPage,
     DirectoryQuery,
     Outcome,
@@ -96,7 +96,7 @@ _MOVED_REASON = "the target moved"
 #: The served names of the row fields the facets count, after ``origin``.
 _ROW_FACETS = ("ioc", "record_type")
 #: The contract field of each served name.
-_CONTRACT_FIELD = {served: field for field, served in SERVED_FIELD.items()}
+_CONTRACT_FIELD = {served: field for field, served in SERVED_QUERY_FIELD.items()}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -616,7 +616,7 @@ class DirectoryService:
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
-        return {row.channel: row.state for row in answer.rows}
+        return {row.address: row.state for row in answer.rows}
 
     def _cut_page(
         self,
@@ -672,9 +672,9 @@ class DirectoryService:
     def _marked(self, backend: Any, rows: Iterable[Any]) -> list[tuple[Any, Origin]]:
         """*rows* without hidden properties, each paired with its origin mark."""
         rows = list(rows)
-        marks = mark([row.name for row in rows], dict(self._config))
+        marks = mark([row.address for row in rows], dict(self._config))
         hidden = self._hidden()
-        return [(self._hide_row(backend, row, hidden), marks[row.name]) for row in rows]
+        return [(self._hide_row(backend, row, hidden), marks[row.address]) for row in rows]
 
     def _hidden(self) -> frozenset[str]:
         names = self._display.get("hidden_properties")
@@ -825,10 +825,10 @@ def _kept(
         if (
             archived
             and channels is not None
-            and _archived_value(channels, row.name) not in archived
+            and _archived_value(channels, row.address) not in archived
         ):
             return False
-        return not (alarms and states is not None) or _alarm_value(states, row.name) in alarms
+        return not (alarms and states is not None) or _alarm_value(states, row.address) in alarms
 
     return keeps
 
@@ -861,12 +861,14 @@ def _facets(
     }
     if isinstance(index, dict):
         counted = _tally(
-            _alarm_value(index, row.name) for row, origin in marked if by_alarm_group(row, origin)
+            _alarm_value(index, row.address)
+            for row, origin in marked
+            if by_alarm_group(row, origin)
         )
         facets["alarm"] = sorted(counted, key=_alarm_order)
     if held is not None:
         stored = _tally(
-            _archived_value(held, row.name)
+            _archived_value(held, row.address)
             for row, origin in marked
             if by_archive_group(row, origin)
         )
@@ -938,8 +940,8 @@ def _searched(
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
-    if query.name:
-        parts.append(f"name matches {query.name}")
+    if query.address_pattern:
+        parts.append(f"name matches {query.address_pattern}")
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:

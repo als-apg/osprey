@@ -364,7 +364,7 @@ class ConnectorInterface:
             # The base batch loop lets a limits refusal out of the channel it
             # concerns; it is a refusal like any other.
             raise WriteRefusedError(
-                f"Write to {exc.channel_address} refused [LIMITS]: {exc}", reason="LIMITS"
+                f"Write to {exc.address} refused [LIMITS]: {exc}", reason="LIMITS"
             ) from exc
         except ChannelWriteBlockedError as exc:
             verdict = getattr(exc, "verdict_reason", None)
@@ -373,18 +373,16 @@ class ConnectorInterface:
                     authority.end(verdict, str(exc))
                 raise AuthorizationEndedError(verdict, str(exc)) from exc
             raise WriteRefusedError(
-                f"Write to {exc.channel_address} refused [{exc.reason}]: {exc}",
+                f"Write to {exc.address} refused [{exc.reason}]: {exc}",
                 reason=exc.reason,
                 verdict_reason=verdict,
             ) from exc
         except ChannelWriteFailedError as exc:
-            if exc.reason == "FAILED" and not self.check_connection(exc.channel_address):
+            if exc.reason == "FAILED" and not self.check_connection(exc.address):
                 raise OptimizerConnectionError(
-                    f"Write connect failed for {exc.channel_address}: {exc}"
+                    f"Write connect failed for {exc.address}: {exc}"
                 ) from exc
-            raise EvaluationError(
-                f"Write to {exc.channel_address} failed [{exc.reason}]: {exc}"
-            ) from exc
+            raise EvaluationError(f"Write to {exc.address} failed [{exc.reason}]: {exc}") from exc
         except TimeoutError as exc:
             # Before ConnectionError: a ConnectorHostWriteTimeoutError is both,
             # and a write that may or may not have landed is a timeout.

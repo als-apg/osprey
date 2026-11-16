@@ -109,7 +109,7 @@ _QUALITY_ALARM_FIELDS: dict[str, tuple[str, int]] = {
 }
 
 
-def _split_address(channel_address: str) -> tuple[str, str]:
+def _split_address(address: str) -> tuple[str, str]:
     """Split a channel address into (device name, attribute name).
 
     The last path segment is the attribute; everything before it is the TANGO
@@ -119,23 +119,21 @@ def _split_address(channel_address: str) -> tuple[str, str]:
     Raises:
         ValueError: If the address does not name a device and an attribute.
     """
-    address = channel_address.strip()
+    stripped = address.strip()
     prefix = ""
-    body = address
-    if address.lower().startswith("tango://"):
-        rest = address[len("tango://") :]
+    body = stripped
+    if stripped.lower().startswith("tango://"):
+        rest = stripped[len("tango://") :]
         host, sep, body = rest.partition("/")
         if not sep or not host:
             raise ValueError(
-                f"Invalid TANGO channel address '{channel_address}': expected "
+                f"Invalid TANGO channel address '{address}': expected "
                 f"'tango://host:port/{_ADDRESS_FORM}'"
             )
         prefix = f"tango://{host}/"
     parts = body.split("/")
     if len(parts) != 4 or not all(parts):
-        raise ValueError(
-            f"Invalid TANGO channel address '{channel_address}': expected '{_ADDRESS_FORM}'"
-        )
+        raise ValueError(f"Invalid TANGO channel address '{address}': expected '{_ADDRESS_FORM}'")
     return prefix + "/".join(parts[:3]), parts[3]
 
 
@@ -321,7 +319,7 @@ class TangoConnector(ControlSystemConnector):
         self._enum_labels[key] = labels
         return labels
 
-    def _read_channel_sync(self, channel_address: str) -> ChannelValue:
+    def _read_channel_sync(self, address: str) -> ChannelValue:
         """Synchronous TANGO read (runs in a thread).
 
         Building the proxy and reading the attribute are the two device round
@@ -335,7 +333,7 @@ class TangoConnector(ControlSystemConnector):
         it on purpose: a malformed address is a ``ValueError`` and a reading
         that cannot be mapped is neither — only the transport is translated.
         """
-        device_name, attribute = _split_address(channel_address)
+        device_name, attribute = _split_address(address)
 
         try:
             proxy = self._get_proxy(device_name)
@@ -344,7 +342,7 @@ class TangoConnector(ControlSystemConnector):
             raise
         except Exception as exc:
             raise ChannelUnreachableError(
-                channel_address, f"Failed to read TANGO attribute '{channel_address}': {exc}"
+                address, f"Failed to read TANGO attribute '{address}': {exc}"
             ) from exc
 
         value = attr.value
@@ -383,14 +381,12 @@ class TangoConnector(ControlSystemConnector):
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @override
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
         """
         Read the current value of a TANGO device attribute.
 
         Args:
-            channel_address: ``domain/family/member/attribute``
+            address: ``domain/family/member/attribute``
             timeout: Seconds the read is given; the block's ``timeout_s`` when
                 omitted, which the device proxy also applies beneath it
 
@@ -406,38 +402,36 @@ class TangoConnector(ControlSystemConnector):
         ceiling = timeout if timeout is not None else self._timeout_s
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._read_channel_sync, channel_address), ceiling
+                asyncio.to_thread(self._read_channel_sync, address), ceiling
             )
         except TimeoutError:
             raise TimeoutError(
-                f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
+                f"TANGO attribute '{address}' did not answer within {ceiling}s"
             ) from None
 
     @override
     def current_value_reader(self) -> CurrentValueReader:
         """The attribute's present value, read through this connector's own proxy."""
 
-        def read_current(channel_address: str) -> object:
-            device_name, attribute = _split_address(channel_address)
+        def read_current(address: str) -> object:
+            device_name, attribute = _split_address(address)
             return self._get_proxy(device_name).read_attribute(attribute).value
 
         return read_current
 
     @override
-    def _write_precheck(
-        self, channel_address: str, value: object
-    ) -> tuple[str, ChannelWriteResult | None]:
+    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
         """In a batch an address that names no device and attribute is a refusal."""
         try:
-            _split_address(channel_address)
+            _split_address(address)
         except ValueError as exc:
-            return channel_address, self._validation_refusal(channel_address, value, exc)
-        return channel_address, None
+            return address, self._validation_refusal(address, value, exc)
+        return address, None
 
     @override
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -458,7 +452,7 @@ class TangoConnector(ControlSystemConnector):
         yet hold the value sent is a ``mismatch``, whatever its quality says.
 
         Args:
-            channel_address: ``domain/family/member/attribute``
+            address: ``domain/family/member/attribute``
             value: Value to write
             timeout: Seconds the write (limits check included) is given, and
                 then the confirming read; the block's ``timeout_s`` when omitted.
@@ -475,7 +469,7 @@ class TangoConnector(ControlSystemConnector):
             ValueError: If the address does not name a device and an attribute
         """
         # The address must parse before anything is validated or sent.
-        device_name, attribute = _split_address(channel_address)
+        device_name, attribute = _split_address(address)
 
         # Import here to avoid circular dependency
         from osprey_connectors.errors import ChannelLimitsViolationError
@@ -495,9 +489,9 @@ class TangoConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self.current_value_reader()
+                        address, value, read_current=self.current_value_reader()
                     )
-                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                    logger.debug(f"✓ Limits validation passed: {address}={value}")
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
@@ -515,27 +509,27 @@ class TangoConnector(ControlSystemConnector):
         try:
             step = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
         except TimeoutError:
-            logger.warning(f"TANGO write of {channel_address} did not return within {ceiling}s")
+            logger.warning(f"TANGO write of {address} did not return within {ceiling}s")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=(
-                    f"Write to '{channel_address}' could not be confirmed — "
+                    f"Write to '{address}' could not be confirmed — "
                     f"TANGO did not return from the write within {ceiling}s"
                 ),
                 notes="The value may still arrive; what the attribute holds is unknown",
             )
 
         if isinstance(step, _CheckNotMade):
-            return self._validation_refusal(channel_address, value, step.error)
+            return self._validation_refusal(address, value, step.error)
 
         if isinstance(step, _SendFailed):
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {step.error}",
+                error_message=f"Failed to write to '{address}': {step.error}",
                 notes="TANGO did not take the value",
             )
 
@@ -545,12 +539,12 @@ class TangoConnector(ControlSystemConnector):
         # database. Nothing in the send consumes it and the lookup is a pure
         # in-memory read, so asking after the write is not observable.
         if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+            confirm = self._resolve_confirm(address)
 
         if not confirm:
-            logger.debug(f"TANGO write (unconfirmed by request): {channel_address} = {value}")
+            logger.debug(f"TANGO write (unconfirmed by request): {address} = {value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
                 notes="No confirmation requested",
@@ -558,14 +552,14 @@ class TangoConnector(ControlSystemConnector):
 
         # Step 4: Confirm with one fresh read
         try:
-            readback = await self.read_channel(channel_address, timeout=timeout)
+            readback = await self.read_channel(address, timeout=timeout)
         except Exception as e:
-            logger.warning(f"TANGO confirming read failed for {channel_address}: {e}")
+            logger.warning(f"TANGO confirming read failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Confirming read of '{channel_address}' failed: {e}",
+                error_message=f"Confirming read of '{address}' failed: {e}",
                 notes="The value was sent; what the attribute holds is unknown",
             )
 
@@ -575,11 +569,11 @@ class TangoConnector(ControlSystemConnector):
 
         logger.debug(
             f"TANGO write ({'confirmed' if confirmed else 'mismatch'}): "
-            f"{channel_address} = {value!r}, observed {observed!r}"
+            f"{address} = {value!r}, observed {observed!r}"
         )
 
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
             observed_value=observed,
@@ -592,15 +586,15 @@ class TangoConnector(ControlSystemConnector):
 
     @override
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(channel_addresses, timeout)
+        return await self._read_concurrently(addresses, timeout)
 
     @override
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None]
@@ -613,7 +607,7 @@ class TangoConnector(ControlSystemConnector):
         the subscription otherwise, and that refusal propagates.
 
         Args:
-            channel_address: ``domain/family/member/attribute``
+            address: ``domain/family/member/attribute``
             callback: Function to call when the value changes
             on_connection: Accepted for the base-class contract and ignored —
                 TANGO reports no connection state to this connector.
@@ -621,7 +615,7 @@ class TangoConnector(ControlSystemConnector):
         Returns:
             Subscription ID for later unsubscription
         """
-        device_name, attribute = _split_address(channel_address)
+        device_name, attribute = _split_address(address)
         proxy = await asyncio.to_thread(self._get_proxy, device_name)
         loop = asyncio.get_event_loop()
         tz = get_facility_timezone()
@@ -652,7 +646,7 @@ class TangoConnector(ControlSystemConnector):
             tango_callback,
         )
 
-        sub_id = f"{channel_address}_{secrets.token_hex(8)}"
+        sub_id = f"{address}_{secrets.token_hex(8)}"
         self._subscriptions[sub_id] = (proxy, event_id)
         logger.debug(f"TANGO subscription created: {sub_id}")
         return sub_id
@@ -666,7 +660,7 @@ class TangoConnector(ControlSystemConnector):
             logger.debug(f"TANGO subscription removed: {subscription_id}")
 
     @override
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         """Get metadata for a channel, enriched from the attribute config.
 
         The attribute config carries what a reading does not: units and the
@@ -675,15 +669,15 @@ class TangoConnector(ControlSystemConnector):
         reported as ``display_low``/``display_high`` — OSPREY's enforced
         bounds live in the limits database, not here.
         """
-        channel_value = await self.read_channel(channel_address)
+        channel_value = await self.read_channel(address)
         metadata = channel_value.metadata
 
-        device_name, attribute = _split_address(channel_address)
+        device_name, attribute = _split_address(address)
         try:
             proxy = self._get_proxy(device_name)
             info = await asyncio.to_thread(proxy.get_attribute_config, attribute)
         except Exception as exc:  # the reading's own metadata still stands
-            logger.debug(f"Could not fetch attribute config for '{channel_address}': {exc}")
+            logger.debug(f"Could not fetch attribute config for '{address}': {exc}")
             return metadata
 
         unit = getattr(info, "unit", "") or ""
@@ -706,19 +700,19 @@ class TangoConnector(ControlSystemConnector):
         return metadata
 
     @override
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """
         Check if the attribute exists and is readable.
 
         Args:
-            channel_address: ``domain/family/member/attribute``
+            address: ``domain/family/member/attribute``
 
         Returns:
             True if the channel can be read
         """
         try:
-            await self.read_channel(channel_address)
+            await self.read_channel(address)
             return True
         except Exception as e:
-            logger.debug(f"TANGO channel validation failed for {channel_address}: {e}")
+            logger.debug(f"TANGO channel validation failed for {address}: {e}")
             return False

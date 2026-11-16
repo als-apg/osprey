@@ -31,7 +31,7 @@ class _FakeWriteResult:
     raises before the device sees a result.
     """
 
-    channel_address: str
+    address: str
     value_written: Any
     outcome: str = "confirmed"
     observed_value: Any = None
@@ -62,22 +62,22 @@ class FakeConnector:
         # only other outcome ``write_channel_checked`` returns rather than raises.
         self.write_outcome = "confirmed"
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
-        self.read_calls.append(channel_address)
-        return FakeChannelValue(value=self.readbacks.get(channel_address))
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
+        self.read_calls.append(address)
+        return FakeChannelValue(value=self.readbacks.get(address))
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
-        self.write_calls.append((channel_address, value, kwargs))
+    async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):
+        self.write_calls.append((address, value, kwargs))
         if self.write_side_effect is not None:
             raise self.write_side_effect
         if self.echo_readback:
-            target = self.echo_target.get(channel_address, channel_address)
+            target = self.echo_target.get(address, address)
             self.readbacks[target] = value
         # Like a real connector, the value the result observed is of the channel
         # that was WRITTEN — not of any separate readback channel.
         return _FakeWriteResult(
-            channel_address,
+            address,
             value,
             outcome=self.write_outcome,
-            observed_value=self.readbacks.get(channel_address),
+            observed_value=self.readbacks.get(address),
         )

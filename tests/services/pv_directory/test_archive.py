@@ -108,7 +108,7 @@ class _Answers:
 
 
 class _Extent:
-    channels = ["SR:A", "SR:B"]
+    addresses = ["SR:A", "SR:B"]
     oldest = datetime(2026, 10, 13)
     newest = datetime(2026, 11, 12)
     reason = None

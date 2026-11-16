@@ -10,7 +10,7 @@ Three contract roots partition what a connector raises when a call fails, and
 no class lies under two of them: :class:`ChannelError`, a failure about one
 named channel that leaves the connector in place; every single-channel failure
 (a limits violation, a refused write, a failed write, an address that is not a
-channel, an unreachable channel) is one, and its ``channel_address`` names the
+channel, an unreachable channel) is one, and its ``address`` names the
 channel. :class:`ConnectorUnavailableError`, the connector itself is gone and
 its supervisor replaces it. :class:`ConnectorInternalError`, a connector bug
 that nothing recovers from. :class:`ChannelReadFailedError` names several
@@ -62,7 +62,7 @@ __all__ = [
 class ChannelError(Exception):
     """A failure about one named channel; the connector that raised it stays in place.
 
-    ``channel_address`` names the channel, in process and across the
+    ``address`` names the channel, in process and across the
     connector-host boundary alike. No supervisor recovers from a channel
     error: it is reported against its channel and nothing is restarted. It has
     no builtin base that another root shares, so no ``except ConnectionError``
@@ -75,8 +75,8 @@ class ChannelError(Exception):
 
     commands_fired: list[str] | None = None
 
-    def __init__(self, channel_address: str, message: str):
-        self.channel_address = channel_address
+    def __init__(self, address: str, message: str):
+        self.address = address
         super().__init__(message)
 
 
@@ -89,7 +89,7 @@ class ChannelLimitsViolationError(ChannelError):
 
     def __init__(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         violation_type: str,
         violation_reason: str,
@@ -98,7 +98,7 @@ class ChannelLimitsViolationError(ChannelError):
         max_step: float | None = None,
         current_value: object = None,
     ):
-        self.channel_address = channel_address
+        self.address = address
         self.attempted_value = value
         self.violation_type = violation_type
         self.violation_reason = violation_reason
@@ -107,7 +107,7 @@ class ChannelLimitsViolationError(ChannelError):
         self.max_step = max_step
         self.current_value = current_value
 
-        super().__init__(channel_address, self._format_violation_message())
+        super().__init__(address, self._format_violation_message())
 
     def _format_violation_message(self) -> str:
         """Format a user-friendly violation message with all relevant details."""
@@ -115,7 +115,7 @@ class ChannelLimitsViolationError(ChannelError):
             "\n" + "=" * 70,
             "CHANNEL LIMITS VIOLATION DETECTED",
             "=" * 70,
-            f"Channel Address: {self.channel_address}",
+            f"Channel Address: {self.address}",
             f"Attempted Value: {self.attempted_value}",
         ]
 
@@ -243,24 +243,24 @@ class ChannelWriteBlockedError(ChannelError):
 
     def __init__(
         self,
-        channel_address: str,
+        address: str,
         reason: str | None,
         message: str | None = None,
         verdict_reason: str | None = None,
     ):
-        self.channel_address = channel_address
+        self.address = address
         self.reason: str | None = _known_reason(reason) or reason
         self.verdict_reason = verdict_reason
         refuser = self.refuser(reason)
         if refuser is not None:
-            fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
+            fallback = f"Write to '{address}' refused by {refuser} ({reason})"
         elif reason == ChannelNotFoundError.reason:
-            fallback = str(ChannelNotFoundError(channel_address))
+            fallback = str(ChannelNotFoundError(address))
         elif reason is None:
-            fallback = f"Write to '{channel_address}' refused"
+            fallback = f"Write to '{address}' refused"
         else:
-            fallback = f"Write to '{channel_address}' refused ({reason})"
-        super().__init__(channel_address, message or fallback)
+            fallback = f"Write to '{address}' refused ({reason})"
+        super().__init__(address, message or fallback)
 
 
 #: Shared substring of every raw-client-write refusal message. Refusals raised
@@ -339,7 +339,7 @@ class ChannelWriteFailedError(ChannelError):
 
     def __init__(
         self,
-        channel_address: str,
+        address: str,
         reason: str,
         message: str | None = None,
         *,
@@ -352,12 +352,12 @@ class ChannelWriteFailedError(ChannelError):
 
             if not isinstance(outcome, WriteOutcome):
                 outcome = WriteOutcome(outcome)
-        self.channel_address = channel_address
+        self.address = address
         self.reason = reason
         self.outcome = outcome
         self.value_written = value_written
         self.observed_value = observed_value
-        super().__init__(channel_address, message or self._default_message())
+        super().__init__(address, message or self._default_message())
 
     def _default_message(self) -> str:
         """Name both values for a mismatch — the difference is the whole report.
@@ -370,10 +370,10 @@ class ChannelWriteFailedError(ChannelError):
         """
         if self.reason == "MISMATCH" and self.value_written is not None:
             return (
-                f"Write to '{self.channel_address}' not confirmed (MISMATCH): "
+                f"Write to '{self.address}' not confirmed (MISMATCH): "
                 f"sent {self.value_written}, channel holds {self.observed_value}"
             )
-        return f"Write to '{self.channel_address}' failed ({self.reason})"
+        return f"Write to '{self.address}' failed ({self.reason})"
 
 
 class ChannelReadFailedError(Exception):
@@ -430,8 +430,8 @@ class ChannelNotFoundError(ChannelError, LookupError):
     #: The refusal reason a write to an address outside the facility carries.
     reason = RefusalReason.CHANNEL_NOT_FOUND
 
-    def __init__(self, channel_address: str):
-        super().__init__(channel_address, f"{channel_address} is {NOT_A_CHANNEL}")
+    def __init__(self, address: str):
+        super().__init__(address, f"{address} is {NOT_A_CHANNEL}")
 
 
 class ChannelUnreachableError(ChannelError):
@@ -442,8 +442,8 @@ class ChannelUnreachableError(ChannelError):
     device, not the control system as a whole. Its text names the address.
     """
 
-    def __init__(self, channel_address: str, message: str | None = None):
-        super().__init__(channel_address, message or f"{channel_address} did not answer")
+    def __init__(self, address: str, message: str | None = None):
+        super().__init__(address, message or f"{address} did not answer")
 
 
 class RecoveryRecord(FrozenModel):

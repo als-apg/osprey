@@ -1,7 +1,7 @@
 """The protocol-agnostic connector layer must not name protocol primitives.
 
 Two families sit behind one abstraction: control-system connectors speak
-``channel_address`` everywhere, while the archiver contract used to speak
+``address`` everywhere, while the archiver contract used to speak
 ``pv_list``/``pv_name`` — an EPICS word that a DOOCS or MongoDB backend has no
 use for. The same leak reached the public reason codes (``CAPUT_FAILED`` named a
 Channel Access primitive that a DOOCS write never runs) and the simulation

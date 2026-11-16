@@ -590,18 +590,18 @@ class _OffsetReadbackConnector:
         self.setpoints = {f"{name}:SP": value for name, value in setpoints.items()}
         self.writes: list[tuple[str, float]] = []
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
-        if channel_address.endswith(":RB"):
-            value = self.setpoints[channel_address.removesuffix(":RB") + ":SP"] + _READBACK_OFFSET
+    async def read_channel(self, address: str, timeout: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
+        if address.endswith(":RB"):
+            value = self.setpoints[address.removesuffix(":RB") + ":SP"] + _READBACK_OFFSET
         else:
-            value = self.setpoints[channel_address]
+            value = self.setpoints[address]
         return SimpleNamespace(value=value, timestamp=0.0)
 
-    async def write_channel_checked(self, channel_address: str, value: float, **kwargs: Any) -> Any:
-        self.setpoints[channel_address] = value
-        self.writes.append((channel_address, value))
+    async def write_channel_checked(self, address: str, value: float, **kwargs: Any) -> Any:
+        self.setpoints[address] = value
+        self.writes.append((address, value))
         return SimpleNamespace(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome="confirmed",
             observed_value=value,

@@ -16,12 +16,12 @@ from osprey_connectors.service_answers import HistoryPage, Unavailable, _Backend
 class PutRow(FrozenModel):
     """One logged write, as the log recorded it.
 
-    ``channel`` is what was written: an EPICS PV, a Tango attribute, a DOOCS
+    ``address`` is what was written: an EPICS PV, a Tango attribute, a DOOCS
     property. ``field`` is an EPICS field put's ``.HIHI``, else ``None``.
     """
 
     at: str | None = None
-    channel: str | None = None
+    address: str
     field: str | None = None
     old: object = None
     new: object = None
@@ -34,9 +34,9 @@ class PutLog(_Backend, ABC):
 
     @abstractmethod
     async def history(
-        self, channel: str, since: datetime | None, limit: int, deadline: float
+        self, address: str, since: datetime | None, limit: int, deadline: float
     ) -> HistoryPage[PutRow]:
-        """The logged writes of *channel*, ``PutRow`` rows, field puts included, newest first."""
+        """The logged writes of *address*, ``PutRow`` rows, field puts included, newest first."""
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

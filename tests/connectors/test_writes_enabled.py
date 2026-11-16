@@ -54,14 +54,12 @@ class _StubConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -72,22 +70,20 @@ class _StubConnector(ControlSystemConnector):
         raise NotImplementedError
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         raise NotImplementedError
 
-    async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
-    ) -> str:
+    async def subscribe(self, address: str, callback: Callable[[ChannelValue], None]) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None:
         pass
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         raise NotImplementedError
 
 
@@ -222,7 +218,7 @@ class TestMockWritesDisabledViaBaseClass:
 
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.channel_address == "BEAM:CURRENT"
+        assert result.address == "BEAM:CURRENT"
         assert result.value_written == 500.0
 
 

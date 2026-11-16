@@ -84,14 +84,14 @@ class FakeRuntime:
         self.polls: list[str] = []
         self.on_poll: Callable[[str], None] | None = None
 
-    def read_channel(self, channel_address: str, **kwargs: Any) -> Any:
+    def read_channel(self, address: str, **kwargs: Any) -> Any:
         if self.batch_only:
             raise AssertionError("a device list never reads one channel at a time")
         self.calls.append("read_channel")
-        self.reads.append(channel_address)
+        self.reads.append(address)
         if self.read_error is not None:
             raise self.read_error
-        return self.values.get(channel_address)
+        return self.values.get(address)
 
     def read_channels(self, addresses: Sequence[str], *, timeout: float | None = None) -> list[Any]:
         self.calls.append("read_channels")
@@ -102,28 +102,24 @@ class FakeRuntime:
             raise ChannelReadFailedError(missing)
         return [self.values[a] for a in addresses]
 
-    def write_channel(self, channel_address: str, value: Any, **kwargs: Any) -> None:
+    def write_channel(self, address: str, value: Any, **kwargs: Any) -> None:
         if self.batch_only:
             raise AssertionError("a device list never writes one channel at a time")
         self.calls.append("write_channel")
-        self.writes.append((channel_address, value, kwargs))
+        self.writes.append((address, value, kwargs))
         error: BaseException | None = self.write_error
-        refused = self.refuse.get(channel_address)
+        refused = self.refuse.get(address)
         if error is None and refused is not None and refused(value):
             error = ChannelLimitsViolationError(
-                channel_address,
+                address,
                 value,
                 "MAX_STEP",
                 "step too large",
-                current_value=self.values[channel_address],
+                current_value=self.values[address],
             )
-        if error is None and channel_address in self.fail:
-            error = ChannelWriteFailedError(
-                channel_address, "UNCONFIRMED", "readback did not follow"
-            )
-        _report_phases(
-            [channel_address], error, lambda: self.values.update({channel_address: value})
-        )
+        if error is None and address in self.fail:
+            error = ChannelWriteFailedError(address, "UNCONFIRMED", "readback did not follow")
+        _report_phases([address], error, lambda: self.values.update({address: value}))
 
     def write_channels(self, channel_values: dict[str, Any], **kwargs: Any) -> None:
         self.calls.append("write_channels")
@@ -167,14 +163,14 @@ class FakeRuntime:
         monkeypatch.setattr(osprey.runtime, "_get_connector", connector)
         return self
 
-    async def poll(self, channel_address: str) -> ChannelValue:
+    async def poll(self, address: str) -> ChannelValue:
         """The runtime connector's read, as ``osprey.runtime.settle`` makes it."""
         self.calls.append("poll")
-        self.polls.append(channel_address)
+        self.polls.append(address)
         if self.on_poll is not None:
-            self.on_poll(channel_address)
+            self.on_poll(address)
         return ChannelValue(
-            value=self.values.get(channel_address),
+            value=self.values.get(address),
             timestamp=datetime.now(UTC),
             metadata=ChannelMetadata(),
         )
@@ -186,9 +182,9 @@ class _Readbacks:
     def __init__(self, runtime: FakeRuntime) -> None:
         self._runtime = runtime
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:
+    async def read_channel(self, address: str, timeout: float | None = None) -> Any:
         del timeout
-        return await self._runtime.poll(channel_address)
+        return await self._runtime.poll(address)
 
 
 def _report_phases(
@@ -238,54 +234,54 @@ class DictConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        if channel_address not in self._state:
-            raise ValueError(f"{channel_address} is not served")
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the control-system connector interface fixes this signature
+        if address not in self._state:
+            raise ValueError(f"{address} is not served")
         return ChannelValue(
-            value=self._state[channel_address],
+            value=self._state[address],
             timestamp=datetime.now(UTC),
             metadata=ChannelMetadata(),
         )
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
-        return await self._read_concurrently(list(channel_addresses), timeout)
+    async def read_multiple_channels(self, addresses, timeout=None):
+        return await self._read_concurrently(list(addresses), timeout)
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        self._state[channel_address] = value
+    def _put(self, address: str, value: Any) -> None:
+        self._state[address] = value
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         try:
-            self._put(channel_address, value)
+            self._put(address, value)
         except Exception as exc:
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=f"write failed: {exc}",
             )
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.UNREQUESTED,
         )
 
-    async def subscribe(self, channel_address, callback):
+    async def subscribe(self, address, callback):
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id):
         raise NotImplementedError
 
-    async def get_metadata(self, channel_address):
+    async def get_metadata(self, address):
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address) -> bool:
-        return channel_address in self._state
+    async def validate_channel(self, address) -> bool:
+        return address in self._state
 
 
 #: The control system of the throwaway deployment: a real machine's, so the

@@ -123,7 +123,7 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP"],
+            addresses=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -140,7 +140,7 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP"],
+            addresses=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -153,7 +153,7 @@ class TestMockArchiverSimulation:
             ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
         ):
             await connector.get_data(
-                channels=["T:Q1:CUR:SP", "UNSERVED:PV"],
+                addresses=["T:Q1:CUR:SP", "UNSERVED:PV"],
                 start_date=datetime(2024, 1, 1, 0, 0, 0),
                 end_date=datetime(2024, 1, 1, 1, 0, 0),
             )
@@ -168,7 +168,7 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP", "T:MODE"],
+            addresses=["T:Q1:CUR:SP", "T:MODE"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )

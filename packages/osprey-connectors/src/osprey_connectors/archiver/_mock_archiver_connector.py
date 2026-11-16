@@ -154,10 +154,10 @@ class MockArchiverConnector(ArchiverConnector):
         assert self._archive is not None
         return self._archive
 
-    def _require(self, channels: list[str]) -> "ArchiveComposite":
+    def _require(self, addresses: list[str]) -> "ArchiveComposite":
         archive = self._current()
         served = set(archive.addresses)
-        for channel in channels:
+        for channel in addresses:
             if channel not in served:
                 raise ChannelNotFoundError(channel)
         return archive
@@ -174,7 +174,7 @@ class MockArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -185,7 +185,7 @@ class MockArchiverConnector(ArchiverConnector):
         The archived history of channels of the simulator view.
 
         Args:
-            channels: Channel addresses of the simulator view
+            addresses: Channel addresses of the simulator view
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
@@ -205,7 +205,7 @@ class MockArchiverConnector(ArchiverConnector):
             ValueError: ``processing`` other than ``"raw"`` is requested for a
                 channel holding non-numeric values.
         """
-        archive = self._require(list(channels))
+        archive = self._require(list(addresses))
 
         # long_frame requires a UTC-aware index; a naive start/end means
         # facility wall-clock, as in every other archiver connector.
@@ -230,43 +230,43 @@ class MockArchiverConnector(ArchiverConnector):
         resolved = resolve_processing(processing, precision_ms, start_date)
         series = {
             channel: pd.Series(archive.series(channel, t_abs), index=index, name=channel)
-            for channel in channels
+            for channel in addresses
         }
 
         data = aggregate_long_frame(series, resolved)
 
         logger.debug(
             f"Mock archiver generated {len(data)} rows across "
-            f"{len(channels)} channels from {start_date} to {end_date}"
+            f"{len(addresses)} channels from {start_date} to {end_date}"
         )
 
         return data
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """Mock archiver metadata for a channel of the simulator view.
 
         Raises:
             ChannelNotFoundError: The channel is not a channel of the facility.
         """
-        self._require([channel])
+        self._require([address])
         return ArchiverMetadata(
-            channel=channel,
+            address=address,
             is_archived=True,
             # Both bounds tz-aware (facility zone) so a consumer can subtract or
             # compare them without a naive/aware TypeError.
             archival_start=datetime(2000, 1, 1, tzinfo=get_facility_timezone()),
             archival_end=datetime.now(get_facility_timezone()),
             sampling_period=1.0 / self._sample_rate_hz,
-            description=f"Mock archived channel: {channel}",
+            description=f"Mock archived channel: {address}",
         )
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """Whether the simulator view holds each channel.
 
         Raises:
             RuntimeError: If the archiver is not connected.
         """
         served = set(self._current().addresses)
-        return {channel: channel in served for channel in channels}
+        return {channel: channel in served for channel in addresses}

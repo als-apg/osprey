@@ -186,7 +186,7 @@ def test_batched_read_result_dict_round_trips():
 
 def test_write_result_round_trips_the_verdict_reason():
     result = ChannelWriteResult(
-        channel_address="SR:BEND:1:CUR",
+        address="SR:BEND:1:CUR",
         value_written=2.5,
         outcome=WriteOutcome.REFUSED,
         refusal_reason="WRITES_DISABLED",
@@ -200,7 +200,7 @@ def test_write_result_round_trips_the_verdict_reason():
 
 def test_write_result_round_trips_with_outcome_and_alarm():
     result = ChannelWriteResult(
-        channel_address="SR:BEND:1:CUR",
+        address="SR:BEND:1:CUR",
         value_written=2.5,
         outcome=WriteOutcome.CONFIRMED,
         refusal_reason=None,
@@ -213,7 +213,7 @@ def test_write_result_round_trips_with_outcome_and_alarm():
     frame = _round_trip(frames.encode_result("req-w", result))
 
     assert isinstance(frame.value, ChannelWriteResult)
-    assert frame.value.channel_address == "SR:BEND:1:CUR"
+    assert frame.value.address == "SR:BEND:1:CUR"
     assert frame.value.value_written == 2.5
     assert frame.value.outcome is WriteOutcome.CONFIRMED
     assert frame.value.refusal_reason is None
@@ -237,7 +237,7 @@ def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
     payload = frames.encode_result(
         "req-wm1",
         ChannelWriteResult(
-            channel_address="SR:BEND:1:CUR",
+            address="SR:BEND:1:CUR",
             value_written=2.5,
             outcome=WriteOutcome.MISMATCH,
             observed_value=2.0,
@@ -258,7 +258,7 @@ def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
 
 def test_write_result_carries_an_array_observed_value():
     result = ChannelWriteResult(
-        channel_address="SR:WF",
+        address="SR:WF",
         value_written=[1.0, 2.0, 3.0],
         outcome=WriteOutcome.CONFIRMED,
         observed_value=np.array([1.0, 2.0, 3.0], dtype=np.float32),
@@ -276,7 +276,7 @@ def test_write_result_carries_an_array_observed_value():
 def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
     """The parent rebuilds a refused result with the reason's member, not a bare string."""
     result = ChannelWriteResult(
-        channel_address="SR:R",
+        address="SR:R",
         value_written=1,
         outcome=WriteOutcome.REFUSED,
         refusal_reason=reason,
@@ -291,20 +291,20 @@ def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
 def test_write_result_list_round_trips():
     results = [
         ChannelWriteResult(
-            channel_address="SR:A",
+            address="SR:A",
             value_written=1,
             outcome=WriteOutcome.CONFIRMED,
             observed_value=1,
         ),
         ChannelWriteResult(
-            channel_address="SR:B",
+            address="SR:B",
             value_written=2,
             outcome=WriteOutcome.REFUSED,
             refusal_reason="LIMITS",
             error_message="Write to 'SR:B' blocked: outside the configured limits.",
         ),
         ChannelWriteResult(
-            channel_address="SR:C",
+            address="SR:C",
             value_written=3,
             outcome=WriteOutcome.UNREQUESTED,
         ),
@@ -312,7 +312,7 @@ def test_write_result_list_round_trips():
     frame = _round_trip(frames.encode_result("req-wm", results))
 
     assert all(isinstance(r, ChannelWriteResult) for r in frame.value)
-    assert [r.channel_address for r in frame.value] == ["SR:A", "SR:B", "SR:C"]
+    assert [r.address for r in frame.value] == ["SR:A", "SR:B", "SR:C"]
     assert [r.outcome for r in frame.value] == [
         WriteOutcome.CONFIRMED,
         WriteOutcome.REFUSED,
@@ -487,7 +487,7 @@ def test_a_model_reply_its_class_refuses_fails_only_that_call():
 
 def test_the_request_an_undecodable_frame_names_is_read_back():
     unknown = _doctored(
-        frames.encode_request("req-u", "read_channel", {"channel_address": "SR:Q"}),
+        frames.encode_request("req-u", "read_channel", {"address": "SR:Q"}),
         _set("kwargs", {_TAG: "Bogus", "fields": {}}),
     )
 
@@ -506,7 +506,7 @@ def test_the_request_an_undecodable_frame_names_is_read_back():
 TYPED_EXCEPTIONS = [
     pytest.param(
         ChannelLimitsViolationError(
-            channel_address="SR:BEND:1:CUR",
+            address="SR:BEND:1:CUR",
             value=999.0,
             violation_type="range",
             violation_reason="Value 999.0 above maximum 500.0",
@@ -519,7 +519,7 @@ TYPED_EXCEPTIONS = [
     ),
     pytest.param(
         ChannelLimitsViolationError(
-            channel_address="SR:X",
+            address="SR:X",
             value="on",
             violation_type="unlisted",
             violation_reason="Channel not in the limits registry",
@@ -528,14 +528,14 @@ TYPED_EXCEPTIONS = [
     ),
     pytest.param(
         ChannelWriteBlockedError(
-            channel_address="SR:BEND:1:CUR",
+            address="SR:BEND:1:CUR",
             reason="WRITES_DISABLED",
             message="Writes are disabled for this deployment",
         ),
         id="blocked-custom-message",
     ),
     pytest.param(
-        ChannelWriteBlockedError(channel_address="SR:Y", reason="LIMITS"),
+        ChannelWriteBlockedError(address="SR:Y", reason="LIMITS"),
         id="blocked-default-message",
     ),
     pytest.param(ConnectionError("gateway unreachable"), id="connection"),
@@ -565,7 +565,7 @@ def test_a_vocabulary_subclass_is_tagged_as_its_registered_ancestor():
 
     assert frame.class_tag == "ChannelUnreachableError"
     assert type(frame.exception) is ChannelUnreachableError
-    assert frame.exception.channel_address == "SR:Q"
+    assert frame.exception.address == "SR:Q"
     assert str(frame.exception) == "SR:Q went quiet"
 
 
@@ -836,7 +836,7 @@ UNREBUILDABLE_REPLIES = [
     pytest.param(
         {
             _TAG: "ChannelWriteResult",
-            "fields": {"channel_address": "SR:Q", "value_written": 1.0, "outcome": "nope"},
+            "fields": {"address": "SR:Q", "value_written": 1.0, "outcome": "nope"},
         },
         "ChannelWriteResult",
         id="value-refused-by-its-constructor",

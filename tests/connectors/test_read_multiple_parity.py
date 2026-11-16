@@ -250,15 +250,15 @@ class _StubConnector:
     def __init__(self, table):
         self.table = table
 
-    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
-        if channel_address not in self.table:
+    async def read_channel(self, address, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
+        if address not in self.table:
             raise RuntimeError(READ_ERROR)
-        return ChannelValue(value=self.table[channel_address], timestamp=datetime.now(UTC))
+        return ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
+    async def read_multiple_channels(self, addresses, timeout=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
         return {
             address: ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
-            for address in channel_addresses
+            for address in addresses
             if address in self.table
         }
 

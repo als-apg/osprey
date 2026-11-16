@@ -189,7 +189,7 @@ names `ChannelError`, `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
 codes, are load-bearing for callers that branch on them.
 
 - `ChannelError` — the base of every failure about one channel; the classes
-  below and `ChannelUnreachableError` are one. `channel_address` names the
+  below and `ChannelUnreachableError` are one. `address` names the
   channel, in process and across the connector host.
 - `ChannelWriteBlockedError` — the write was refused and no value was written.
   `reason` is a `RefusalReason`, one of `WRITES_DISABLED`, `LIMITS`,

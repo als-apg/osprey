@@ -46,12 +46,12 @@ class StubConnector:
         self.max_in_flight = 0
         self.cancelled: list[str] = []
 
-    async def validate_channel(self, channel_address: str) -> bool:
-        self.calls.append(channel_address)
+    async def validate_channel(self, address: str) -> bool:
+        self.calls.append(address)
         self.in_flight += 1
         self.max_in_flight = max(self.max_in_flight, self.in_flight)
         try:
-            outcomes = self._script.get(channel_address)
+            outcomes = self._script.get(address)
             outcome: object = True
             if outcomes:
                 outcome = outcomes.pop(0)
@@ -61,7 +61,7 @@ class StubConnector:
                 try:
                     await asyncio.Event().wait()
                 except asyncio.CancelledError:
-                    self.cancelled.append(channel_address)
+                    self.cancelled.append(address)
                     raise
             if isinstance(outcome, BaseException):
                 raise outcome
@@ -292,8 +292,8 @@ class SlowConnector:
         self.latency_s = latency_s
         self.calls: list[str] = []
 
-    async def validate_channel(self, channel_address: str) -> bool:
-        self.calls.append(channel_address)
+    async def validate_channel(self, address: str) -> bool:
+        self.calls.append(address)
         await asyncio.sleep(self.latency_s)
         return True
 

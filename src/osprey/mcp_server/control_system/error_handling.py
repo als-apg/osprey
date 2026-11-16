@@ -351,7 +351,7 @@ def _envelope(
         error_type = "channel_unreachable"
         machine = identity["label"] if identity else connector_name.replace("_", " ")
         measured = reachability or dict(_UNMEASURED)
-        channel = exc.channel_address
+        channel = exc.address
         if measured["state"] == REACHABILITY_DOWN:
             stated = f"the {machine} at {measured['gateway']} is not answering"
             report = f"Report that the {machine} is not answering, so {channel} could not be read."
@@ -416,10 +416,10 @@ def _envelope(
             or None,
         )
     if isinstance(exc, ChannelNotFoundError):
-        return _not_a_channel(tool_name, exc.channel_address, connector_name)
+        return _not_a_channel(tool_name, exc.address, connector_name)
     if isinstance(exc, ChannelLimitsViolationError):
         violation = {
-            "channel": exc.channel_address,
+            "channel": exc.address,
             "attempted_value": exc.attempted_value,
             "violation_type": exc.violation_type,
             "reason": exc.violation_reason,
@@ -452,7 +452,7 @@ def _envelope(
         )
     if isinstance(exc, ChannelWriteBlockedError):
         if exc.reason == ChannelNotFoundError.reason:
-            return _not_a_channel(tool_name, exc.channel_address, connector_name)
+            return _not_a_channel(tool_name, exc.address, connector_name)
         # Every refusal put no value on the channel, but who refused decides
         # where the operator goes next: the refuser and the remedy both come
         # from the reason's entry in RefusalReason. A reason that names no
@@ -467,7 +467,7 @@ def _envelope(
             where = _target_clause(identity)
         by_refuser = f" by {refuser}" if refuser else ""
         message = f"Write refused{by_refuser} during {tool_name}{where}: {exc}"
-        refusal_details: dict = {"channel": exc.channel_address, "reason": exc.reason}
+        refusal_details: dict = {"channel": exc.address, "reason": exc.reason}
         if identity:
             refusal_details["active_target"] = identity
         error_type = "write_refused"

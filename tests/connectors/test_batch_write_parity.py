@@ -31,11 +31,10 @@ def _switch_on(monkeypatch, tmp_path):
 
 def _validator() -> LimitsValidator:
     limits = {
-        name: ChannelLimitsConfig(channel_address=name, writable=True, max_value=10.0)
-        for name in (A, B)
+        name: ChannelLimitsConfig(address=name, writable=True, max_value=10.0) for name in (A, B)
     }
     limits[STEPPED] = ChannelLimitsConfig(
-        channel_address=STEPPED, writable=True, max_value=10.0, max_step=3.0
+        address=STEPPED, writable=True, max_value=10.0, max_step=3.0
     )
     return LimitsValidator(limits, {"mode": "exclusive"}, {})
 

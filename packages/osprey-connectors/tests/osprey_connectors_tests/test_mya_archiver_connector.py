@@ -641,7 +641,7 @@ async def test_get_metadata_quotes_the_address_before_looking_it_up():
 
     assert client.query.ChannelQuery.call_args[1]["pattern"] == r"IGLK100Preset\_Volt"
     assert meta.is_archived is True
-    assert meta.channel == "IGLK100Preset_Volt"
+    assert meta.address == "IGLK100Preset_Volt"
 
 
 @pytest.mark.asyncio

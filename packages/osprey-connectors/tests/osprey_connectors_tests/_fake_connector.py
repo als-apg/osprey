@@ -98,44 +98,42 @@ class FakeConnector(ControlSystemConnector):
 
     # -- connection state ----------------------------------------------------
 
-    def _is_up(self, channel_address: str) -> bool:
-        """Whether ``channel_address`` is connected (neither never-connecting nor dropped)."""
-        return channel_address not in self._never_connects and channel_address not in self._dropped
+    def _is_up(self, address: str) -> bool:
+        """Whether ``address`` is connected (neither never-connecting nor dropped)."""
+        return address not in self._never_connects and address not in self._dropped
 
-    def _require_up(self, channel_address: str) -> None:
-        if not self._is_up(channel_address):
-            raise ChannelUnreachableError(
-                channel_address, f"Fake channel '{channel_address}' is not connected"
-            )
+    def _require_up(self, address: str) -> None:
+        if not self._is_up(address):
+            raise ChannelUnreachableError(address, f"Fake channel '{address}' is not connected")
 
-    def drop(self, channel_address: str) -> None:
-        """Take ``channel_address`` down: its subscribers are told ``on_connection(False)``.
+    def drop(self, address: str) -> None:
+        """Take ``address`` down: its subscribers are told ``on_connection(False)``.
 
         While down the channel delivers no values and a read of it raises
         ``ChannelUnreachableError``; its store still changes. Dropping a channel that is
         already down reports nothing.
         """
-        was_up = self._is_up(channel_address)
-        self._dropped.add(channel_address)
+        was_up = self._is_up(address)
+        self._dropped.add(address)
         if not was_up:
             return
         for sub in list(self._subscriptions.values()):
-            if sub.address == channel_address:
+            if sub.address == address:
                 self._report_connection(sub, False)
 
-    def restore(self, channel_address: str) -> None:
-        """Bring ``channel_address`` up: ``on_connection(True)``, then the value it holds.
+    def restore(self, address: str) -> None:
+        """Bring ``address`` up: ``on_connection(True)``, then the value it holds.
 
         Undoes :meth:`drop`, and also connects a ``never_connects`` name — a
         channel that comes up late. Restoring a channel that is already up
         reports nothing.
         """
-        if self._is_up(channel_address):
+        if self._is_up(address):
             return
-        self._dropped.discard(channel_address)
-        self._never_connects.discard(channel_address)
+        self._dropped.discard(address)
+        self._never_connects.discard(address)
         for sub_id, sub in list(self._subscriptions.items()):
-            if sub.address == channel_address:
+            if sub.address == address:
                 self._report_connection(sub, True)
                 self._deliver(sub_id, sub)
 
@@ -150,66 +148,66 @@ class FakeConnector(ControlSystemConnector):
 
     # -- the store -----------------------------------------------------------
 
-    def _read_value(self, channel_address: str) -> ChannelValue:
-        """The reading for ``channel_address``: exactly what the store holds."""
+    def _read_value(self, address: str) -> ChannelValue:
+        """The reading for ``address``: exactly what the store holds."""
         now = datetime.now(UTC)
         return ChannelValue(
-            value=self._state.setdefault(channel_address, 0.0),
+            value=self._state.setdefault(address, 0.0),
             timestamp=now,
             metadata=ChannelMetadata(
-                units="", description=f"Fake channel: {channel_address}", timestamp=now
+                units="", description=f"Fake channel: {address}", timestamp=now
             ),
         )
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        self._state[channel_address] = value
-        self._notify([channel_address])
+    def _put(self, address: str, value: Any) -> None:
+        self._state[address] = value
+        self._notify([address])
 
-    def set_value(self, channel_address: str, value: Any) -> None:
+    def set_value(self, address: str, value: Any) -> None:
         """Put ``value`` straight into the store and tell the channel's subscribers.
 
         The control system changing by itself: no writes gate, no limits check,
         no confirmation and no delay.
         """
-        self._put(channel_address, value)
+        self._put(address, value)
 
     def current_value_reader(self) -> Callable[[str], Any] | None:
-        return lambda channel_address: self._read_value(channel_address).value
+        return lambda address: self._read_value(address).value
 
-    async def _confirming_read(self, channel_address: str) -> ChannelValue:
+    async def _confirming_read(self, address: str) -> ChannelValue:
         """Read a channel back to confirm a write (the seam a test patches to fail one)."""
         await asyncio.sleep(self._response_delay)
-        self._require_up(channel_address)
-        return self._read_value(channel_address)
+        self._require_up(address)
+        return self._read_value(address)
 
     # -- reads ---------------------------------------------------------------
 
     async def read_channel(
         self,
-        channel_address: str,
+        address: str,
         timeout: float | None = None,  # noqa: ARG002 - the connector read signature
     ) -> ChannelValue:
         await asyncio.sleep(self._response_delay)
-        self._require_up(channel_address)
-        return self._read_value(channel_address)
+        self._require_up(address)
+        return self._read_value(address)
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
-        return await self._read_concurrently(channel_addresses, timeout)
+        return await self._read_concurrently(addresses, timeout)
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
-        self._require_up(channel_address)
-        return self._read_value(channel_address).metadata
+    async def get_metadata(self, address: str) -> ChannelMetadata:
+        self._require_up(address)
+        return self._read_value(address).metadata
 
-    async def validate_channel(self, channel_address: str) -> bool:
-        return self._is_up(channel_address)
+    async def validate_channel(self, address: str) -> bool:
+        return self._is_up(address)
 
     # -- writes --------------------------------------------------------------
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,  # noqa: ARG002 - the connector write signature
         confirm: bool | None = None,
@@ -220,23 +218,23 @@ class FakeConnector(ControlSystemConnector):
 
             try:
                 self._limits_validator.validate(
-                    channel_address, value, read_current=self.current_value_reader()
+                    address, value, read_current=self.current_value_reader()
                 )
             except ChannelLimitsViolationError:
                 raise
             except Exception as e:
-                return self._validation_refusal(channel_address, value, e)
+                return self._validation_refusal(address, value, e)
 
         if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+            confirm = self._resolve_confirm(address)
 
         await asyncio.sleep(self._response_delay)
-        self._require_up(channel_address)
+        self._require_up(address)
         try:
-            self._put(channel_address, value)
+            self._put(address, value)
         except Exception as e:
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=f"Fake write failed: {e}",
@@ -244,17 +242,17 @@ class FakeConnector(ControlSystemConnector):
 
         if not confirm:
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
                 notes="Confirmation not requested (fake)",
             )
 
         try:
-            observed = await self._confirming_read(channel_address)
+            observed = await self._confirming_read(address)
         except Exception as e:
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=f"Fake confirming read failed: {e}",
@@ -265,7 +263,7 @@ class FakeConnector(ControlSystemConnector):
             WriteOutcome.CONFIRMED if values_match(value, observed.value) else WriteOutcome.MISMATCH
         )
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=outcome,
             observed_value=observed.value,
@@ -276,7 +274,7 @@ class FakeConnector(ControlSystemConnector):
 
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None] | None = None,
@@ -288,10 +286,10 @@ class FakeConnector(ControlSystemConnector):
         not connected reports nothing until it is restored.
         """
         self._subscription_count += 1
-        sub_id = f"fake_{channel_address}_{self._subscription_count}"
-        sub = FakeSubscription(channel_address, callback, on_connection)
+        sub_id = f"fake_{address}_{self._subscription_count}"
+        sub = FakeSubscription(address, callback, on_connection)
         self._subscriptions[sub_id] = sub
-        if self._is_up(channel_address):
+        if self._is_up(address):
             self._report_connection(sub, True)
             self._deliver(sub_id, sub)
         return sub_id
@@ -299,15 +297,15 @@ class FakeConnector(ControlSystemConnector):
     async def unsubscribe(self, subscription_id: str) -> None:
         self._subscriptions.pop(subscription_id, None)
 
-    def _notify(self, channel_addresses: Iterable[str]) -> None:
-        """Deliver what each connected one of ``channel_addresses`` holds to its subscribers.
+    def _notify(self, addresses: Iterable[str]) -> None:
+        """Deliver what each connected one of ``addresses`` holds to its subscribers.
 
         A callback that raises is logged and skipped, so one bad subscriber
         cannot fail a write or starve the others.
         """
-        addresses = {address for address in channel_addresses if self._is_up(address)}
+        up = {address for address in addresses if self._is_up(address)}
         for sub_id, sub in list(self._subscriptions.items()):
-            if sub.address in addresses:
+            if sub.address in up:
                 self._deliver(sub_id, sub)
 
     @staticmethod

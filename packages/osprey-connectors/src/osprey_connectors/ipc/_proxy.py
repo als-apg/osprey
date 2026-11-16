@@ -265,19 +265,17 @@ class ConnectorHostProxy:
     # Connector call surface (signatures mirror ControlSystemConnector)
     # ------------------------------------------------------------------
 
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
         """Read one channel. Returns the ``ChannelValue`` the child produced."""
         reply = await self._call(
             "read_channel",
-            {"channel_address": channel_address, "timeout": timeout},
+            {"address": address, "timeout": timeout},
             timeout=timeout,
         )
         return _expect(reply, ChannelValue, "read_channel")
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read many channels in **one** request frame.
 
@@ -287,7 +285,7 @@ class ConnectorHostProxy:
         """
         reply = await self._call(
             "read_multiple_channels",
-            {"channel_addresses": list(channel_addresses), "timeout": timeout},
+            {"addresses": list(addresses), "timeout": timeout},
             timeout=timeout,
         )
         if not isinstance(reply, dict):
@@ -299,7 +297,7 @@ class ConnectorHostProxy:
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -315,7 +313,7 @@ class ConnectorHostProxy:
         ``confirm=False`` crosses the wire as the answer it is.
         """
         kwargs: dict[str, object] = {
-            "channel_address": channel_address,
+            "address": address,
             "value": value,
             "timeout": timeout,
         }
@@ -347,11 +345,9 @@ class ConnectorHostProxy:
     #: The base class's own function, not a copy: see the module docstring.
     write_channel_checked = ControlSystemConnector.write_channel_checked
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """Whether the channel exists and is reachable, as the child's connector sees it."""
-        reply = await self._call(
-            "validate_channel", {"channel_address": channel_address}, timeout=None
-        )
+        reply = await self._call("validate_channel", {"address": address}, timeout=None)
         return _expect(reply, bool, "validate_channel")
 
     async def disconnect(self, *, ack_timeout: float = 2.0) -> None:

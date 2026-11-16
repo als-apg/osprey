@@ -77,7 +77,7 @@ class FakeDirectory:
         )
 
     def _hits(self, query: Any) -> list[Any]:
-        return [row for row in self.rows if query.words in row.name]
+        return [row for row in self.rows if query.words in row.address]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if self.failure:
@@ -101,16 +101,22 @@ class FakeDirectory:
         await asyncio.sleep(self.count_delay)
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return Outcome.NOT_LISTED
 
-    async def property_values(self, name: str, prefix: str | None, deadline: float) -> Any:  # noqa: ARG002
-        self.asked.append((name, prefix))
+    async def property_values(
+        self,
+        property: str,
+        *,
+        prefix: str | None = None,
+        deadline: float,  # noqa: ARG002
+    ) -> Any:
+        self.asked.append((property, prefix))
         if self.failure:
             raise RuntimeError(self.failure)
-        if name not in self.values:
-            return Unavailable(reason=f"property {name!r} did not answer")
-        return [value for value in self.values[name] if value.startswith(prefix or "")]
+        if property not in self.values:
+            return Unavailable(reason=f"property {property!r} did not answer")
+        return [value for value in self.values[property] if value.startswith(prefix or "")]
 
 
 @pytest.fixture(autouse=True)
@@ -161,7 +167,7 @@ def _install(tmp_path: Path, section: dict[str, Any] | None, *curated: str) -> s
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return DirectoryRow(name=name, **fields)
+    return DirectoryRow(address=name, **fields)
 
 
 # -- directory_search ---------------------------------------------------------
@@ -243,7 +249,7 @@ class FakeFeed:
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
-            AlarmStateRow(channel=channel, path=None, state=state)
+            AlarmStateRow(address=channel, path=None, state=state)
             for channel, state in self.held.items()
         )
         return AlarmStates(rows=rows, stale=False, last_contact=None)

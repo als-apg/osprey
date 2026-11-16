@@ -95,7 +95,7 @@ def _make_write_result(
     meant it to be.
     """
     return ChannelWriteResult(
-        channel_address=channel,
+        address=channel,
         value_written=value,
         outcome=outcome,
         refusal_reason=refusal_reason,
@@ -154,7 +154,7 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
     # stand-in instead.
     mock_validator = MagicMock(spec=LimitsValidator)
     mock_validator.validate_without_step_check.side_effect = ChannelLimitsViolationError(
-        channel_address="TEST:PV",
+        address="TEST:PV",
         value=9999.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="Value 9999.0 above maximum 100.0",

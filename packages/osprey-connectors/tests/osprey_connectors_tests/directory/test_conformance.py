@@ -73,7 +73,7 @@ Answer = Callable[[str, str, Any], Any]
 
 _MEMORY_RECORD = DirectoryRecord(
     row=DirectoryRow(
-        name=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
+        address=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
     ),
     properties={"iocName": "rf1-cav"},
 )
@@ -84,9 +84,9 @@ class MemoryDirectory(ChannelDirectory):
 
     def _hits(self, query: DirectoryQuery) -> list[DirectoryRecord]:
         row = _MEMORY_RECORD.row
-        text = f"{row.name} {row.description}".casefold()
+        text = f"{row.address} {row.description}".casefold()
         matches = all(word.casefold() in text for word in query.words.split()) and (
-            not query.name or query.name.removeprefix("=") in row.name
+            not query.address_pattern or query.address_pattern.removeprefix("=") in row.address
         )
         return [_MEMORY_RECORD] if matches else []
 
@@ -104,14 +104,20 @@ class MemoryDirectory(ChannelDirectory):
     async def count(self, query: DirectoryQuery, deadline: float) -> int:  # noqa: ARG002
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002
-        return _MEMORY_RECORD if name == _MEMORY_RECORD.row.name else Outcome.NOT_LISTED
+    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002
+        return _MEMORY_RECORD if address == _MEMORY_RECORD.row.address else Outcome.NOT_LISTED
 
     async def property_names(self, deadline: float) -> list[str]:  # noqa: ARG002
         return sorted(_MEMORY_RECORD.properties)
 
-    async def property_values(self, name: str, prefix: str | None, deadline: float) -> list[str]:  # noqa: ARG002
-        value = _MEMORY_RECORD.properties.get(name)
+    async def property_values(
+        self,
+        property: str,
+        *,
+        prefix: str | None = None,
+        deadline: float,  # noqa: ARG002
+    ) -> list[str]:
+        value = _MEMORY_RECORD.properties.get(property)
         return [value] if value is not None and value.startswith(prefix or "") else []
 
     async def probe(self, deadline: float) -> str:  # noqa: ARG002
@@ -451,12 +457,17 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
             ("search", await backend.search(DirectoryQuery(words="cooling"), deadline)),
             (
                 "search",
-                await backend.search(DirectoryQuery(name=pv, page=1, page_size=5), deadline),
+                await backend.search(
+                    DirectoryQuery(address_pattern=pv, page=1, page_size=5), deadline
+                ),
             ),
             ("count", await backend.count(DirectoryQuery(words="cooling"), deadline)),
             ("describe", await backend.describe(pv, deadline)),
             ("property_names", await backend.property_names(deadline)),
-            ("property_values", await backend.property_values("iocName", "rf", deadline)),
+            (
+                "property_values",
+                await backend.property_values("iocName", prefix="rf", deadline=deadline),
+            ),
             ("probe", await backend.probe(deadline)),
         ]
     if case.kind in ("alarm_log", "put_log"):
@@ -557,7 +568,7 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
 
     described = await built.backend.describe(ABSENT_PV, DEADLINE)
     page = await built.backend.search(DirectoryQuery(words="nosuchword"), DEADLINE)
-    by_name = await built.backend.search(DirectoryQuery(name=f"={ABSENT_PV}"), DEADLINE)
+    by_name = await built.backend.search(DirectoryQuery(address_pattern=f"={ABSENT_PV}"), DEADLINE)
 
     assert described is Outcome.NOT_LISTED
     assert (page.outcome, page.rows) == (Outcome.NO_MATCH, [])
@@ -588,7 +599,7 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
     page = await built.backend.search(DirectoryQuery(words="cooling"), DEADLINE)
 
     assert page.outcome is Outcome.FOUND
-    assert [row.name for row in page.rows] == [channel["name"] for channel in channels]
+    assert [row.address for row in page.rows] == [channel["name"] for channel in channels]
     assert page.total is None
     assert page.partial == [{"part": "count", "reason": NO_ANSWER}]
 
@@ -646,7 +657,7 @@ async def test_the_list_after_catch_up_holds_the_channel_and_counts_its_rows(
         await built.backend.aclose()
 
     assert isinstance(states, AlarmStates), states
-    assert case.pv in {row.channel for row in states.rows}
+    assert case.pv in {row.address for row in states.rows}
     assert sum(states.counts.values()) == len(states.rows)
 
 

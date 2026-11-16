@@ -186,18 +186,18 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     reads: list[str] = []
     real_confirming_read = connector._confirming_read
 
-    async def counted_read(channel_address):
-        reads.append(channel_address)
+    async def counted_read(address):
+        reads.append(address)
         if scenario is READ_RAISES:
             raise RuntimeError(READ_ERROR)
-        return await real_confirming_read(channel_address)
+        return await real_confirming_read(address)
 
     monkeypatch.setattr(connector, "_confirming_read", counted_read)
 
     if scenario is VALUE_DIFFERS:
 
-        def clamping_put(channel_address, _value):
-            connector._composite.set({channel_address: VALUE_HELD_INSTEAD})
+        def clamping_put(address, _value):
+            connector._composite.set({address: VALUE_HELD_INSTEAD})
 
         monkeypatch.setattr(connector, "_put", clamping_put)
 
@@ -506,7 +506,7 @@ class TestUnreachableChannelParity:
         """The operator is told which channel, not that something failed."""
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
-        assert failure.exception.channel_address == failure.channel
+        assert failure.exception.address == failure.channel
         assert failure.channel in str(failure.exception)
 
 

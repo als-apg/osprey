@@ -101,7 +101,7 @@ def stubbed(tmp_path, monkeypatch):
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(address=ch, is_archived=True)
     with patch(
         "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
@@ -313,7 +313,7 @@ class TestTheRosterIsLoadedOnce:
         initialize_server_context()
         connector = AsyncMock()
         connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
-            channel=ch, is_archived=True
+            address=ch, is_archived=True
         )
         connector.get_data.return_value = _frame({MODE: [0, 1]})
         with patch(

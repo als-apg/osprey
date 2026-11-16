@@ -48,7 +48,7 @@ def _switch_on(monkeypatch, tmp_path):
 def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
     limits = {
         channel: ChannelLimitsConfig(
-            channel_address=channel,
+            address=channel,
             min_value=0.0,
             max_value=100.0,
             max_step=max_step,

@@ -517,7 +517,7 @@ async def write_rows(manager: ConnectorHostManager, address: str, value: float) 
     )
     return [
         {
-            "channel": result.channel_address,
+            "channel": result.address,
             "outcome": str(result.outcome),
             "refusal_reason": result.refusal_reason,
             "error": result.error_message or "",

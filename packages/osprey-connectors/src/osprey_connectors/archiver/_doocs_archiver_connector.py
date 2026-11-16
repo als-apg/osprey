@@ -156,7 +156,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -167,7 +167,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         Retrieve historical data from the DOOCS local histories.
 
         Args:
-            channels: List of DOOCS property addresses
+            addresses: List of DOOCS property addresses
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
@@ -203,7 +203,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         # Quoted: ``pd.Series`` is not subscriptable at runtime.
         def fetch_all() -> "dict[str, pd.Series[float]]":
             data: dict[str, pd.Series[float]] = {}
-            for add in channels:
+            for add in addresses:
                 hist_data_dict = self._read_history(
                     add,
                     start_utc.timestamp(),
@@ -223,7 +223,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} rows "
-                f"across {len(channels)} DOOCS properties"
+                f"across {len(addresses)} DOOCS properties"
             )
             return data
 
@@ -231,10 +231,10 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise TimeoutError(f"DOOCS archiver request timed out after {bound}s") from e
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """Get archiver metadata; membership is unknown (``None``), nothing is asked."""
         return ArchiverMetadata(
-            channel=channel,
+            address=address,
             is_archived=None,
             description=(
                 "the DOOCS archiver connector does not look up whether this channel "
@@ -243,7 +243,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         )
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """Check availability based on .HIST property name extension.
 
         A lookup that raises answers ``None``: the archiver could not say.
@@ -255,7 +255,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise RuntimeError("DOOCS archiver not connected")
 
         avail: dict[str, bool | None] = {}
-        for add in channels:
+        for add in addresses:
             hist_address = add
             if not hist_address.endswith(".HIST"):
                 hist_address = add + ".HIST"

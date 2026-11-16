@@ -64,13 +64,13 @@ class _OutOfTreeBackend(ChannelDirectory):
     async def count(self, query, deadline):
         raise NotImplementedError
 
-    async def describe(self, name, deadline):
+    async def describe(self, address, deadline):
         raise NotImplementedError
 
     async def property_names(self, deadline):
         raise NotImplementedError
 
-    async def property_values(self, name, deadline):
+    async def property_values(self, property, *, prefix=None, deadline):
         raise NotImplementedError
 
     async def probe(self, deadline):

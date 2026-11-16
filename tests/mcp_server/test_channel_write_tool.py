@@ -88,7 +88,7 @@ def _make_write_result(
     if observed_value is _UNSET:
         observed_value = value if outcome == WriteOutcome.CONFIRMED else None
     return ChannelWriteResult(
-        channel_address=channel,
+        address=channel,
         value_written=value,
         outcome=outcome,
         refusal_reason=refusal_reason,
@@ -205,7 +205,7 @@ async def _run_batch(results, validator=None, **kwargs):
     with _patched(connector, validator):
         fn = _get_channel_write()
         raw = await fn(
-            operations=[{"channel": r.channel_address, "value": r.value_written} for r in results],
+            operations=[{"channel": r.address, "value": r.value_written} for r in results],
             **kwargs,
         )
     return extract_response_dict(raw), connector
@@ -218,7 +218,7 @@ async def _run_single(result, validator=None, **kwargs):
     with _patched(connector, validator):
         fn = _get_channel_write()
         raw = await fn(
-            operations=[{"channel": result.channel_address, "value": result.value_written}],
+            operations=[{"channel": result.address, "value": result.value_written}],
             **kwargs,
         )
     return extract_response_dict(raw), connector
@@ -267,7 +267,7 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     # mock would answer that with a silent stand-in instead.
     mock_validator = MagicMock(spec=LimitsValidator)
     mock_validator.validate_without_step_check.side_effect = ChannelLimitsViolationError(
-        channel_address="TEST:PV",
+        address="TEST:PV",
         value=9999.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="Value 9999.0 above maximum 100.0",
@@ -320,7 +320,7 @@ async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypa
     validator = LimitsValidator(
         {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 min_value=0.0,
                 max_value=100.0,
                 max_step=1.0,
@@ -352,7 +352,7 @@ async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channe
     validator = LimitsValidator(
         {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV",
+                address="TEST:PV",
                 min_value=0.0,
                 max_value=100.0,
                 max_step=1.0,
@@ -397,7 +397,7 @@ async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
 
     mock_connector = AsyncMock()
     mock_connector.write_channel.side_effect = ChannelLimitsViolationError(
-        channel_address="TEST:PV",
+        address="TEST:PV",
         value=999.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="Value 999.0 above maximum 100.0",
@@ -884,7 +884,7 @@ def _row_facts(rows):
 
 
 def _result_facts(results):
-    return [(r.channel_address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
+    return [(r.address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
 
 
 async def test_all_failed_is_nothing_answered(tmp_path, monkeypatch):
@@ -1406,7 +1406,7 @@ async def test_the_limits_verdict_is_noted(tmp_path, monkeypatch):
 
     violating = MagicMock(spec=LimitsValidator)
     violating.validate_without_step_check.side_effect = ChannelLimitsViolationError(
-        channel_address="TEST:PV",
+        address="TEST:PV",
         value=9999.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="Value 9999.0 above maximum 100.0",

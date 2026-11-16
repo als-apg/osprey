@@ -203,7 +203,7 @@ class _JlabArchiverClient(Protocol):
     channel: _ChannelModule
 
 
-def _like_literal(channel: str) -> str:
+def _like_literal(address: str) -> str:
     """Quote a channel name so myquery's SQL ``LIKE`` matches it and nothing else.
 
     The channel endpoint matches SQL patterns, where ``_`` stands for any single
@@ -217,15 +217,15 @@ def _like_literal(channel: str) -> str:
     a name that needs no quoting returns it unchanged.
 
     Args:
-        channel: The exact channel name to look up.
+        address: The exact channel name to look up.
 
     Returns:
         The same name with every ``LIKE`` metacharacter backslash-escaped.
     """
     # Backslash first: quoting it after the others would re-quote their escapes.
     for special in ("\\", "%", "_"):
-        channel = channel.replace(special, f"\\{special}")
-    return channel
+        address = address.replace(special, f"\\{special}")
+    return address
 
 
 class MYAArchiverConnector(ArchiverConnector):
@@ -339,7 +339,7 @@ class MYAArchiverConnector(ArchiverConnector):
     @override
     async def get_data(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -349,7 +349,7 @@ class MYAArchiverConnector(ArchiverConnector):
         """Retrieve historical data for one or more channels.
 
         Args:
-            channels: Channel addresses (MYA channel names).
+            addresses: Channel addresses (MYA channel names).
             start_date: Start of the time range.
             end_date: End of the time range.
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
@@ -386,8 +386,8 @@ class MYAArchiverConnector(ArchiverConnector):
 
         def fetch_all() -> dict[str, SampleSeries]:
             if server_side:
-                return self._fetch_stats(channels, start_utc, end_utc, resolved)
-            return self._fetch_events(channels, start_utc, end_utc)
+                return self._fetch_stats(addresses, start_utc, end_utc, resolved)
+            return self._fetch_events(addresses, start_utc, end_utc)
 
         try:
             series = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
@@ -408,7 +408,7 @@ class MYAArchiverConnector(ArchiverConnector):
                 "Retrieved MYA archiver data: %d rows across %d channels "
                 "(processing=%s, precision_ms=%d)",
                 len(data),
-                len(channels),
+                len(addresses),
                 resolved.mode,
                 precision_ms,
             )
@@ -447,12 +447,12 @@ class MYAArchiverConnector(ArchiverConnector):
         """
         return moment.astimezone(self._timezone).replace(tzinfo=None)
 
-    def _empty(self, channel: str) -> SampleSeries:
+    def _empty(self, address: str) -> SampleSeries:
         """The no-samples answer for one channel: no rows, right index type."""
-        return pd.Series(dtype="float64", index=pd.DatetimeIndex([], tz="UTC"), name=channel)
+        return pd.Series(dtype="float64", index=pd.DatetimeIndex([], tz="UTC"), name=address)
 
     def _fetch_events(
-        self, channels: list[str], start_utc: datetime, end_utc: datetime
+        self, addresses: list[str], start_utc: datetime, end_utc: datetime
     ) -> dict[str, SampleSeries]:
         """Every archived event per channel, from myquery's interval endpoint.
 
@@ -467,7 +467,7 @@ class MYAArchiverConnector(ArchiverConnector):
         end = self._server_local(end_utc)
         client = self._library()
         series: dict[str, SampleSeries] = {}
-        for channel in channels:
+        for channel in addresses:
             query = client.query.IntervalQuery(
                 channel=channel,
                 begin=begin,
@@ -483,7 +483,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
     def _fetch_stats(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_utc: datetime,
         end_utc: datetime,
         resolved: Processing,
@@ -505,21 +505,21 @@ class MYAArchiverConnector(ArchiverConnector):
 
         if whole == 0:
             # Narrower than a single bin: one partial bin over the whole window.
-            return self._mystats(channels, start_utc, end_utc, 1, resolved)
+            return self._mystats(addresses, start_utc, end_utc, 1, resolved)
 
         split_utc = start_utc + timedelta(milliseconds=whole * width)
-        series = self._mystats(channels, start_utc, split_utc, whole, resolved)
+        series = self._mystats(addresses, start_utc, split_utc, whole, resolved)
         if split_utc < end_utc:
-            tail = self._mystats(channels, split_utc, end_utc, 1, resolved)
+            tail = self._mystats(addresses, split_utc, end_utc, 1, resolved)
             series = {
                 channel: pd.concat([series[channel], tail[channel]]).sort_index()
-                for channel in channels
+                for channel in addresses
             }
         return series
 
     def _mystats(
         self,
-        channels: list[str],
+        addresses: list[str],
         start_utc: datetime,
         end_utc: datetime,
         num_bins: int,
@@ -528,7 +528,7 @@ class MYAArchiverConnector(ArchiverConnector):
         """One mystats round trip, cut into ``num_bins`` equal bins."""
         client = self._library()
         query = client.query.MyStatsQuery(
-            pvlist=channels,
+            pvlist=addresses,
             start=self._server_local(start_utc),
             end=self._server_local(end_utc),
             num_bins=num_bins,
@@ -541,7 +541,7 @@ class MYAArchiverConnector(ArchiverConnector):
         frame = mystats.data
         stat = _MYSTATS_STAT[resolved.mode]
         if frame is None or len(frame) == 0:
-            return {channel: self._empty(channel) for channel in channels}
+            return {channel: self._empty(channel) for channel in addresses}
 
         # mystats answers with a (timestamp, stat) MultiIndex carrying every
         # statistic it computed; keep the one that was asked for.
@@ -554,10 +554,10 @@ class MYAArchiverConnector(ArchiverConnector):
 
         return {
             channel: self._localize(wide[channel] if channel in wide.columns else None, channel)
-            for channel in channels
+            for channel in addresses
         }
 
-    def _localize(self, data: "SampleSeries | None", channel: str) -> SampleSeries:
+    def _localize(self, data: "SampleSeries | None", address: str) -> SampleSeries:
         """Read one channel's epoch-millisecond timestamps as UTC instants.
 
         A bin that MYA had no samples for comes back as NaN; an empty bin is not
@@ -569,11 +569,11 @@ class MYAArchiverConnector(ArchiverConnector):
                 the timestamps -- as nanoseconds, dating everything to 1970.
         """
         if data is None or len(data) == 0:
-            return self._empty(channel)
+            return self._empty(address)
 
         s = data.dropna()
         if s.empty:
-            return self._empty(channel)
+            return self._empty(address)
 
         index = pd.Index(s.index)
         if not pd.api.types.is_integer_dtype(index):
@@ -588,25 +588,25 @@ class MYAArchiverConnector(ArchiverConnector):
                 "integers as nanoseconds and date every sample to 1970."
             )
         return pd.Series(
-            s.to_numpy(), index=pd.to_datetime(index, unit="ms", utc=True), name=channel
+            s.to_numpy(), index=pd.to_datetime(index, unit="ms", utc=True), name=address
         )
 
-    def _lookup(self, channel: str) -> list[Mapping[str, object]]:
+    def _lookup(self, address: str) -> list[Mapping[str, object]]:
         """Every channel myquery's channel endpoint matches for one address."""
         client = self._library()
         query = client.query.ChannelQuery(
-            pattern=_like_literal(channel), deployment=self._deployment
+            pattern=_like_literal(address), deployment=self._deployment
         )
         found = client.channel.Channel(query, url=self._urls["channel"])
         found.run()
         return found.matches or []
 
     @override
-    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+    async def get_metadata(self, address: str) -> ArchiverMetadata:
         """Look up archiving metadata for one channel.
 
         Args:
-            channel: Channel address.
+            address: Channel address.
 
         Returns:
             :class:`ArchiverMetadata` for the channel; ``is_archived`` is False
@@ -619,36 +619,36 @@ class MYAArchiverConnector(ArchiverConnector):
         """
         if not self._connected:
             raise RuntimeError("MYA archiver not connected")
-        if "%" in channel:
+        if "%" in address:
             # `_` is a wildcard too, but it is also a legitimate character in
             # accelerator channel names, so only `%` gives the caller away.
             raise ValueError(
-                f"Archiver address {channel!r} contains '%', a SQL wildcard. The address "
+                f"Archiver address {address!r} contains '%', a SQL wildcard. The address "
                 "looks like a pattern; archiver addresses are exact channel names."
             )
 
         def fetch_metadata() -> ArchiverMetadata:
-            matches = self._lookup(channel)
+            matches = self._lookup(address)
 
             if not matches:
                 return ArchiverMetadata(
-                    channel=channel,
+                    address=address,
                     is_archived=False,
-                    description=f"Unknown channel: {channel}",
+                    description=f"Unknown channel: {address}",
                 )
             if len(matches) > 1:
                 raise ValueError(
-                    f"Archiver matched more than one channel for {channel!r}: "
+                    f"Archiver matched more than one channel for {address!r}: "
                     f"{[m['name'] for m in matches]}."
                 )
 
             match = matches[0]["name"]
-            if match != channel:
+            if match != address:
                 raise ValueError(
-                    f"Archiver returned the wrong channel. Requested: {channel}. Received: {match}."
+                    f"Archiver returned the wrong channel. Requested: {address}. Received: {match}."
                 )
             return ArchiverMetadata(
-                channel=channel,
+                address=address,
                 is_archived=True,
                 description=f"Archived channel: {match}",
             )
@@ -656,11 +656,11 @@ class MYAArchiverConnector(ArchiverConnector):
         return await asyncio.wait_for(asyncio.to_thread(fetch_metadata), timeout=self._timeout)
 
     @override
-    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+    async def check_availability(self, addresses: list[str]) -> dict[str, bool | None]:
         """Report which channels MYA archives.
 
         Args:
-            channels: Channel addresses to check.
+            addresses: Channel addresses to check.
 
         Returns:
             Mapping of channel address to whether MYA archives it.
@@ -676,8 +676,8 @@ class MYAArchiverConnector(ArchiverConnector):
             matches = self._lookup(name)
             return len(matches) == 1 and matches[0]["name"] == name
 
-        available: dict[str, bool | None] = dict.fromkeys(channels, False)
-        for name in channels:
+        available: dict[str, bool | None] = dict.fromkeys(addresses, False)
+        for name in addresses:
             # Sequential on purpose: myquery answers one pattern per request,
             # and a burst of them from a wide channel list is what the server
             # would feel first. Bounded per channel rather than per sweep --

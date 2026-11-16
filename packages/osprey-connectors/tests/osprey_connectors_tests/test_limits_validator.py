@@ -1156,7 +1156,7 @@ def _step_validator(max_step: float = 5.0) -> LimitsValidator:
     """A validator with one channel that has max_step configured (triggers caget)."""
     limits = {
         "FOO": ChannelLimitsConfig(
-            channel_address="FOO",
+            address="FOO",
             min_value=0.0,
             max_value=100.0,
             max_step=max_step,
@@ -1261,9 +1261,7 @@ class TestMaxStepCheck:
     def test_a_channel_without_max_step_needs_no_reader(self):
         """Only max_step costs a read, so every other channel validates with none."""
         limits = {
-            "FOO": ChannelLimitsConfig(
-                channel_address="FOO", min_value=0.0, max_value=100.0, writable=True
-            )
+            "FOO": ChannelLimitsConfig(address="FOO", min_value=0.0, max_value=100.0, writable=True)
         }
         validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 
@@ -1315,7 +1313,7 @@ class TestValidateWithoutStepCheck:
 
     def test_a_read_only_channel_is_still_refused(self):
         limits = {
-            "FOO": ChannelLimitsConfig(channel_address="FOO", writable=False, max_step=1.0),
+            "FOO": ChannelLimitsConfig(address="FOO", writable=False, max_step=1.0),
         }
         validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 

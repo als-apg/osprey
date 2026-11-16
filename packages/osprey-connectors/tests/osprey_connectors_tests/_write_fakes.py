@@ -138,22 +138,22 @@ class RecordingConnector(ControlSystemConnector):
     async def disconnect(self) -> None:
         pass
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, timeout: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, timeout=None):
         raise NotImplementedError
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
         confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
-        self.writes.append((channel_address, value))
+        self.writes.append((address, value))
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
         )
@@ -161,16 +161,16 @@ class RecordingConnector(ControlSystemConnector):
     async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return [await self.write_channel(addr, val) for addr, val in operations]
 
-    async def subscribe(self, channel_address, callback):
+    async def subscribe(self, address, callback):
         raise NotImplementedError
 
-    async def unsubscribe(self, channel_address):
+    async def unsubscribe(self, address):
         raise NotImplementedError
 
-    async def get_metadata(self, channel_address):
+    async def get_metadata(self, address):
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def validate_channel(self, address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
         return True
 
 

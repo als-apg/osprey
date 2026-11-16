@@ -1439,25 +1439,23 @@ class PooledConnector:
         child = self._pool._children.get(self._key)
         return dict(child.report) if child is not None and child.usable() else {}
 
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
         return await self._pool._call(
-            self._key, "read_channel", lambda proxy: proxy.read_channel(channel_address, timeout)
+            self._key, "read_channel", lambda proxy: proxy.read_channel(address, timeout)
         )
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         return await self._pool._call(
             self._key,
             "read_multiple_channels",
-            lambda proxy: proxy.read_multiple_channels(channel_addresses, timeout),
+            lambda proxy: proxy.read_multiple_channels(addresses, timeout),
         )
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -1465,7 +1463,7 @@ class PooledConnector:
         return await self._pool._call(
             self._key,
             "write_channel",
-            lambda proxy: proxy.write_channel(channel_address, value, timeout, confirm),
+            lambda proxy: proxy.write_channel(address, value, timeout, confirm),
         )
 
     async def write_multiple_channels(
@@ -1481,7 +1479,7 @@ class PooledConnector:
         )
 
     async def write_channel_checked(
-        self, channel_address: str, value: object, **kwargs: object
+        self, address: str, value: object, **kwargs: object
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 
@@ -1493,13 +1491,13 @@ class PooledConnector:
         # The proxy's own write_channel_checked is the base class's function,
         # bound by name: it is typed for a ControlSystemConnector, not the proxy.
         result = await self._pool._invoke(
-            self._key, "write_channel_checked", channel_address, value, **kwargs
+            self._key, "write_channel_checked", address, value, **kwargs
         )
         return _expect(result, ChannelWriteResult, "write_channel_checked")
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         return await self._pool._call(
-            self._key, "validate_channel", lambda proxy: proxy.validate_channel(channel_address)
+            self._key, "validate_channel", lambda proxy: proxy.validate_channel(address)
         )
 
     async def disconnect(self) -> None:

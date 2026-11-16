@@ -68,7 +68,7 @@ class TestPinVerdict:
 
 def _result(outcome=WriteOutcome.CONFIRMED, **overrides) -> ChannelWriteResult:
     fields: dict[str, Any] = {
-        "channel_address": "TEST:PV",
+        "address": "TEST:PV",
         "value_written": 42.0,
         "outcome": outcome,
     }
@@ -101,7 +101,7 @@ class _Connector(ControlSystemConnector):
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -111,34 +111,34 @@ class _Connector(ControlSystemConnector):
             kwargs["timeout"] = timeout
         if confirm is not None:
             kwargs["confirm"] = confirm
-        self.events.append(("connector", channel_address))
-        self.calls.append((channel_address, value, kwargs))
+        self.events.append(("connector", address))
+        self.calls.append((address, value, kwargs))
         if self.exc is not None:
             raise self.exc
         return self.result
 
     async def connect(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
+    async def read_channel(self, address: str, timeout: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
+    async def read_multiple_channels(self, addresses, timeout=None):
         raise NotImplementedError
 
-    async def subscribe(self, channel_address, callback, *, on_connection=None) -> str:
+    async def subscribe(self, address, callback, *, on_connection=None) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         raise NotImplementedError
 
 
 def _violation(address="TEST:PV", value=999.0) -> ChannelLimitsViolationError:
     return ChannelLimitsViolationError(
-        channel_address=address,
+        address=address,
         value=value,
         violation_type="MAX_EXCEEDED",
         violation_reason="above the channel's maximum",

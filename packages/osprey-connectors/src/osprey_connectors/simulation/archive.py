@@ -845,7 +845,7 @@ def _synthesize_documents(
 
 def seed_fingerprint(
     knobs: SeedKnobs,
-    channel_addresses: Iterable[str],
+    addresses: Iterable[str],
     *,
     compression: str,
 ) -> dict[str, int | str]:
@@ -861,14 +861,14 @@ def seed_fingerprint(
 
     Args:
         knobs: The archive's shape.
-        channel_addresses: The seeded channel set. Order does not matter; the
+        addresses: The seeded channel set. Order does not matter; the
             hash is taken over the sorted, deduplicated names.
         compression: The collection's block compressor.
 
     Returns:
         The fingerprint, JSON-serializable and safe to store verbatim.
     """
-    names = sorted(set(channel_addresses))
+    names = sorted(set(addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
     return {
         "schema_version": _SEED_SCHEMA_VERSION,

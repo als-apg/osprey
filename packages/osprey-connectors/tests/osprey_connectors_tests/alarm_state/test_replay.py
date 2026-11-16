@@ -476,12 +476,12 @@ async def test_the_list_holds_every_channel_its_counts_and_the_load_moment():
 
     states = await backend.states(1.0)
 
-    assert {row.channel: row.path for row in states.rows} == {
+    assert {row.address: row.path for row in states.rows} == {
         PV: f"/Demo/RF/{PV}",
         ACKED_PV: f"/Demo/Vac/{ACKED_PV}",
     }
     for row in states.rows:
-        assert row.state == await backend.state_for(row.channel, 1.0)
+        assert row.state == await backend.state_for(row.address, 1.0)
     assert dict(states.counts) == {"MAJOR": 1, "MINOR": 1}
     assert states.stale is False
     assert states.last_contact == "2026-11-06T12:00:00.000Z"

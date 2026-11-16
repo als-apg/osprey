@@ -160,7 +160,7 @@ async def test_read_channel_round_trips_a_real_channel_value(teardown):
     assert result.metadata.units == "A"
     assert len(child.requests) == 1
     assert child.requests[0].method == "read_channel"
-    assert child.requests[0].kwargs == {"channel_address": "SR:BEND:1:CUR", "timeout": None}
+    assert child.requests[0].kwargs == {"address": "SR:BEND:1:CUR", "timeout": None}
 
 
 async def test_a_reply_of_the_wrong_type_is_refused(teardown):
@@ -194,14 +194,14 @@ async def test_read_multiple_channels_issues_exactly_one_request(teardown):
 
     assert len(child.requests) == 1, "a batched read must not fan out into per-channel frames"
     assert child.requests[0].method == "read_multiple_channels"
-    assert child.requests[0].kwargs == {"channel_addresses": addresses, "timeout": 2.0}
+    assert child.requests[0].kwargs == {"addresses": addresses, "timeout": 2.0}
     assert sorted(result) == addresses
     assert [result[address].value for address in addresses] == [0, 1, 2, 3]
 
 
 async def test_write_channel_round_trips_a_write_result(teardown):
     written = ChannelWriteResult(
-        channel_address="SR:BEND:1:SP", value_written=2.5, outcome=WriteOutcome.CONFIRMED
+        address="SR:BEND:1:SP", value_written=2.5, outcome=WriteOutcome.CONFIRMED
     )
     proxy, child = await _proxy_with_child(_echo_handler([written]))
     teardown.append((proxy, child))
@@ -211,14 +211,14 @@ async def test_write_channel_round_trips_a_write_result(teardown):
     assert isinstance(result, ChannelWriteResult)
     # The outcome arrives as the plain string JSON encodes a StrEnum to, and is
     # a WriteOutcome member again by the time the caller sees the result.
-    assert (result.channel_address, result.value_written, result.outcome) == (
+    assert (result.address, result.value_written, result.outcome) == (
         "SR:BEND:1:SP",
         2.5,
         WriteOutcome.CONFIRMED,
     )
     assert child.requests[0].method == "write_channel"
     assert child.requests[0].kwargs == {
-        "channel_address": "SR:BEND:1:SP",
+        "address": "SR:BEND:1:SP",
         "value": 2.5,
         "timeout": None,
         "confirm": True,
@@ -232,12 +232,10 @@ async def test_a_declined_confirmation_crosses_the_wire(teardown):
     leave the child confirming a write the caller declined to have confirmed.
     """
     single = ChannelWriteResult(
-        channel_address="SR:X:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED
+        address="SR:X:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED
     )
     batch = [
-        ChannelWriteResult(
-            channel_address="SR:A:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED
-        )
+        ChannelWriteResult(address="SR:A:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED)
     ]
     proxy, child = await _proxy_with_child(_echo_handler([single, batch]))
     teardown.append((proxy, child))
@@ -251,9 +249,7 @@ async def test_a_declined_confirmation_crosses_the_wire(teardown):
 
 
 async def test_an_omitted_confirm_never_reaches_the_wire(teardown):
-    written = ChannelWriteResult(
-        channel_address="SR:X:SP", value_written=1, outcome=WriteOutcome.CONFIRMED
-    )
+    written = ChannelWriteResult(address="SR:X:SP", value_written=1, outcome=WriteOutcome.CONFIRMED)
     proxy, child = await _proxy_with_child(_echo_handler([written]))
     teardown.append((proxy, child))
 
@@ -266,12 +262,8 @@ async def test_an_omitted_confirm_never_reaches_the_wire(teardown):
 
 async def test_write_multiple_channels_issues_one_batched_request(teardown):
     results = [
-        ChannelWriteResult(
-            channel_address="SR:A:SP", value_written=1, outcome=WriteOutcome.CONFIRMED
-        ),
-        ChannelWriteResult(
-            channel_address="SR:B:SP", value_written=2, outcome=WriteOutcome.CONFIRMED
-        ),
+        ChannelWriteResult(address="SR:A:SP", value_written=1, outcome=WriteOutcome.CONFIRMED),
+        ChannelWriteResult(address="SR:B:SP", value_written=2, outcome=WriteOutcome.CONFIRMED),
     ]
     proxy, child = await _proxy_with_child(_echo_handler([results]))
     teardown.append((proxy, child))
@@ -283,7 +275,7 @@ async def test_write_multiple_channels_issues_one_batched_request(teardown):
     # Tuples cross the wire as lists; the pairing is what matters.
     assert child.requests[0].kwargs["operations"] == [["SR:A:SP", 1], ["SR:B:SP", 2]]
     assert "confirm" not in child.requests[0].kwargs
-    assert [item.channel_address for item in returned] == ["SR:A:SP", "SR:B:SP"]
+    assert [item.address for item in returned] == ["SR:A:SP", "SR:B:SP"]
 
 
 async def test_out_of_order_responses_route_to_the_right_caller(teardown):
@@ -312,7 +304,7 @@ async def test_out_of_order_responses_route_to_the_right_caller(teardown):
 
 async def test_limits_violation_re_raises_with_its_bounds_intact(teardown):
     original = ChannelLimitsViolationError(
-        channel_address="SR:BEND:1:SP",
+        address="SR:BEND:1:SP",
         value=12.0,
         violation_type="max",
         violation_reason="above configured maximum",
@@ -334,7 +326,7 @@ async def test_limits_violation_re_raises_with_its_bounds_intact(teardown):
     # Every spec field surviving the codec is pinned in test_frames.py and
     # test_exception_frames.py; here the point is the typed re-raise.
     exc = caught.value
-    assert exc.channel_address == "SR:BEND:1:SP"
+    assert exc.address == "SR:BEND:1:SP"
     assert exc.max_value == 10.0
 
 
@@ -353,7 +345,7 @@ async def test_write_blocked_re_raises_with_its_reason(teardown):
         await proxy.write_channel("SR:BEND:1:SP", 1.0)
 
     assert caught.value.reason == "WRITES_DISABLED"
-    assert caught.value.channel_address == "SR:BEND:1:SP"
+    assert caught.value.address == "SR:BEND:1:SP"
     assert "writes are disabled in this deployment" in str(caught.value)
 
 
@@ -514,7 +506,7 @@ async def test_a_call_without_a_timeout_is_bounded_by_the_local_deadline(teardow
     with pytest.raises(ChildUnresponsiveError, match="validate_channel"):
         await proxy.validate_channel("SR:SLOW")
     # The deadline is local: the child was never told about it.
-    assert child.requests[0].kwargs == {"channel_address": "SR:SLOW"}
+    assert child.requests[0].kwargs == {"address": "SR:SLOW"}
 
 
 async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
@@ -535,7 +527,7 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
 
 async def test_a_reply_the_parent_cannot_rebuild_fails_that_call_and_keeps_the_proxy(teardown):
     unrebuildable = ChannelWriteResult(
-        channel_address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
+        address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
     )
     # Set after construction, past the model's validated assignment, so the
     # child encodes a value the parent's own constructor refuses.
@@ -566,7 +558,7 @@ async def test_validate_channel_crosses_the_wire(teardown):
 
 async def test_write_channel_checked_returns_a_confirmed_write(teardown):
     confirmed = ChannelWriteResult(
-        channel_address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
+        address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
     )
     proxy, child = await _proxy_with_child(_echo_handler([confirmed]))
     teardown.append((proxy, child))
@@ -581,7 +573,7 @@ async def test_write_channel_checked_returns_a_confirmed_write(teardown):
 
 async def test_write_channel_checked_raises_typed_on_a_mismatch(teardown):
     mismatch = ChannelWriteResult(
-        channel_address="SR:SP",
+        address="SR:SP",
         value_written=1.0,
         outcome=WriteOutcome.MISMATCH,
         observed_value=0.5,
@@ -595,7 +587,7 @@ async def test_write_channel_checked_raises_typed_on_a_mismatch(teardown):
 
 async def test_write_channel_checked_turns_a_refusal_into_blocked(teardown):
     refused = ChannelWriteResult(
-        channel_address="SR:SP",
+        address="SR:SP",
         value_written=1.0,
         outcome=WriteOutcome.REFUSED,
         refusal_reason="WRITES_DISABLED",
@@ -614,7 +606,7 @@ async def test_write_channel_checked_normalizes_a_limits_violation(teardown):
         child.send_error(
             frame.request_id,
             ChannelLimitsViolationError(
-                channel_address="SR:SP",
+                address="SR:SP",
                 value=9.0,
                 violation_type="MAX_EXCEEDED",
                 violation_reason="above max",

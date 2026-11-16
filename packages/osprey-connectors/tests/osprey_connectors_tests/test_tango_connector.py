@@ -417,7 +417,7 @@ class TestReadChannel:
         proxy.read_attribute.side_effect = RuntimeError("device down")
         with pytest.raises(ChannelUnreachableError, match="device down") as raised:
             await conn.read_channel(_ADDRESS)
-        assert raised.value.channel_address == _ADDRESS
+        assert raised.value.address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -645,7 +645,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+        def blocking_validate(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)
@@ -872,8 +872,8 @@ class TestUnreachableDevice:
     async def test_a_device_unreachable_during_validation_refuses_the_write(self):
         """An unmade ``max_step`` check is not permission to write."""
 
-        def validate_against_a_fresh_read(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
-            read_current(channel_address)
+        def validate_against_a_fresh_read(address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
+            read_current(address)
 
         validator = _make_limits_validator()
         validator.validate = MagicMock(side_effect=validate_against_a_fresh_read)

@@ -1070,7 +1070,7 @@ async def channel_write(
         # response.
         results = [
             {
-                "channel": wr.channel_address,
+                "channel": wr.address,
                 "value": wr.value_written,
                 OUTCOME_KEY: str(wr.outcome),
                 "refusal_reason": wr.refusal_reason,

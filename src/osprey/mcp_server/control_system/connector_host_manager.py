@@ -1873,7 +1873,7 @@ class ConnectorHostManager:
                         process,
                         proxy,
                         "spawn_probe",
-                        {"channel": probe_channel, "timeout": probe_timeout},
+                        {"address": probe_channel, "timeout": probe_timeout},
                         probe_timeout,
                         STAGE_PROBE,
                         self._terminate_grace_s,

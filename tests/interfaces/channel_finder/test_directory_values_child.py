@@ -234,29 +234,29 @@ class _ScriptedFake(FakeConnector):
         super().__init__()
         type(self).instances.append(self)
 
-    def _read_value(self, channel_address: str) -> ChannelValue:
-        reading = super()._read_value(channel_address)
-        if channel_address == "ALARMED":
+    def _read_value(self, address: str) -> ChannelValue:
+        reading = super()._read_value(address)
+        if address == "ALARMED":
             reading.metadata = ChannelMetadata(alarm_severity=2, alarm_status="HIHI")
-        if channel_address == "CURRENT":
+        if address == "CURRENT":
             reading.metadata = ChannelMetadata(units="mA", precision=3)
-        if channel_address == "MODE":
+        if address == "MODE":
             reading.metadata = ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
         return reading
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        if channel_address == "HANGS":
+    async def read_channel(self, address: str, timeout: float | None = None):
+        if address == "HANGS":
             await asyncio.Event().wait()
-        if channel_address.startswith("TOGETHER"):
+        if address.startswith("TOGETHER"):
             # A PVA read's shape: a worker thread for the whole read.
             await asyncio.to_thread(type(self).rendezvous.wait)
-        if channel_address == "HUGE":
+        if address == "HUGE":
             return ChannelValue(value=[0.0] * 100_000, timestamp=datetime.now(UTC))
-        if channel_address == "NO_TIMESTAMP":
-            reading = await super().read_channel(channel_address, timeout)
+        if address == "NO_TIMESTAMP":
+            reading = await super().read_channel(address, timeout)
             reading.timestamp = None
             return reading
-        return await super().read_channel(channel_address, timeout)
+        return await super().read_channel(address, timeout)
 
     async def write_channel(self, *args: Any, **kwargs: Any):
         type(self).writes += 1

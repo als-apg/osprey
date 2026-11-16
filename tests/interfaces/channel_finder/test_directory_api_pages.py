@@ -101,8 +101,11 @@ class FakeDirectory(FakeBackend):
             for record in self.records.values()
             if (not query.server or record.row.server in query.server)
             and (query.status is None or record.row.status == query.status)
-            and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
-            and query.words in record.row.name
+            and (
+                query.address_pattern is None
+                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+            )
+            and query.words in record.row.address
         ]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -122,20 +125,20 @@ class FakeDirectory(FakeBackend):
     async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(name, Outcome.NOT_LISTED)
+    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return self.records.get(address, Outcome.NOT_LISTED)
 
 
 class FakeHistory(FakeBackend):
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
         return HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t", channel=pv, old="1", new="2")],
+            rows=[PutRow(at="t", address=address, old="1", new="2")],
         )
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{pv}")
+    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return AlarmConfigRecord(in_tree="yes", path=f"/SR/{address}")
 
 
 class FakeAlarmState(FakeBackend):
@@ -151,7 +154,7 @@ class FakeAlarmState(FakeBackend):
         state = AlarmStateRecord(
             severity="MAJOR", status="NO_ALARM", latched=True, time="2026-11-11T06:00:00.000Z"
         )
-        row = AlarmStateRow(channel="SR:BPM1", path="/SR/SR:BPM1", state=state)
+        row = AlarmStateRow(address="SR:BPM1", path="/SR/SR:BPM1", state=state)
         return AlarmStates(rows=(row,), stale=False, last_contact=None)
 
 
@@ -250,12 +253,12 @@ def start(mock_registry, monkeypatch: pytest.MonkeyPatch):  # noqa: ARG001
 
 
 def _record_of(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
-    row = DirectoryRow(name=name, server=ioc, host="host-a", status="Active")
+    row = DirectoryRow(address=name, server=ioc, host="host-a", status="Active")
     return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.name: record for record in records}
+    return {record.row.address: record for record in records}
 
 
 def _routes() -> dict[str, Any]:

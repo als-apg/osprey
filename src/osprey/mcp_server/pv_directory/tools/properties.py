@@ -51,7 +51,7 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
         deadline = _timeout(backend.spec.settings)
         try:
             answer = await asyncio.wait_for(
-                backend.property_values(property, prefix, deadline), deadline
+                backend.property_values(property, prefix=prefix, deadline=deadline), deadline
             )
         except TimeoutError:
             answer = {"reason": f"no answer within {deadline:g} s"}

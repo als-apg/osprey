@@ -136,7 +136,7 @@ def test_blocked_put_refuses_with_raw_client_write_when_door_closed(client, capl
         client.caput("SR:QF:SETPOINT", 3.0)
 
     assert info.value.reason == "RAW_CLIENT_WRITE"
-    assert info.value.channel_address == "SR:QF:SETPOINT"
+    assert info.value.address == "SR:QF:SETPOINT"
     assert RAW_CLIENT_WRITE_MARKER in str(info.value)
     assert "osprey.runtime.write_channel" in str(info.value)
     assert client.calls == []
@@ -162,7 +162,7 @@ def test_blocked_method_derives_address_from_the_object(client):
 
     with pytest.raises(ChannelWriteBlockedError) as info:
         client.PV("SR:BPM1").put(1.0)
-    assert info.value.channel_address == "SR:BPM1"
+    assert info.value.address == "SR:BPM1"
     assert client.PV("SR:BPM1").get() == 2.0, "an unlisted attribute stays as it was"
 
     with open_door():
@@ -217,7 +217,7 @@ def test_staticmethod_row_keeps_its_descriptor(client):
         assert client.PV("X").static_put("SR:S", 1) == "static-ok"
     with pytest.raises(ChannelWriteBlockedError) as info:
         client.PV.static_put("SR:S", 1)
-    assert info.value.channel_address == "SR:S"
+    assert info.value.address == "SR:S"
 
 
 def test_reexported_put_refuses_under_both_spellings(monkeypatch, restore_patches):  # noqa: F811
@@ -298,7 +298,7 @@ def test_pvaccess_sweep_uses_the_armed_replacement(monkeypatch, restore_patches)
     for verb in ("put", "putDouble", "parsePutGet"):
         with pytest.raises(ChannelWriteBlockedError) as info:
             getattr(channel, verb)(1.0)
-        assert info.value.channel_address == "SR:PVA"
+        assert info.value.address == "SR:PVA"
     with open_door():
         assert channel.putDouble(1.0) == "double-ok"
     assert channel.get() == 3.0
@@ -351,7 +351,7 @@ def _refused(call, address):
     with pytest.raises(ChannelWriteBlockedError) as info:
         call()
     assert info.value.reason == "RAW_CLIENT_WRITE"
-    assert info.value.channel_address == address
+    assert info.value.address == address
 
 
 def test_a_channel_opened_on_ca_is_refused_across_the_put_family(pvaccess):
@@ -568,7 +568,7 @@ def test_put_and_rpc_on_one_class_both_apply(client):
     )
     with pytest.raises(ChannelWriteBlockedError) as info:
         client.Context().put("SR:P4P", 1)
-    assert info.value.channel_address == "SR:P4P"
+    assert info.value.address == "SR:P4P"
     with pytest.raises(RuntimeError, match="rpc is not mediated"):
         client.Context().rpc("SR:P4P", 1)
 

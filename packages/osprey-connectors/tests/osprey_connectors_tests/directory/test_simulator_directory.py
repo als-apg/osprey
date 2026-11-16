@@ -128,7 +128,7 @@ def directory(tmp_path: Path) -> SimulatorDirectory:
 
 async def _names(directory: SimulatorDirectory, **fields: Any) -> list[str]:
     page = await directory.search(DirectoryQuery(**fields), DEADLINE)
-    return [row.name for row in page.rows]
+    return [row.address for row in page.rows]
 
 
 async def test_a_word_search_finds_the_description_and_no_name_carries_the_word(
@@ -137,7 +137,7 @@ async def test_a_word_search_finds_the_description_and_no_name_carries_the_word(
     page = await directory.search(DirectoryQuery(words="cooling water"), DEADLINE)
 
     assert page.outcome is Outcome.FOUND
-    assert [row.name for row in page.rows] == [COOLING]
+    assert [row.address for row in page.rows] == [COOLING]
     assert page.total == 1
 
 
@@ -278,7 +278,7 @@ async def test_filters_narrow_the_result(
 async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
     directory: SimulatorDirectory,
 ) -> None:
-    page = await directory.search(DirectoryQuery(name=f"={SETPOINT}"), DEADLINE)
+    page = await directory.search(DirectoryQuery(address_pattern=f"={SETPOINT}"), DEADLINE)
 
     assert page.rows[0].model_dump() == {
         "name": SETPOINT,
@@ -437,7 +437,7 @@ async def test_the_request_is_the_search_in_words_and_never_a_url(
 
 async def test_the_request_names_every_filter(directory: SimulatorDirectory) -> None:
     query = DirectoryQuery(
-        name="T:SR:*",
+        address_pattern="T:SR:*",
         status="Active",
         server=("sim-SR", "sim-BARE"),
         channel_type="ao",
@@ -459,7 +459,7 @@ async def test_an_empty_search_lists_every_pv(directory: SimulatorDirectory) -> 
     assert page.outcome is Outcome.FOUND
     # Five channels, two status addresses, three health addresses for each of three IOCs.
     assert page.total == 5 + 2 + 9
-    assert [row.name for row in page.rows] == sorted(row.name for row in page.rows)
+    assert [row.address for row in page.rows] == sorted(row.address for row in page.rows)
     assert await directory.count(DirectoryQuery(), DEADLINE) == 16
 
 
@@ -472,7 +472,7 @@ async def test_pages_slice_the_whole_result_and_say_when_more_follows(
     last = await directory.search(DirectoryQuery(page=1, page_size=10), DEADLINE)
     beyond = await directory.search(DirectoryQuery(page=9, page_size=10), DEADLINE)
 
-    assert [row.name for row in (*first.rows, *last.rows)] == every
+    assert [row.address for row in (*first.rows, *last.rows)] == every
     assert (first.total, first.truncated) == (16, True)
     assert (last.total, last.truncated) == (16, False)
     assert (beyond.outcome, beyond.rows, beyond.total) == (Outcome.FOUND, [], 16)
@@ -488,16 +488,16 @@ async def test_the_source_is_the_specs(directory: SimulatorDirectory) -> None:
 
 async def test_properties_are_listed_by_name_and_value(directory: SimulatorDirectory) -> None:
     assert await directory.property_names(DEADLINE) == ["role", "signal", "unit", "valueType"]
-    assert await directory.property_values("signal", None, DEADLINE) == [
+    assert await directory.property_values("signal", deadline=DEADLINE) == [
         "ENGINEER",
         "HEARTBEAT",
         "STATUS",
         "UPTIME",
     ]
-    assert await directory.property_values("unit", None, DEADLINE) == ["A"]
-    assert await directory.property_values("role", "set", DEADLINE) == ["setpoint"]
-    assert await directory.property_values("role", "nope", DEADLINE) == []
-    assert await directory.property_values("nosuch", None, DEADLINE) == []
+    assert await directory.property_values("unit", deadline=DEADLINE) == ["A"]
+    assert await directory.property_values("role", prefix="set", deadline=DEADLINE) == ["setpoint"]
+    assert await directory.property_values("role", prefix="nope", deadline=DEADLINE) == []
+    assert await directory.property_values("nosuch", deadline=DEADLINE) == []
 
 
 async def test_the_probe_states_its_evidence(tmp_path: Path) -> None:
@@ -526,7 +526,7 @@ async def _every_answer(directory: SimulatorDirectory) -> list[Any]:
         await directory.count(DirectoryQuery(), DEADLINE),
         await directory.describe("T:X", DEADLINE),
         await directory.property_names(DEADLINE),
-        await directory.property_values("unit", None, DEADLINE),
+        await directory.property_values("unit", deadline=DEADLINE),
         await directory.probe(DEADLINE),
     ]
 

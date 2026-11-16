@@ -62,10 +62,10 @@ class _StillLoading:
         self.closed += 1
         self._release.set()
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, deadline: float):  # noqa: ARG002 - a fake
         return await self._read(deadline, LOADING)
 
-    async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, deadline: float):  # noqa: ARG002 - a fake
         return await self._read(deadline, LOADING)
 
     async def states(self, deadline: float):
@@ -87,11 +87,11 @@ class _Answering(_StillLoading):
     async def start(self) -> None:
         self.started += 1
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, deadline: float):  # noqa: ARG002 - a fake
         self.deadlines.append(deadline)
         return self._answer
 
-    async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, deadline: float):  # noqa: ARG002 - a fake
         self.deadlines.append(deadline)
         return self._answer
 
@@ -229,7 +229,7 @@ class _Probed(_StillLoading):
     async def start(self) -> None:
         self.started += 1
 
-    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, deadline: float):  # noqa: ARG002 - a fake
         self.deadlines.append(deadline)
         await asyncio.sleep(min(self._load_s, deadline))
         self._caught_up = deadline >= self._load_s
@@ -284,7 +284,7 @@ async def test_the_list_is_the_backends_answer_read_once_after_the_start():
         await snapshot.aclose()
 
     assert isinstance(states, AlarmStates)
-    assert {row.channel for row in states.rows} == {PV, "DEMO:VAC1:GAUGE:Pres-I"}
+    assert {row.address for row in states.rows} == {PV, "DEMO:VAC1:GAUGE:Pres-I"}
     assert states.counts == {"MAJOR": 1, "MINOR": 1}
 
 

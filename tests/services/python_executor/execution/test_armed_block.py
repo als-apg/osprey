@@ -52,7 +52,7 @@ def _validator() -> LimitsValidator:
     return LimitsValidator(
         {
             "TEST:PV": ChannelLimitsConfig(
-                channel_address="TEST:PV", min_value=0, max_value=100, writable=True
+                address="TEST:PV", min_value=0, max_value=100, writable=True
             )
         },
         {"mode": "exclusive", "on_violation": "error"},
@@ -462,7 +462,7 @@ _PVACCESS_PROBE = textwrap.dedent(
             return {"ok": call()}
         except Exception as error:
             return {"type": type(error).__name__, "reason": getattr(error, "reason", None),
-                    "address": getattr(error, "channel_address", None), "text": str(error)}
+                    "address": getattr(error, "address", None), "text": str(error)}
 
     ca = pvaccess.Channel("SR:CA", pvaccess.CA)
     pva = pvaccess.Channel("SR:PVA")

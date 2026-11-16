@@ -81,13 +81,13 @@ class _Directory(ChannelDirectory):
     async def count(self, query, deadline):
         raise NotImplementedError
 
-    async def describe(self, name, deadline):
+    async def describe(self, address, deadline):
         raise NotImplementedError
 
     async def property_names(self, deadline):
         raise NotImplementedError
 
-    async def property_values(self, name, prefix, deadline):
+    async def property_values(self, property, *, prefix=None, deadline):
         raise NotImplementedError
 
     async def probe(self, deadline):
@@ -95,7 +95,7 @@ class _Directory(ChannelDirectory):
 
 
 class _Log(PutLog):
-    async def history(self, pv, since, limit, deadline):
+    async def history(self, address, since, limit, deadline):
         raise NotImplementedError
 
     async def probe(self, deadline):
@@ -161,7 +161,7 @@ def test_unavailable_takes_its_reason_by_keyword_and_requires_it():
 
 
 def _row(channel: str, severity: str | None) -> AlarmStateRow:
-    return AlarmStateRow(channel=channel, path=None, state=AlarmStateRecord(severity=severity))
+    return AlarmStateRow(address=channel, path=None, state=AlarmStateRecord(severity=severity))
 
 
 def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():

@@ -8,7 +8,7 @@ model that owns the address, else ``sim-texture``, as the composite routes it.
 
 A search means what it means on ChannelFinder. Words match descriptions first and
 names only when no description matched, in any case; all of them must match. A
-word holding ``*`` or ``?`` and each term of ``DirectoryQuery.name`` match names as
+word holding ``*`` or ``?`` and each term of ``DirectoryQuery.address_pattern`` match names as
 globs, wrapped as ``*term*`` unless the term starts or ends with ``*``; a leading
 ``=`` is the exact name. Properties compare whole values.
 """
@@ -84,7 +84,7 @@ def _channel_record(channel: Channel, server: str) -> DirectoryRecord:
         properties["unit"] = str(channel.unit)
     return DirectoryRecord(
         row=DirectoryRow(
-            name=channel.address,
+            address=channel.address,
             status="Active",
             description=_first_sentence(channel.description),
             channel_type=types.get(channel.value_type),
@@ -99,7 +99,7 @@ def _served_record(address: str, server: str, signal: str) -> DirectoryRecord:
     channel_type, description = _SERVED_ADDRESSES[signal]
     return DirectoryRecord(
         row=DirectoryRow(
-            name=address,
+            address=address,
             status="Active",
             description=description.format(server=server),
             channel_type=channel_type,
@@ -155,13 +155,16 @@ def _matching(records: Iterable[DirectoryRecord], query: DirectoryQuery) -> list
     words = query.words.split()
     matchers = [
         _name_matcher(term)
-        for term in (*(word for word in words if _is_name_term(word)), *(query.name or "").split())
+        for term in (
+            *(word for word in words if _is_name_term(word)),
+            *(query.address_pattern or "").split(),
+        )
     ]
     plain = [word.casefold() for word in words if not _is_name_term(word)]
     kept = [
         record
         for record in records
-        if _passes_filters(record, query) and all(match(record.row.name) for match in matchers)
+        if _passes_filters(record, query) and all(match(record.row.address) for match in matchers)
     ]
     if not plain:
         return kept
@@ -171,7 +174,7 @@ def _matching(records: Iterable[DirectoryRecord], query: DirectoryQuery) -> list
         if all(word in (record.row.description or "").casefold() for word in plain)
     ]
     return in_description or [
-        record for record in kept if all(word in record.row.name.casefold() for word in plain)
+        record for record in kept if all(word in record.row.address.casefold() for word in plain)
     ]
 
 
@@ -179,8 +182,8 @@ def _searched(query: DirectoryQuery) -> str:
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
-    if query.name:
-        parts.append(f"name matches {query.name}")
+    if query.address_pattern:
+        parts.append(f"name matches {query.address_pattern}")
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:
@@ -246,13 +249,13 @@ class SimulatorDirectory(ChannelDirectory):
     @override
     async def describe(
         self,
-        name: str,
+        address: str,
         deadline: float,
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
-        record = records.get(name)
+        record = records.get(address)
         return Outcome.NOT_LISTED if record is None else record
 
     @override
@@ -265,15 +268,18 @@ class SimulatorDirectory(ChannelDirectory):
     @override
     async def property_values(
         self,
-        name: str,
-        prefix: str | None,
+        property: str,
+        *,
+        prefix: str | None = None,
         deadline: float,
     ) -> list[str] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
         values = {
-            record.properties[name] for record in records.values() if name in record.properties
+            record.properties[property]
+            for record in records.values()
+            if property in record.properties
         }
         return sorted(value for value in values if value.startswith(prefix or ""))
 

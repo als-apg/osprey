@@ -88,7 +88,7 @@ class FakeBackend:
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return DirectoryRow(name=name, **fields)
+    return DirectoryRow(address=name, **fields)
 
 
 class FakeDirectory(FakeBackend):
@@ -108,7 +108,7 @@ class FakeDirectory(FakeBackend):
         return [
             row
             for row in self.rows
-            if query.words in row.name and (not query.server or row.server in query.server)
+            if query.words in row.address and (not query.server or row.server in query.server)
         ]
 
     async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
@@ -132,8 +132,8 @@ class FakeDirectory(FakeBackend):
         await asyncio.sleep(self.count_delay)
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(name, Outcome.NOT_LISTED)
+    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return self.records.get(address, Outcome.NOT_LISTED)
 
 
 class FakeAlarmState(FakeBackend):
@@ -147,17 +147,17 @@ class FakeAlarmState(FakeBackend):
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def state_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return AlarmStateRecord(severity="MAJOR")
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return Unavailable(reason="no message from the feed yet")
 
     async def states(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
-            AlarmStateRow(channel=channel, path=f"/Demo/{channel}", state=state)
+            AlarmStateRow(address=channel, path=f"/Demo/{channel}", state=state)
             for channel, state in self.held.items()
         )
         return AlarmStates(rows=rows, stale=False, last_contact=None)
@@ -612,7 +612,7 @@ _APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.exa
 class _Held:
     """A ``store_extent`` answer: the channels the store records, or unknown and why."""
 
-    channels: frozenset[str] | None = None
+    addresses: frozenset[str] | None = None
     oldest: Any = None
     newest: Any = None
     reason: str | None = None
@@ -621,7 +621,7 @@ class _Held:
 class FakeArchiver:
     """An archiver connector whose store records ``held``."""
 
-    held: Any = _Held(channels=frozenset())
+    held: Any = _Held(addresses=frozenset())
 
     def __init__(self) -> None:
         self.disconnected = False
@@ -644,7 +644,7 @@ def archivers(monkeypatch: pytest.MonkeyPatch) -> list[FakeArchiver]:
         return made[-1]
 
     monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
-    monkeypatch.setattr(FakeArchiver, "held", _Held(channels=frozenset({"SR:PV1", "SR:PV3"})))
+    monkeypatch.setattr(FakeArchiver, "held", _Held(addresses=frozenset({"SR:PV1", "SR:PV3"})))
     return made
 
 

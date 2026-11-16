@@ -136,9 +136,9 @@ class _RecordingInProcessConnector(VAInProcessConnector):
         self.puts: list[tuple[str, Any]] = []
         self.after_first_put: Callable[[], None] | None = None
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        super()._put(channel_address, value)
-        self.puts.append((channel_address, value))
+    def _put(self, address: str, value: Any) -> None:
+        super()._put(address, value)
+        self.puts.append((address, value))
         if len(self.puts) == 1 and self.after_first_put is not None:
             self.after_first_put()
 

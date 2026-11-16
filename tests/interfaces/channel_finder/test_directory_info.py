@@ -64,13 +64,15 @@ class LabelledDirectory(ChannelDirectory):
     async def count(self, query: Any, deadline: float) -> Any:
         raise NotImplementedError
 
-    async def describe(self, name: str, deadline: float) -> Any:
+    async def describe(self, address: str, deadline: float) -> Any:
         raise NotImplementedError
 
     async def property_names(self, deadline: float) -> Any:
         raise NotImplementedError
 
-    async def property_values(self, name: str, prefix: str | None, deadline: float) -> Any:
+    async def property_values(
+        self, property: str, *, prefix: str | None = None, deadline: float
+    ) -> Any:
         raise NotImplementedError
 
     async def probe(self, deadline: float) -> Any:
@@ -341,7 +343,7 @@ def test_the_fixture_names_every_json_panel_route() -> None:
 
 def test_the_fixture_search_is_a_directory_page() -> None:
     page = _routes()["search"]
-    contract = {served: field for field, served in _connectors.SERVED_FIELD.items()}
+    contract = {served: field for field, served in _connectors.SERVED_ROW_FIELD.items()}
     rows = [
         DirectoryRow(
             **{

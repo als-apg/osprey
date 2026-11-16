@@ -167,9 +167,7 @@ def connector_answers(monkeypatch, behaviour):
 
 def returns(outcome, **fields):
     async def behaviour(address, value):
-        return ChannelWriteResult(
-            channel_address=address, value_written=value, outcome=outcome, **fields
-        )
+        return ChannelWriteResult(address=address, value_written=value, outcome=outcome, **fields)
 
     return behaviour
 
@@ -839,9 +837,7 @@ class _Held:
             await asyncio.to_thread(hold)
         finally:
             self.returned.set()
-        return ChannelWriteResult(
-            channel_address=address, value_written=value, outcome=self.outcome
-        )
+        return ChannelWriteResult(address=address, value_written=value, outcome=self.outcome)
 
 
 async def _until(predicate, timeout=5.0):

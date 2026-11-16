@@ -155,8 +155,8 @@ def _searched(query: DirectoryQuery) -> str:
     parts = []
     if query.words.strip():
         parts.append(f"name or description matches {' '.join(query.words.split())}")
-    if query.name:
-        parts.append(f"name matches {query.name}")
+    if query.address_pattern:
+        parts.append(f"name matches {query.address_pattern}")
     if query.status:
         parts.append(f"status {query.status}")
     if query.server:
@@ -274,7 +274,10 @@ class ChannelFinderDirectory(ChannelDirectory):
         """The searches to try in turn, each without its paging."""
         words = query.words.split()
         plain = [word for word in words if not _is_name_term(word)]
-        terms = [*(word for word in words if _is_name_term(word)), *(query.name or "").split()]
+        terms = [
+            *(word for word in words if _is_name_term(word)),
+            *(query.address_pattern or "").split(),
+        ]
         narrowing = [*(("~name", _pattern(term)) for term in terms), *self._filters(query)]
         if not plain:
             return [narrowing or [("~name", "*")]]
@@ -288,7 +291,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         properties = _properties_of(channel)
         return DirectoryRecord(
             row=DirectoryRow(
-                name=channel.name,
+                address=channel.name,
                 status=_STATUSES.get(properties.pop(_ROW_FIELD_PROPERTIES["status"], "")),
                 description=properties.pop(self._description_property, None),
                 channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
@@ -380,14 +383,14 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     @override
     async def describe(
-        self, name: str, deadline: float
+        self, address: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        params: _Params = [("~name", _one_value(name)), ("~size", _DESCRIBE_SIZE)]
+        params: _Params = [("~name", _one_value(address)), ("~size", _DESCRIBE_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, deadline))
         if isinstance(channels, Unavailable):
             return channels
         for channel in channels:
-            if channel.name == name:
+            if channel.name == address:
                 return self._record(channel)
         return Outcome.NOT_LISTED
 
@@ -398,14 +401,14 @@ class ChannelFinderDirectory(ChannelDirectory):
 
     @override
     async def property_values(
-        self, name: str, prefix: str | None, deadline: float
+        self, property: str, *, prefix: str | None = None, deadline: float
     ) -> list[str] | Unavailable:
         wanted = f"{_one_value(prefix)}*" if prefix else "*"
-        params: _Params = [(name, wanted), ("~size", _VALUES_SIZE)]
+        params: _Params = [(property, wanted), ("~size", _VALUES_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, deadline))
         if isinstance(channels, Unavailable):
             return channels
-        values = {_properties_of(channel).get(name) for channel in channels}
+        values = {_properties_of(channel).get(property) for channel in channels}
         return sorted(
             value for value in values if value is not None and value.startswith(prefix or "")
         )

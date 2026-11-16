@@ -150,12 +150,12 @@ class _DoorProbe(ControlSystemConnector):
     async def read_channel(self, addr, timeout=None):
         raise NotImplementedError
 
-    async def write_channel(self, channel_address, value, **kwargs):
+    async def write_channel(self, address, value, **kwargs):
         self.seen.append(door_is_open())
         if self._fail:
             raise RuntimeError("put failed")
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
         )
@@ -168,7 +168,7 @@ class _DoorProbe(ControlSystemConnector):
             raise RuntimeError("batch failed")
         return [
             ChannelWriteResult(
-                channel_address=addr,
+                address=addr,
                 value_written=val,
                 outcome=WriteOutcome.CONFIRMED,
             )
@@ -294,7 +294,7 @@ def armed_client(monkeypatch, restore_patches):  # noqa: F811
 def _assert_refused(error: BaseException | None, address: str) -> None:
     assert isinstance(error, ChannelWriteBlockedError), f"expected a refusal, got {error!r}"
     assert error.reason == "RAW_CLIENT_WRITE"
-    assert error.channel_address == address
+    assert error.address == address
 
 
 def _put_on_fresh_thread(client: ModuleType, address: str) -> BaseException | None:
@@ -327,10 +327,10 @@ class _RawPutConnector(_DoorProbe):
             self._callback()
         return result
 
-    async def write_channel(self, channel_address, value, **kwargs):
-        await asyncio.to_thread(self._put, channel_address, value)
+    async def write_channel(self, address, value, **kwargs):
+        await asyncio.to_thread(self._put, address, value)
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.UNREQUESTED,
         )
@@ -341,7 +341,7 @@ class _RawPutConnector(_DoorProbe):
             await asyncio.to_thread(self._put, address, value)
             results.append(
                 ChannelWriteResult(
-                    channel_address=address,
+                    address=address,
                     value_written=value,
                     outcome=WriteOutcome.UNREQUESTED,
                 )

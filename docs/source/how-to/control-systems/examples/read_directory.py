@@ -21,11 +21,11 @@ async def main() -> None:
     page = await directory.search(DirectoryQuery(words="SR:BPM*"), DEADLINE_S)
     print(f"{page.outcome}: {len(page.rows)} of {page.total}")
     for row in page.rows:
-        print(f"  {row.name:<10} {row.channel_type:<3} {row.server:<7} {row.description}")
+        print(f"  {row.address:<10} {row.channel_type:<3} {row.server:<7} {row.description}")
 
     record = await directory.describe("SR:BPM1:X", DEADLINE_S)
     if isinstance(record, DirectoryRecord):
-        print(f"{record.row.name}: {record.row.status} on {record.row.host}")
+        print(f"{record.row.address}: {record.row.status} on {record.row.host}")
     else:
         print(record)  # Outcome.NOT_LISTED, or Unavailable(reason=...)
 

@@ -44,7 +44,7 @@ BLOCKED_CHANNEL = "TEST:RAISE:BLOCKED:SP"
 #: Every field ``ChannelLimitsViolationError`` carries, set to a distinct value
 #: so a field that crossed as another field's value is visible as a failure.
 LIMITS_FIELDS: dict[str, Any] = {
-    "channel_address": LIMITS_CHANNEL,
+    "address": LIMITS_CHANNEL,
     "attempted_value": 150.5,
     "violation_type": "MAX_EXCEEDED",
     "violation_reason": "Value 150.5 above maximum 100.0",
@@ -91,7 +91,7 @@ class RaisingConnector(ControlSystemConnector):
 
     async def read_channel(
         self,
-        channel_address: str,  # noqa: ARG002 - the connector interface fixes the signature
+        address: str,  # noqa: ARG002 - the connector interface fixes the signature
         timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelValue:
         return ChannelValue(
@@ -101,40 +101,37 @@ class RaisingConnector(ControlSystemConnector):
         )
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
-        return {
-            address: await self.read_channel(address, timeout=timeout)
-            for address in channel_addresses
-        }
+        return {address: await self.read_channel(address, timeout=timeout) for address in addresses}
 
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: Any,
         timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
         confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelWriteResult:
-        if channel_address == LIMITS_CHANNEL:
+        if address == LIMITS_CHANNEL:
             raise make_limits_violation()
-        if channel_address == BLOCKED_CHANNEL:
+        if address == BLOCKED_CHANNEL:
             raise make_write_blocked()
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             # This connector sends nothing anywhere and reads nothing back, so
             # the only honest word is the one for a write that was not checked.
             outcome=WriteOutcome.UNREQUESTED,
         )
 
-    async def subscribe(self, channel_address: str, callback: Any) -> str:
+    async def subscribe(self, address: str, callback: Any) -> str:
         raise NotImplementedError("the raising connector serves reads and writes only")
 
     async def unsubscribe(self, subscription_id: str) -> None:
         raise NotImplementedError("the raising connector serves reads and writes only")
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:  # noqa: ARG002 - the connector interface fixes the signature
+    async def get_metadata(self, address: str) -> ChannelMetadata:  # noqa: ARG002 - the connector interface fixes the signature
         return ChannelMetadata(units="A")
 
-    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - the connector interface fixes the signature
+    async def validate_channel(self, address: str) -> bool:  # noqa: ARG002 - the connector interface fixes the signature
         return True

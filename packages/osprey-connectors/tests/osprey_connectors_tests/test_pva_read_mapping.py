@@ -458,7 +458,7 @@ class TestPvaErrorTranslation:
         with pytest.raises(ChannelUnreachableError) as excinfo:
             await connector.read_channel(PVA_ADDRESS)
 
-        assert excinfo.value.channel_address == PVA_ADDRESS
+        assert excinfo.value.address == PVA_ADDRESS
         assert PVA_ADDRESS in str(excinfo.value)
         assert "channel disconnected" in str(excinfo.value)
 

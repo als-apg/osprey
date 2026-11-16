@@ -135,13 +135,13 @@ class PhoebusAlarmState(AlarmState):
 
     @override
     async def state_for(
-        self, channel: str, deadline: float
+        self, address: str, deadline: float
     ) -> AlarmStateRecord | Unavailable | None:
         await self._settling(deadline)
         unanswered = self._unanswered()
         if unanswered is not None:
             return unanswered
-        return state_record(self._snapshot, channel, stale=self._stale())
+        return state_record(self._snapshot, address, stale=self._stale())
 
     @override
     async def states(self, deadline: float) -> AlarmStates | Unavailable:
@@ -154,10 +154,10 @@ class PhoebusAlarmState(AlarmState):
         return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
 
     @override
-    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, address: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
-        return unanswered if unanswered is not None else config_record(self._snapshot, channel)
+        return unanswered if unanswered is not None else config_record(self._snapshot, address)
 
     @override
     async def probe(self, deadline: float) -> str | Unavailable:

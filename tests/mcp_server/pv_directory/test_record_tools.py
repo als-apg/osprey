@@ -85,8 +85,11 @@ class FakeDirectory(FakeBackend):
             for record in self.records.values()
             if (not query.server or record.row.server in query.server)
             and (query.status is None or record.row.status == query.status)
-            and (query.name is None or fnmatch.fnmatchcase(record.row.name, query.name))
-            and query.words in record.row.name
+            and (
+                query.address_pattern is None
+                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+            )
+            and query.words in record.row.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
@@ -108,17 +111,17 @@ class FakeDirectory(FakeBackend):
             return Unavailable(reason=self.fail)
         return len(self._hits(query))
 
-    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        if self.fail or name in self.failing:
+    async def describe(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        if self.fail or address in self.failing:
             return Unavailable(reason=self.fail or "connection refused")
-        return self.records.get(name, Outcome.NOT_LISTED)
+        return self.records.get(address, Outcome.NOT_LISTED)
 
 
 class FakePutLog(FakeBackend):
     failing: set[str] = set()
 
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
-        if pv in self.failing:
+    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+        if address in self.failing:
             return Unavailable(reason="put log did not answer")
         return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])
 
@@ -197,12 +200,12 @@ def _install(
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(name=name, server=ioc, host="host-a", status=status)
+    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
     return DirectoryRecord(row=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.name: record for record in records}
+    return {record.row.address: record for record in records}
 
 
 def _by_name(result: dict[str, Any]) -> dict[str, dict[str, Any]]:

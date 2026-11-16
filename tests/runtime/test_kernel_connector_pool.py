@@ -130,8 +130,8 @@ class _FirstContextConnector:
         self.server = config["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
-        return SimpleNamespace(value=f"{_FIRST_SERVER['server']}/{channel_address}")
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
+        return SimpleNamespace(value=f"{_FIRST_SERVER['server']}/{address}")
 
     async def disconnect(self) -> None:
         type(self).disconnected.append(self)
@@ -175,15 +175,15 @@ class _FakeHandle:
         self.writes: list[tuple[str, Any, dict[str, Any]]] = []
         self.batches: list[tuple[list[tuple[str, Any]], dict[str, Any]]] = []
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
         self.pool.record_loop()
-        return SimpleNamespace(value=f"{self.server}/{channel_address}")
+        return SimpleNamespace(value=f"{self.server}/{address}")
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
+    async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):
         self.pool.record_loop()
-        self.writes.append((channel_address, value, kwargs))
+        self.writes.append((address, value, kwargs))
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
             observed_value=value,
@@ -193,9 +193,7 @@ class _FakeHandle:
         self.pool.record_loop()
         self.batches.append((list(operations), {"timeout": timeout, "confirm": confirm}))
         return [
-            ChannelWriteResult(
-                channel_address=address, value_written=value, outcome=WriteOutcome.CONFIRMED
-            )
+            ChannelWriteResult(address=address, value_written=value, outcome=WriteOutcome.CONFIRMED)
             for address, value in operations
         ]
 

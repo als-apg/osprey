@@ -229,7 +229,7 @@ def test_a_pre_write_read_failure_writes_nothing(runtime: _Runtime) -> None:
 @pytest.mark.usefixtures("in_run")
 def test_limits_violation_maps_to_refused(runtime: _Runtime) -> None:
     runtime.write_error = ChannelLimitsViolationError(
-        channel_address=SETS[1],
+        address=SETS[1],
         value=99.0,
         violation_type="MAX_EXCEEDED",
         violation_reason="99.0 above max 5.0",
@@ -294,10 +294,10 @@ def test_device_list_mixed_si_words_refused() -> None:
 
 def test_get_range_is_flat(runtime: _Runtime) -> None:
     runtime.limits[SETS[0]] = ChannelLimitsConfig(
-        channel_address=SETS[0], min_value=-1.0, max_value=1.0, writable=True
+        address=SETS[0], min_value=-1.0, max_value=1.0, writable=True
     )
     runtime.limits[SETS[2]] = ChannelLimitsConfig(
-        channel_address=SETS[2], min_value=0.0, max_value=5.0, writable=True
+        address=SETS[2], min_value=0.0, max_value=5.0, writable=True
     )
     assert _list().get_range() == [-1.0, 1.0, None, None, 0.0, 5.0]
 
@@ -312,10 +312,10 @@ class _FailingConnector(DictConnector):
         super().__init__(dict.fromkeys(SETS, 0.0))
         self._failing = failing
 
-    def _put(self, channel_address: str, value: Any) -> None:
-        if channel_address == self._failing:
+    def _put(self, address: str, value: Any) -> None:
+        if address == self._failing:
             raise RuntimeError("simulated put failure")
-        super()._put(channel_address, value)
+        super()._put(address, value)
 
 
 @pytest.fixture
@@ -346,7 +346,7 @@ def test_limits_violation_refuses_the_whole_batch_before_sending(
 ) -> None:
     validator = LimitsValidator(
         {
-            a: ChannelLimitsConfig(channel_address=a, min_value=0.0, max_value=50.0, writable=True)
+            a: ChannelLimitsConfig(address=a, min_value=0.0, max_value=50.0, writable=True)
             for a in SETS
         },
         {"mode": LIMITS_MODE_EXCLUSIVE},
@@ -454,16 +454,16 @@ class _RefusingConnector(_FailingConnector):
         self._refused = refused
         self._reason = reason
 
-    async def write_channel(self, channel_address: str, value: Any, **kwargs: Any):
-        if channel_address == self._refused:
+    async def write_channel(self, address: str, value: Any, **kwargs: Any):
+        if address == self._refused:
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=self._reason,
-                error_message=f"Write to '{channel_address}' refused ({self._reason})",
+                error_message=f"Write to '{address}' refused ({self._reason})",
             )
-        return await super().write_channel(channel_address, value, **kwargs)
+        return await super().write_channel(address, value, **kwargs)
 
 
 @pytest.mark.usefixtures("unvalidated")
@@ -489,15 +489,15 @@ class _UnservedAddressConnector(DictConnector):
         super().__init__(dict.fromkeys(SETS, 0.0))
         self._unserved = unserved
 
-    def _write_precheck(self, channel_address: str, value: Any):
-        if channel_address != self._unserved:
-            return channel_address, None
-        return channel_address, ChannelWriteResult(
-            channel_address=channel_address,
+    def _write_precheck(self, address: str, value: Any):
+        if address != self._unserved:
+            return address, None
+        return address, ChannelWriteResult(
+            address=address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
             refusal_reason="CHANNEL_NOT_FOUND",
-            error_message=f"{channel_address} is not a channel of this facility",
+            error_message=f"{address} is not a channel of this facility",
         )
 
 

@@ -24,7 +24,7 @@ from osprey_connectors.errors import (
 class TestChannelWriteBlockedError:
     def test_default_message(self):
         err = ChannelWriteBlockedError("RING:MAG:PS:SP", "WRITES_DISABLED")
-        assert err.channel_address == "RING:MAG:PS:SP"
+        assert err.address == "RING:MAG:PS:SP"
         assert err.reason == "WRITES_DISABLED"
         assert str(err) == (
             "Write to 'RING:MAG:PS:SP' refused by the reference monitor (WRITES_DISABLED)"
@@ -32,7 +32,7 @@ class TestChannelWriteBlockedError:
 
     def test_custom_message(self):
         err = ChannelWriteBlockedError("RING:MAG:PS:SP", "LIMITS", "value out of range")
-        assert err.channel_address == "RING:MAG:PS:SP"
+        assert err.address == "RING:MAG:PS:SP"
         assert err.reason == "LIMITS"
         assert str(err) == "value out of range"
 
@@ -96,7 +96,7 @@ class TestChannelNotFoundError:
         assert str(err) == "NO:SUCH:CHANNEL is not a channel of this facility"
 
     def test_carries_the_address(self):
-        assert ChannelNotFoundError("NO:SUCH:CHANNEL").channel_address == "NO:SUCH:CHANNEL"
+        assert ChannelNotFoundError("NO:SUCH:CHANNEL").address == "NO:SUCH:CHANNEL"
 
     def test_reason(self):
         assert ChannelNotFoundError.reason is RefusalReason.CHANNEL_NOT_FOUND
@@ -124,12 +124,12 @@ class TestTheFailureRoots:
 
     def test_an_unreachable_channel_names_its_address(self):
         failure = ChannelUnreachableError("SR:DEAD:IOC")
-        assert failure.channel_address == "SR:DEAD:IOC"
+        assert failure.address == "SR:DEAD:IOC"
         assert str(failure) == "SR:DEAD:IOC did not answer"
 
     def test_an_unreachable_channel_keeps_the_text_it_was_given(self):
         failure = ChannelUnreachableError("SR:DEAD:IOC", message="SR:DEAD:IOC timed out")
-        assert failure.channel_address == "SR:DEAD:IOC"
+        assert failure.address == "SR:DEAD:IOC"
         assert str(failure) == "SR:DEAD:IOC timed out"
 
     def test_a_lost_connector_carries_no_recovery_until_its_supervisor_sets_one(self):
@@ -161,13 +161,13 @@ class TestTheFailureRoots:
 class TestChannelWriteFailedError:
     def test_default_message(self):
         err = ChannelWriteFailedError("RING:MAG:PS:SP", "FAILED")
-        assert err.channel_address == "RING:MAG:PS:SP"
+        assert err.address == "RING:MAG:PS:SP"
         assert err.reason == "FAILED"
         assert str(err) == "Write to 'RING:MAG:PS:SP' failed (FAILED)"
 
     def test_custom_message(self):
         err = ChannelWriteFailedError("RING:MAG:PS:SP", "UNCONFIRMED", "re-read raised")
-        assert err.channel_address == "RING:MAG:PS:SP"
+        assert err.address == "RING:MAG:PS:SP"
         assert err.reason == "UNCONFIRMED"
         assert str(err) == "re-read raised"
 
@@ -241,7 +241,7 @@ SINGLE_CHANNEL_FAILURES = {
 def test_every_single_channel_failure_is_a_channel_error(cls):
     failure = SINGLE_CHANNEL_FAILURES[cls]()
     assert isinstance(failure, ChannelError)
-    assert failure.channel_address == "SR:Q"
+    assert failure.address == "SR:Q"
 
 
 @pytest.mark.parametrize(

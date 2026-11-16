@@ -963,13 +963,13 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
             # A refusal raised partway names the one channel it refused; every
             # other channel's outcome stays unknown.
-            if exc.channel_address in channel_values:
-                _notify_write(exc.channel_address, _WRITE_PHASE_REFUSED)
+            if exc.address in channel_values:
+                _notify_write(exc.address, _WRITE_PHASE_REFUSED)
             raise
         # Every channel's outcome is reported before any raise: a failure on one
         # channel must not hide that the others already went out.
         for result in results:
-            _notify_outcome(result.channel_address, result.outcome)
+            _notify_outcome(result.address, result.outcome)
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.
         raise_for_write_results(results)

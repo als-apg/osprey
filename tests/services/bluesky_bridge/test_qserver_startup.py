@@ -94,7 +94,7 @@ class FakeWriteResult:
     """
 
     def __init__(self, address: str, value: Any) -> None:
-        self.channel_address = address
+        self.address = address
         self.value_written = value
         self.outcome = "confirmed"
         self.observed_value = value

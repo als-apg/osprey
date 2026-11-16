@@ -575,10 +575,10 @@ class TestVAInProcessConnector:
     def _fail_read_of(connector, channel, error):
         real_read = connector.read_channel
 
-        async def read_channel(channel_address, timeout=None):
-            if channel_address == channel:
+        async def read_channel(address, timeout=None):
+            if address == channel:
                 raise error
-            return await real_read(channel_address, timeout)
+            return await real_read(address, timeout)
 
         connector.read_channel = read_channel
 
@@ -733,7 +733,7 @@ class TestMockArchiverConnector:
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 1, 0, 0)
 
-        df = await connector.get_data(channels=channels, start_date=start_date, end_date=end_date)
+        df = await connector.get_data(addresses=channels, start_date=start_date, end_date=end_date)
 
         assert df is not None
         assert len(df) > 0
@@ -741,7 +741,7 @@ class TestMockArchiverConnector:
 
         with pytest.raises(ChannelNotFoundError) as refusal:
             await connector.get_data(
-                channels=["NOT:SERVED"], start_date=start_date, end_date=end_date
+                addresses=["NOT:SERVED"], start_date=start_date, end_date=end_date
             )
         assert str(refusal.value) == "NOT:SERVED is not a channel of this facility"
 
@@ -757,7 +757,7 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 0, 10, 0)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date, precision_ms=1000
+            addresses=["BEAM:CURRENT"], start_date=start_date, end_date=end_date, precision_ms=1000
         )
 
         import pandas as pd
@@ -777,7 +777,7 @@ class TestMockArchiverConnector:
         await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
-        assert metadata.channel == "BEAM:CURRENT"
+        assert metadata.address == "BEAM:CURRENT"
         assert metadata.is_archived is True
         assert metadata.archival_start is not None
 
@@ -809,7 +809,7 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 1, 0, 0)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
+            addresses=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
         )
 
         # Check that values vary (not all the same)
@@ -832,7 +832,7 @@ class TestMockArchiverConnector:
         channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE"]
 
         df = await connector.get_data(
-            channels=channels,
+            addresses=channels,
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
@@ -869,14 +869,14 @@ class TestMockArchiverProcessing:
         pv = "BEAM:CURRENT"
 
         raw_df = await connector.get_data(
-            channels=[pv],
+            addresses=[pv],
             start_date=start_date,
             end_date=end_date,
             precision_ms=1_000,
             processing="raw",
         )
         mean_df = await connector.get_data(
-            channels=[pv],
+            addresses=[pv],
             start_date=start_date,
             end_date=end_date,
             precision_ms=60_000,
@@ -899,7 +899,7 @@ class TestMockArchiverProcessing:
         end_date = start_date + timedelta(days=7)
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
+            addresses=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
@@ -932,7 +932,7 @@ class TestMockArchiverReproducibility:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(view))
         start, end = self._WINDOW
-        df = await connector.get_data(channels=[pv], start_date=start, end_date=end)
+        df = await connector.get_data(addresses=[pv], start_date=start, end_date=end)
         await connector.disconnect()
         return df["value"].tolist()
 
@@ -1078,8 +1078,8 @@ class TestInProcessWriteConfirmationContract:
         """
         connector = await self._connected_in_process(monkeypatch, tmp_path)
 
-        def _clamping_put(channel_address, _value):
-            connector._composite.set({channel_address: 10.0})
+        def _clamping_put(address, _value):
+            connector._composite.set({address: 10.0})
 
         monkeypatch.setattr(connector, "_put", _clamping_put)
 

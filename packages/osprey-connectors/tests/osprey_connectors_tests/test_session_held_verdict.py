@@ -404,7 +404,7 @@ async def test_a_batch_refuses_every_operation_with_one_answer():
     connector = RecordingConnector()
     _flag()
     results = await connector.write_multiple_channels([("PV:A", 1.0), ("PV:B", 2.0)])
-    assert [r.channel_address for r in results] == ["PV:A", "PV:B"]
+    assert [r.address for r in results] == ["PV:A", "PV:B"]
     assert {r.outcome for r in results} == {WriteOutcome.REFUSED}
     assert all(r.error_message.endswith("[osprey-refusal: session_held]") for r in results)
     assert connector.writes == []

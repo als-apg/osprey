@@ -59,8 +59,8 @@ class _FakeWriteResult:
     confirmed (or was not asked to confirm).
     """
 
-    def __init__(self, channel_address: str, value: Any) -> None:
-        self.channel_address = channel_address
+    def __init__(self, address: str, value: Any) -> None:
+        self.address = address
         self.value_written = value
         self.outcome = "confirmed"
         self.observed_value = value
@@ -79,20 +79,20 @@ class FakeConnector:
         self.checked_calls: list[tuple[str, Any]] = []
         self.unchecked_calls: list[tuple[str, Any]] = []
 
-    async def read_channel(self, channel_address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
+    async def read_channel(self, address: str, timeout: float | None = None):  # noqa: ARG002 - the connector read signature
         class _Reading:
             value = 1.0
 
         return _Reading()
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
-        self.checked_calls.append((channel_address, value))
-        return _FakeWriteResult(channel_address, value)
+    async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):
+        self.checked_calls.append((address, value))
+        return _FakeWriteResult(address, value)
 
-    async def write_channel(self, channel_address: str, value: Any, **kwargs: Any):
+    async def write_channel(self, address: str, value: Any, **kwargs: Any):
         """The unchecked write path — never called by the device layer itself."""
-        self.unchecked_calls.append((channel_address, value))
-        return _FakeWriteResult(channel_address, value)
+        self.unchecked_calls.append((address, value))
+        return _FakeWriteResult(address, value)
 
 
 def _public_attrs(obj: Any) -> list[str]:

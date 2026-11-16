@@ -191,7 +191,7 @@ async def test_a_timeout_names_the_machine():
 async def test_a_limits_violation_carries_the_target_in_its_details():
     envelope = await _envelope_for(
         ChannelLimitsViolationError(
-            channel_address="X:Y:SP",
+            address="X:Y:SP",
             value=99.0,
             violation_type="range",
             violation_reason="above maximum",

@@ -33,7 +33,7 @@ class TestChannelWriteResultShape:
         """
         model_fields = ChannelWriteResult.model_fields
         required = {name for name, spec in model_fields.items() if spec.is_required()}
-        assert required == {"channel_address", "value_written", "outcome"}
+        assert required == {"address", "value_written", "outcome"}
 
         defaults = {name: spec.default for name, spec in model_fields.items()}
 
@@ -68,13 +68,13 @@ class TestChannelWriteResultShape:
     def test_healthy_severity_zero_is_distinct_from_not_reported(self):
         """Severity 0 is a reported fact; ``None`` is the absence of one."""
         reported = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
+            address="TEST:CHANNEL",
             value_written=100.0,
             outcome=WriteOutcome.CONFIRMED,
             alarm_severity=0,
         )
         absent = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
+            address="TEST:CHANNEL",
             value_written=100.0,
             outcome=WriteOutcome.CONFIRMED,
         )
@@ -86,7 +86,7 @@ class TestChannelWriteResultShape:
     def test_full_field_set_round_trips_through_model_dump(self):
         """Every field survives a model -> dict -> model round trip."""
         original = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
+            address="TEST:CHANNEL",
             value_written=100.0,
             outcome=WriteOutcome.MISMATCH,
             refusal_reason=None,
@@ -106,13 +106,13 @@ class TestChannelWriteResultShape:
     def test_observed_number_narrows_only_what_is_a_number(self):
         """A reading with no numeric form is reported as such, never coerced."""
         numeric = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
+            address="TEST:CHANNEL",
             value_written=100.0,
             outcome=WriteOutcome.CONFIRMED,
             observed_value=100.0,
         )
         textual = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
+            address="TEST:CHANNEL",
             value_written="Open",
             outcome=WriteOutcome.CONFIRMED,
             observed_value="Open",

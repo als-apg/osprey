@@ -545,7 +545,7 @@ class TestGetMetadata:
         meta = await conn.get_metadata("FAC/DEV/LOC/PROP")
 
         assert isinstance(meta, ArchiverMetadata)
-        assert meta.channel == "FAC/DEV/LOC/PROP"
+        assert meta.address == "FAC/DEV/LOC/PROP"
         assert meta.is_archived is None
 
 
@@ -654,7 +654,7 @@ class TestQueryWindowTimezone:
         conn._read_history = _spy
 
         await conn.get_data(
-            channels=["FAC/DEV/LOC/P"],
+            addresses=["FAC/DEV/LOC/P"],
             start_date=datetime(2026, 7, 30, 10, 0, 0),
             end_date=datetime(2026, 7, 30, 11, 0, 0),
         )
@@ -688,7 +688,7 @@ class TestProcessingSparseData:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                channels=["FAC/DEV/LOC/P"],
+                addresses=["FAC/DEV/LOC/P"],
                 start_date=start,
                 end_date=end,
                 precision_ms=1000,
@@ -759,7 +759,7 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                channels=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                addresses=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
@@ -784,7 +784,7 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                channels=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                addresses=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
@@ -856,7 +856,7 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                channels=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
+                addresses=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
                 precision_ms=1000,
@@ -894,7 +894,7 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                channels=["FAST", "SLOW"],
+                addresses=["FAST", "SLOW"],
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC),
                 precision_ms=1000,

@@ -674,7 +674,7 @@ async def test_an_unreachable_channel_in_a_healthy_child_leaves_it_in_place(pool
     with pytest.raises(ChannelUnreachableError, match="GONE:X is unreachable") as caught:
         await live.read_channel("GONE:X")
 
-    assert caught.value.channel_address == "GONE:X"
+    assert caught.value.address == "GONE:X"
     assert not isinstance(caught.value, ConnectionError)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
@@ -1258,7 +1258,7 @@ async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(p
 
     assert sorted(values) == ["SR:A", "SR:B"]
     assert all(value.value is not None for value in values.values())
-    assert [(r.channel_address, r.value_written) for r in results] == [
+    assert [(r.address, r.value_written) for r in results] == [
         ("SR:SP1", 1.0),
         ("SR:SP2", 2.0),
     ]
@@ -1468,7 +1468,7 @@ async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
     assert reading.value is not None
     with pytest.raises(ChannelNotFoundError) as unknown:
         await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
-    assert unknown.value.channel_address == "NOT:SERVED"
+    assert unknown.value.address == "NOT:SERVED"
     assert len(spawns) == 1
 
 

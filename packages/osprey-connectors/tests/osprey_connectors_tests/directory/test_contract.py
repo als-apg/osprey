@@ -85,7 +85,7 @@ def test_a_page_of_any_other_outcome_needs_no_reason():
 
 
 def test_a_record_converts_to_the_json_shape():
-    record = DirectoryRecord(row=DirectoryRow(name="A"), properties={"caPort": "5064"})
+    record = DirectoryRecord(row=DirectoryRow(address="A"), properties={"caPort": "5064"})
 
     assert record.model_dump()["row"]["name"] == "A"
     assert record.model_dump()["properties"] == {"caPort": "5064"}

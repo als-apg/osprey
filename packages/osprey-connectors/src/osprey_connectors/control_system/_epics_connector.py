@@ -477,7 +477,7 @@ def _char_text(value: object) -> object:
     return value
 
 
-def _ca_failure(channel_address: str, failure: object, action: str) -> Exception:
+def _ca_failure(address: str, failure: object, action: str) -> Exception:
     """The exception a failed aioca call is raised as: the channel did not answer.
 
     A Channel Access failure is about the one channel: the CA context belongs
@@ -486,12 +486,8 @@ def _ca_failure(channel_address: str, failure: object, action: str) -> Exception
     text says which.
     """
     if getattr(failure, "errorcode", None) == _ECA_TIMEOUT:
-        return ChannelUnreachableError(
-            channel_address, f"{action} '{channel_address}' timed out: {failure}"
-        )
-    return ChannelUnreachableError(
-        channel_address, f"{action} '{channel_address}' failed: {failure}"
-    )
+        return ChannelUnreachableError(address, f"{action} '{address}' timed out: {failure}")
+    return ChannelUnreachableError(address, f"{action} '{address}' failed: {failure}")
 
 
 @runtime_checkable
@@ -1221,7 +1217,7 @@ class EPICSConnector(ControlSystemConnector):
         self._connected = True
         logger.debug("EPICS connector initialized")
 
-    def _is_pva_channel(self, channel_address: str) -> bool:
+    def _is_pva_channel(self, address: str) -> bool:
         """Return True when this address is routed over PVAccess instead of CA.
 
         Matching uses :func:`fnmatch.fnmatchcase`, which is case-sensitive and
@@ -1233,9 +1229,7 @@ class EPICSConnector(ControlSystemConnector):
 
         A connector with no configured globs always returns False.
         """
-        return any(
-            fnmatch.fnmatchcase(channel_address, pattern) for pattern in self._pva_channel_globs
-        )
+        return any(fnmatch.fnmatchcase(address, pattern) for pattern in self._pva_channel_globs)
 
     @override
     async def disconnect(self) -> None:
@@ -1288,9 +1282,7 @@ class EPICSConnector(ControlSystemConnector):
         logger.info("EPICS connector disconnected")
 
     @override
-    async def read_channel(
-        self, channel_address: str, timeout: float | None = None
-    ) -> ChannelValue:
+    async def read_channel(self, address: str, timeout: float | None = None) -> ChannelValue:
         """
         Read current value from EPICS channel.
 
@@ -1299,7 +1291,7 @@ class EPICSConnector(ControlSystemConnector):
         other address is read over Channel Access, on the process's CA loop.
 
         Args:
-            channel_address: EPICS channel address (e.g., 'BEAM:CURRENT')
+            address: EPICS channel address (e.g., 'BEAM:CURRENT')
             timeout: Timeout in seconds (uses default if None)
 
         Returns:
@@ -1313,11 +1305,11 @@ class EPICSConnector(ControlSystemConnector):
         """
         timeout = timeout or self._timeout
 
-        if self._is_pva_channel(channel_address):
+        if self._is_pva_channel(address):
             # p4p's thread client blocks, so it runs in a worker thread.
-            return await asyncio.to_thread(self._read_channel_pva, channel_address, timeout)
+            return await asyncio.to_thread(self._read_channel_pva, address, timeout)
 
-        name = normalise_address(channel_address)
+        name = normalise_address(address)
         deadline = (time.time() + timeout,)
         return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout))
 
@@ -1329,26 +1321,26 @@ class EPICSConnector(ControlSystemConnector):
     # fresh allowance per call.
     # ------------------------------------------------------------------
 
-    async def _ca_connect(self, name: str, deadline: tuple[float]) -> object:
-        """Connect ``name`` within ``deadline``; record the outcome for :meth:`wait_stale`."""
-        connected = await self._ca_client.connect(name, timeout=deadline, throw=False)
+    async def _ca_connect(self, address: str, deadline: tuple[float]) -> object:
+        """Connect ``address`` within ``deadline``; record the outcome for :meth:`wait_stale`."""
+        connected = await self._ca_client.connect(address, timeout=deadline, throw=False)
         if connected:
             # A new connect: the channel's first, or its first since it failed,
             # and not one a subscription record already holds connected. A
             # name's first connect after a repoint is not counted: the repoint
             # purged aioca's cache, not this bookkeeping, so it is a false
             # negative only, which the silent rule backs.
-            new = name not in self._one_shot_connected or name in self._connect_failures
-            if new and not (self._bulk is not None and self._bulk.is_down(name) is False):
+            new = address not in self._one_shot_connected or address in self._connect_failures
+            if new and not (self._bulk is not None and self._bulk.is_down(address) is False):
                 self._one_shot_connect_at = time.monotonic()
-            self._one_shot_connected.add(name)
-            self._connect_failures.pop(name, None)
+            self._one_shot_connected.add(address)
+            self._connect_failures.pop(address, None)
         else:
-            self._connect_failures[name] = time.monotonic()
+            self._connect_failures[address] = time.monotonic()
         return connected
 
     async def _read_channel_ca(
-        self, name: str, deadline: tuple[float], timeout: float, *, ctrl: str = "always"
+        self, address: str, deadline: tuple[float], timeout: float, *, ctrl: str = "always"
     ) -> ChannelValue:
         """Read a channel's value, alarm state and timestamp from the IOC, within ``deadline``.
 
@@ -1364,27 +1356,29 @@ class EPICSConnector(ControlSystemConnector):
         ``timeout`` is only quoted in the error.
         """
         aioca = self._ca_client
-        connected = await self._ca_connect(name, deadline)
+        connected = await self._ca_connect(address, deadline)
         if not connected:
             raise ChannelUnreachableError(
-                name, f"Failed to connect to PV '{name}' (timeout after {timeout}s)"
+                address, f"Failed to connect to PV '{address}' (timeout after {timeout}s)"
             )
-        reading = await aioca.caget(name, format=aioca.FORMAT_TIME, timeout=deadline, throw=False)
+        reading = await aioca.caget(
+            address, format=aioca.FORMAT_TIME, timeout=deadline, throw=False
+        )
         if isinstance(reading, aioca.CANothing):
-            raise _ca_failure(name, reading, "Read of")
+            raise _ca_failure(address, reading, "Read of")
         want_ctrl = ctrl == "always" or _is_enum_type(
             _ca_type_name(getattr(reading, "datatype", None))
         )
-        fields = await self._ca_ctrl_fields(name, deadline) if want_ctrl else None
+        fields = await self._ca_ctrl_fields(address, deadline) if want_ctrl else None
         writable = None
         if ctrl == "always":
-            info = await aioca.cainfo(name, timeout=deadline, throw=False)
+            info = await aioca.cainfo(address, timeout=deadline, throw=False)
             # A failed cainfo answers its CANothing: an exception, never a CaInfo.
             if not isinstance(info, Exception):
                 writable = getattr(info, "write", None)
         return self._ca_channel_value(reading, fields, writable)
 
-    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> object:
+    async def _ca_ctrl_fields(self, address: str, deadline: tuple[float]) -> object:
         """The channel's CTRL-form reading (units, precision, labels, limits), or ``None``.
 
         Fetched once per channel and reused: these fields describe the record,
@@ -1393,17 +1387,17 @@ class EPICSConnector(ControlSystemConnector):
         deadline) is logged and not cached, so the next read tries again; the
         reading it was meant to enrich still stands.
         """
-        cached = self._ca_ctrl.get(name)
+        cached = self._ca_ctrl.get(address)
         if cached is not None:
             return cached
         aioca = self._ca_client
         fields = await aioca.caget(
-            name, format=aioca.FORMAT_CTRL, count=1, timeout=deadline, throw=False
+            address, format=aioca.FORMAT_CTRL, count=1, timeout=deadline, throw=False
         )
         if isinstance(fields, aioca.CANothing):
-            logger.debug("Could not fetch control fields for '%s': %s", name, fields)
+            logger.debug("Could not fetch control fields for '%s': %s", address, fields)
             return None
-        self._ca_ctrl[name] = fields
+        self._ca_ctrl[address] = fields
         return fields
 
     def _ca_channel_value(
@@ -1456,7 +1450,7 @@ class EPICSConnector(ControlSystemConnector):
         )
 
     async def _put_ca(
-        self, channel_address: str, value: object, wait: bool, deadline: tuple[float]
+        self, address: str, value: object, wait: bool, deadline: tuple[float]
     ) -> _PutSent | _PutFault:
         """Put ``value`` within ``deadline``; say whether it was sent, acknowledged, or refused.
 
@@ -1484,12 +1478,12 @@ class EPICSConnector(ControlSystemConnector):
         and every answer above claims to know it.
         """
         aioca = self._ca_client
-        connected = await self._ca_connect(channel_address, deadline)
+        connected = await self._ca_connect(address, deadline)
         if not connected:
             return _PutFault("not_sent", f"did not connect: {connected}")
         # The channel's own field type decides what goes out. cainfo reads it
         # from the channel just connected, without a round trip to the IOC.
-        info = await aioca.cainfo(channel_address, timeout=deadline, throw=False)
+        info = await aioca.cainfo(address, timeout=deadline, throw=False)
         # A failed cainfo answers its CANothing: an exception, never a CaInfo.
         if isinstance(info, Exception):
             return _PutFault("not_sent", f"field type unreadable: {info}")
@@ -1504,7 +1498,7 @@ class EPICSConnector(ControlSystemConnector):
             # and that would read as a put that went out unacknowledged.
             return _PutFault("not_sent", TimeoutError("the put deadline ran out before the put"))
         done = await aioca.caput(
-            channel_address, put_value, datatype=datatype, wait=wait, timeout=deadline, throw=False
+            address, put_value, datatype=datatype, wait=wait, timeout=deadline, throw=False
         )
         if done:
             return _PutSent(sent, as_text)
@@ -1515,9 +1509,7 @@ class EPICSConnector(ControlSystemConnector):
             return _PutFault("cs_refused", done)
         if code == _ECA_PUTFAIL:
             return _PutFault("put_failed", done)
-        raise ChannelUnreachableError(
-            channel_address, f"Write to '{channel_address}' failed: {done}"
-        )
+        raise ChannelUnreachableError(address, f"Write to '{address}' failed: {done}")
 
     # ------------------------------------------------------------------
     # PVAccess read path
@@ -1540,7 +1532,7 @@ class EPICSConnector(ControlSystemConnector):
                 found.append(candidate)
         return tuple(found)
 
-    def _pva_failure(self, channel_address: str, failure: Exception, action: str) -> Exception:
+    def _pva_failure(self, address: str, failure: Exception, action: str) -> Exception:
         """The exception a failed p4p call is raised as, the PVA twin of :func:`_ca_failure`.
 
         A get that timed out and a channel p4p reports disconnected, remote-failed
@@ -1550,11 +1542,11 @@ class EPICSConnector(ControlSystemConnector):
         """
         if isinstance(failure, TimeoutError):
             return ChannelUnreachableError(
-                channel_address, f"{action} PVA channel '{channel_address}' timed out: {failure}"
+                address, f"{action} PVA channel '{address}' timed out: {failure}"
             )
         if isinstance(failure, self._pva_connection_error_types()):
             return ChannelUnreachableError(
-                channel_address, f"Failed to connect to PVA channel '{channel_address}': {failure}"
+                address, f"Failed to connect to PVA channel '{address}': {failure}"
             )
         return failure
 
@@ -1588,7 +1580,7 @@ class EPICSConnector(ControlSystemConnector):
             )
         return aioca
 
-    def _require_pva_context(self, channel_address: str, action: str) -> _PvaContext:
+    def _require_pva_context(self, address: str, action: str) -> _PvaContext:
         """The PVA client context, or the connector's own unavailability.
 
         Raises:
@@ -1598,12 +1590,12 @@ class EPICSConnector(ControlSystemConnector):
         context = self._pva_context
         if context is None:
             raise ConnectorUnavailableError(
-                f"Cannot {action} PVA channel '{channel_address}': no PVA client context. "
+                f"Cannot {action} PVA channel '{address}': no PVA client context. "
                 "connect() builds it from control_system.connector.epics.pva_channels."
             )
         return context
 
-    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> object:
+    def _pva_get(self, address: str, timeout: float, request: str | None = None) -> object:
         """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
 
         Failures are raised through :meth:`_pva_failure`, the one funnel that
@@ -1618,32 +1610,32 @@ class EPICSConnector(ControlSystemConnector):
         the mapping identical for an unwrap-disabled Context.
 
         Args:
-            channel_address: PVA channel to read.
+            address: PVA channel to read.
             timeout: Timeout in seconds.
             request: Optional pvRequest string (e.g. :data:`_PVA_METADATA_REQUEST`).
                 When omitted, the server's whole structure is fetched.
         """
-        context = self._require_pva_context(channel_address, "read")
+        context = self._require_pva_context(address, "read")
 
         try:
             if request is None:
-                result = context.get(channel_address, timeout=timeout)
+                result = context.get(address, timeout=timeout)
             else:
-                result = context.get(channel_address, request=request, timeout=timeout)
+                result = context.get(address, request=request, timeout=timeout)
         except Exception as exc:
-            failure = self._pva_failure(channel_address, exc, f"Read (timeout {timeout}s) of")
+            failure = self._pva_failure(address, exc, f"Read (timeout {timeout}s) of")
             if failure is exc:
                 raise
             raise failure from exc
 
         return getattr(result, "raw", result)
 
-    def _read_channel_pva(self, channel_address: str, timeout: float) -> ChannelValue:
+    def _read_channel_pva(self, address: str, timeout: float) -> ChannelValue:
         """Synchronous PVAccess read (runs in a thread pool, like the CA read)."""
-        value = self._pva_get(channel_address, timeout)
-        return self._pva_channel_value(channel_address, value)
+        value = self._pva_get(address, timeout)
+        return self._pva_channel_value(address, value)
 
-    def _pva_channel_value(self, channel_address: str, value: object) -> ChannelValue:
+    def _pva_channel_value(self, address: str, value: object) -> ChannelValue:
         """Map a p4p Value onto :class:`ChannelValue` by normative type."""
         type_id = _pva_type_id(value)
         timestamp = self._pva_timestamp(value)
@@ -1651,7 +1643,7 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata.update(self._pva_alarm_metadata(value))
 
         if type_id.startswith(_NT_NDARRAY_ID):
-            payload = self._pva_ndarray_value(channel_address, value)
+            payload = self._pva_ndarray_value(address, value)
         elif type_id.startswith(_NT_ENUM_ID):
             payload = self._pva_enum_value(value)
         else:
@@ -1784,7 +1776,7 @@ class EPICSConnector(ControlSystemConnector):
             },
         }
 
-    def _pva_ndarray_value(self, channel_address: str, value: object) -> _PvaPayload:
+    def _pva_ndarray_value(self, address: str, value: object) -> _PvaPayload:
         """NTNDArray: the carried array, reshaped per its dimension list.
 
         The array is taken from the selected union member exactly as p4p decoded
@@ -1800,7 +1792,7 @@ class EPICSConnector(ControlSystemConnector):
             # compressed byte blob, and reshaping it would produce a plausible
             # image full of meaningless pixel statistics.
             raise ValueError(
-                f"Cannot read '{channel_address}': compressed NTNDArray unsupported; "
+                f"Cannot read '{address}': compressed NTNDArray unsupported; "
                 f"disable ADPva compression for this channel "
                 f"(codec={codec_name!r}, dimensions={dimensions})"
             )
@@ -1824,7 +1816,7 @@ class EPICSConnector(ControlSystemConnector):
                 array = array.reshape(shape)
             except ValueError as exc:
                 raise ValueError(
-                    f"Cannot read '{channel_address}': NTNDArray dimensions {dimensions} "
+                    f"Cannot read '{address}': NTNDArray dimensions {dimensions} "
                     f"do not describe its {getattr(array, 'size', '?')}-element payload ({exc})"
                 ) from None
 
@@ -1845,8 +1837,8 @@ class EPICSConnector(ControlSystemConnector):
         the CA client must not be pointed at an address routed over PVAccess.
         """
 
-        def read_current(channel_address: str) -> object:
-            if self._is_pva_channel(channel_address):
+        def read_current(address: str) -> object:
+            if self._is_pva_channel(address):
                 return None
             budget = self._step_read_timeout
             try:
@@ -1855,11 +1847,11 @@ class EPICSConnector(ControlSystemConnector):
                 # both under one timeout); the extra second only backs up a
                 # CA loop that does not answer at all.
                 reading = self._ca_loop.run_sync(
-                    aioca.caget(normalise_address(channel_address), timeout=budget, throw=False),
+                    aioca.caget(normalise_address(address), timeout=budget, throw=False),
                     timeout=budget + 1.0,
                 )
             except Exception as exc:  # the CA loop did not answer in time
-                logger.debug(f"max_step read of '{channel_address}' failed: {exc}")
+                logger.debug(f"max_step read of '{address}' failed: {exc}")
                 return None
             if isinstance(reading, aioca.CANothing):
                 return None
@@ -1890,7 +1882,7 @@ class EPICSConnector(ControlSystemConnector):
         """No write gateway is configured, or ``connect()`` selected it."""
         return not self._write_gateway_configured or self._selected_role == "write_access"
 
-    def _role_refusal(self, channel_address: str, value: object) -> ChannelWriteResult | None:
+    def _role_refusal(self, address: str, value: object) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.
 
         Called only for a write the verdict allowed. The block configures a
@@ -1913,20 +1905,18 @@ class EPICSConnector(ControlSystemConnector):
             target=allowed.target if allowed is not None else self._control_target,
             kind=allowed.kind if allowed is not None else None,
         )
-        return _verdict_refusal(channel_address, value, verdict)
+        return _verdict_refusal(address, value, verdict)
 
     @override
-    def _write_precheck(
-        self, channel_address: str, value: object
-    ) -> tuple[str, ChannelWriteResult | None]:
+    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
         """The record a write names, and the refusal that needs no I/O to make."""
         # One name for the whole write, decided before any check runs. ``X``,
         # ``ca://X`` and a spelling with surrounding whitespace are one record,
         # and every refusal, the limits lookup, the current-value read, the put
         # and the result judge and name that one record; a check on the raw
         # spelling would judge a different entry than the one the put targets.
-        given = channel_address.strip()
-        channel_address = normalise_address(given)
+        given = address.strip()
+        address = normalise_address(given)
 
         # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
         # of limits validation: validating max_step reads the channel's current
@@ -1937,14 +1927,14 @@ class EPICSConnector(ControlSystemConnector):
         # are matched on the spelling as given (the reads' contract) and on the
         # one name the put would use, so neither padding nor a scheme slips a
         # PVA-routed record past the refusal.
-        if self._is_pva_channel(given) or self._is_pva_channel(channel_address):
-            return channel_address, ChannelWriteResult(
-                channel_address=channel_address,
+        if self._is_pva_channel(given) or self._is_pva_channel(address):
+            return address, ChannelWriteResult(
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=RefusalReason.VALIDATION_ERROR,
                 error_message=(
-                    f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
+                    f"Write to '{address}' refused: PVAccess writes are not supported. "
                     "This address matches a configured 'pva_channels' pattern, so it is routed "
                     "over PVAccess and is read-only in this deployment. No write was attempted."
                 ),
@@ -1953,12 +1943,12 @@ class EPICSConnector(ControlSystemConnector):
         # Step 0b: the verdict allowed this write (the guard asked it first), but
         # the gateway this connector selected at connect() may predate the
         # switch. Refused before limits validation reads anything.
-        return channel_address, self._role_refusal(channel_address, value)
+        return address, self._role_refusal(address, value)
 
     @override
     async def write_channel(
         self,
-        channel_address: str,
+        address: str,
         value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
@@ -1973,7 +1963,7 @@ class EPICSConnector(ControlSystemConnector):
            was sent, using the shared :func:`values_match` rule
 
         Args:
-            channel_address: EPICS channel address
+            address: EPICS channel address
             value: Value to write
             timeout: Timeout in seconds
             confirm: Whether to confirm the write by re-reading the channel.
@@ -1989,7 +1979,7 @@ class EPICSConnector(ControlSystemConnector):
                 outcome unknown
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
-        channel_address, refusal = self._write_precheck(channel_address, value)
+        address, refusal = self._write_precheck(address, value)
         if refusal is not None:
             return refusal
 
@@ -1999,7 +1989,7 @@ class EPICSConnector(ControlSystemConnector):
         # no opinion (cheap, on-loop). An explicit False is an answer and is
         # never re-resolved.
         if confirm is None:
-            confirm = self._resolve_confirm(channel_address)
+            confirm = self._resolve_confirm(address)
 
         # Import here to avoid circular dependency
         from osprey_connectors.errors import ChannelLimitsViolationError
@@ -2012,9 +2002,9 @@ class EPICSConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self.current_value_reader()
+                        address, value, read_current=self.current_value_reader()
                     )
-                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                    logger.debug(f"✓ Limits validation passed: {address}={value}")
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
@@ -2026,12 +2016,12 @@ class EPICSConnector(ControlSystemConnector):
 
         validation_error = await self._run_write_phase(_validate)
         if validation_error is not None:
-            return self._validation_refusal(channel_address, value, validation_error)
+            return self._validation_refusal(address, value, validation_error)
 
-        return await self._put_and_verify(channel_address, value, timeout, confirm)
+        return await self._put_and_verify(address, value, timeout, confirm)
 
     async def _put_and_verify(
-        self, channel_address: str, value: object, timeout: float, confirm: bool
+        self, address: str, value: object, timeout: float, confirm: bool
     ) -> ChannelWriteResult:
         """Put one value that passed every check, and confirm it when asked.
 
@@ -2045,32 +2035,32 @@ class EPICSConnector(ControlSystemConnector):
         # charged to it as well.
         put_deadline = (time.time() + timeout,)
         put = await self._ca_loop.run(
-            self._put_ca(channel_address, value, wait=bool(confirm), deadline=put_deadline)
+            self._put_ca(address, value, wait=bool(confirm), deadline=put_deadline)
         )
         if isinstance(put, _PutFault):
-            return self._put_fault_result(channel_address, value, timeout, put)
+            return self._put_fault_result(address, value, timeout, put)
 
         if not confirm:
             # Nothing was checked, and nothing may be claimed: the result stays
             # value-less by design.
-            logger.debug(f"EPICS write (unconfirmed by request): {channel_address} = {value}")
+            logger.debug(f"EPICS write (unconfirmed by request): {address} = {value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
             )
 
         # Step 4: One fresh read of the channel that was just written.
         try:
-            observed = await self._confirming_read(channel_address, timeout)
+            observed = await self._confirming_read(address, timeout)
         except Exception as e:
-            logger.warning(f"EPICS confirming read failed for {channel_address}: {e}")
+            logger.warning(f"EPICS confirming read failed for {address}: {e}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=(
-                    f"Write to '{channel_address}' could not be confirmed — "
+                    f"Write to '{address}' could not be confirmed — "
                     f"the read that followed it failed: {e}"
                 ),
             )
@@ -2085,9 +2075,9 @@ class EPICSConnector(ControlSystemConnector):
         enum_label = getattr(metadata, "enum_label", None) if metadata is not None else None
 
         if values_match(sent, observed.value, enum_label=enum_label):
-            logger.debug(f"EPICS write confirmed: {channel_address} = {observed.value}")
+            logger.debug(f"EPICS write confirmed: {address} = {observed.value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.CONFIRMED,
                 observed_value=observed.value,
@@ -2096,11 +2086,10 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         logger.warning(
-            f"EPICS write mismatch on {channel_address}: sent {value}, "
-            f"channel holds {observed.value}"
+            f"EPICS write mismatch on {address}: sent {value}, channel holds {observed.value}"
         )
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.MISMATCH,
             # No error_message: both values are on the result, and the raising
@@ -2114,21 +2103,21 @@ class EPICSConnector(ControlSystemConnector):
 
     @staticmethod
     def _put_fault_result(
-        channel_address: str, value: object, timeout: float, put: _PutFault
+        address: str, value: object, timeout: float, put: _PutFault
     ) -> ChannelWriteResult:
         """The result of a put that was not sent, not acknowledged, or not taken."""
         payload = put.failure
         if put.verdict == "cs_refused":
             # The control system was asked and said no: access security, not
             # a client bug, and nothing was written.
-            logger.warning(f"Control system refused write to {channel_address}: {payload}")
+            logger.warning(f"Control system refused write to {address}: {payload}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
                 error_message=(
-                    f"Write to '{channel_address}' refused by the control system "
+                    f"Write to '{address}' refused by the control system "
                     f"(access security); no value was written: {payload}"
                 ),
             )
@@ -2136,55 +2125,51 @@ class EPICSConnector(ControlSystemConnector):
         # The value was sent and its callback never came: nothing has said the
         # IOC took it, so the outcome is unknown and no re-read is made.
         if put.verdict == "unacknowledged":
-            logger.warning(
-                f"EPICS put not acknowledged within {timeout}s: {channel_address} = {value}"
-            )
+            logger.warning(f"EPICS put not acknowledged within {timeout}s: {address} = {value}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
                 error_message=(
-                    f"Write to '{channel_address}' could not be confirmed — the control "
+                    f"Write to '{address}' could not be confirmed — the control "
                     f"system did not acknowledge the put within {timeout}s"
                 ),
             )
 
         if put.verdict == "unwritable":
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.REFUSED,
                 refusal_reason=RefusalReason.VALIDATION_ERROR,
-                error_message=(
-                    f"Write to '{channel_address}' refused: {payload}. No value was sent."
-                ),
+                error_message=(f"Write to '{address}' refused: {payload}. No value was sent."),
             )
 
         if put.verdict == "put_failed":
-            logger.warning(f"IOC did not take the put to {channel_address}: {payload}")
+            logger.warning(f"IOC did not take the put to {address}: {payload}")
             return ChannelWriteResult(
-                channel_address=channel_address,
+                address=address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
                 error_message=(
-                    f"Write to '{channel_address}' failed: the IOC answered the put and "
+                    f"Write to '{address}' failed: the IOC answered the put and "
                     f"did not take it: {payload}"
                 ),
             )
 
         # "not_sent": nothing left this process.
         return ChannelWriteResult(
-            channel_address=channel_address,
+            address=address,
             value_written=value,
             outcome=WriteOutcome.FAILED,
             error_message=(
-                f"Failed to write to channel '{channel_address}': no value was sent "
+                f"Failed to write to channel '{address}': no value was sent "
                 f"within {timeout}s ({payload})"
             ),
         )
 
     @override
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, object] | None:
+    async def _current_values(self, addresses: list[str]) -> dict[str, object] | None:
         """What the named records hold, read together on the CA loop.
 
         One ``caget`` per record, all in flight at once under the one budget
@@ -2196,7 +2181,7 @@ class EPICSConnector(ControlSystemConnector):
 
         async def read_all() -> list[object | BaseException]:
             return await asyncio.gather(
-                *(aioca.caget(name, timeout=budget, throw=False) for name in channel_addresses),
+                *(aioca.caget(name, timeout=budget, throw=False) for name in addresses),
                 return_exceptions=True,
             )
 
@@ -2205,10 +2190,10 @@ class EPICSConnector(ControlSystemConnector):
             # The extra second only backs up a CA loop that does not answer at all.
             readings = await asyncio.wait_for(self._ca_loop.run(read_all()), budget + 1.0)
         except Exception as exc:
-            logger.debug(f"max_step read of {len(channel_addresses)} channels failed: {exc}")
-            return dict.fromkeys(channel_addresses)
+            logger.debug(f"max_step read of {len(addresses)} channels failed: {exc}")
+            return dict.fromkeys(addresses)
         held: dict[str, object] = {}
-        for name, reading in zip(channel_addresses, readings, strict=True):
+        for name, reading in zip(addresses, readings, strict=True):
             if isinstance(reading, BaseException):
                 if not isinstance(reading, Exception | aioca.CANothing):
                     raise reading
@@ -2256,7 +2241,7 @@ class EPICSConnector(ControlSystemConnector):
                 raise end
         return [end for end in ended if not isinstance(end, BaseException)]
 
-    async def _confirming_read(self, channel_address: str, timeout: float) -> ChannelValue:
+    async def _confirming_read(self, address: str, timeout: float) -> ChannelValue:
         """Read the channel a write just touched, straight off the wire.
 
         The ordinary read path already asks the IOC every time, so a reading
@@ -2270,22 +2255,20 @@ class EPICSConnector(ControlSystemConnector):
         """
         deadline = (time.time() + timeout,)
         return await self._ca_loop.run(
-            self._read_channel_ca(
-                normalise_address(channel_address), deadline, timeout, ctrl="enum"
-            )
+            self._read_channel_ca(normalise_address(address), deadline, timeout, ctrl="enum")
         )
 
     @override
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self, addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        return await self._read_concurrently(channel_addresses, timeout)
+        return await self._read_concurrently(addresses, timeout)
 
     @override
     async def subscribe(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         *,
         on_connection: Callable[[bool], None] | None = None,
@@ -2294,7 +2277,7 @@ class EPICSConnector(ControlSystemConnector):
         Subscribe to channel value changes.
 
         Args:
-            channel_address: EPICS channel address
+            address: EPICS channel address
             callback: Function to call when value changes
             on_connection: Optional function told ``True`` when the channel
                 connects and ``False`` when it drops (see the base class)
@@ -2317,18 +2300,18 @@ class EPICSConnector(ControlSystemConnector):
         """
         loop = asyncio.get_running_loop()
 
-        if self._is_pva_channel(channel_address):
-            return self._subscribe_pva(channel_address, callback, loop, on_connection)
+        if self._is_pva_channel(address):
+            return self._subscribe_pva(address, callback, loop, on_connection)
 
         bulk = self._ca_bulk()
         subscription = _ChannelSubscription("ca", None, ca_loop=self._ca_loop)
-        sub_id = f"{channel_address}_{id(subscription)}"
+        sub_id = f"{address}_{id(subscription)}"
         # Closing the subscription leaves the record, on the CA loop.
         subscription.handle = _BulkHandle(bulk, sub_id)
         try:
             await self._ca_loop.run(
                 bulk.subscribe(
-                    channel_address,
+                    address,
                     sub_id,
                     callback,
                     loop,
@@ -2501,7 +2484,7 @@ class EPICSConnector(ControlSystemConnector):
 
     def _subscribe_pva(
         self,
-        channel_address: str,
+        address: str,
         callback: Callable[[ChannelValue], None],
         loop: asyncio.AbstractEventLoop,
         on_connection: Callable[[bool], None] | None = None,
@@ -2535,10 +2518,10 @@ class EPICSConnector(ControlSystemConnector):
         any :meth:`get_metadata` call waiting on this address. A drop empties
         the slot again.
         """
-        context = self._require_pva_context(channel_address, "subscribe to")
+        context = self._require_pva_context(address, "subscribe to")
 
         connected = False
-        slot = _PvaMetadataSlot(channel_address)
+        slot = _PvaMetadataSlot(address)
 
         def pva_callback(update: object) -> None:
             """Wrapper to convert a p4p monitor update to our format."""
@@ -2546,7 +2529,7 @@ class EPICSConnector(ControlSystemConnector):
             if isinstance(update, Exception):
                 # Connection state, never data: the channel is down until a
                 # value arrives again, and so is the metadata it carried.
-                logger.debug(f"PVA monitor event for '{channel_address}': {update!r}")
+                logger.debug(f"PVA monitor event for '{address}': {update!r}")
                 with slot.lock:
                     slot.metadata = None
                 if connected and on_connection is not None:
@@ -2554,11 +2537,9 @@ class EPICSConnector(ControlSystemConnector):
                 connected = False
                 return
             try:
-                channel_value = self._pva_channel_value(
-                    channel_address, getattr(update, "raw", update)
-                )
+                channel_value = self._pva_channel_value(address, getattr(update, "raw", update))
             except Exception as exc:
-                logger.warning(f"Dropping PVA update for '{channel_address}': {exc}")
+                logger.warning(f"Dropping PVA update for '{address}': {exc}")
                 return
             if not connected and on_connection is not None:
                 loop.call_soon_threadsafe(on_connection, True)
@@ -2572,9 +2553,9 @@ class EPICSConnector(ControlSystemConnector):
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, channel_value)
 
-        subscription = context.monitor(channel_address, pva_callback, notify_disconnect=True)
+        subscription = context.monitor(address, pva_callback, notify_disconnect=True)
 
-        sub_id = f"{channel_address}_{id(subscription)}"
+        sub_id = f"{address}_{id(subscription)}"
         self._subscriptions[sub_id] = _ChannelSubscription("pva", subscription)
         self._pva_metadata_slots[sub_id] = slot
 
@@ -2596,7 +2577,7 @@ class EPICSConnector(ControlSystemConnector):
             slot.settle(waiters, None)
         logger.debug(f"EPICS subscription removed: {subscription_id}")
 
-    def _read_metadata_pva(self, channel_address: str, timeout: float) -> ChannelMetadata:
+    def _read_metadata_pva(self, address: str, timeout: float) -> ChannelMetadata:
         """Metadata-only PVAccess get (runs in a thread pool, like the reads).
 
         Asks the server for :data:`_PVA_METADATA_REQUEST` only, so a metadata
@@ -2611,13 +2592,13 @@ class EPICSConnector(ControlSystemConnector):
         does not ask for, and the label for "the current value" is meaningless
         without a value anyway. Enum labels come from a read.
         """
-        value = self._pva_get(channel_address, timeout, request=_PVA_METADATA_REQUEST)
+        value = self._pva_get(address, timeout, request=_PVA_METADATA_REQUEST)
         raw_metadata: dict[str, object] = {"nt_id": _pva_type_id(value)}
         raw_metadata.update(self._pva_alarm_metadata(value))
         return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
 
     @override
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, address: str) -> ChannelMetadata:
         """Get metadata for a channel, over whichever transport serves it.
 
         A PVA address this connector is subscribed to answers from the
@@ -2638,30 +2619,26 @@ class EPICSConnector(ControlSystemConnector):
                 (PVA) or no control data (CA) within ``timeout_s``: it is
                 down, or was never reached.
         """
-        if self._is_pva_channel(channel_address):
-            slots = [
-                slot
-                for slot in self._pva_metadata_slots.values()
-                if slot.address == channel_address
-            ]
+        if self._is_pva_channel(address):
+            slots = [slot for slot in self._pva_metadata_slots.values() if slot.address == address]
             if slots:
-                metadata = await self._await_subscribed_pva_metadata(channel_address, slots)
+                metadata = await self._await_subscribed_pva_metadata(address, slots)
                 if metadata is not None:
                     return metadata
                 # Every subscription closed while we waited: no monitor to ask.
-            return await asyncio.to_thread(self._read_metadata_pva, channel_address, self._timeout)
+            return await asyncio.to_thread(self._read_metadata_pva, address, self._timeout)
 
         if self._bulk is not None:
             bulk_metadata: ChannelMetadata | None = await self._ca_loop.run(
-                self._bulk.metadata(channel_address, self._timeout)
+                self._bulk.metadata(address, self._timeout)
             )
             if bulk_metadata is not None:
                 return bulk_metadata
-        channel_value = await self.read_channel(channel_address)
+        channel_value = await self.read_channel(address)
         return channel_value.metadata
 
     async def _await_subscribed_pva_metadata(
-        self, channel_address: str, slots: list[_PvaMetadataSlot]
+        self, address: str, slots: list[_PvaMetadataSlot]
     ) -> ChannelMetadata | None:
         """Metadata of a subscribed PVA address, awaiting its first update.
 
@@ -2683,8 +2660,8 @@ class EPICSConnector(ControlSystemConnector):
                 return await asyncio.wait_for(waiter, self._timeout)
             except TimeoutError:
                 raise ChannelUnreachableError(
-                    channel_address,
-                    f"PVA channel '{channel_address}' is subscribed but delivered no "
+                    address,
+                    f"PVA channel '{address}' is subscribed but delivered no "
                     f"update within {self._timeout}s",
                 ) from None
         finally:
@@ -2694,7 +2671,7 @@ class EPICSConnector(ControlSystemConnector):
                         slot.waiters.remove(waiter)
 
     @override
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, address: str) -> bool:
         """
         Check if channel exists and is accessible.
 
@@ -2704,18 +2681,18 @@ class EPICSConnector(ControlSystemConnector):
         cannot decode still validates as reachable.
 
         Args:
-            channel_address: EPICS channel address
+            address: EPICS channel address
 
         Returns:
             True if channel can be accessed
         """
         timeout = self._timeout
         try:
-            if self._is_pva_channel(channel_address):
-                await asyncio.to_thread(self._read_metadata_pva, channel_address, timeout)
+            if self._is_pva_channel(address):
+                await asyncio.to_thread(self._read_metadata_pva, address, timeout)
             else:
-                await self.read_channel(channel_address, timeout=timeout)
+                await self.read_channel(address, timeout=timeout)
             return True
         except Exception as e:
-            logger.debug(f"Channel validation failed for {channel_address}: {e}")
+            logger.debug(f"Channel validation failed for {address}: {e}")
             return False

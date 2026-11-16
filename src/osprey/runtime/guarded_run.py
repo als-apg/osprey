@@ -1008,9 +1008,9 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         # A refusal raised partway names the one command it refused; every
         # other command's outcome is unknown and may have gone out.
         refused = (
-            exc.channel_address
+            exc.address
             if isinstance(exc, ChannelLimitsViolationError | ChannelWriteBlockedError)
-            and exc.channel_address in batch
+            and exc.address in batch
             else None
         )
         if refused is not None:
@@ -1021,7 +1021,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         _audit(context, fired, exc, attempted=batch)
         raise
     for result in results:
-        _notify_outcome(result.channel_address, result.outcome)
+        _notify_outcome(result.address, result.outcome)
     # The results come back in batch order, one per command; a command with no
     # result has an unknown outcome and may have gone out.
     outcomes = [result.outcome for result in results]

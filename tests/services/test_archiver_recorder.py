@@ -1210,7 +1210,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            channels=list(samples),
+            addresses=list(samples),
             start_date=timestamp - timedelta(seconds=5),
             end_date=timestamp + timedelta(seconds=5),
         )
@@ -1269,7 +1269,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            channels=list(samples),
+            addresses=list(samples),
             start_date=timestamp - timedelta(seconds=5),
             end_date=timestamp + timedelta(seconds=5),
         )

@@ -115,10 +115,10 @@ class FakeAlarmState(FakeBackend):
     async def aclose(self) -> None:
         pass
 
-    async def state_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
-        return self.states.get(pv)
+    async def state_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return self.states.get(address)
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -127,11 +127,11 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
-        self.asked.append((pv, since, limit))
+    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+        self.asked.append((address, since, limit))
         return self._page(self.rows)
 
-    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+    async def config_for(self, address: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
 
 
@@ -140,8 +140,8 @@ class FakePutLog(FakeBackend):
     rows: list[Any] = []
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, pv: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
-        self.asked.append((pv, since, limit))
+    async def history(self, address: str, since: Any, limit: int, deadline: float) -> Any:  # noqa: ARG002
+        self.asked.append((address, since, limit))
         return self._page(self.rows)
 
 
@@ -475,7 +475,7 @@ async def test_an_empty_history_says_nothing_was_logged_with_its_caveats_and_lin
 
 
 async def test_a_history_answers_its_rows_newest_twenty_by_default(tmp_path: Path) -> None:
-    FakePutLog.rows = [PutRow(at="t2", channel="SR:BPM1", old="1", new="2", user="op")]
+    FakePutLog.rows = [PutRow(at="t2", address="SR:BPM1", old="1", new="2", user="op")]
     _install(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG})
 
     result = json.loads(await put_history.put_history("SR:BPM1"))

@@ -90,13 +90,13 @@ class ReplayAlarmState(AlarmState):
 
     @override
     async def state_for(
-        self, channel: str, deadline: float
+        self, address: str, deadline: float
     ) -> AlarmStateRecord | Unavailable | None:
         await self._loading(deadline)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
-        return state_record(snapshot, channel, stale=self._stopped)
+        return state_record(snapshot, address, stale=self._stopped)
 
     @override
     async def states(self, deadline: float) -> AlarmStates | Unavailable:
@@ -109,10 +109,10 @@ class ReplayAlarmState(AlarmState):
         return AlarmStates(rows=rows, stale=self._stopped, last_contact=self._loaded_at)
 
     @override
-    async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, address: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._loading(deadline)
         snapshot = self._answering()
-        return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, channel)
+        return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, address)
 
     @override
     async def probe(self, deadline: float) -> str | Unavailable:

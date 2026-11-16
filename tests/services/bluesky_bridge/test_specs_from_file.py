@@ -561,7 +561,7 @@ class _FakeConnector:
         from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 
         return ChannelWriteResult(
-            channel_address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
+            address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
         )
 
 
