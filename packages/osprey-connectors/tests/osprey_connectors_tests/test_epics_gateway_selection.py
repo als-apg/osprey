@@ -342,3 +342,31 @@ async def test_a_batch_on_a_lagging_connector_refuses_every_operation(
     assert [r.outcome for r in results] == [WriteOutcome.REFUSED, WriteOutcome.REFUSED]
     assert all(refusal_phrase("switching", "simulator") in r.error_message for r in results)
     assert aioca.puts == []
+
+
+@pytest.mark.parametrize(
+    ("block", "on", "expected"),
+    [
+        (None, True, (None, False)),
+        ({"gateways": _both_gateways()}, True, ("write_access", True)),
+        ({"gateways": _both_gateways()}, False, ("read_only", True)),
+        ({"gateways": {"read_only": dict(READ)}}, True, ("read_only", False)),
+        ({"timeout_s": 5.0}, True, (None, False)),
+    ],
+    ids=["never-connected", "on-both", "off-both", "read-only-only", "no-gateways"],
+)
+async def test_the_public_properties_report_the_selection(
+    monkeypatch, record_root, block, on, expected
+):
+    _armed(monkeypatch, record_root, on=on)
+    connector = EPICSConnector()
+    if block is not None:
+        await connector.connect(block)
+
+    assert (connector.selected_gateway_role, connector.write_gateway_configured) == expected
+    assert connector.selected_gateway_role == connector._selected_role
+    assert connector.write_gateway_configured is connector._write_gateway_configured
+    with pytest.raises(AttributeError):
+        connector.selected_gateway_role = "write_access"
+    with pytest.raises(AttributeError):
+        connector.write_gateway_configured = True
