@@ -239,6 +239,21 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
     assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
+@pytest.mark.usefixtures("started")
+def test_a_detached_start_with_no_container_fails_naming_the_service(lifecycle_repo):
+    """Compose's exit code is not the answer: a start that returns has to have
+    started what it was handed. Here every runtime call exits 0 and lists
+    nothing, the shape of a compose provider that started no container."""
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0, result.output
+    assert "event-dispatcher (no container)" in result.output
+    assert "osprey logs event-dispatcher" in result.output
+
+
 def _built_project(repo: Path) -> str:
     """The compose project the build in *repo* names, read the way a start reads it."""
     from osprey_connectors.config import load_project_config
