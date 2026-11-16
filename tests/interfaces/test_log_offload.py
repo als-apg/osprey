@@ -18,12 +18,12 @@ class _Blocking(RichHandler):
 
     def __init__(self) -> None:
         super().__init__()
-        self.release = threading.Event()
+        self.unblock = threading.Event()
         self.rendered: list[str] = []
         self.threads: set[int] = set()
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.release.wait(timeout=10)
+        self.unblock.wait(timeout=10)
         self.rendered.append(record.getMessage())
         self.threads.add(threading.get_ident())
 
@@ -36,7 +36,7 @@ def renderer():
     handler = _Blocking()
     root.handlers[:] = [h for h in saved if not isinstance(h, RichHandler)] + [handler]
     yield handler
-    handler.release.set()
+    handler.unblock.set()
     root.handlers[:] = saved
 
 
@@ -50,7 +50,7 @@ def test_a_slow_renderer_does_not_block_the_thread_that_logs(renderer):
         caller.start()
         caller.join(timeout=2)
         returned = not caller.is_alive()
-        renderer.release.set()
+        renderer.unblock.set()
 
     assert returned
     assert renderer.rendered == ["slow to render"]
@@ -66,7 +66,7 @@ def test_records_are_rendered_in_order_and_none_is_lost_at_shutdown(renderer):
             logger.error(message)
         assert renderer.rendered == []
         # Released only once the block is closing: leaving it waits for the queue.
-        threading.Timer(0.05, renderer.release.set).start()
+        threading.Timer(0.05, renderer.unblock.set).start()
 
     assert renderer.rendered == messages
 
@@ -77,7 +77,7 @@ def test_the_handler_is_back_on_the_root_logger_afterwards(renderer):
 
     with rendering_logs_off_thread():
         assert renderer not in root.handlers
-    renderer.release.set()
+    renderer.unblock.set()
 
     assert root.handlers == before
     logging.getLogger(LOGGER_NAME).error("direct again")
@@ -88,7 +88,7 @@ def test_the_handler_is_back_on_the_root_logger_afterwards(renderer):
 def test_a_failing_block_still_flushes_and_restores(renderer):
     root = logging.getLogger()
     before = list(root.handlers)
-    renderer.release.set()
+    renderer.unblock.set()
 
     with pytest.raises(RuntimeError), rendering_logs_off_thread():
         logging.getLogger(LOGGER_NAME).error("last words")
@@ -116,7 +116,7 @@ def test_a_traceback_reaches_the_renderer_intact(renderer):
 
 
 def test_the_renderers_own_level_and_filters_still_apply(renderer):
-    renderer.release.set()
+    renderer.unblock.set()
     renderer.setLevel(logging.ERROR)
     renderer.addFilter(lambda record: "secret" not in record.getMessage())
     logger = logging.getLogger(LOGGER_NAME)
@@ -134,7 +134,7 @@ def test_capture_handlers_stay_synchronous(renderer, caplog):
     with rendering_logs_off_thread(), caplog.at_level(logging.INFO, logger=LOGGER_NAME):
         logging.getLogger(LOGGER_NAME).info("captured at once")
         assert "captured at once" in caplog.messages
-        renderer.release.set()
+        renderer.unblock.set()
 
 
 def test_without_a_renderer_nothing_changes():
@@ -174,7 +174,7 @@ def test_the_web_terminal_serves_behind_the_queue(renderer, monkeypatch):
     monkeypatch.setattr(uvicorn, "Config", lambda *a, **kw: None)
     monkeypatch.setattr(web_app, "create_app", lambda **kw: object())
     monkeypatch.setattr(web_app, "_open_browser_when_ready", lambda url: None)
-    renderer.release.set()
+    renderer.unblock.set()
 
     class _Sock:
         def close(self):
