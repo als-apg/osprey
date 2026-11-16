@@ -59,8 +59,22 @@ def arrange(
 ) -> list[Placed]:
     """Place the elements along a strip of ``strip_width`` units.
 
+    See :func:`arrange_scaled`; this drops the scale.
+    """
+    return arrange_scaled(elements, widths, strip_width)[0]
+
+
+def arrange_scaled(
+    elements: Sequence[StripElement],
+    widths: Mapping[str, float] | None = None,
+    strip_width: float = 1000.0,
+) -> tuple[list[Placed], float]:
+    """Place the elements along a strip of ``strip_width`` units.
+
     Sorts by ``s_m`` (equal positions keep their input order) and walks in
-    order: a gap, then the symbol. The result is scaled to fill the strip.
+    order: a gap, then the symbol. Symbols are never enlarged: a strip shorter
+    than ``strip_width`` keeps its natural widths and is centred as a block; a
+    longer one is compressed to fit.
 
     Args:
         elements: The devices; any order.
@@ -68,7 +82,9 @@ def arrange(
         strip_width: The width of the strip.
 
     Returns:
-        One :class:`Placed` per element, in beam order.
+        One :class:`Placed` per element, in beam order, and the scale applied
+        (at most 1; below 1 the strip was compressed, so a renderer may choose
+        to break it into rows).
     """
     widths = widths or {}
     ordered = sorted(elements, key=lambda e: e.s_m)
@@ -84,7 +100,8 @@ def arrange(
         raw.append((e, cursor + w / 2, w))
         cursor += w
         previous = e.s_m
-    scale = strip_width / cursor if cursor > 0 else 1.0
+    scale = min(1.0, strip_width / cursor) if cursor > 0 else 1.0
+    offset = (strip_width - cursor * scale) / 2
     out: list[Placed] = []
     above = 0
     for e, x, w in raw:
@@ -92,8 +109,10 @@ def arrange(
         if e.lane == "above":
             level = above % 2
             above += 1
-        out.append(Placed(e.thing, e.symbol, e.lane, e.s_m, x * scale, w * scale, level, e.link))
-    return out
+        out.append(
+            Placed(e.thing, e.symbol, e.lane, e.s_m, offset + x * scale, w * scale, level, e.link)
+        )
+    return out, scale
 
 
 def locator(

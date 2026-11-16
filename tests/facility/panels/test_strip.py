@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from osprey.facility.panels.strip import arrange, locator
+from osprey.facility.panels.strip import arrange, arrange_scaled, locator
 from osprey.facility.panels.view import StripElement
 
 WIDTHS = {"quad": 20.0, "bpm": 10.0, "dipole": 40.0}
@@ -115,3 +115,37 @@ def test_five_thousand_elements_arrange_quickly() -> None:
     t = time.perf_counter()
     assert len(arrange(items, WIDTHS)) == 5000
     assert time.perf_counter() - t < 0.5
+
+
+def test_a_lone_element_keeps_its_natural_width() -> None:
+    (p,), scale = arrange_scaled([el("a", 0.0)], WIDTHS, strip_width=1000.0)
+    assert p.width == pytest.approx(WIDTHS["quad"])
+    assert p.x == pytest.approx(500.0)
+    assert scale == 1.0
+
+
+def test_a_short_strip_keeps_natural_widths_and_is_centred_as_a_block() -> None:
+    items = [el("a", 0.0), el("b", 1.0), el("c", 2.0)]
+    out, scale = arrange_scaled(items, WIDTHS, strip_width=1000.0)
+    assert scale == 1.0
+    assert [p.width for p in out] == [20.0, 20.0, 20.0]
+    natural = 20.0 * 3 + 2 * 18.0  # gap(1 m) = 4 + 14
+    left = out[0].x - out[0].width / 2
+    right = out[-1].x + out[-1].width / 2
+    assert right - left == pytest.approx(natural)
+    assert (left + right) / 2 == pytest.approx(500.0)
+
+
+def test_a_long_strip_is_compressed_and_still_does_not_overlap() -> None:
+    items = [el(f"e{i}", i * 0.5) for i in range(500)]
+    out, scale = arrange_scaled(items, WIDTHS, strip_width=1000.0)
+    assert scale < 1.0
+    assert arrange(items, WIDTHS, 1000.0) == out
+    assert out[0].x - out[0].width / 2 >= -1e-9
+    assert out[-1].x + out[-1].width / 2 <= 1000.0 + 1e-9
+    for a, b in zip(out, out[1:], strict=False):
+        assert b.x - b.width / 2 >= a.x + a.width / 2 - 1e-9
+
+
+def test_empty_input_scales_by_one() -> None:
+    assert arrange_scaled([], WIDTHS) == ([], 1.0)
