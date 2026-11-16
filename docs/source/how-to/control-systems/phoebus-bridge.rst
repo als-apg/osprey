@@ -130,6 +130,20 @@ display path, it returns the name that opens it.
 
 The names belong to the deployment. OSPREY ships none.
 
+A parameterised display, one detail screen that serves many IOCs, hosts or
+devices, is registered once. The caller gives its parameters when opening it:
+``phoebus_open_panel`` takes an optional ``macros`` argument, a mapping of
+macro name to string value such as ``{"IOC": "injbpm"}``. Phoebus opens the
+display with ``$(IOC)`` resolved in its name, its PV names and its embedded
+displays. The same panel opened with different values is a different display
+with its own handle.
+
+Macros need a bridge that reads the ``macros`` field of ``POST /open``. An
+older bridge ignores the field and opens the display with its macros
+unresolved: ``phoebus_list_displays`` then reports a name that still contains
+``$(IOC)``. Without ``macros`` the request is the same for every bridge
+version.
+
 Several terminals, one Phoebus
 ==============================
 

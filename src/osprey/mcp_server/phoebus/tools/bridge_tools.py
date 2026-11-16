@@ -477,11 +477,46 @@ def _resolve_panel_resource(name: str) -> str:
     return resource
 
 
+def _validated_macros(macros: object) -> dict[str, str]:
+    """Return *macros* as a name → string-value dict, or raise a validation error.
+
+    ``None`` and an empty mapping both mean "no macros". Only the shape is
+    checked here — a mapping of non-empty string names to string values, what
+    the bridge's ``POST /open`` accepts as ``macros``. Which names are legal
+    macro names is the bridge's rule, and its refusal reaches the caller as
+    ``phoebus_open_failed``.
+    """
+    if macros is None:
+        return {}
+    if not isinstance(macros, dict):
+        make_error(
+            "validation_error",
+            "macros must be a mapping of macro name to string value "
+            f"(got {type(macros).__name__}).",
+            ['Pass macros as an object, e.g. {"IOC": "injbpm"}.'],
+        )
+    for macro, value in macros.items():
+        if not isinstance(macro, str) or not macro.strip():
+            make_error(
+                "validation_error",
+                f"Every macro name must be a non-empty string (got {macro!r}).",
+            )
+        if not isinstance(value, str):
+            make_error(
+                "validation_error",
+                f"The value of macro {macro!r} must be a string (got {type(value).__name__}).",
+                ["Macro values are text: pass a number as a quoted string."],
+            )
+    return dict(macros)
+
+
 # ---------------------------------------------------------------------------
 # Tool 1: open panel
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def phoebus_open_panel(name: str, focus: bool = True) -> str:
+async def phoebus_open_panel(
+    name: str, focus: bool = True, macros: dict[str, str] | None = None
+) -> str:
     """Open a Phoebus display by logical panel name and return its handle.
 
     Sends a ``POST /open`` request to the bridge, which loads the named
@@ -502,6 +537,15 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
        ``file:`` URL, or a path relative to the config file's directory.
     2. An optional framework built-in registry (empty by default).
 
+    A parameterised display (one detail screen for many IOCs, hosts or
+    devices) takes its parameters as ``macros``: ``{"IOC": "injbpm"}`` opens
+    the display with ``$(IOC)`` resolved in its name, PV names and embedded
+    displays. The same panel opened with different macro values is a
+    different display, each with its own handle. Macros need a bridge that
+    reads the ``macros`` field of ``POST /open``; an older bridge ignores the
+    field and opens the display with its macros unresolved, which shows as
+    ``$(IOC)`` left in the name ``phoebus_list_displays`` reports.
+
     After a successful open the tool asks the Web Terminal (best-effort,
     never fatal) to focus this instance's panel tab, so the user sees the
     display they just asked for without hunting through tabs.
@@ -512,15 +556,26 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
         focus: Switch the Web Terminal to this instance's panel tab after
             opening (default ``True``). Pass ``False`` for batch or
             background opens that should not steal the user's view.
+        macros: Display macros as a mapping of macro name to string value
+            (e.g. ``{"IOC": "injbpm"}``). Omit for a display that takes none.
 
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "id": "d-N",
-        "resource": "<resolved-path>", "ready": <bool>, "focused": <bool>}``.
+        "resource": "<resolved-path>", "ready": <bool>, "focused": <bool>}``,
+        plus ``"macros": {...}`` echoing the macros that were sent, when any
+        were.
     """
     resource = _resolve_panel_resource(name)  # raises ToolError on unknown name
+    sent_macros = _validated_macros(macros)  # raises ToolError on a malformed mapping
+
+    # "macros" is left out when there are none, so the body stays the one a
+    # bridge that predates macro support was always sent.
+    payload: dict = {"resource": resource}
+    if sent_macros:
+        payload["macros"] = sent_macros
 
     try:
-        status, body = await anyio.to_thread.run_sync(_http_post_open, {"resource": resource})
+        status, body = await anyio.to_thread.run_sync(_http_post_open, payload)
     except Exception as exc:
         make_error(
             "phoebus_unreachable",
@@ -532,7 +587,12 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
         make_error(
             "phoebus_open_failed",
             _bridge_error_message(body, status),
-            ["Check that the resource path exists and is readable by the Phoebus process."],
+            ["Check that the resource path exists and is readable by the Phoebus process."]
+            + (
+                ["Check the macro names: letters, digits and underscores, starting with a letter."]
+                if sent_macros
+                else []
+            ),
         )
 
     display_id: str = body.get("id", "")
@@ -579,16 +639,17 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
         except Exception as exc:
             logger.debug("panel open failed (non-fatal): %s", exc)
 
-    return json.dumps(
-        {
-            "status": "success",
-            "handle": handle,
-            "id": display_id,
-            "resource": body.get("resource", resource),
-            "ready": ready,
-            "focused": focused,
-        }
-    )
+    result: dict = {
+        "status": "success",
+        "handle": handle,
+        "id": display_id,
+        "resource": body.get("resource", resource),
+        "ready": ready,
+        "focused": focused,
+    }
+    if sent_macros:
+        result["macros"] = sent_macros
+    return json.dumps(result)
 
 
 @mcp.tool()

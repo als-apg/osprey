@@ -453,6 +453,72 @@ async def test_open_panel_unreachable(tmp_path, monkeypatch):
             await _fn("phoebus_open_panel")(name="osprey_demo")
 
 
+async def test_open_panel_forwards_macros(tmp_path, monkeypatch):
+    """A macros mapping goes to the bridge as the /open body's "macros" field."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-7", "resource": "/path/osprey_demo.bob", "ready": True}
+    macros = {"IOC": "injbpm", "HOST": "ioc host 1"}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
+
+    posted = mock_open.call_args.args[0]
+    assert posted == {"resource": "/path/osprey_demo.bob", "macros": macros}
+    data = extract_response_dict(result)
+    assert data["handle"] == "handle:d-7"
+    assert data["macros"] == macros
+
+
+@pytest.mark.parametrize("macros", [None, {}])
+async def test_open_panel_without_macros_sends_the_old_body(tmp_path, monkeypatch, macros):
+    """No macros: the body is the one a bridge without macro support was sent."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-8", "resource": "/path/osprey_demo.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
+
+    assert mock_open.call_args.args[0] == {"resource": "/path/osprey_demo.bob"}
+    assert "macros" not in extract_response_dict(result)
+
+
+@pytest.mark.parametrize(
+    ("macros", "named"),
+    [
+        ("IOC=injbpm", "mapping"),
+        ([("IOC", "injbpm")], "mapping"),
+        ({"IOC": 3}, "'IOC'"),
+        ({"IOC": None}, "'IOC'"),
+        ({"IOC": {"nested": "x"}}, "'IOC'"),
+        ({"": "injbpm"}, "name"),
+        ({7: "injbpm"}, "name"),
+    ],
+)
+async def test_open_panel_rejects_malformed_macros(tmp_path, monkeypatch, macros, named):
+    """Malformed macros are refused here, before the bridge is contacted."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros)
+    assert named in ctx["envelope"]["error_message"]
+    mock_open.assert_not_called()
+
+
+async def test_open_panel_macros_rejected_by_bridge(tmp_path, monkeypatch):
+    """The bridge's verdict on a macro name reaches the caller with its text."""
+    _register_demo_panel(tmp_path, monkeypatch)
+
+    with patch(
+        f"{_MOD}._http_post_open",
+        return_value=(400, {"error": "Invalid macro name '1ST'", "status": 400}),
+    ):
+        with assert_raises_error(error_type="phoebus_open_failed") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"1ST": "v"})
+    assert "Invalid macro name" in ctx["envelope"]["error_message"]
+    assert any("macro" in hint for hint in ctx["envelope"]["suggestions"])
+
+
 # ── panel_lookup ────────────────────────────────────────────────────────────
 async def _lookup(path):
     return extract_response_dict(await _fn("phoebus_panel_lookup")(path=path))
