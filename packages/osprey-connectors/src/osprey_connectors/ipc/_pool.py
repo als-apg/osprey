@@ -216,13 +216,13 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Final, Literal, Protocol, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
-from osprey_connectors.ipc._host import START_PHASES
+from osprey_connectors.ipc._host import START_PHASES, StartPhase
 from osprey_connectors.ipc._launch import (
     AttributedReader,
     host_env,
@@ -248,7 +248,7 @@ from osprey_connectors.ipc._verification import (
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
 from osprey_connectors.recovery import RecoveryAction, RecoveryPolicy, Timing
-from osprey_connectors.types import TRANSPORT_CA, machine_kind
+from osprey_connectors.types import TRANSPORT_CA, ControlTarget, machine_kind
 
 __all__ = [
     "DEFAULT_CALL_TIMEOUT_S",
@@ -261,6 +261,8 @@ __all__ = [
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
+    "HostLossCause",
+    "HostStartStage",
     "PooledConnector",
 ]
 
@@ -291,18 +293,23 @@ DEFAULT_CALL_TIMEOUT_S = 60.0
 #: it is judged wedged and killed.
 DEFAULT_PING_TIMEOUT_S = 2.0
 
-#: Stages of :class:`ConnectorHostStartError`.
-STAGE_CONFIG = "config"
-STAGE_SPAWN = "spawn"
-STAGE_INIT = "init"
-STAGE_VERIFY = "verify"
+#: Where a start failed: the ``stage`` of :class:`ConnectorHostStartError`.
+HostStartStage = Literal["config", "spawn", "init", "verify"]
+STAGE_CONFIG: Final = "config"
+STAGE_SPAWN: Final = "spawn"
+STAGE_INIT: Final = "init"
+STAGE_VERIFY: Final = "verify"
 
-#: Causes of :class:`ConnectorHostLostError`.
-CAUSE_EXITED = "exited"
-CAUSE_UNRESPONSIVE = "unresponsive"
-CAUSE_STOPPED = "stopped"
-CAUSE_WRITE_TIMEOUT = "write_timeout"
-CAUSE_UNAVAILABLE = "unavailable"
+#: Why a child went away: the ``cause`` of :class:`ConnectorHostLostError`.
+HostLossCause = Literal["exited", "unresponsive", "stopped", "write_timeout", "unavailable"]
+CAUSE_EXITED: Final = "exited"
+CAUSE_UNRESPONSIVE: Final = "unresponsive"
+CAUSE_STOPPED: Final = "stopped"
+CAUSE_WRITE_TIMEOUT: Final = "write_timeout"
+CAUSE_UNAVAILABLE: Final = "unavailable"
+
+#: One start mark as a failed start reports it: ``(phase, seconds after the spawn)``.
+_StartMark = tuple[StartPhase, float]
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
 #: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
@@ -311,7 +318,7 @@ _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_c
 
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
-_Key = tuple[str, str | None] | tuple[str, str | None, str | None, str | None]
+_Key = tuple[ControlTarget, str | None] | tuple[ControlTarget, str | None, str | None, str | None]
 
 
 def _optional_name(name: str, value: object) -> str | None:
@@ -327,14 +334,16 @@ def _optional_name(name: str, value: object) -> str | None:
     return value.strip()
 
 
-def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
+def _make_key(
+    target: ControlTarget, mode: str | None, owner: str | None, authorization: str | None
+) -> _Key:
     """The pool key: two parts when it names neither owner nor authorization."""
     if owner is None and authorization is None:
         return (target, mode)
     return (target, mode, owner, authorization)
 
 
-def _key_parts(key: _Key) -> tuple[str, str | None, str | None, str | None]:
+def _key_parts(key: _Key) -> tuple[ControlTarget, str | None, str | None, str | None]:
     """``(target, execution_mode, owner, authorization)`` of any key."""
     if len(key) == 2:
         return key[0], key[1], None, None
@@ -369,7 +378,9 @@ class ConnectorHostError(ConnectorUnavailableError):
     """A connector-host child could not serve a call (see the module docstring).
 
     Attributes:
-        target: The control target the child serves.
+        target: The control target the child serves. Always a resolved one:
+            :meth:`ConnectorHostPool.connector` refuses a target that does not
+            resolve with a ``ValueError`` before any child is started.
         execution_mode: ``"readonly"`` or ``None``.
         pid: The child's process id, or ``None`` when none was started.
     """
@@ -378,7 +389,7 @@ class ConnectorHostError(ConnectorUnavailableError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
         recovery: tuple[RecoveryRecord, ...] = (),
@@ -409,11 +420,11 @@ class ConnectorHostStartError(ConnectorHostError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
-        stage: str,
-        phases: tuple[tuple[str, float], ...] = (),
+        stage: HostStartStage,
+        phases: tuple[_StartMark, ...] = (),
     ) -> None:
         super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
         self.stage = stage
@@ -450,7 +461,7 @@ class _StartMarkPipe:
                 os.close(self._read_fd)
             self._read_fd = None
 
-    def read(self, spawned_at: float) -> tuple[tuple[str, float], ...]:
+    def read(self, spawned_at: float) -> tuple[_StartMark, ...]:
         """Every whole mark written so far, as (name, seconds after *spawned_at*)."""
         while self._read_fd is not None:
             try:
@@ -462,19 +473,20 @@ class _StartMarkPipe:
                 break
             self._written += chunk
         whole = self._written[: self._written.rfind(b"\n") + 1]
-        marks: list[tuple[str, float]] = []
+        marks: list[_StartMark] = []
         for line in whole.decode("ascii", "replace").splitlines():
             name, _, at = line.partition(" ")
-            if name not in START_PHASES:
+            phase = next((known for known in START_PHASES if known == name), None)
+            if phase is None:
                 continue
             try:
-                marks.append((name, float(at) - spawned_at))
+                marks.append((phase, float(at) - spawned_at))
             except ValueError:
                 continue
         return tuple(marks)
 
 
-def _describe_start(phases: tuple[tuple[str, float], ...]) -> str:
+def _describe_start(phases: tuple[_StartMark, ...]) -> str:
     """One sentence on how far a child got in starting, from the marks it wrote."""
     if not phases:
         return "It had not finished starting its interpreter and loading the connector host."
@@ -513,10 +525,10 @@ class ConnectorHostLostError(ConnectorHostError):
         self,
         message: str,
         *,
-        target: str,
+        target: ControlTarget,
         execution_mode: str | None,
         pid: int | None,
-        cause: str,
+        cause: HostLossCause,
         returncode: int | None,
         recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
@@ -574,7 +586,7 @@ class _PoolChild:
     reader: AttributedReader
     report: dict[str, object]
     #: Set once the pool has decided to drop this child, to the cause it named.
-    retired: str | None = None
+    retired: HostLossCause | None = None
     #: The one teardown of this child, shared by everyone who asks for it.
     teardown: asyncio.Task[None] | None = None
 
@@ -618,6 +630,7 @@ class _PoolTarget:
         return await self._pool._answers_ping(self._child)
 
     async def retire(self) -> None:
+        cause: HostLossCause
         if isinstance(self._exc, ChildUnresponsiveError):
             cause = CAUSE_UNRESPONSIVE if self._pinged else CAUSE_WRITE_TIMEOUT
         elif raised_by_child(self._exc):
@@ -717,7 +730,7 @@ class ConnectorHostPool:
 
     async def connector(
         self,
-        target: str,
+        target: ControlTarget,
         *,
         execution_mode: str | None = None,
         owner: str | None = None,
@@ -873,7 +886,7 @@ class ConnectorHostPool:
         return (record.as_dict(),)
 
     def _replaced_reason(
-        self, child: _PoolChild, method: str, exc: BaseException, cause: str
+        self, child: _PoolChild, method: str, exc: BaseException, cause: HostLossCause
     ) -> str:
         """The sentence a call fails with once the pool has replaced the child it was on."""
         label = _label(child.key)
@@ -923,7 +936,7 @@ class ConnectorHostPool:
         self,
         child: _PoolChild,
         detail: str,
-        cause: str,
+        cause: HostLossCause,
         method: str,
         *,
         recovery: tuple[RecoveryRecord, ...] = (),
@@ -1097,7 +1110,7 @@ class ConnectorHostPool:
         if readonly:
             init["execution_mode"] = READONLY
 
-        def failure(stage: str, detail: str) -> ConnectorHostStartError:
+        def failure(stage: HostStartStage, detail: str) -> ConnectorHostStartError:
             phases = marks.read(spawned_at) if stage == STAGE_INIT else ()
             reached = f" {_describe_start(phases)}" if stage == STAGE_INIT else ""
             return ConnectorHostStartError(
@@ -1198,7 +1211,7 @@ class ConnectorHostPool:
     @staticmethod
     def _writes_allowed(
         section: Mapping[str, object],
-        target: str,
+        target: ControlTarget,
         owner: str | None = None,
         authorization: str | None = None,
     ) -> bool:
@@ -1308,7 +1321,7 @@ class ConnectorHostPool:
         readonly_run: bool,
         writes: bool,
         report: dict[str, object],
-        failure: Callable[[str, str], ConnectorHostStartError],
+        failure: Callable[[HostStartStage, str], ConnectorHostStartError],
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
         verification = verify_host_report(
@@ -1348,7 +1361,7 @@ class ConnectorHostPool:
             f"came up somewhere other than derived: {verification.detail}",
         )
 
-    async def _discard(self, child: _PoolChild, reason: str, cause: str) -> None:
+    async def _discard(self, child: _PoolChild, reason: str, cause: HostLossCause) -> None:
         """Drop a child that failed: attribute, kill, and let the proxy settle.
 
         Only the key's *current* child is removed from the pool — a stale
@@ -1410,7 +1423,7 @@ class PooledConnector:
         self._key = key
 
     @property
-    def target(self) -> str:
+    def target(self) -> ControlTarget:
         return _key_parts(self._key)[0]
 
     @property

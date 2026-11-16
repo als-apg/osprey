@@ -77,7 +77,7 @@ from typing import Any
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.seconds import positive_seconds
 from osprey_connectors.ipc import MODE_NAME_SERVER, Endpoint, derive_endpoints
-from osprey_connectors.types import configured_targets
+from osprey_connectors.types import ControlTarget, configured_targets, is_control_target
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ class EndpointProber:
         self,
         config: Any,
         *,
-        targets: tuple[str, ...] | list[str] | None = None,
+        targets: tuple[ControlTarget, ...] | list[ControlTarget] | None = None,
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
         interval_s: float | None = None,
         monotonic: Any = time.monotonic,
@@ -376,6 +376,9 @@ class EndpointProber:
             The row, or ``None`` when *target* has no endpoint at *gateway* —
             underivable, or a connector that dials no gateway.
         """
+        if not is_control_target(target):
+            logger.debug("No endpoints derivable for %r: it names no control target", target)
+            return None
         try:
             endpoints = derive_endpoints(self._config, target).endpoints
         except Exception as exc:

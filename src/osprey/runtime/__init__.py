@@ -354,9 +354,15 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     """
     global _connector_pool
 
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.types import CONTROL_TARGETS, baseline_target, is_control_target
 
     section = _control_system_section()
+    key = target if target is not None else baseline_target(section)
+    if not is_control_target(key):
+        raise ValueError(
+            f"Unknown control target {key!r}. Valid targets are "
+            f"{', '.join(repr(name) for name in CONTROL_TARGETS)}, spelled exactly."
+        )
     if _connector_pool is None:
         from osprey_connectors.ipc import ConnectorHostPool
         from osprey_connectors.workspace import resolve_config_path
@@ -367,7 +373,6 @@ async def _pooled_connector_locked(target: str | None) -> Any:
         _connector_pool = ConnectorHostPool(
             section, config_file=str(resolve_config_path()), **options
         )
-    key = target if target is not None else baseline_target(section)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
 

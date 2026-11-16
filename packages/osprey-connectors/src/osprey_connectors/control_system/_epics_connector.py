@@ -53,7 +53,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
-from osprey_connectors.control_system._gateway_role import GatewayRole
+from osprey_connectors.control_system._gateway_role import ROLE_WRITE_ACCESS, SelectedRole
 from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_S,
     CurrentValueReader,
@@ -68,7 +68,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.types import WRITES_KEY, machine_kind
+from osprey_connectors.types import WRITES_KEY, is_control_target, machine_kind
 
 logger = get_logger("epics_connector")
 
@@ -916,7 +916,7 @@ class EPICSConnector(ControlSystemConnector):
         # is refused ``switching`` while a configured write gateway was not
         # selected (see :meth:`_role_refusal`); a connector that never
         # connected selected nothing and has no write gateway to lag behind.
-        self._selected_role: GatewayRole | None = None
+        self._selected_role: SelectedRole | None = None
         self._write_gateway_configured = False
         # PVA routing state. Empty globs => this connector is pure Channel
         # Access: p4p is never imported and no PVA environment variable is set.
@@ -1032,7 +1032,7 @@ class EPICSConnector(ControlSystemConnector):
             writes_enabled = False  # Can't tell -> assume the safe (read-only) path
 
         readonly_run = is_readonly_run()
-        write_gateway = gateways.get("write_access") or {}
+        write_gateway = gateways.get(ROLE_WRITE_ACCESS) or {}
         gateway_role = _selected_role(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=readonly_run
         )
@@ -1050,15 +1050,15 @@ class EPICSConnector(ControlSystemConnector):
                 section: object = get_config_value("control_system", {})
             except (FileNotFoundError, RuntimeError):
                 section = {}
-            raise ConnectionError(
-                readonly_gateway_refusal(machine_kind(section, self._control_target))
-            )
-        if gateway_role == "write_access" and not writes_enabled:
+            target = self._control_target
+            kind = machine_kind(section, target) if is_control_target(target) else None
+            raise ConnectionError(readonly_gateway_refusal(kind))
+        if gateway_role == ROLE_WRITE_ACCESS and not writes_enabled:
             logger.debug(
                 "EPICS connector: no read_only gateway; reading through write_access "
                 "with writes refused"
             )
-        elif gateway_role == "write_access":
+        elif gateway_role == ROLE_WRITE_ACCESS:
             logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
         elif readonly_run and write_gateway:
             logger.debug("EPICS connector: readonly run, staying on read_only gateway")
@@ -1881,7 +1881,7 @@ class EPICSConnector(ControlSystemConnector):
     @override
     def _write_route_open(self) -> bool:
         """No write gateway is configured, or ``connect()`` selected it."""
-        return not self._write_gateway_configured or self._selected_role == "write_access"
+        return not self._write_gateway_configured or self._selected_role == ROLE_WRITE_ACCESS
 
     def _role_refusal(self, address: str, value: object) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.

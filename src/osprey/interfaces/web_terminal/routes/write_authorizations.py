@@ -70,6 +70,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class RevokeRequest(BaseModel):
 
 
 async def read_current_values(
-    config_path: Path | None, target: str, addresses: list[str]
+    config_path: Path | None, target: ControlTarget, addresses: list[str]
 ) -> dict[str, Any]:
     """The current value of each address on *target*, read through this terminal's connector.
 

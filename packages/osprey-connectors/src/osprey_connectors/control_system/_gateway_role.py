@@ -11,16 +11,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Final, Literal
 
-#: A gateway role: the key of one entry of a connector block's ``gateways`` table.
-GatewayRole = Literal["read_only", "write_access"]
+#: A gateway role: the key of one endpoint a connector block derives. The two
+#: :data:`SelectedRole` words key the ``gateways`` table; ``pva`` is the
+#: ``pva_gateway`` a block routing PVAccess channels configures beside it.
+GatewayRole = Literal["read_only", "write_access", "pva"]
+
+#: The gateway roles a connector can select: the keys of the ``gateways`` table.
+#: EPICS keeps one process-wide context, so exactly one of them is used; ``pva``
+#: is never the selected role.
+SelectedRole = Literal["read_only", "write_access"]
 
 ROLE_READ_ONLY: Final = "read_only"
 ROLE_WRITE_ACCESS: Final = "write_access"
+ROLE_PVA: Final = "pva"
 
 
 def _selected_role(
     gateways: Mapping[str, object], *, writes_enabled: bool, readonly_run: bool
-) -> GatewayRole:
+) -> SelectedRole:
     """The gateway role a connector for this gateways table selects — the one place the rule lives.
 
     ``EPICSConnector.connect()``, the connector host's report and the pool's

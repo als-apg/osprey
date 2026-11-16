@@ -134,8 +134,10 @@ from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.simulator import virtual_accelerator_active
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.types import (
+    CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
+    is_control_target,
     resolve_target,
     speaks_channel_access,
 )
@@ -417,6 +419,17 @@ def _acknowledged(config: Any) -> bool:
     return _is_set(switch.get(ACK_LEAF))
 
 
+def unknown_target_detail(target: object) -> str:
+    """The detail of :data:`REASON_TARGET_UNRESOLVABLE` for a word that names no target.
+
+    Said where a requested target is parsed, before any resolver is handed it:
+    a resolver takes a :data:`~osprey_connectors.types.ControlTarget`, and the
+    requested word is what an operator typed.
+    """
+    valid = ", ".join(repr(name) for name in CONTROL_TARGETS)
+    return f"Unknown control target {target!r}. Valid targets are {valid}, spelled exactly."
+
+
 def evaluate_eligibility(
     config: Any,
     target: str,
@@ -505,6 +518,8 @@ def evaluate_eligibility(
     Returns:
         The verdict, its machine-readable reason, and a sentence naming the fix.
     """
+    if not is_control_target(target):
+        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, unknown_target_detail(target))
     try:
         derivation = derive_endpoints(
             config,
