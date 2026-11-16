@@ -38,7 +38,7 @@ def monitors() -> list[str]:
 
 
 def test_the_session_project_starts_in_the_suite_set(project: e2e_conftest.VaProject) -> None:
-    active = resolve_active_scenarios(read_active_state(project.state_dir)[0])
+    active = resolve_active_scenarios(read_active_state(project.state_dir).names)
 
     assert active == ["nominal", *e2e_conftest.SUITE_SCENARIOS]
 
@@ -91,5 +91,5 @@ def test_the_demo_data_mount_carries_the_suite_state() -> None:
 
     assert len(state) == 1
     assert "VA_STATE_DIR=/state/simulation" in args
-    active = resolve_active_scenarios(read_active_state(state[0])[0])
+    active = resolve_active_scenarios(read_active_state(state[0]).names)
     assert active == ["nominal", *e2e_conftest.SUITE_SCENARIOS]

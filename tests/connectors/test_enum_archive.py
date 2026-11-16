@@ -26,6 +26,7 @@ from lume.variables import EnumVariable
 
 from osprey.services.archiver_recorder import Recorder, resolve_channel_addresses
 from osprey.services.archiver_recorder.recorder import channel_access_reader
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import ArchiveComposite, build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
@@ -94,7 +95,12 @@ def view_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def archive(view_dir: Path) -> ArchiveComposite:
-    return build(view_dir, ["mode-change"], anchor_s=ANCHOR_S)
+    return build(
+        view_dir,
+        ["mode-change"],
+        anchor_at=datetime.fromtimestamp(ANCHOR_S, UTC),
+        tz=get_facility_timezone(),
+    )
 
 
 def test_the_view_carries_the_mode_as_an_enum_of_four_options(view_dir: Path) -> None:

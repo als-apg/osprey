@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -106,7 +107,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, [], anchor_s=T.timestamp())
+    return build(demo_view, [], anchor_at=T, tz=get_facility_timezone())
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +327,7 @@ def seeded_store(mongodb_container, seeded):
     waveforms = database[waveform_collection(name)]
     collection.drop()
     waveforms.drop()
-    seed_base(collection, seeded, SMALL, t0=T, chunk_size=256, waveforms=waveforms)
+    seed_base(collection, seeded, SMALL, anchor_at=T, chunk_size=256, waveforms=waveforms)
     try:
         yield collection, waveforms
     finally:

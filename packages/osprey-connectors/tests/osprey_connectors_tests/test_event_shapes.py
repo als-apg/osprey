@@ -10,6 +10,7 @@ its cause.
 from __future__ import annotations
 
 import math
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
@@ -18,6 +19,8 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 ANCHOR = 1_762_300_000.0
+#: The zone the events are placed in; every event here is anchored by offset.
+UTC_ZONE = ZoneInfo("UTC")
 TOPOFF = {"ceiling": 500.0, "lifetime_h": 7.0, "period_s": 31.0}
 BASE = 3.7e-10
 BURST = {
@@ -34,16 +37,16 @@ AT = ANCHOR - 600.0
 SHOT = 0.75
 
 
-def apply_events(values, events, n, t_abs, anchor, tz=None, topoff=None):
+def apply_events(values, events, n, times_s, anchor_s, topoff=None):
     """:func:`series.apply_events` of events and a top-off record stated as mappings."""
     return series.apply_events(
         values,
         [ArchiverEvent.model_validate(event) for event in events],
         n,
-        t_abs,
-        anchor,
-        tz,
-        None if topoff is None else TopoffRecord.model_validate(topoff),
+        times_s,
+        anchor_s=anchor_s,
+        tz=UTC_ZONE,
+        topoff=None if topoff is None else TopoffRecord.model_validate(topoff),
     )
 
 
@@ -67,7 +70,7 @@ def _burst(t: np.ndarray, event: dict = BURST) -> np.ndarray:
 def _current(t: np.ndarray, topoff: dict | None = TOPOFF, at: float = AT) -> np.ndarray:
     """A flat 500 mA level with the loss applied, at the instants ``t``."""
     event = dict(LOSS, at_offset=at - ANCHOR)
-    return apply_events(np.full(t.size, 500.0), [event], t.size, t, ANCHOR, None, topoff)
+    return apply_events(np.full(t.size, 500.0), [event], t.size, t, ANCHOR, topoff)
 
 
 class TestBurst:

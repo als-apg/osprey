@@ -137,7 +137,7 @@ def _mix64(z: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
 def _as_counter_array(counters: npt.ArrayLike) -> npt.NDArray[np.uint64]:
     """Normalize counters to uint64, rounding floats to the nearest integer.
 
-    Epoch-millisecond counters usually arrive as float64 (``epoch_s * 1000``);
+    Epoch-millisecond counters usually arrive as float64 (``times_s * 1000``);
     signed integers (sample-index fallback, pre-epoch timestamps) wrap into
     uint64 modularly, which keys deterministically like any other value.
     """
@@ -237,7 +237,7 @@ def _wander_components(
 
 
 def wander(
-    channel_key: bytes, t_abs_s: npt.ArrayLike, amplitude: float, period_s: float
+    channel_key: bytes, times_s: npt.ArrayLike, amplitude: float, period_s: float
 ) -> npt.NDArray[np.float64]:
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
 
@@ -257,12 +257,12 @@ def wander(
 
     Args:
         channel_key: Channel key, as for :func:`keyed_normals`.
-        t_abs_s: Absolute epoch seconds; any shape.
+        times_s: Absolute epoch seconds; any shape.
         amplitude: Envelope bound, in the channel's declared units.
         period_s: Slowest period in seconds; must be positive.
 
     Returns:
-        A float64 array of texture offsets with the shape of ``t_abs_s``.
+        A float64 array of texture offsets with the shape of ``times_s``.
 
     Raises:
         ValueError: If ``period_s`` is not positive; the guard keeps a caller
@@ -270,7 +270,7 @@ def wander(
     """
     if period_s <= 0.0:
         raise ValueError(f"wander period_s must be > 0, got {period_s!r}")
-    times = np.asarray(t_abs_s, dtype=np.float64)
+    times = np.asarray(times_s, dtype=np.float64)
     periods, phases, weights = _wander_components(channel_key, period_s)
     total = np.zeros(times.shape, dtype=np.float64)
     for period, phase, weight in zip(periods, phases, weights, strict=True):
@@ -304,18 +304,18 @@ def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64]
     return np.asarray(values, dtype=np.float64)
 
 
-def anchored_instant(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) -> float:
+def anchored_instant(event: ArchiverEvent, *, anchor_s: float, tz: ZoneInfo) -> float:
     """Epoch seconds of an event placed relative to the activation anchor.
 
     ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
     ``{days_ago, time}``: the calendar day ``days_ago`` days before the anchor's
-    date, at ``time``, both read in ``tz`` (UTC when omitted) -- the same rule a
-    scenario's logbook entries resolve by, so an event and the entry narrating
-    it name one instant.
+    date, at ``time``, both read in ``tz`` -- the same rule a scenario's
+    logbook entries resolve by, so an event and the entry narrating it name
+    one instant.
 
     Args:
         event: An event carrying ``at_offset`` or ``at_when``.
-        anchor: The activation anchor T0, in epoch seconds.
+        anchor_s: The activation anchor T0, in epoch seconds.
         tz: The facility timezone calendar days are counted in.
 
     Returns:
@@ -325,11 +325,11 @@ def anchored_instant(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = 
         KeyError: the event states neither ``at_offset`` nor ``at_when``.
     """
     if event.at_offset is not None:
-        return anchor + float(event.at_offset)
-    return _calendar_instant(event.at_when, "at_when", anchor, tz)
+        return anchor_s + float(event.at_offset)
+    return _calendar_instant(event.at_when, "at_when", anchor_s, tz)
 
 
-def _calendar_instant(when: _When | None, key: str, anchor: float, tz: ZoneInfo | None) -> float:
+def _calendar_instant(when: _When | None, key: str, anchor_s: float, tz: ZoneInfo) -> float:
     """Epoch seconds of a ``{days_ago, time}`` placement, counted back from the anchor in ``tz``.
 
     Raises:
@@ -337,12 +337,11 @@ def _calendar_instant(when: _When | None, key: str, anchor: float, tz: ZoneInfo 
     """
     if when is None:
         raise KeyError(key)
-    zone = tz if tz is not None else ZoneInfo("UTC")
     spec = RelativeTimestamp(days_ago=when.days_ago, time=dtime.fromisoformat(when.time))
-    return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
+    return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor_s, tz)).timestamp()
 
 
-def step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) -> float | None:
+def step_end(event: ArchiverEvent, *, anchor_s: float, tz: ZoneInfo) -> float | None:
     """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
 
     ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
@@ -351,16 +350,16 @@ def step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) ->
 
     Args:
         event: A ``step`` event.
-        anchor: The activation anchor T0, in epoch seconds.
+        anchor_s: The activation anchor T0, in epoch seconds.
         tz: The facility timezone ``until_when`` calendar days are counted in.
 
     Returns:
         The end position, or ``None`` when the step states no end.
     """
     if event.until_offset is not None:
-        return anchor + float(event.until_offset)
+        return anchor_s + float(event.until_offset)
     if event.until_when is not None:
-        return _calendar_instant(event.until_when, "until_when", anchor, tz)
+        return _calendar_instant(event.until_when, "until_when", anchor_s, tz)
     if event.until is not None:
         return float(event.until)
     return None
@@ -369,9 +368,10 @@ def step_end(event: ArchiverEvent, anchor: float, tz: ZoneInfo | None = None) ->
 def event_positions(
     event: ArchiverEvent,
     t_frac: npt.NDArray[np.float64],
-    t_abs: npt.NDArray[np.float64] | None,
-    anchor: float,
-    tz: ZoneInfo | None = None,
+    times_s: npt.NDArray[np.float64] | None,
+    *,
+    anchor_s: float,
+    tz: ZoneInfo,
 ) -> list[tuple[npt.NDArray[np.float64], float]]:
     """Coordinate axis and event position(s) for one event.
 
@@ -384,15 +384,15 @@ def event_positions(
     timestamps were not convertible to epoch seconds.
     """
     if event.at_offset is not None or event.at_when is not None:
-        if t_abs is None:
+        if times_s is None:
             logger.debug("Skipping anchored event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, anchored_instant(event, anchor, tz))]
+        return [(times_s, anchored_instant(event, anchor_s=anchor_s, tz=tz))]
     if event.at_time is not None:
-        if t_abs is None:
+        if times_s is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, at) for at in daily_occurrences(event.at_time, t_abs, tz)]
+        return [(times_s, at) for at in daily_occurrences(event.at_time, times_s, tz=tz)]
     return [(t_frac, float(_stated(event.at, "at")))]
 
 
@@ -408,23 +408,21 @@ def _stated(value: float | None, key: str) -> float:
 
 
 def daily_occurrences(
-    at_time: str, t_abs: npt.NDArray[np.float64], tz: ZoneInfo | None = None
+    at_time: str, times_s: npt.NDArray[np.float64], *, tz: ZoneInfo
 ) -> list[float]:
-    """Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.
+    """Epoch-second positions of a daily time-of-day within ``[times_s[0], times_s[-1]]``.
 
     Walks calendar dates from the window start to its end (in timezone ``tz``)
     and keeps every occurrence of ``at_time`` that falls inside the window.
     Placing the time-of-day in an explicit zone — rather than the deploy host's
-    local zone — makes the result independent of the box ``$TZ``. ``tz`` defaults
-    to UTC; callers resolve and pass the facility zone, so this module stays
-    free of config.
+    local zone — makes the result independent of the box ``$TZ``. Callers
+    resolve and pass the facility zone, so this module stays free of config.
     Assumes ascending timestamps (the same contract ``apply_events`` relies
     on via ``np.searchsorted``).
     """
-    zone = tz if tz is not None else ZoneInfo("UTC")
     tod = dtime.fromisoformat(at_time)
-    start = datetime.fromtimestamp(float(t_abs[0]), zone)
-    end = datetime.fromtimestamp(float(t_abs[-1]), zone)
+    start = datetime.fromtimestamp(float(times_s[0]), tz)
+    end = datetime.fromtimestamp(float(times_s[-1]), tz)
     cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
     positions: list[float] = []
     while cursor <= end:
@@ -515,9 +513,10 @@ def apply_events(
     series: npt.NDArray[np.float64],
     events: Sequence[ArchiverEvent],
     n: int,
-    t_abs: npt.NDArray[np.float64] | None,
-    anchor: float,
-    tz: ZoneInfo | None = None,
+    times_s: npt.NDArray[np.float64] | None,
+    *,
+    anchor_s: float,
+    tz: ZoneInfo,
     topoff: TopoffRecord | None = None,
 ) -> npt.NDArray[np.float64]:
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
@@ -526,7 +525,9 @@ def apply_events(
     and leaves later samples on the baseline; without one it holds to the end.
     A ``burst`` (:func:`_burst_profile`) and a ``loss`` (:func:`_loss_deficit`)
     start at their instant and never move a sample before it; ``topoff`` is the
-    channel's ``topoff`` seed record, which alone refills a loss.
+    channel's ``topoff`` seed record, which alone refills a loss. ``anchor_s`` is
+    the activation anchor in epoch seconds and ``tz`` the facility zone anchored
+    and daily events are placed in.
     """
     if not events:
         return series
@@ -536,14 +537,14 @@ def apply_events(
         # A ``to`` is a number on the float channels whose series these events move.
         shape = event.shape
         offset_anchored = event.at_offset is not None
-        for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
+        for x, at in event_positions(event, t_frac, times_s, anchor_s=anchor_s, tz=tz):
             if shape == "step":
-                end = step_end(event, anchor, tz)
+                end = step_end(event, anchor_s=anchor_s, tz=tz)
                 inside = x >= at if end is None else (x >= at) & (x < end)
                 series[inside] = _real(event.to)
             elif shape == "ramp":
                 until = (
-                    anchor + _stated(event.until_offset, "until_offset")
+                    anchor_s + _stated(event.until_offset, "until_offset")
                     if offset_anchored
                     else float(_stated(event.until, "until"))
                 )

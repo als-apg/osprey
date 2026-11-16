@@ -156,7 +156,7 @@ def served_active(view: SimulatorView) -> list[str]:
     from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
 
-    return resolve_active_scenarios(read_active_state(simulation_state_dir(view.path))[0])
+    return resolve_active_scenarios(read_active_state(simulation_state_dir(view.path)).names)
 
 
 def unmoved_band(view: SimulatorView, address: str, active: Sequence[str] = ()) -> float:

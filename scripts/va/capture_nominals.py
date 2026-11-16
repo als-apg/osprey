@@ -163,7 +163,7 @@ def capture() -> tuple[dict[str, Any], dict[str, Any]]:
             raise SystemExit(
                 f"osprey sim apply {STILL} failed:\n{applied.stdout}\n{applied.stderr}"
             )
-        active = resolve_active_scenarios(read_active_state(project.state_dir)[0])
+        active = resolve_active_scenarios(read_active_state(project.state_dir).names)
         view = SimulatorView.open(project.data_dir / VIEW_RELPATH.name)
         status = set(view.status_addresses().values())
         addresses = sorted(

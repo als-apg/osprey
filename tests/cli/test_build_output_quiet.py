@@ -324,7 +324,7 @@ class TestLoggerArchiverSeedQuiet:
                 _StubCollection(),  # type: ignore[arg-type]
                 _EmptyArchive(),  # type: ignore[arg-type]
                 knobs,
-                t0=datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC),
+                anchor_at=datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC),
             )
 
         assert report.describe() in caplog.text

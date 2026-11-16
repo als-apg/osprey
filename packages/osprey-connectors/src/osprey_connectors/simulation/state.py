@@ -25,11 +25,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import AwareDatetime
 from typing_extensions import override
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.errors import require_aware
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, FrozenTuple
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -41,6 +42,7 @@ __all__ = [
     "DEFAULT_SCENARIO",
     "OVERLAP_EVENT",
     "STILL_SCENARIO",
+    "ActiveState",
     "Overlap",
     "composed_set",
     "format_overlap_record",
@@ -74,23 +76,39 @@ _SETS_MOTION = _MOTION_MARK + "sets:"
 _STILLS = _MOTION_MARK + "stills:"
 
 
-def parse_active_state(text: str) -> tuple[list[str], float | None]:
+class ActiveState(FrozenModel):
+    """What an ``active_scenarios`` file records: the scenario names and the activation anchor.
+
+    Attributes:
+        names: The scenario names in file order, as the file stores them. They
+            are not resolved: :func:`resolve_active_scenarios` gives the set
+            they mean, ``nominal`` first.
+        anchor_at: The instant the set was applied at, or ``None`` when the
+            file records none.
+    """
+
+    names: FrozenTuple[str] = ()
+    anchor_at: AwareDatetime | None = None
+
+
+def parse_active_state(text: str) -> ActiveState:
     """The scenario names and the anchor an ``active_scenarios`` file records.
 
     Blank lines and ``#`` comments are skipped. A ``key=value`` line is
     metadata, of which only ``anchor=<ISO 8601>`` is read; every other line is
-    a scenario name, kept in file order. A naive anchor is read in the
-    facility timezone; a malformed one is logged and ignored.
+    a scenario name, kept in file order. An anchor must state its UTC offset
+    (:func:`write_active_state` always writes one): an anchor without one, like
+    a malformed one, is logged and ignored, because no zone is guessed for it.
 
     Args:
         text: The file's contents.
 
     Returns:
-        The names, and the anchor as epoch seconds or ``None`` when the file
-        records none.
+        The names and the anchor; the anchor is ``None`` when the file records
+        none.
     """
     names: list[str] = []
-    anchor_epoch: float | None = None
+    anchor_at: datetime | None = None
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -100,59 +118,66 @@ def parse_active_state(text: str) -> tuple[list[str], float | None]:
             if key.strip() == "anchor":
                 try:
                     parsed = datetime.fromisoformat(value.strip())
-                    if parsed.tzinfo is None:
-                        parsed = parsed.replace(tzinfo=get_facility_timezone())
-                    anchor_epoch = parsed.timestamp()
                 except ValueError:
                     logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
+                    continue
+                if parsed.utcoffset() is None:
+                    logger.warning(
+                        f"Ignoring an anchor without a UTC offset in state file: {stripped!r}"
+                    )
+                    continue
+                anchor_at = parsed
             continue
         names.append(stripped)
-    return names, anchor_epoch
+    return ActiveState(names=tuple(names), anchor_at=anchor_at)
 
 
-def read_active_state(state_dir: Path) -> tuple[list[str], float | None]:
+def read_active_state(state_dir: Path) -> ActiveState:
     """The scenario names and the anchor the ``active_scenarios`` file in *state_dir* records.
 
     Args:
         state_dir: The directory holding the file.
 
     Returns:
-        What :func:`parse_active_state` reads from the file, or ``([], None)``
-        when the file is absent.
+        What :func:`parse_active_state` reads from the file, or an empty
+        :class:`ActiveState` when the file is absent.
     """
     path = state_dir / ACTIVE_SCENARIOS_FILENAME
     if not path.is_file():
-        return [], None
+        return ActiveState()
     return parse_active_state(path.read_text(encoding="utf-8"))
 
 
 def write_active_state(
-    path: Path,
+    state_dir: Path,
     scenarios_view: Mapping[str, Collection[str]],
     names: Sequence[str],
     *,
-    anchor: datetime | None = None,
+    anchor_at: datetime | None = None,
 ) -> list[str]:
-    """Activate a scenario set by writing the ``active_scenarios`` file.
+    """Activate a scenario set by writing the ``active_scenarios`` file in *state_dir*.
 
-    The file holds an ``anchor=<ISO 8601>`` line when ``anchor`` is given, then
-    the set's scenarios other than ``nominal``, or ``nominal`` alone. It is
-    replaced whole through ``safety_file.atomic_replace``, so a reader polling
-    it never reads a half-written set.
+    The file holds an ``anchor=<ISO 8601>`` line when ``anchor_at`` is given,
+    then the set's scenarios other than ``nominal``, or ``nominal`` alone. It
+    is replaced whole through ``safety_file.atomic_replace``, so a reader
+    polling it never reads a half-written set.
 
     Args:
-        path: The state file.
+        state_dir: The directory holding the file; made when missing.
         scenarios_view: Each scenario's name mapped to the targets it writes.
         names: The requested scenario names; ``nominal`` is always active.
-        anchor: The instant the set is applied at.
+        anchor_at: The instant the set is applied at, written with its offset.
 
     Returns:
         The resolved set, ``nominal`` first.
 
     Raises:
+        NaiveDatetimeError: ``anchor_at`` is naive; nothing is written.
         ValueError: If a name is unknown or the set does not compose; nothing
             is written.
     """
+    if anchor_at is not None:
+        require_aware(anchor_at, name="anchor_at")
     resolved = resolve_active_scenarios(names)
     try:
         overlaps = validate_composition(scenarios_view, resolved)
@@ -161,8 +186,9 @@ def write_active_state(
     if overlaps:
         raise ValueError("Cannot activate scenarios: " + "; ".join(map(str, overlaps)))
 
-    body = [] if anchor is None else [f"anchor={anchor.isoformat()}"]
+    body = [] if anchor_at is None else [f"anchor={anchor_at.isoformat()}"]
     body.extend([name for name in resolved if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO])
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_replace(path, ("\n".join(body) + "\n").encode("utf-8"), mode=0o644, sync="best_effort")
     return resolved

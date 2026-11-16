@@ -27,6 +27,7 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     ├── ConnectRefusedError                   (ConnectionError) connect refused by policy
     ├── ClientLibraryRefusedError             (RuntimeError)
     ├── ConfigurationError                    (ValueError) a config value, by its key
+    ├── NaiveDatetimeError                    (ValueError) an instant without a zone
     ├── StateUnavailableError                 (RuntimeError) no state directory
     ├── StateLockedError                      (RuntimeError) a state lock stayed held
     ├── AlreadyApprovedError                  (FileExistsError)
@@ -72,6 +73,7 @@ with its channel, so a public failure needs no registry entry of its own.
 """
 
 import errno
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -104,12 +106,14 @@ __all__ = [
     "ConnectorUnavailableError",
     "ConnectorsError",
     "LimitsViolationKind",
+    "NaiveDatetimeError",
     "RecoveryAction",
     "RecoveryRecord",
     "RefusalReason",
     "StateLockedError",
     "StateUnavailableError",
     "raw_client_write_message",
+    "require_aware",
 ]
 
 
@@ -625,6 +629,38 @@ class ConfigurationError(ConnectorsError, ValueError):
     def __init__(self, message: str, *, key: str | None = None) -> None:
         self.key = key
         super().__init__(message)
+
+
+class NaiveDatetimeError(ConnectorsError, ValueError):
+    """An instant was given without a timezone where the package needs an aware one.
+
+    ``name`` is the parameter or field that carried it. The package does not
+    guess a zone for a naive value: the caller states one. A ``ValueError``,
+    as the bare refusals it replaces were.
+    """
+
+    def __init__(self, value: datetime, *, name: str) -> None:
+        self.name = name
+        self.value = value
+        super().__init__(f"{name} must be a timezone-aware datetime, got {value!r}")
+
+
+def require_aware(value: datetime, *, name: str) -> datetime:
+    """``value``, refused when it is naive: the one check every instant parameter makes.
+
+    Args:
+        value: The instant a caller handed in.
+        name: The parameter it came in as, named in the refusal.
+
+    Returns:
+        ``value`` unchanged.
+
+    Raises:
+        NaiveDatetimeError: ``value`` carries no UTC offset.
+    """
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise NaiveDatetimeError(value, name=name)
+    return value
 
 
 class StateUnavailableError(ConnectorsError, RuntimeError):

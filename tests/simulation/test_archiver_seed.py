@@ -34,6 +34,8 @@ import numpy as np
 import pytest
 
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -87,7 +89,7 @@ ADDRESSES = sorted(CHANNELS)
 def archive(tmp_path_factory):
     """The archive composite of a texture-only view, with nominal active."""
     view = write_texture_view(tmp_path_factory.mktemp("render"), CHANNELS)
-    return build(view, [], anchor_s=T0.timestamp())
+    return build(view, [], anchor_at=T0, tz=get_facility_timezone())
 
 
 #: Samples per pulse trace, as the trace function gives them.
@@ -148,14 +150,14 @@ def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
 def pulse_archive(tmp_path_factory):
     """The archive composite of a view holding a pulsed supply, nominal active."""
     view = write_pulse_view(tmp_path_factory.mktemp("pulse"))
-    return build(view, [], anchor_s=T0.timestamp())
+    return build(view, [], anchor_at=T0, tz=get_facility_timezone())
 
 
 @pytest.fixture(scope="module")
 def stepped_pulse_archive(tmp_path_factory):
     """The pulsed supply lowered, then switched off, before the anchor."""
     view = write_pulse_view(tmp_path_factory.mktemp("stepped"), scenarios=PULSE_SCENARIOS)
-    return build(view, ["lower", "off"], anchor_s=T0.timestamp())
+    return build(view, ["lower", "off"], anchor_at=T0, tz=get_facility_timezone())
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +441,9 @@ class TestSynthesizeDocuments:
         view = write_texture_view(tmp_path, {**CHANNELS, dotted: {"nominal": 3.0}})
         times, _ = _seed_grid(SMALL, T0)
 
-        documents = _synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+        documents = _synthesize_documents(
+            build(view, [], anchor_at=T0, tz=get_facility_timezone()), times[:4]
+        )
 
         for document in documents:
             assert set(document) == {DATE_FIELD, *ADDRESSES, field_name(dotted)}
@@ -455,7 +459,9 @@ class TestSynthesizeDocuments:
         )
         times, _ = _seed_grid(SMALL, T0)
 
-        documents = _synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+        documents = _synthesize_documents(
+            build(view, [], anchor_at=T0, tz=get_facility_timezone()), times[:4]
+        )
 
         for document in documents:
             assert set(document) == {DATE_FIELD, *ADDRESSES, "%64ate", "%65xpireAt"}
@@ -605,7 +611,7 @@ class TestSeedBase:
     def test_it_writes_one_document_per_grid_timestamp(self, collection, archive):
         times, _ = _seed_grid(SMALL, T0)
 
-        report = seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        report = seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         assert report.documents == len(times)
         assert collection.count_documents({DATE_FIELD: {"$exists": True}}) == len(times)
@@ -614,7 +620,7 @@ class TestSeedBase:
     def test_the_indexes_the_store_cannot_work_without_exist(self, collection, archive):
         """An unindexed sort on ``date`` is capped at 32 MB of documents in
         memory, which a real window crosses long before a test does."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         indexes = collection.index_information()
         keyed = {tuple(spec["key"][0]) for spec in indexes.values()}
@@ -628,7 +634,7 @@ class TestSeedBase:
         """Checked on the stamps, not by waiting: MongoDB's TTL sweeper runs on
         its own minute-scale schedule, so a test that waited for it would be
         testing the sweeper's timer."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         for document in collection.find({DATE_FIELD: {"$exists": True}}):
             stored = document[DATE_FIELD].replace(tzinfo=UTC)
@@ -642,7 +648,7 @@ class TestSeedBase:
         """It lives in the sample collection, which is only safe because it has
         no ``date``: the connector's window filter requires one, so no query can
         ever return it as a sample."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         manifest = collection.find_one({"_id": MANIFEST_ID})
         assert manifest is not None
@@ -676,7 +682,7 @@ class TestSeedBase:
             collection,
             archive,
             SMALL,
-            t0=T0,
+            anchor_at=T0,
             chunk_size=64,
             progress=lambda r: seen.append(r.documents),
         )
@@ -689,7 +695,7 @@ class TestSeedBase:
         """What honest metadata reports as the start of coverage — no more
         'archived since the year 2000'."""
         times, _ = _seed_grid(SMALL, T0)
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         assert oldest_sample(collection) == datetime.fromtimestamp(float(times[0]), UTC)
 
@@ -702,7 +708,7 @@ class TestSeedBase:
     def test_the_worker_count_does_not_change_what_is_stored(self, collection, workers, archive):
         """Inserts are unordered and overlap the synthesis; concurrency is a
         throughput decision and must not be a correctness one."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=32, workers=workers)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=32, workers=workers)
 
         times, _ = _seed_grid(SMALL, T0)
         assert collection.count_documents({DATE_FIELD: {"$exists": True}}) == len(times)
@@ -719,7 +725,7 @@ class TestConnectorRoundtrip:
     ):
         """The end-to-end claim: history in the store equals what the simulator
         serves at each instant, through the real connector and its real schema."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
         pv = "SR:VAC:IP07:PRESSURE"
         window_end = T0.replace(second=0, microsecond=0)
         window_start = window_end - timedelta(minutes=5)
@@ -738,7 +744,7 @@ class TestConnectorRoundtrip:
     ):
         """Honest emptiness. The mock archiver's ten-point floor is exactly the
         fabrication a stored archive exists to replace."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
         ancient = T0 - timedelta(days=400)
 
         frame = await read_back(["SR:VAC:IP07:PRESSURE"], ancient, ancient + timedelta(hours=1))
@@ -751,7 +757,7 @@ class TestConnectorRoundtrip:
     ):
         """Sparse documents are legal in this schema, so an unseeded channel
         contributes no samples rather than an error or a plausible series."""
-        seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         frame = await read_back(["SR:NOT:SEEDED"], T0 - timedelta(minutes=10), T0)
 
@@ -851,7 +857,12 @@ class TestWaveformChannels:
         assert all(type(value) is float for value in series[0])
 
     def test_a_waveform_without_a_pulse_archives_its_held_trace(self, tmp_path):
-        archive = build(write_pulse_view(tmp_path, pulse_seed=False), [], anchor_s=T0.timestamp())
+        archive = build(
+            write_pulse_view(tmp_path, pulse_seed=False),
+            [],
+            anchor_at=T0,
+            tz=get_facility_timezone(),
+        )
 
         (trace,) = archive.traces(WAVE, [T0.timestamp()])
 
@@ -861,7 +872,7 @@ class TestWaveformChannels:
         view = write_pulse_view(tmp_path, driver="SR:SEK:NOT:A:CHANNEL")
 
         with pytest.raises(ValueError, match="SR:SEK:NOT:A:CHANNEL"):
-            build(view, [], anchor_s=T0.timestamp())
+            build(view, [], anchor_at=T0, tz=get_facility_timezone())
 
     def test_scalar_documents_hold_no_waveform_values(self, pulse_archive):
         times, _ = _seed_grid(SMALL, T0)
@@ -884,7 +895,9 @@ class TestSeedBaseWaveforms:
         waveforms = _LoggedCollection(
             waveform_collection("pv_history"), log, fail_inserts=fail_waveforms
         )
-        report = seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+        report = seed_base(
+            scalars, archive, SMALL, anchor_at=T0, chunk_size=64, waveforms=waveforms
+        )
         return report, scalars, waveforms, log
 
     def test_one_trace_per_channel_per_coarse_instant_over_the_whole_window(self, pulse_archive):
@@ -933,7 +946,9 @@ class TestSeedBaseWaveforms:
         waveforms = _LoggedCollection(waveform_collection("pv_history"), log, fail_inserts=True)
 
         with pytest.raises(RuntimeError, match="went away"):
-            seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64, waveforms=waveforms)
+            seed_base(
+                scalars, pulse_archive, SMALL, anchor_at=T0, chunk_size=64, waveforms=waveforms
+            )
 
         assert scalars.manifest is None
 
@@ -944,7 +959,7 @@ class TestSeedBaseWaveforms:
         sibling = _LoggedCollection(waveform_collection("pv_history"), log)
         scalars.database = _Database({sibling.name: sibling})
 
-        seed_base(scalars, pulse_archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(scalars, pulse_archive, SMALL, anchor_at=T0, chunk_size=64)
 
         assert len(sibling.documents) == len(_tail_instants(SMALL, T0))
         assert scalars.manifest is not None
@@ -953,7 +968,7 @@ class TestSeedBaseWaveforms:
         """A stub with no database stands in for a store that has only samples."""
         scalars = StubCollection()
 
-        seed_base(scalars, archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(scalars, archive, SMALL, anchor_at=T0, chunk_size=64)
 
         assert scalars.manifest is not None
 
@@ -971,7 +986,7 @@ class TestSeedBaseWaveformStore:
             sibling.drop()
 
     def test_the_traces_land_indexed_in_the_sibling(self, collection, waveforms, pulse_archive):
-        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, pulse_archive, SMALL, anchor_at=T0, chunk_size=64)
 
         assert waveforms.count_documents({}) == len(_tail_instants(SMALL, T0))
         assert collection.count_documents({field_name(WAVE): {"$exists": True}}) == 0
@@ -980,7 +995,7 @@ class TestSeedBaseWaveformStore:
         assert (EXPIRE_FIELD, 1) in keyed
 
     def test_a_stored_trace_reads_back_as_plain_doubles(self, collection, waveforms, pulse_archive):
-        seed_base(collection, pulse_archive, SMALL, t0=T0, chunk_size=64)
+        seed_base(collection, pulse_archive, SMALL, anchor_at=T0, chunk_size=64)
 
         document = waveforms.find_one({}, sort=[(DATE_FIELD, 1)])
         date = document[DATE_FIELD].replace(tzinfo=UTC)
@@ -1031,3 +1046,58 @@ def test_the_manifest_document_is_json_serializable_apart_from_its_dates():
 
 def test_a_comparison_describes_nothing_when_nothing_moved():
     assert FingerprintComparison(state=SeedState.MATCH).describe() == ""
+
+
+# ---------------------------------------------------------------------------
+# Instants are aware
+# ---------------------------------------------------------------------------
+
+NAIVE_T0 = T0.replace(tzinfo=None)
+
+
+def test_a_naive_seed_anchor_is_refused_by_name_before_anything_is_written(archive):
+    """No zone is guessed for the anchor: the store and the grid are left alone."""
+    collection = StubCollection()
+
+    with pytest.raises(NaiveDatetimeError, match="anchor_at") as raised:
+        seed_base(collection, archive, SMALL, anchor_at=NAIVE_T0)  # type: ignore[arg-type]
+
+    assert raised.value.name == "anchor_at"
+    assert collection.documents == []
+    assert collection.manifest is None
+
+
+def test_a_naive_build_anchor_is_refused_by_name(tmp_path):
+    view = write_texture_view(tmp_path, CHANNELS)
+
+    with pytest.raises(NaiveDatetimeError, match="anchor_at"):
+        build(view, [], anchor_at=NAIVE_T0, tz=get_facility_timezone())
+
+
+@pytest.mark.parametrize("naive", ["sampled_at", "expire_at"])
+def test_a_waveform_document_refuses_a_naive_instant_by_name(naive):
+    instants = {"sampled_at": T0, "expire_at": T0 + timedelta(days=1)}
+    instants[naive] = instants[naive].replace(tzinfo=None)
+
+    with pytest.raises(NaiveDatetimeError, match=naive):
+        waveform_document(WAVE, instants["sampled_at"], [1.0], expire_at=instants["expire_at"])
+
+
+def test_the_report_names_its_span_in_utc(archive):
+    report = seed_base(StubCollection(), archive, SMALL, anchor_at=T0)  # type: ignore[arg-type]
+
+    times, _ = _seed_grid(SMALL, T0)
+    assert report.start_at == datetime.fromtimestamp(times[0], UTC)
+    assert report.end_at == datetime.fromtimestamp(times[-1], UTC)
+    assert report.start_at.tzinfo is UTC
+
+
+def test_a_seed_instant_the_store_hands_back_naive_is_read_as_utc():
+    """BSON dates are UTC; a client opened without ``tz_aware`` hands them back naive."""
+    collection = StubCollection()
+    _write_manifest(collection, {}, seeded_at=NAIVE_T0)  # type: ignore[arg-type]
+
+    comparison = compare_fingerprint(collection, {})  # type: ignore[arg-type]
+
+    assert comparison.seeded_at == T0
+    assert comparison.seeded_at is not None and comparison.seeded_at.tzinfo is UTC

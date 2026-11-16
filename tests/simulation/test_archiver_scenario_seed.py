@@ -46,6 +46,7 @@ from osprey.simulation.apply import (
     preflight_archive_rewrite,
 )
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -328,8 +329,10 @@ def _seeded(root: Path, mongo_store: dict):
     # seeded from any other source would disagree with every later recompute,
     # and the disagreement would look exactly like a scenario that failed to
     # restore.
-    with build(root / "data" / "simulator", [], anchor_s=T0.timestamp()) as archive:
-        seed_base(collection, archive, KNOBS, t0=T0, chunk_size=256)
+    with build(
+        root / "data" / "simulator", [], anchor_at=T0, tz=get_facility_timezone()
+    ) as archive:
+        seed_base(collection, archive, KNOBS, anchor_at=T0, chunk_size=256)
     try:
         yield root, collection
     finally:

@@ -105,7 +105,7 @@ def plot(project: Path) -> dict[str, dict[str, Any]]:
 
 def _event_instant() -> float:
     event = view_event({"shape": "spike", "at_when": {"days_ago": 1, "time": "14:32:08"}})
-    return anchored_instant(event, ANCHOR.timestamp(), get_facility_timezone())
+    return anchored_instant(event, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
 
 
 def _axis_seconds(axis: list[str]) -> list[float]:
@@ -127,7 +127,9 @@ def _seeded(
     assert persisted is not None
     events = {pv: script for pv, script in active_archiver_events(project, NAMES).items() if script}
     tz = get_facility_timezone()
-    with build(SimulatorView.of_project(project), NAMES, anchor_s=persisted.timestamp()) as archive:
+    with build(
+        SimulatorView.of_project(project), NAMES, anchor_at=persisted, tz=get_facility_timezone()
+    ) as archive:
         spans = {
             pv: event_window(
                 script, ANCHOR.timestamp(), HORIZON_START, tz=tz, topoff=archive.topoff_record(pv)
@@ -149,7 +151,10 @@ def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
     from osprey_connectors.simulation.view import SimulatorView
 
     with build(
-        SimulatorView.of_project(project), ["rf-thermal"], anchor_s=ANCHOR.timestamp()
+        SimulatorView.of_project(project),
+        ["rf-thermal"],
+        anchor_at=ANCHOR,
+        tz=get_facility_timezone(),
     ) as archive:
         return archive.samples([DCCT, SR07], epochs)
 
@@ -240,7 +245,9 @@ def test_the_dense_sample_at_the_burst_is_the_plotted_peak(project: Path, plot) 
     event = _event_instant()
     seconds = _axis_seconds(plot[DCCT]["x"])
     at = seconds.index(event)
-    with build(SimulatorView.of_project(project), NAMES, anchor_s=ANCHOR.timestamp()) as archive:
+    with build(
+        SimulatorView.of_project(project), NAMES, anchor_at=ANCHOR, tz=get_facility_timezone()
+    ) as archive:
         (document,) = _dense_documents(archive, {}, {event: (DCCT, SR07)})
 
     assert document["date"] == datetime.fromtimestamp(event, UTC)

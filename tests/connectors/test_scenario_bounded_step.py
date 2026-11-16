@@ -24,14 +24,14 @@ from tests._archiver_events import event as _event
 from tests._archiver_events import events as _events
 
 
-def apply_events(values, scripted, n, t_abs, anchor, tz=None):
+def apply_events(values, scripted, n, times_s, anchor_s, tz):
     """:func:`series.apply_events` of events stated as mappings."""
-    return series.apply_events(values, _events(scripted), n, t_abs, anchor, tz)
+    return series.apply_events(values, _events(scripted), n, times_s, anchor_s=anchor_s, tz=tz)
 
 
-def step_end(event, anchor, tz=None):
+def step_end(event, anchor_s, tz):
     """:func:`series.step_end` of an event stated as a mapping."""
-    return series.step_end(_event(event), anchor, tz)
+    return series.step_end(_event(event), anchor_s=anchor_s, tz=tz)
 
 
 def event_window(scripted, anchor, horizon, **kwargs):
@@ -71,7 +71,7 @@ class TestApplyBoundedStep:
     def test_fraction_step_holds_inside_window_then_returns_to_baseline(self) -> None:
         base = np.full(11, 5.0)
         out = apply_events(
-            base, [{"shape": "step", "at": 0.3, "until": 0.6, "to": 0.0}], 11, None, 0.0
+            base, [{"shape": "step", "at": 0.3, "until": 0.6, "to": 0.0}], 11, None, 0.0, UTC_ZONE
         )
         # t_frac = 0.0, 0.1, ... 1.0; window [0.3, 0.6) holds 0.3, 0.4, 0.5.
         expected = np.full(11, 5.0)
@@ -81,21 +81,23 @@ class TestApplyBoundedStep:
     def test_later_samples_keep_a_varying_baseline(self) -> None:
         base = np.linspace(10.0, 20.0, 11)
         out = apply_events(
-            base, [{"shape": "step", "at": 0.2, "until": 0.5, "to": 0.0}], 11, None, 0.0
+            base, [{"shape": "step", "at": 0.2, "until": 0.5, "to": 0.0}], 11, None, 0.0, UTC_ZONE
         )
         np.testing.assert_allclose(out[:2], base[:2])
         np.testing.assert_allclose(out[2:5], 0.0)
         np.testing.assert_allclose(out[5:], base[5:])
 
     def test_step_without_end_is_unchanged(self) -> None:
-        out = apply_events(np.zeros(5), [{"shape": "step", "at": 0.5, "to": 9.0}], 5, None, 0.0)
+        out = apply_events(
+            np.zeros(5), [{"shape": "step", "at": 0.5, "to": 9.0}], 5, None, 0.0, UTC_ZONE
+        )
         np.testing.assert_allclose(out, [0.0, 0.0, 9.0, 9.0, 9.0])
 
     def test_offset_step_is_bounded_on_the_epoch_axis(self) -> None:
         t_abs = ANCHOR + np.arange(-3600.0, 1.0, 600.0)  # -3600 .. 0, seven samples
         base = np.full(t_abs.size, 500.0)
         event = {"shape": "step", "at_offset": -2400, "until_offset": -1200, "to": 440.0}
-        out = apply_events(base, [event], t_abs.size, t_abs, ANCHOR)
+        out = apply_events(base, [event], t_abs.size, t_abs, ANCHOR, UTC_ZONE)
         # samples at -2400 and -1800 lie in [-2400, -1200); -1200 is the end and is excluded.
         np.testing.assert_allclose(out, [500.0, 500.0, 440.0, 440.0, 500.0, 500.0, 500.0])
 
@@ -114,7 +116,7 @@ class TestApplyBoundedStep:
         np.testing.assert_allclose(out, [500.0, 0.0, 0.0, 0.0, 500.0, 500.0])
 
     def test_step_end_is_none_without_an_end(self) -> None:
-        assert step_end({"shape": "step", "at_offset": -60, "to": 1.0}, ANCHOR) is None
+        assert step_end({"shape": "step", "at_offset": -60, "to": 1.0}, ANCHOR, UTC_ZONE) is None
 
 
 # ---------------------------------------------------------------- validation
