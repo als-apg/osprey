@@ -131,7 +131,7 @@ display path, it returns the name that opens it.
 The names belong to the deployment. OSPREY ships none.
 
 Declare the parameters a screen takes
-------------------------------------
+-------------------------------------
 
 A parameterised display, one detail screen that serves many IOCs, hosts or
 devices, is registered once, and the facility declares which parameters it
