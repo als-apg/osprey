@@ -35,6 +35,7 @@ from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
@@ -79,6 +80,7 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
         "services",  # container services the profile declares
         "env",  # environment variables the deployment requires
         "panel_presets",  # named web-terminal layouts
+        "claude_md_template",  # the bundled render behind the agent's CLAUDE.md
         "hooks",  # the six artifact-selection lists below are the agent's
         "rules",  # capability surface — silence about them would hide what
         "skills",  # the deployment can actually do
@@ -133,14 +135,12 @@ _LOGIN_ONLY_KEYS: frozenset[str] = frozenset(
 # How the build runs, not what gets deployed. FR4 calls these keys "absent",
 # which means absent from what the emitter ADDS: never synthesized (a facility
 # should not inherit build plumbing it did not ask for) and never offered as a
-# commented template. It does NOT mean stripped when carried — `claude_md_template`
-# is a preset-author primitive that bundled presets rely on, and dropping it
-# would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
+# commented template. It does NOT mean stripped when carried: a build mechanic
+# the resolved profile carries is emitted as it resolved.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
         "osprey_install",
         "python_env",
-        "claude_md_template",
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
@@ -163,6 +163,7 @@ _EXPLICIT_DEFAULTS: dict[str, Any] = {
     "agents": [],
     "output_styles": [],
     "web_panels": [],
+    "claude_md_template": DEFAULT_CLAUDE_MD_TEMPLATE,
 }
 
 # Why a synthesized key is present at all — written above it so the emitted
@@ -179,6 +180,7 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "agents": "Subagents installed into .claude/agents/.",
     "output_styles": "Output styles installed into .claude/output-styles/.",
     "web_panels": "Panels offered by the web terminal.",
+    "claude_md_template": "Bundled template rendered as CLAUDE.md, the agent's instructions.",
 }
 
 # Two keys need more than a one-line rationale: their shape is not obvious from

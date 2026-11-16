@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.agent_record.config import parse_agent_record_block, refuse_retired_config_keys
+from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
@@ -2274,7 +2275,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         web_panels=raw.get("web_panels", []),
         default_panel=raw.get("default_panel"),
         panel_presets=raw.get("panel_presets", {}),
-        claude_md_template=raw.get("claude_md_template"),
+        claude_md_template=raw.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE,
         artifact_server=_block(raw, "artifact_server"),
         dispatch=dispatch,
         bluesky=bluesky,
