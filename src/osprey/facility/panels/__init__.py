@@ -6,7 +6,15 @@ the :class:`PanelGraph` every later step reads through;
 :mod:`~osprey.facility.panels.health` turns values into states.
 """
 
-from osprey.facility.panels.health import State, channel_state, rollup, rule_channels, worst
+from osprey.facility.panels.health import (
+    State,
+    channel_state,
+    rollup,
+    row_matches,
+    rule_channels,
+    unsupported,
+    worst,
+)
 from osprey.facility.panels.model import (
     Channel,
     Citation,
@@ -40,6 +48,8 @@ __all__ = [
     "load_graph",
     "read_tables",
     "rollup",
+    "row_matches",
     "rule_channels",
+    "unsupported",
     "worst",
 ]

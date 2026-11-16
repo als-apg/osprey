@@ -338,3 +338,11 @@ def test_a_tie_between_ring_frames_is_refused(tmp_path: Path, panel_facility: Pa
     graph = load_graph(panel_facility, tables, ring_frame="XR-B")
     assert graph.ring_frame == "XR-B"
     assert graph.pose("XR01:QD1").is_ring_position  # type: ignore[union-attr]
+
+
+def test_rules_lists_every_row_of_every_held_channel(panel_graph: PanelGraph) -> None:
+    rows = panel_graph.rules()
+    # 15 table rows, less the one on an excluded thing, the one on a hidden thing
+    # and the one on a simulation-only channel
+    assert len(rows) == 12
+    assert {row.channel for row in rows}.isdisjoint({VA_CHANNEL, *HIDDEN_CHANNELS})

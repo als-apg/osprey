@@ -1,8 +1,8 @@
 """Health: the state of a channel, of a thing and of a roll-up node.
 
 A channel's state comes from the rows of ``health.csv`` that name its value.
-A channel with no row, a missing value, or a value no row names is
-``unknown``. Rows from different sources that match the value and give
+A channel with no row, a missing value, or a value no supported row names is
+``unknown``; rows whose form the engine cannot evaluate are never matched. Rows from different sources that match the value and give
 different states make the channel ``disagree``. The row's ``basis`` does not
 change the state.
 
@@ -15,7 +15,10 @@ show "no rule here".
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import functools
+import operator
+import re
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal
 
 from osprey.facility.panels.model import PanelGraph, ThingKind
@@ -26,25 +29,108 @@ State = Literal["normal", "warn", "bad", "unknown", "disagree"]
 _RANK: dict[str, int] = {"normal": 0, "unknown": 1, "disagree": 2, "warn": 3, "bad": 4}
 
 
-def _number(text: str) -> float | None:
+_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+_COMPARE = re.compile(rf"^(!=|<=|>=|<|>)\s*({_NUMBER})$")
+_BIT = re.compile(r"^bit(\d*)=(\d+)$")
+# a value that starts like an operator or a bit test but fits no form above is
+# unsupported; so is anything marked ``expr:``. Everything else is literal text.
+_LOOKS_LIKE_FORM = re.compile(r"^(expr:|[<>!=]|bit\d*=)")
+_DIGITS = re.compile(r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+_COMPARE_OPS: dict[str, Callable[[float, float], bool]] = {
+    "!=": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+}
+
+
+def _number(value: Any) -> float | None:
+    """The live value as a number, or ``None`` (a bool is not a number here)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
     try:
-        return float(text)
+        return float(str(value).strip())
     except ValueError:
         return None
 
 
-def _same(row_value: str, text: str) -> bool:
-    if row_value == text:
-        return True
-    left, right = _number(row_value), _number(text)
-    return left is not None and right is not None and left == right
+def _literal(row_value: str) -> Callable[[Any], bool]:
+    expected = _number(row_value)
+
+    def match(value: Any) -> bool:
+        if str(value) == row_value:
+            return True
+        live = _number(value)
+        return expected is not None and live is not None and live == expected
+
+    return match
 
 
-def _matches(row_value: str, text: str) -> bool:
-    """Whether a health row's value (``"0"`` or ``"!=0"``) names the text."""
-    if row_value.startswith("!="):
-        return not _same(row_value[2:], text)
-    return _same(row_value, text)
+def _compare(op: str, limit: float) -> Callable[[Any], bool]:
+    compare = _COMPARE_OPS[op]
+
+    def match(value: Any) -> bool:
+        live = _number(value)
+        return live is not None and compare(live, limit)
+
+    return match
+
+
+def _bit(index: int, wanted: int) -> Callable[[Any], bool]:
+    def match(value: Any) -> bool:
+        live = _number(value)
+        if live is None or live != int(live):
+            return False
+        return (int(live) >> index) & 1 == wanted
+
+    return match
+
+
+@functools.cache
+def _parse(row_value: str) -> Callable[[Any], bool] | None:
+    """The test a health row's value stands for, built once per distinct text.
+
+    Returns:
+        ``None`` for a form the engine cannot evaluate.
+    """
+    text = row_value.strip()
+    if found := _COMPARE.match(text):
+        return _compare(found.group(1), float(found.group(2)))
+    if found := _BIT.match(text):
+        return _bit(int(found.group(1) or 0), int(found.group(2)))
+    if _LOOKS_LIKE_FORM.match(text):
+        return None
+    return _literal(text)
+
+
+def row_matches(row_value: str, value: Any) -> bool:
+    """Whether a health row's value names the live value.
+
+    The grammar of *row_value*: literal text or number (equal as text, or as
+    numbers when both parse); ``!=N``, ``<N``, ``<=N``, ``>N``, ``>=N`` (numeric
+    comparison; a live value that is not a number does not match); ``bit=N`` and
+    ``bitK=N`` (bit K of the live value as an integer, bit 0 for plain ``bit``).
+    Any other form, ``expr:`` rows among them, is unsupported and never matches.
+    """
+    test = _parse(row_value)
+    return test is not None and test(value)
+
+
+def unsupported(graph: PanelGraph) -> dict[str, int]:
+    """The health row forms the engine cannot evaluate, with how many rows use each.
+
+    Digits are replaced by ``N``, so ``expr:a>3`` and ``expr:a>7`` count as one form.
+    """
+    counts: dict[str, int] = {}
+    for row in graph.rules():
+        if _parse(row.value) is None:
+            form = _DIGITS.sub("N", row.value.strip())
+            counts[form] = counts.get(form, 0) + 1
+    return counts
 
 
 def channel_state(graph: PanelGraph, channel: str, value: Any) -> State:
@@ -63,8 +149,7 @@ def channel_state(graph: PanelGraph, channel: str, value: Any) -> State:
     rows = graph.rule(channel)
     if not rows or value is None:
         return "unknown"
-    text = str(value)
-    states = {row.state for row in rows if _matches(row.value, text)}
+    states = {row.state for row in rows if row_matches(row.value, value)}
     if not states:
         return "unknown"
     if len(states) > 1:

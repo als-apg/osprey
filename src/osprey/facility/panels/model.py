@@ -469,6 +469,10 @@ class PanelGraph:
         """Every health row for the channel, all sources, in file order."""
         return list(self._rules.get(channel, ()))
 
+    def rules(self) -> list[HealthRule]:
+        """Every health row of every channel the graph holds, by channel then file order."""
+        return [row for rows in self._rules.values() for row in rows]
+
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
         return self._pairs.get(setpoint)
