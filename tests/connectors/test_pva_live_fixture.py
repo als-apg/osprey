@@ -47,7 +47,6 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors_tests._epics_fakes import (
@@ -55,6 +54,7 @@ from osprey_connectors_tests._epics_fakes import (
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
 from osprey_connectors_tests._harness._guards import earlier_garbage_left_out
+from osprey_connectors_tests._write_fakes import armed_context
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 # The served namespace, kept to one prefix so a single glob routes all of it
@@ -204,7 +204,7 @@ def connector_factory(pva_server):
         connector = EPICSConnector()
         asyncio.run(
             connector.connect(
-                ConnectorContext(
+                armed_context(
                     settings={
                         "timeout_s": timeout,
                         "pva_channels": [PVA_GLOB],

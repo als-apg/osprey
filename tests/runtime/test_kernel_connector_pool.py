@@ -131,6 +131,7 @@ class _FirstContextConnector:
     disconnected: list["_FirstContextConnector"] = []
 
     async def connect(self, context: ConnectorContext) -> None:
+        self._control_target = context.control_target
         self.server = context.settings["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 

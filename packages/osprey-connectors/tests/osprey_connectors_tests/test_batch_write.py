@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 
 from osprey_connectors import posture_store
-from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
@@ -33,6 +32,7 @@ from osprey_connectors_tests._epics_fakes import (
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
 from osprey_connectors_tests._fake_connector import FakeConnector
+from osprey_connectors_tests._write_fakes import armed_context
 
 ECA_DISCONN = 192
 ECA_NOWTACCESS = 376
@@ -60,7 +60,7 @@ def _outcomes(results) -> list[tuple[str, WriteOutcome, RefusalReason | None]]:
 @pytest.fixture
 async def fake():
     connector = FakeConnector()
-    await connector.connect(ConnectorContext())
+    await connector.connect(armed_context())
     connector._limits_validator = _validator(
         A={"max_value": 10.0}, B={"max_value": 10.0}, C={"max_value": 10.0, "max_step": 3.0}
     )

@@ -288,9 +288,10 @@ class TestOpen:
         assert not [name for name in os.environ if name.startswith("EPICS_")]
         await session.close()
 
-    async def test_builtin_connectors_are_registered(self, state_dir, monkeypatch):
+    async def test_the_factory_registers_the_builtins_it_builds_from(self, state_dir, monkeypatch):
+        """The session registers nothing itself: its first build registers the built-ins."""
         _serve(monkeypatch, VA_SECTION)
-        write_record(state_dir, target="live")
+        write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
             session = await _opened()
             assert types.VIRTUAL_ACCELERATOR in ConnectorFactory._control_system_connectors
