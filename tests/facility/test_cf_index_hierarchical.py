@@ -261,6 +261,20 @@ def test_a_placeless_device_sits_under_no_place_at_every_place_level(tmp_path: P
     ]
 
 
+def test_a_class_query_without_a_sector_names_the_sector(tmp_path: Path) -> None:
+    _, database = _written(tmp_path, SYNTHETIC)
+
+    with pytest.raises(ValueError, match="sector"):
+        database.get_options_at_level("class", {"machine": "N"})
+    assert [
+        option["name"] for option in database.get_options_at_level("sector", {"machine": "N"})
+    ] == ["-"]
+    assert [
+        option["name"]
+        for option in database.get_options_at_level("class", {"machine": "N", "sector": "-"})
+    ] == ["-"]
+
+
 def test_a_deviceless_channel_on_a_place_sits_under_no_class_and_no_device(
     tmp_path: Path,
 ) -> None:
@@ -621,6 +635,14 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
     assert [
         option["name"] for option in database.get_options_at_level("sector", {"machine": "BR"})
     ] == ["-"]
+    with pytest.raises(ValueError, match="sector"):
+        database.get_options_at_level("class", {"machine": "BR"})
+    br_classes = [
+        option["name"]
+        for option in database.get_options_at_level("class", {"machine": "BR", "sector": "-"})
+    ]
+    assert br_classes
+    assert "-" not in br_classes
 
 
 @pytest.mark.slow
