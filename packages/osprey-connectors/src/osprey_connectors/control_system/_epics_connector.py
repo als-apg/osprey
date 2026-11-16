@@ -936,6 +936,31 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor: _WriteExecutor | None = None
         self._write_executor_lock = threading.Lock()
 
+    @property
+    def selected_gateway_role(self) -> GatewayRole | None:
+        """The gateway role ``connect()`` pointed Channel Access at.
+
+        The rule is the one ``osprey_connectors.control_system._gateway_role._selected_role``
+        states. The role is fixed until the next ``connect()``.
+
+        Returns:
+            ``"read_only"`` or ``"write_access"``; ``None`` when the connector
+            has not connected or its block configures no gateways.
+        """
+        return self._selected_role
+
+    @property
+    def write_gateway_configured(self) -> bool:
+        """Whether the connector block ``connect()`` read configures a ``write_access`` gateway.
+
+        While this is True and :attr:`selected_gateway_role` is not
+        ``"write_access"``, a write the verdict allows is refused ``switching``.
+
+        Returns:
+            True when a write gateway is configured; False before ``connect()``.
+        """
+        return self._write_gateway_configured
+
     @override
     async def connect(self, config: dict[str, ContractAny]) -> None:
         """
