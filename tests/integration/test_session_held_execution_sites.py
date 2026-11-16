@@ -423,10 +423,11 @@ def test_the_sandbox_child_keeps_the_session_and_the_store():
 
 _WRITE_SCRIPT = """
 import osprey.runtime as runtime
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors_tests._write_fakes import RecordingConnector
 
 connector = RecordingConnector()
-connector._control_target = runtime._stamped_target()
+connector._context = ConnectorContext(control_target=runtime._stamped_target())
 
 
 async def _get_connector():

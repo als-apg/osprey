@@ -66,7 +66,9 @@ class TestDynamicConnectorImport:
             ),
             pytest.param(
                 "site",
-                "Unknown control system type: 'site'. Available types: ['virtual_accelerator']. "
+                # Every built-in registers on first use, beside this module's own.
+                "Unknown control system type: 'site'. Available types: ['virtual_accelerator', "
+                "'epics', 'doocs', 'tango', 'live_standin']. "
                 "Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),

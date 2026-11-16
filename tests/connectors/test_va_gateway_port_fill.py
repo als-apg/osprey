@@ -28,6 +28,7 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _va_connector as va_connector
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.control_system._va_connector import (
     DEFAULT_VA_PORT,
     VirtualAcceleratorConnector,
@@ -286,6 +287,9 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
         captured["config"] = config
 
     monkeypatch.setattr(va_connector.EPICSConnector, "_open", fake_epics_open, raising=True)
+    # connect() builds the limits validator before _open; this test is about the
+    # port, so the validator reads no config here.
+    monkeypatch.setattr(LimitsValidator, "from_config", classmethod(lambda cls, **_kw: None))
 
     connector = VirtualAcceleratorConnector()
     await connector.connect(
