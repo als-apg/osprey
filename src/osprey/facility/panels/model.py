@@ -14,10 +14,12 @@ What the graph leaves out, everywhere:
 
 - a thing whose id ``excluded.csv`` lists (``kind`` ``thing``), every channel
   ``on`` it, every relation with it at an end, its group memberships, its
-  poses; a device or place whose place is excluded reads as placed nowhere;
+  poses; an excluded place hides every place within it (by id, transitively)
+  and every device placed in any of them, with all of the above;
 - a channel ``excluded.csv`` lists (``kind`` ``channel``) and a channel whose
   name starts with ``VA:`` (simulation only), with their record types, pairs
   and health rules; a pair whose readback is left out is left out;
+- a pair ``pairs.csv`` does not state: the table is the one source of pairs;
 - what a document ``excluded.csv`` lists (``kind`` ``document``) is the
   source of: a citation, a relation claim, a pose;
 - a ``superseded`` relation claim. ``accepted`` and ``contested`` claims are
@@ -25,8 +27,9 @@ What the graph leaves out, everywhere:
   know is an edge under its own key like any other.
 
 The ring frame is the frame of ``positions.csv`` that carries the most rows
-with an empty ``derived_assumes`` (the first such frame in file order on a
-tie), unless :func:`load_graph` is told which.
+with an empty ``derived_assumes`` (on a
+tie, the rows name no ring frame: :func:`load_graph` refuses and asks for
+one), unless :func:`load_graph` is told which.
 """
 
 from __future__ import annotations
@@ -41,9 +44,11 @@ from typing import Any, Literal
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
+    POSITIONS,
     DrawnAs,
     HealthRule,
     Pair,
+    PanelTableError,
     PanelTables,
     Pose,
     read_tables,
@@ -177,6 +182,26 @@ def _citation(source: Any) -> Citation | None:
     )
 
 
+def _ring_frame(poses: list[Pose]) -> str | None:
+    """The frame with the most rows that assume nothing, or ``None`` with no such row.
+
+    Raises:
+        PanelTableError: Two frames tie for the most.
+    """
+    ranked = Counter(pose.frame for pose in poses if not pose.derived_assumes).most_common()
+    if not ranked:
+        return None
+    tied = [frame for frame, count in ranked if count == ranked[0][1]]
+    if len(tied) > 1:
+        raise PanelTableError(
+            POSITIONS,
+            None,
+            f"frames {', '.join(sorted(tied))} tie for the ring frame with {ranked[0][1]} "
+            "rows each; pass the ring frame to load_graph",
+        )
+    return ranked[0][0]
+
+
 class PanelGraph:
     """The things, channels, relations, poses and rules screens are drawn from.
 
@@ -220,12 +245,23 @@ class PanelGraph:
         )
 
     def _read_things(self, records: FacilityRecords, excluded: set[str]) -> dict[_Key, Thing]:
-        places = {str(place["id"]) for place in records.of_kind("place")} - excluded
+        every_place = {str(place["id"]) for place in records.of_kind("place")}
+        hidden = {
+            place
+            for place in every_place
+            if any(
+                "/".join(place.split("/")[:depth]) in excluded
+                for depth in range(1, place.count("/") + 2)
+            )
+        }
+        places = every_place - hidden
         things: dict[_Key, Thing] = {}
         for kind in END_KINDS:
             for record in records.of_kind(kind):  # type: ignore[arg-type]
                 thing_id = str(record["id"])
-                if thing_id in excluded:
+                if thing_id in excluded or (kind == "place" and thing_id in hidden):
+                    continue
+                if kind == "device" and _text(record.get("place")) in hidden:
                     continue
                 if kind == "device":
                     place = _text(record.get("place"))
@@ -248,7 +284,6 @@ class PanelGraph:
         types = {row.channel: row for row in tables.record_types}
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
-        self._channel_records: dict[str, Mapping[str, Any]] = {}
         for record in records.of_kind("channel"):
             name = str(record["id"])
             if name in excluded or name.startswith(SIMULATION_PREFIX):
@@ -271,7 +306,6 @@ class PanelGraph:
                 description=_text(record.get("description")),
             )
             self._channel[name] = channel
-            self._channel_records[name] = record
             holders = dict.fromkeys(
                 [holder, *(("device", str(device)) for device in record.get("endpoint_of") or ())]
             )
@@ -321,8 +355,7 @@ class PanelGraph:
             if pose.thing in thing_ids and pose.document not in self._excluded_documents
         ]
         if ring_frame is None:
-            counted = Counter(pose.frame for pose in kept if not pose.derived_assumes)
-            ring_frame = counted.most_common(1)[0][0] if counted else None
+            ring_frame = _ring_frame(kept)
         self.ring_frame: str | None = ring_frame
         """The frame whose ``s_m`` is the ring position."""
         self._poses: dict[str, list[Pose]] = {}
@@ -337,27 +370,6 @@ class PanelGraph:
         for pair in tables.pairs:
             if pair.setpoint in self._channel and pair.readback in self._channel:
                 self._pairs[pair.setpoint] = pair
-        stated = {pair.setpoint for pair in tables.pairs}
-        for name, record in self._channel_records.items():
-            readback = _text(record.get("pair"))
-            defaults = (record.get("provenance") or {}).get("defaults") or ()
-            if (
-                name in stated
-                or readback in (None, name)
-                or readback not in self._channel
-                or "pair" in defaults
-            ):
-                continue
-            self._pairs[name] = Pair(
-                setpoint=name,
-                readback=readback,  # type: ignore[arg-type]
-                evidence="facility",
-                basis="stated",
-                source=None,
-                revision=None,
-                locator=None,
-            )
-        del self._channel_records
 
     # -- reading --------------------------------------------------------------
 
@@ -458,12 +470,7 @@ class PanelGraph:
         return list(self._rules.get(channel, ()))
 
     def pair(self, setpoint: str) -> Pair | None:
-        """The readback the setpoint is shown beside, or ``None``.
-
-        From ``pairs.csv`` when it has a row for the setpoint; otherwise from a
-        ``pair`` the facility file states (not a default, not the setpoint
-        itself), as evidence ``facility``, basis ``stated``.
-        """
+        """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
         return self._pairs.get(setpoint)
 
 
@@ -482,7 +489,8 @@ def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = Non
     Raises:
         FileNotFoundError: No facility file is there.
         FacilityFileError: The facility file cannot be read.
-        PanelTableError: A rule table breaks its schema.
+        PanelTableError: A rule table breaks its schema, or two frames tie
+            for the ring frame and none is passed.
     """
     path = Path(facility)
     if path.is_dir():

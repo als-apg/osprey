@@ -8,6 +8,7 @@
   - XR02:IP1
   - XR02:IP2
   - XR02:SAF1
+  - XR02:SAF2
 - id: XR-QUAD
   members:
   - XR01:QF1

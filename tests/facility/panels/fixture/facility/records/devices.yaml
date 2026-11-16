@@ -1,6 +1,7 @@
 # Invented for the panels tests. Six magnets, four pumps, three chassis in one
 # rack, one supply feeding two magnets, one thing the excluded table drops
-# (XR02:SAF1) and one thing with a pose and no channel (XR02:SHIELD1).
+# (XR02:SAF1), one device hidden by its excluded place (XR02:SAF2 in
+# XR/XR02/SAFE/CAB1, under the excluded XR/XR02/SAFE) and one thing with a pose and no channel (XR02:SHIELD1).
 - id: XR01:QF1
   class: Quadrupole
   place: XR/XR01
@@ -51,6 +52,9 @@
 - id: XR02:SAF1
   class: Infrastructure
   place: XR/XR02
+- id: XR02:SAF2
+  class: Infrastructure
+  place: XR/XR02/SAFE/CAB1
 - id: XR02:SHIELD1
   class: Infrastructure
   place: XR/XR02

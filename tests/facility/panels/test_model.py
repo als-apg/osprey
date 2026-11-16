@@ -7,10 +7,13 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import PanelGraph, load_graph
+from osprey.facility.panels import PanelGraph, PanelTableError, load_graph
 from tests.facility.panels._fixture import RING_FRAME, copy_tables, write_fixture_facility
 
 EXCLUDED_THING = "XR02:SAF1"
+EXCLUDED_PLACE = "XR/XR02/SAFE"
+HIDDEN_THINGS = (EXCLUDED_PLACE, "XR/XR02/SAFE/CAB1", "XR02:SAF2")
+HIDDEN_CHANNELS = ("XR02:SAF2:Door-Sts", "XR02:Cab1Temp-RB")
 EXCLUDED_CHANNELS = ("XR02:SAF1:Trip-Sts", "XR02:IP2:Interlock-Sts")
 VA_CHANNEL = "VA:XR:InjectionKnob"
 
@@ -203,8 +206,9 @@ def test_the_ring_frame_can_be_passed(panel_facility: Path, panel_tables: Path) 
     pose = graph.pose("XR01:QF1")
     assert pose is not None
     assert (pose.frame, pose.is_ring_position) == ("XR-GIRDER", True)
-    assert graph.pose("XR01:QD1") is not None
-    assert not graph.pose("XR01:QD1").is_ring_position  # type: ignore[union-attr]
+    other = graph.pose("XR02:QF1")
+    assert other is not None
+    assert (other.frame, other.is_ring_position) == (RING_FRAME, False)
 
 
 def test_rule_returns_every_row_of_every_source(panel_graph: PanelGraph) -> None:
@@ -217,7 +221,7 @@ def test_rule_returns_every_row_of_every_source(panel_graph: PanelGraph) -> None
     assert panel_graph.rule("XR01:QF1:Current-RB") == []
 
 
-def test_pair_from_the_table_then_from_the_facility(panel_graph: PanelGraph) -> None:
+def test_pair_comes_from_the_table_only(panel_graph: PanelGraph) -> None:
     stated = panel_graph.pair("XR01:QF1:Current-SP")
     assert stated is not None
     assert (stated.readback, stated.basis, stated.source) == (
@@ -228,14 +232,9 @@ def test_pair_from_the_table_then_from_the_facility(panel_graph: PanelGraph) -> 
     inferred = panel_graph.pair("XR01:PS1:On-Cmd")
     assert inferred is not None
     assert (inferred.readback, inferred.basis) == ("XR01:PS1:On-Sts", "inferred")
-    facility = panel_graph.pair("XR02:QF1:Current-SP")
-    assert facility is not None
-    assert (facility.readback, facility.evidence, facility.basis, facility.source) == (
-        "XR02:QF1:Current-RB",
-        "facility",
-        "stated",
-        None,
-    )
+    # The facility file pairs these, but pairs.csv does not: no pair.
+    assert panel_graph.pair("XR02:QF1:Current-SP") is None
+    assert panel_graph.pair("XR01:QD1:Current-SP") is None
     assert panel_graph.pair("XR01:QF1:Current-RB") is None
 
 
@@ -252,3 +251,90 @@ def test_an_excluded_document_drops_what_it_sources(tmp_path: Path, panel_facili
 def test_an_unknown_id_is_a_key_error(panel_graph: PanelGraph) -> None:
     with pytest.raises(KeyError, match="XR09:NOPE"):
         panel_graph.thing("XR09:NOPE")
+
+
+def _every_name(graph: PanelGraph) -> set[str]:
+    """Every id and channel name any accessor of the graph returns."""
+    names: set[str] = set()
+    for thing in graph.things():
+        names.add(thing.id)
+        if thing.place is not None:
+            names.add(thing.place)
+        names |= {channel.name for channel in graph.channels(thing.id, thing.kind)}
+        names |= {channel.thing for channel in graph.channels(thing.id, thing.kind)}
+        for edges in graph.neighbours(thing.id, thing.kind).values():
+            names |= {edge.other for edge in edges}
+        if thing.kind == "group":
+            names |= {member.id for member in graph.members(thing.id)}
+        if thing.kind == "place":
+            names |= {inner.id for inner in graph.within(thing.id, deep=True)}
+        names |= {pose.thing for pose in graph.poses(thing.id)}
+    return names
+
+
+def test_an_excluded_place_hides_everything_within_it(panel_graph: PanelGraph) -> None:
+    names = _every_name(panel_graph)
+    for hidden in (*HIDDEN_THINGS, *HIDDEN_CHANNELS):
+        assert hidden not in names
+    for thing_id in HIDDEN_THINGS:
+        with pytest.raises(KeyError):
+            panel_graph.thing(thing_id)
+        assert panel_graph.pose(thing_id) is None
+        assert panel_graph.poses(thing_id) == []
+    for name in HIDDEN_CHANNELS:
+        with pytest.raises(KeyError):
+            panel_graph.channel(name)
+        assert panel_graph.rule(name) == []
+    assert {edge.other for edge in panel_graph.neighbours("XR01:PS1")["powered_by"]} == {
+        "XR01:QF1",
+        "XR01:QD1",
+    }
+    assert {thing.id for thing in panel_graph.within("XR/XR02")} == {
+        "XR02:QF1",
+        "XR02:QD1",
+        "XR02:BEND1",
+        "XR02:IP1",
+        "XR02:IP2",
+        "XR02:SHIELD1",
+    }
+
+
+def test_the_fixture_has_the_hidden_records(panel_facility: Path) -> None:
+    import json
+
+    document = json.loads(panel_facility.read_text(encoding="utf-8"))
+    ids = {record["id"] for key in ("places", "devices", "channels") for record in document[key]}
+    assert set(HIDDEN_THINGS) | set(HIDDEN_CHANNELS) <= ids
+
+
+def test_a_ring_row_without_s_is_not_a_ring_position(panel_graph: PanelGraph) -> None:
+    pose = panel_graph.pose("XR02:IP1")
+    assert pose is not None
+    assert (pose.frame, pose.s_m, pose.derived_assumes) == (RING_FRAME, None, None)
+    assert pose.in_ring_frame
+    assert not pose.is_ring_position
+
+
+def test_poses_put_the_ring_row_first_then_file_order(panel_graph: PanelGraph) -> None:
+    assert [pose.frame for pose in panel_graph.poses("XR01:QD1")] == [RING_FRAME, "XR-GIRDER"]
+    assert [pose.in_ring_frame for pose in panel_graph.poses("XR01:QD1")] == [True, False]
+    assert len(panel_graph.poses("XR02:SHIELD1")) == 1
+    assert panel_graph.poses("XR02:QD1") == []
+    assert panel_graph.poses(EXCLUDED_THING) == []
+    assert panel_graph.poses("XR09:NOPE") == []
+
+
+def test_a_tie_between_ring_frames_is_refused(tmp_path: Path, panel_facility: Path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    header = (tables / "positions.csv").read_text(encoding="utf-8").splitlines()[0]
+    rows = [
+        "XR01:QF1,XR-A,0,0,0,0,0,0,1.0,0,0,,,stated,XR-LAYOUT,A,released,sheet 1",
+        "XR01:QD1,XR-B,0,0,0,0,0,0,2.0,0,0,,,stated,XR-LAYOUT,A,released,sheet 1",
+    ]
+    (tables / "positions.csv").write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    with pytest.raises(PanelTableError, match=r"positions\.csv.*XR-A, XR-B.*ring frame") as raised:
+        load_graph(panel_facility, tables)
+    assert raised.value.line is None
+    graph = load_graph(panel_facility, tables, ring_frame="XR-B")
+    assert graph.ring_frame == "XR-B"
+    assert graph.pose("XR01:QD1").is_ring_position  # type: ignore[union-attr]

@@ -35,3 +35,15 @@
     device: XR02:IP1
   object:
     device: XR02:SAF1
+- id: xr02-saf2-control
+  type: controlled_by
+  subject:
+    device: XR02:SAF2
+  object:
+    device: XR01:CH3
+- id: xr02-cab1-power
+  type: powered_by
+  subject:
+    place: XR/XR02/SAFE/CAB1
+  object:
+    device: XR01:PS1

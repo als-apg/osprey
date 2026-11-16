@@ -78,3 +78,9 @@
   'on':
     place: XR
   role: setpoint
+- id: XR02:SAF2:Door-Sts
+  'on':
+    device: XR02:SAF2
+- id: XR02:Cab1Temp-RB
+  'on':
+    place: XR/XR02/SAFE/CAB1

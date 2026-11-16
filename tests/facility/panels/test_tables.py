@@ -49,11 +49,11 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
     tables = read_tables(panel_tables)
-    assert len(tables.positions) == 9
+    assert len(tables.positions) == 13
     assert len(tables.record_types) == 6
     assert len(tables.pairs) == 3
-    assert len(tables.health) == 7
-    assert len(tables.excluded) == 2
+    assert len(tables.health) == 8
+    assert len(tables.excluded) == 3
     assert len(tables.pictures) == 2
     rack = next(pose for pose in tables.positions if pose.thing == "XR/XR01/RK1")
     assert rack.s_m is None

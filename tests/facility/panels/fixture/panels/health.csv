@@ -6,3 +6,4 @@ XR01:PS1:On-Sts,1,normal,database-labels,inferred,xr-ioc,0a1b2c3,psApp/Db/ps.db:
 XR01:PS1:On-Sts,0,warn,database-labels,inferred,xr-ioc,0a1b2c3,psApp/Db/ps.db:8
 XR02:SAF1:Trip-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,safApp/Db/saf.db:2
 VA:XR:InjectionKnob,!=0,warn,database-severity,stated,xr-ioc,0a1b2c3,vaApp/Db/va.db:2
+XR02:SAF2:Door-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,safApp/Db/saf.db:4

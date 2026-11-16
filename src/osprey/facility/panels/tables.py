@@ -220,8 +220,8 @@ class Pose:
 
     @property
     def is_ring_position(self) -> bool:
-        """Whether ``s_m`` is a true ring position: the ring frame, nothing assumed."""
-        return self.in_ring_frame and not self.derived_assumes
+        """Whether ``s_m`` is a true ring position: stated, in the ring frame, nothing assumed."""
+        return self.in_ring_frame and self.s_m is not None and not self.derived_assumes
 
 
 @dataclass(frozen=True)

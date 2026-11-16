@@ -9,8 +9,11 @@ rack ``XR/XR01/RK1``; six magnets (``XR0n:QF1``, ``XR0n:QD1``,
 ``XR0n:BEND1``), four pumps (``XR0n:IP1``, ``XR0n:IP2``), three chassis
 (``XR01:CH1..3``) in the rack, the supply ``XR01:PS1`` feeding ``XR01:QF1``
 and ``XR01:QD1``, the excluded thing ``XR02:SAF1`` (with a channel, a group
-membership, a relation and a pose), ``XR02:SHIELD1`` with a pose and no
-channel, and ``XR01:QF1`` and ``XR01:IP1`` at the same ``s_m``. The channel
+membership, a relation and a pose), the excluded place ``XR/XR02/SAFE``,
+which hides ``XR/XR02/SAFE/CAB1`` and ``XR02:SAF2`` in it (each with a
+channel, a relation and a pose), ``XR02:SHIELD1`` with a pose and no
+channel, and ``XR01:QF1`` and ``XR01:IP1`` at the same ``s_m``, and ``XR02:IP1`` with a
+ring-frame row and no ``s_m``. The channel
 ``XR01:IP1:State-Sts`` has health rows from two sources that disagree on value
 ``0``; ``XR02:IP2:Interlock-Sts`` is an excluded channel on a kept thing;
 ``VA:XR:InjectionKnob`` is a simulation-only channel.
