@@ -2051,9 +2051,13 @@ def _create_lifespan(
         app.state.discovered_panel_dirs = {}
         try:
             from osprey.interfaces.web_terminal.panel_discovery import (
+                apply_build_panels,
                 apply_discovered_panels,
             )
 
+            # The panels the build wrote first: the config declares them, so
+            # they are wired whatever the runtime-panel opt-in says.
+            apply_build_panels(app)
             apply_discovered_panels(app)
         except Exception:
             logger.warning("Local panel discovery failed; continuing.", exc_info=True)

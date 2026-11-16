@@ -2400,7 +2400,11 @@ def _render_project(
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides, profile_dispatch_tier
     from .build_profile_health import health_config_overrides
-    from .build_profile_panels import apply_panel_selection, panel_selection_overrides
+    from .build_profile_panels import (
+        apply_panel_selection,
+        panel_selection_overrides,
+        write_build_panels,
+    )
     from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
         attached_render_overrides,
@@ -2726,6 +2730,15 @@ def _render_project(
         )
         if injected_out is not None:
             injected_out.extend(injected)
+
+        # The panels the build writes as a page (the roster): the bundle goes
+        # into this render, and the block that declares it into its config,
+        # before the selection is projected onto the blocks below.
+        built_panels = write_build_panels(
+            build_profile.web_panels or (), build_profile.config, repo_root, render_dir
+        )
+        if built_panels:
+            _apply_config_overrides(render_dir, built_panels)
 
         # What this render carries of the applications, before its panels are
         # told whether they show and its servers are persisted. An attached render

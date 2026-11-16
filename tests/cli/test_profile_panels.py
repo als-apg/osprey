@@ -22,6 +22,7 @@ from osprey.cli.profile_panels import (
     STATE_TAB,
     format_panel_matrix,
     panel_matrix,
+    panel_matrix_bundle,
     panel_matrix_html,
 )
 
@@ -127,3 +128,35 @@ def test_json_is_one_document_on_stdout(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert set(document) == {"panels", "renders"}
+
+
+def test_the_bundle_is_a_panel_the_terminal_serves(repo: Path, tmp_path: Path) -> None:
+    from osprey.interfaces.design_system.panels.validator import validate_panel
+
+    matrix = panel_matrix(repo)
+    files = panel_matrix_bundle(matrix)
+    for name, content in files.items():
+        (tmp_path / name).write_text(content, encoding="utf-8")
+
+    assert validate_panel(tmp_path) == []
+    assert json.loads(files["manifest.json"])["id"] == "roster"
+    page = files["index.html"]
+    assert 'id="theme"' not in page, "the panel follows the terminal's theme"
+    for render in matrix["renders"]:
+        assert render["file"] in page
+
+
+def test_a_login_that_selects_the_roster_shows_it_and_no_other_does(repo: Path) -> None:
+    layer = repo / "tiers" / "admin.yml"
+    text = layer.read_text(encoding="utf-8")
+    assert "\nweb_panels:\n" in text
+    layer.write_text(text.replace("\nweb_panels:\n", "\nweb_panels:\n  - roster\n", 1))
+
+    matrix = panel_matrix(repo)
+    assert {"id": "roster", "label": "Roster"} in matrix["panels"]
+    shown = {
+        render["file"]
+        for render in matrix["renders"]
+        if render["panels"]["roster"]["state"] != STATE_OFF
+    }
+    assert shown == {"tiers/admin.yml"}
