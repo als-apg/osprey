@@ -22,9 +22,14 @@
  *   - `detach(k)`, `reattach(k)`, `forget(k)`
  *                      a pane left for its own window, came back beside its
  *                      old neighbour (the injected placement, below), or its
- *                      window closed and it is not docked again.
+ *                      window closed and it is not docked again;
+ *   - `setPanelParams(k, p)`
+ *                      a panel's own state (dockview params), kept with its
+ *                      tile (dock-params.js). A restore with the saved dock's
+ *                      records builds each panel with the params stored for it.
  *
- * The detached panes are kept by dock-detached.js, which the holder composes.
+ * The detached panes are kept by dock-detached.js, which the holder composes,
+ * and the panels' params by dock-params.js.
  * Detached state is never stored: `persisted()` is the live layout with every
  * detached pane docked again where it was, the form localStorage and the
  * session layout keep. Where a pane lands is the placement the page injects
@@ -48,7 +53,8 @@
  *     adopted node) and a focused header bar, re-found by tile and key.
  *
  * This module imports nothing but the engine, the policy (which imports the
- * engine alone) and dock-detached.js (which imports those two), so the pure
+ * engine alone), dock-detached.js (which imports those two) and dock-params.js
+ * (which imports the engine alone), so the pure
  * repair (dock-reconcile.js) and the placement rules (dock-open.js) can read
  * its vocabulary without pulling the page in.
  */
@@ -70,6 +76,7 @@ import {
 } from '/static/vendor/dock-engine.mjs';
 import { ONE_PANEL_PER_TILE, crowdedTile, onePanelPerTile } from './dock-policy.js';
 import { DETACHED, createDetachedPanes, panelRecordOf } from './dock-detached.js';
+import { createPanelParams } from './dock-params.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Layout} Layout */
 /** @typedef {import('/static/vendor/dock-engine.mjs').Tile} Tile */
@@ -538,6 +545,7 @@ export function createLayoutHolder(deps = {}) {
   const panes = createDetachedPanes(placement);
   /** @type {Map<string, PanelRecord>} */
   const records = new Map();
+  const params = createPanelParams({ api, idOf: panelIdOf, panes });
   /** @type {CloseRecord[]} */
   const closed = [];
   /** @type {number|null} */
@@ -600,8 +608,7 @@ export function createLayoutHolder(deps = {}) {
     if (!api) return Promise.resolve(false);
     const saved = saveFocus(api);
     const serialized = toSerialized(layout, px(), {
-      panels: livePanels(),
-      newPanel: recordOf,
+      ...params.laidOver(livePanels(), recordOf),
       activeTile: focusedTile,
     });
     applying = true;
@@ -613,6 +620,7 @@ export function createLayoutHolder(deps = {}) {
     } finally {
       applying = false;
     }
+    params.spent();
     return saved ? restoreFocus(api, saved, layout) : Promise.resolve(false);
   };
 
@@ -708,13 +716,20 @@ export function createLayoutHolder(deps = {}) {
      * again, and comes back by that layout's place for it (a stored layout, a
      * session switch, Reset layout). False (and nothing changes) for an
      * invalid layout.
+     *
+     * With `panels` (the saved dock's panel records), every panel of the
+     * layout is built with the params its record carries, or none, over what
+     * the dock had for that key: a session's layout brings its own tile state
+     * even where the same panel is on screen already. A detached pane the
+     * layout holds takes them into its record.
      * @param {unknown} input
+     * @param {Readonly<Record<string, PanelRecord>>} [panels]
      * @returns {boolean}
      */
-    restore(input) {
+    restore(input, panels) {
       if (input !== null && !validateLayout(input, { form: 'dock' }).valid) return false;
       const saved = input === null ? null : structuredClone(/** @type {Layout} */ (input));
-      const kept = panes.prune(onePanelPerTile(saved).layout);
+      const kept = panes.prune(params.restored(onePanelPerTile(saved).layout, panels));
       layout = kept === null ? null : normalize(kept);
       dirty = true;
       track();
@@ -791,8 +806,8 @@ export function createLayoutHolder(deps = {}) {
       const result = panes.comeBack(layout, key, holder.context());
       if (!result) return false;
       // The dock no longer holds its entry, and a session switch since may have
-      // replaced the records `newPanel` reads.
-      if (left) records.set(key, { ...left, ...records.get(key) });
+      // replaced the records `newPanel` reads. Its params come back once, with it.
+      if (left) records.set(key, { ...params.returning(key, left), ...records.get(key) });
       return commitDetached(result);
     },
 
@@ -838,6 +853,19 @@ export function createLayoutHolder(deps = {}) {
     panelRecord(key) {
       return recordOf(key);
     },
+
+    /**
+     * The params of a key's panel, wherever it is; undefined when it has none
+     * (dock-params.js `read`). Do not mutate.
+     */
+    panelParams: params.read,
+
+    /**
+     * Merge a patch into the params of a key's panel, as dockview merges them;
+     * the change is announced, so the stored form and the session layout are
+     * written. False when there is no panel for the key (dock-params.js `write`).
+     */
+    setPanelParams: params.write,
 
     /**
      * Apply the held layout to dockview now, or once the live drag ends.

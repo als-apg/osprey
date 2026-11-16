@@ -1,7 +1,8 @@
 """The model RPC's verbs over a composite and its simulator view.
 
 A composite's served side is the address set its simulator view's
-``addresses.json`` lists: its ``channels`` and its ``status`` addresses.
+``addresses.json`` lists: its ``channels``, its ``status`` addresses and its
+``ioc_health`` addresses, a view without that field serving none of them.
 Clients reach those through the control-system surface -- Channel Access,
 and PVA for the same address -- exactly as they reach any other channel.
 Every other name the surface answers for is a variable of one of the
@@ -287,8 +288,7 @@ class _ViewSurface(ModelSurface):
     ) -> None:
         self._composite = composite
         self._channels = list(view.channels())
-        status = view.document(ADDRESSES_FILE)["status"]
-        self._served = [*self._channels, *(str(address) for address in status)]
+        self._served = served_addresses(view)
         self._served_set = frozenset(self._served)
         self._start(
             instance=instance,
@@ -303,7 +303,7 @@ class _ViewSurface(ModelSurface):
 
         Returns:
             ``variables``: one entry per served address -- the view's
-            channels, then its status addresses -- with ``surface``
+            channels, then its status and IOC health addresses -- with ``surface``
             :data:`SURFACE_SERVED`, then one per variable of each built
             model, named ``<model>/<name>``, with ``surface``
             :data:`SURFACE_MODEL_ONLY`. Each carries the keys
@@ -422,6 +422,25 @@ class _ViewSurface(ModelSurface):
         return list(drifted)
 
 
+def served_addresses(view: SimulatorView) -> list[str]:
+    """Every address a server of ``view`` serves, in the order ``info`` lists them.
+
+    The view's channels, then its status addresses, then its IOC health
+    addresses, each model's together. A view without the ``ioc_health`` field,
+    or from a connectors release without its accessor, serves none of the last.
+    """
+    ioc_health = getattr(view, "ioc_health_by_model", None)
+    return [
+        *view.channels(),
+        *(str(address) for address in view.document(ADDRESSES_FILE)["status"]),
+        *(
+            address
+            for signals in (ioc_health() if ioc_health is not None else {}).values()
+            for address in signals.values()
+        ),
+    ]
+
+
 def _finite_or_not_a_number(value: Any) -> bool:
     """False only for a real number that is not finite.
 
@@ -462,4 +481,5 @@ __all__ = [
     "SURFACE_SERVED",
     "WRITES_DISABLED",
     "ModelSurface",
+    "served_addresses",
 ]

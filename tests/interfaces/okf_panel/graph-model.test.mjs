@@ -51,11 +51,11 @@ describe('indexGraph', () => {
       ['readsSignal', 1],
       ['writesSignal', 1],
       ['type', 2],
-      ['inPlace', 2],
+      ['locatedIn', 2],
+      ['partOf', 1],
       ['calibrates', 1],
     ]);
     expect(graph.kindCounts.get('device')).toBe(2);
-    expect(graph.derived.has('inPlace')).toBe(true);
     expect(graph.classIndex.get('Quadrupole')).toBe(9);
   });
 
@@ -77,7 +77,7 @@ describe('neighbourhood', () => {
     const one = neighbourhood(graph, { focus: 2, hops: 1, relations: ALL() });
     expect(one.nodes.map((node) => node.key).sort()).toEqual([1, 2, 4, 8]);
     const two = neighbourhood(graph, { focus: 2, hops: 2, relations: ALL() });
-    expect(two.nodes.map((node) => node.key).sort()).toEqual([1, 2, 3, 4, 6, 8]);
+    expect(two.nodes.map((node) => node.key).sort()).toEqual([0, 1, 2, 3, 4, 6, 8]);
     expect(two.hidden).toBe(0);
   });
 
@@ -146,8 +146,15 @@ describe('overview', () => {
     const drawn = overview(indexGraph(payload()), ALL());
     const labels = drawn.edges.map((edge) => `${edge.a} ${edge.label} ${edge.b}`);
     expect(labels).toContain('g:channel readsSignal g:signal');
-    expect(labels).toContain('c:9 inPlace g:place');
+    expect(labels).toContain('c:9 locatedIn g:place');
     expect(drawn.edges.some((edge) => edge.relation === 'type')).toBe(false);
+  });
+
+  test('draws no partOf, which joins two places, while the legend counts it', () => {
+    const graph = indexGraph(payload());
+    const drawn = overview(graph, ALL());
+    expect(drawn.edges.some((edge) => edge.relation === 'partOf')).toBe(false);
+    expect(graph.relationCounts.get('partOf')).toBe(1);
   });
 
   test('several relations between the same groups are counted', () => {

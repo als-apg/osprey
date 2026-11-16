@@ -223,6 +223,19 @@ def resolve_sidecar_ready_timeout(value: object) -> float:
     return DEFAULT_SIDECAR_READY_TIMEOUT_S
 
 
+def _chat_pool_number(value: object, key: str) -> float | str:
+    """*value* as the number or numeric string ``float()`` or ``int()`` reads it from.
+
+    Raises:
+        TypeError: *value* is a ``bool`` or not a number or string; the
+            message names *key*. The startup reader catches it and keeps every
+            chat-pool default.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise TypeError(f"{key} must be a number, got {type(value).__name__}")
+    return value
+
+
 async def _launch_enabled_sidecars(app: FastAPI, enabled_panels: set[str]) -> None:
     """Start every enabled sidecar panel and publish what the proxy needs.
 
@@ -1386,9 +1399,21 @@ def _create_lifespan(
         try:
             from osprey_connectors.config import get_config_value
 
-            chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
-            chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
-            chat_max_sessions = int(get_config_value("web.chat_max_sessions", 5))
+            chat_turn_timeout_s = float(
+                _chat_pool_number(
+                    get_config_value("web.chat_turn_timeout_s", 600), "web.chat_turn_timeout_s"
+                )
+            )
+            chat_idle_timeout_s = float(
+                _chat_pool_number(
+                    get_config_value("web.chat_idle_timeout_s", 1800), "web.chat_idle_timeout_s"
+                )
+            )
+            chat_max_sessions = int(
+                _chat_pool_number(
+                    get_config_value("web.chat_max_sessions", 5), "web.chat_max_sessions"
+                )
+            )
         except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.chat_* config keys; using defaults "
@@ -2449,6 +2474,7 @@ def run_web(
     import uvicorn
     from uvicorn.main import STARTUP_FAILURE
 
+    from osprey.interfaces._log_offload import rendering_logs_off_thread
     from osprey.interfaces._serving import listening_socket
 
     owned = sock is None
@@ -2467,7 +2493,10 @@ def run_web(
                 app, host=host, port=port, log_level="info", ws_per_message_deflate=False
             )
         )
-        server.run(sockets=[sock])
+        # The event loop logs; a listener thread draws. A record that is slow
+        # to render then costs the terminal nothing.
+        with rendering_logs_off_thread():
+            server.run(sockets=[sock])
     finally:
         if owned:
             sock.close()

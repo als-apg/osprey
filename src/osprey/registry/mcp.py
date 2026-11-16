@@ -802,6 +802,41 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         permissions_ask=[],
         hooks_post=[_post_error("mcp__graph__.*")],
     ),
+    "pv-directory": ServerDefinition(
+        name="pv-directory",
+        module="osprey.mcp_server.pv_directory",
+        env={
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
+        },
+        # Conditional on a configured ``pv_directory`` section: without one there
+        # is no directory to read, so the server is left out of the render.
+        condition="pv_directory_configured",
+        # Read-only directory lookups: every tool reads, so there is no approval
+        # or writes-check hook, permissions_ask stays empty and every tool is
+        # auto-allowed. A gated tool's allow row follows its sub-block's key.
+        permissions_allow=[
+            "active_alarms",
+            "alarm_config",
+            "alarm_history",
+            "alarm_state",
+            "directory_properties",
+            "directory_search",
+            "ioc_record",
+            "put_history",
+            "pv_record",
+        ],
+        permissions_ask=[],
+        optional_tools={
+            "active_alarms": OptionalTool("pv_directory_alarm_state"),
+            "alarm_state": OptionalTool("pv_directory_alarm_state"),
+            "alarm_history": OptionalTool("pv_directory_alarm_log"),
+            "alarm_config": OptionalTool("pv_directory_alarm_config"),
+            "put_history": OptionalTool("pv_directory_put_log"),
+        },
+        hooks_post=[_post_error("mcp__pv-directory__.*")],
+    ),
     "event_dispatcher": ServerDefinition(
         name="event_dispatcher",
         # A URL server — the first framework one. Nothing is launched here, so
@@ -2240,7 +2275,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
             logger.warning(
                 "Server %r attaches the 'writes_check' hook preset to every tool; "
                 "declare `writes:` with the tools that write instead. The "
-                "whole-server preset is refused from OSPREY %s",
+                "whole-server preset is refused in %s",
                 name,
                 sunset,
             )
@@ -2251,7 +2286,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
                 resolved.append(hook)
             else:
                 logger.warning(
-                    "Unknown hook preset %r for server %r — skipping; refused from OSPREY %s. "
+                    "Unknown hook preset %r for server %r — skipping; refused in %s. "
                     "Known presets: %s",
                     preset,
                     name,
@@ -2300,11 +2335,11 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
 
 
 def _write_keys_sunset() -> str:
-    """C-SUNSET: the release from which the retired write spellings are refused.
+    """C-SUNSET: the release in which the retired write spellings are refused.
 
     Imported lazily: the registry is loaded by the running servers and hooks'
     render side, and the build-profile loader is a CLI module it should not
-    pull in just to name a version in a warning.
+    pull in just to name a release in a warning.
     """
     from osprey.cli.build_profile_load import RETIRED_WRITE_KEYS_REFUSED_FROM
 

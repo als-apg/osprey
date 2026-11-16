@@ -24,13 +24,12 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from osprey.imaging import render
 from osprey.imaging.formats import RENDITION_MAX_BYTES
 from tests._live import async_wait_until
 from tests._processes import running_state
-
-Image = pytest.importorskip("PIL.Image")
 
 
 def _png(size: tuple[int, int] = (8, 8)) -> bytes:

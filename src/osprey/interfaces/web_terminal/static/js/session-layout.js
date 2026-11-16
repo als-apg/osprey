@@ -11,20 +11,31 @@
  * id → the root-relative page its frame showed (panel-lifecycle's
  * `getPanelPage`). A first-party panel's page is read from its frame; an
  * opaque or cross-origin panel's is not readable and it reopens at its start
- * page, and the Artifacts viewer keeps its own per-session last artifact. A
- * detached pane is in that form docked where it was; its page is read from its
- * frame too (a frame moved to a same-origin window stays readable), else it is
- * the page the pane left the dock on.
+ * page, and the Artifacts viewer keeps its own per-session last artifact. An
+ * artifact tile (artifact-tiles.js) is in the dock form like any tile and has
+ * no page: its key names the artifact it shows. A detached pane is in that
+ * form docked where it was; its page is read from its frame too (a frame
+ * moved to a same-origin window stays readable), else it is the page the pane
+ * left the dock on.
  *
  * The session is the active row's transcript (session-model.js). While the
  * tab is on it, every settled dock change, every panel page load and every
  * change of the detached panes writes its layout (`PUT
  * /api/sessions/{id}/layout`, debounced); leaving it writes once more from the
  * screen it left. Arriving reads the new session's layout (`GET`) and applies
- * it; a session with none yet — an older one, or a new one — keeps the layout
- * on screen, which becomes its own. Changes made while a
- * layout is applying, and for {@link SETTLE_MS} after, are the apply's own and
- * are never written back.
+ * it; a session with none yet — an older one, or a key the listing has not
+ * caught up with — keeps the layout on screen, which becomes its own. Changes
+ * made while a layout is applying, and for {@link SETTLE_MS} after, are the
+ * apply's own and are never written back.
+ *
+ * A new session the operator starts (the model's `new`: every way to start
+ * one goes through its `switchTo({new: true})`) opens on the Agent pane
+ * alone. The session left keeps what it had: its layout is written from the
+ * screen first, and nothing after is written to it. Every other pane then
+ * closes the way its tile's × closes it (a pane in a window of its own closes
+ * with its window; the sidebar keeps every row), and the new session stores
+ * that workspace once it has a transcript. A reload before then restores the
+ * dock's own stored form, which is that workspace too.
  *
  * The sidebar's width and fold state are per-user chrome, not part of a
  * session's layout.
@@ -32,9 +43,20 @@
 
 import { fetchJSON, withPrefix } from './api.js';
 import { activeRow, firstLoaded, subscribe as subscribeToSessions } from './session-model.js';
-import { applyDock, currentDock, getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
-import { getLayoutHolder } from './dock-apply.js';
+import {
+  applyDock,
+  closeDockPanel,
+  currentDock,
+  getDockApi,
+  isTerminalPanelOpen,
+  openTerminalPanel,
+  setLayoutRestoredHook,
+} from './dock-workspace.js';
+import { TERMINAL_KEY, getLayoutHolder } from './dock-apply.js';
+import { withEchoSuppressed } from './dock-sync.js';
 import { getPanelPage, restorePanelPage } from './panel-lifecycle.js';
+import { isArtifactTileKey } from './artifact-tiles.js';
+import { keysOf } from '/static/vendor/dock-engine.mjs';
 
 /** Debounce of a layout write, so a gesture's burst of changes writes once:
  *  the cadence of the dock's own localStorage write (dock-workspace.js). */
@@ -48,6 +70,13 @@ export const SETTLE_MS = 400;
 
 /** The panel whose page is its own per-session last artifact, not an address. */
 const ARTIFACTS_PANEL_ID = 'artifacts';
+
+/**
+ * Whether a panel keeps no page in the layout: the Artifacts panel, and an
+ * artifact tile, whose key is what it shows.
+ * @param {string} id
+ */
+const pageless = (id) => id === ARTIFACTS_PANEL_ID || isArtifactTileKey(id);
 
 /**
  * @typedef {object} SessionLayout
@@ -123,7 +152,7 @@ export function initSessionLayout() {
   });
   setLayoutRestoredHook(() => {
     if (!started) return;
-    teardown.push(subscribeToSessions(follow));
+    teardown.push(subscribeToSessions(onSessionChange));
     follow();
   });
 }
@@ -178,7 +207,7 @@ function snapshot() {
   const pages = {};
   const holder = getLayoutHolder();
   for (const id of Object.keys(dock.panels ?? {})) {
-    if (id === ARTIFACTS_PANEL_ID) continue;
+    if (pageless(id)) continue;
     const page = getPanelPage(id) ?? holder?.detachedEntry(id)?.page ?? null;
     if (page) pages[id] = page;
   }
@@ -186,6 +215,12 @@ function snapshot() {
 }
 
 // ---- Following the session ----
+
+/** @param {{reason: string}} change */
+function onSessionChange({ reason }) {
+  if (reason === 'new') startFresh();
+  else follow();
+}
 
 /** Follow the active row's transcript: leave the old one, arrive at the new. */
 function follow() {
@@ -214,6 +249,27 @@ function arriveFinished(gen) {
   if (gen !== generation) return;
   arriving = false;
   settleIfIdle();
+}
+
+/**
+ * The operator started a new session: it opens on the Agent pane alone. The
+ * session left is written from the screen, then no longer written to (on the
+ * terminal the pointer moves only once the socket confirms the new session),
+ * and an arrive still pending is dropped. Every other pane closes as its
+ * tile's × closes it, under the same echo guard.
+ */
+function startFresh() {
+  save();
+  target = null;
+  generation += 1;
+  arriving = false;
+  settleIfIdle();
+  const holder = getLayoutHolder();
+  if (!holder) return;
+  const others = new Set([...keysOf(holder.layout), ...holder.popouts]);
+  others.delete(TERMINAL_KEY);
+  for (const key of others) withEchoSuppressed(() => closeDockPanel(key));
+  if (!isTerminalPanelOpen() && !holder.isDetached(TERMINAL_KEY)) openTerminalPanel();
 }
 
 /**
@@ -261,7 +317,7 @@ function apply(saved) {
     }
     const pages = saved.pages && typeof saved.pages === 'object' ? saved.pages : {};
     for (const [id, page] of Object.entries(pages)) {
-      if (id !== ARTIFACTS_PANEL_ID && typeof page === 'string') restorePanelPage(id, page);
+      if (!pageless(id) && typeof page === 'string') restorePanelPage(id, page);
     }
   } finally {
     if (applying) {

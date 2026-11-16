@@ -1,7 +1,7 @@
 {
  "authorization": "Basic <identity>:<password>",
- "captured_at": "2026-10-27T02:04:09.873631Z",
- "cli_version": "2.1.300",
+ "captured_at": "2026-11-14T01:07:30.008376Z",
+ "cli_version": "2.1.322",
  "protocol": "http/protobuf",
  "requests": [
   {
@@ -13,7 +13,7 @@
         {
          "key": "terminal.session",
          "value": {
-          "stringValue": "contract-79260ee908a5"
+          "stringValue": "contract-86d56b416243"
          }
         },
         {
@@ -43,7 +43,7 @@
         {
          "key": "service.version",
          "value": {
-          "stringValue": "2.1.300"
+          "stringValue": "2.1.322"
          }
         }
        ]
@@ -56,7 +56,7 @@
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -68,13 +68,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -86,7 +98,7 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:05.686Z"
+             "stringValue": "2026-11-14T01:07:26.012Z"
             }
            },
            {
@@ -129,15 +141,15 @@
           "body": {
            "stringValue": "claude_code.managed_settings_resolved"
           },
-          "observedTimeUnixNano": "1793066645686000000",
-          "timeUnixNano": "1793066645686000000"
+          "observedTimeUnixNano": "1794618446012000000",
+          "timeUnixNano": "1794618446012000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -149,13 +161,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -167,7 +191,7 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:05.707Z"
+             "stringValue": "2026-11-14T01:07:26.033Z"
             }
            },
            {
@@ -252,15 +276,15 @@
           "body": {
            "stringValue": "claude_code.plugin_loaded"
           },
-          "observedTimeUnixNano": "1793066645707000000",
-          "timeUnixNano": "1793066645707000000"
+          "observedTimeUnixNano": "1794618446033000000",
+          "timeUnixNano": "1794618446033000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -272,13 +296,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -290,7 +326,7 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:05.707Z"
+             "stringValue": "2026-11-14T01:07:26.033Z"
             }
            },
            {
@@ -375,15 +411,15 @@
           "body": {
            "stringValue": "claude_code.plugin_loaded"
           },
-          "observedTimeUnixNano": "1793066645707000000",
-          "timeUnixNano": "1793066645707000000"
+          "observedTimeUnixNano": "1794618446033000000",
+          "timeUnixNano": "1794618446033000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -395,13 +431,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -413,13 +461,148 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:05.707Z"
+             "stringValue": "2026-11-14T01:07:26.034Z"
             }
            },
            {
             "key": "event.sequence",
             "value": {
              "intValue": "3"
+            }
+           },
+           {
+            "key": "plugin.name",
+            "value": {
+             "stringValue": "cc-plugin-privacy"
+            }
+           },
+           {
+            "key": "marketplace.name",
+            "value": {
+             "stringValue": "builtin"
+            }
+           },
+           {
+            "key": "plugin.scope",
+            "value": {
+             "stringValue": "default-bundle"
+            }
+           },
+           {
+            "key": "enabled_via",
+            "value": {
+             "stringValue": "default-enable"
+            }
+           },
+           {
+            "key": "plugin_id_hash",
+            "value": {
+             "stringValue": "a2f27f067781660d"
+            }
+           },
+           {
+            "key": "has_hooks",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "has_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "host_owned_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "skill_path_count",
+            "value": {
+             "intValue": "0"
+            }
+           },
+           {
+            "key": "command_path_count",
+            "value": {
+             "intValue": "0"
+            }
+           },
+           {
+            "key": "agent_path_count",
+            "value": {
+             "intValue": "0"
+            }
+           },
+           {
+            "key": "safe_mode",
+            "value": {
+             "stringValue": "false"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.plugin_loaded"
+          },
+          "observedTimeUnixNano": "1794618446034000000",
+          "timeUnixNano": "1794618446034000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-86d56b416243"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "plugin_loaded"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-11-14T01:07:26.034Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": "4"
             }
            },
            {
@@ -498,15 +681,15 @@
           "body": {
            "stringValue": "claude_code.plugin_loaded"
           },
-          "observedTimeUnixNano": "1793066645707000000",
-          "timeUnixNano": "1793066645707000000"
+          "observedTimeUnixNano": "1794618446034000000",
+          "timeUnixNano": "1794618446034000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -518,13 +701,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -536,19 +731,19 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:05.756Z"
+             "stringValue": "2026-11-14T01:07:26.140Z"
             }
            },
            {
             "key": "event.sequence",
             "value": {
-             "intValue": "4"
+             "intValue": "5"
             }
            },
            {
             "key": "prompt.id",
             "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
             }
            },
            {
@@ -572,20 +767,20 @@
            {
             "key": "message.uuid",
             "value": {
-             "stringValue": "fef34d4d-cb0c-43df-b664-cc55244d5a1b"
+             "stringValue": "92559296-7669-45a8-8841-1faec020e223"
             }
            }
           ],
           "body": {
            "stringValue": "claude_code.user_prompt"
           },
-          "observedTimeUnixNano": "1793066645756000000",
-          "timeUnixNano": "1793066645756000000"
+          "observedTimeUnixNano": "1794618446140000000",
+          "timeUnixNano": "1794618446140000000"
          }
         ],
         "scope": {
          "name": "com.anthropic.claude_code.events",
-         "version": "2.1.300"
+         "version": "2.1.322"
         }
        }
       ]
@@ -603,7 +798,7 @@
         {
          "key": "terminal.session",
          "value": {
-          "stringValue": "contract-79260ee908a5"
+          "stringValue": "contract-86d56b416243"
          }
         },
         {
@@ -633,7 +828,7 @@
         {
          "key": "service.version",
          "value": {
-          "stringValue": "2.1.300"
+          "stringValue": "2.1.322"
          }
         }
        ]
@@ -646,7 +841,7 @@
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -658,13 +853,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -676,19 +883,19 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:07.425Z"
+             "stringValue": "2026-11-14T01:07:28.129Z"
             }
            },
            {
             "key": "event.sequence",
             "value": {
-             "intValue": "5"
+             "intValue": "6"
             }
            },
            {
             "key": "prompt.id",
             "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
             }
            },
            {
@@ -712,7 +919,7 @@
            {
             "key": "tool_use_id",
             "value": {
-             "stringValue": "toolu_bdrk_01XE9x3qAXpaRnD8viCoVDaj"
+             "stringValue": "toolu_bdrk_01NpfyLte8aLBskHUSbTbFn9"
             }
            },
            {
@@ -720,20 +927,26 @@
             "value": {
              "stringValue": "builtin"
             }
+           },
+           {
+            "key": "permission_mode",
+            "value": {
+             "stringValue": "default"
+            }
            }
           ],
           "body": {
            "stringValue": "claude_code.tool_decision"
           },
-          "observedTimeUnixNano": "1793066647425000000",
-          "timeUnixNano": "1793066647425000000"
+          "observedTimeUnixNano": "1794618448129000000",
+          "timeUnixNano": "1794618448129000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -745,106 +958,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
-            }
-           },
-           {
-            "key": "event.name",
-            "value": {
-             "stringValue": "tool_result"
-            }
-           },
-           {
-            "key": "event.timestamp",
-            "value": {
-             "stringValue": "2026-10-27T02:04:07.721Z"
-            }
-           },
-           {
-            "key": "event.sequence",
-            "value": {
-             "intValue": "6"
-            }
-           },
-           {
-            "key": "prompt.id",
-            "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
-            }
-           },
-           {
-            "key": "tool_name",
-            "value": {
-             "stringValue": "Bash"
-            }
-           },
-           {
-            "key": "tool_use_id",
-            "value": {
-             "stringValue": "toolu_bdrk_01XE9x3qAXpaRnD8viCoVDaj"
-            }
-           },
-           {
-            "key": "success",
-            "value": {
-             "stringValue": "true"
-            }
-           },
-           {
-            "key": "duration_ms",
-            "value": {
-             "stringValue": "296"
-            }
-           },
-           {
-            "key": "tool_input_size_bytes",
-            "value": {
-             "stringValue": "79"
-            }
-           },
-           {
-            "key": "tool_result_size_bytes",
-            "value": {
-             "stringValue": "15"
-            }
-           }
-          ],
-          "body": {
-           "stringValue": "claude_code.tool_result"
-          },
-          "observedTimeUnixNano": "1793066647722000000",
-          "timeUnixNano": "1793066647722000000"
-         },
-         {
-          "attributes": [
-           {
-            "key": "terminal.session",
-            "value": {
-             "stringValue": "contract-79260ee908a5"
-            }
-           },
-           {
-            "key": "user.id",
-            "value": {
-             "stringValue": "<redacted>"
-            }
-           },
-           {
-            "key": "session.id",
-            "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
-            }
-           },
-           {
-            "key": "terminal.type",
-            "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -856,7 +988,7 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:08.278Z"
+             "stringValue": "2026-11-14T01:07:28.135Z"
             }
            },
            {
@@ -868,7 +1000,7 @@
            {
             "key": "prompt.id",
             "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
             }
            },
            {
@@ -886,7 +1018,7 @@
            {
             "key": "output_tokens",
             "value": {
-             "intValue": "83"
+             "intValue": "84"
             }
            },
            {
@@ -898,13 +1030,13 @@
            {
             "key": "cache_creation_tokens",
             "value": {
-             "intValue": "26903"
+             "intValue": "31256"
             }
            },
            {
             "key": "cache_creation_5m_tokens",
             "value": {
-             "intValue": "26903"
+             "intValue": "31256"
             }
            },
            {
@@ -916,25 +1048,25 @@
            {
             "key": "cost_usd",
             "value": {
-             "doubleValue": 0.003404575
+             "doubleValue": 0.0039492
             }
            },
            {
             "key": "cost_usd_micros",
             "value": {
-             "intValue": "3405"
+             "intValue": "3949"
             }
            },
            {
             "key": "duration_ms",
             "value": {
-             "intValue": "2501"
+             "intValue": "1971"
             }
            },
            {
             "key": "ttft_ms",
             "value": {
-             "intValue": "1441"
+             "intValue": "1709"
             }
            },
            {
@@ -959,13 +1091,118 @@
           "body": {
            "stringValue": "claude_code.api_request"
           },
-          "observedTimeUnixNano": "1793066648278000000",
-          "timeUnixNano": "1793066648278000000"
+          "observedTimeUnixNano": "1794618448135000000",
+          "timeUnixNano": "1794618448135000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-86d56b416243"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "tool_result"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-11-14T01:07:28.573Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": "8"
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
+            }
+           },
+           {
+            "key": "tool_name",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "tool_use_id",
+            "value": {
+             "stringValue": "toolu_bdrk_01NpfyLte8aLBskHUSbTbFn9"
+            }
+           },
+           {
+            "key": "success",
+            "value": {
+             "stringValue": "true"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "stringValue": "442"
+            }
+           },
+           {
+            "key": "tool_input_size_bytes",
+            "value": {
+             "stringValue": "83"
+            }
+           },
+           {
+            "key": "tool_result_size_bytes",
+            "value": {
+             "stringValue": "15"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.tool_result"
+          },
+          "observedTimeUnixNano": "1794618448573000000",
+          "timeUnixNano": "1794618448573000000"
          }
         ],
         "scope": {
          "name": "com.anthropic.claude_code.events",
-         "version": "2.1.300"
+         "version": "2.1.322"
         }
        }
       ]
@@ -983,7 +1220,7 @@
         {
          "key": "terminal.session",
          "value": {
-          "stringValue": "contract-79260ee908a5"
+          "stringValue": "contract-86d56b416243"
          }
         },
         {
@@ -1013,7 +1250,7 @@
         {
          "key": "service.version",
          "value": {
-          "stringValue": "2.1.300"
+          "stringValue": "2.1.322"
          }
         }
        ]
@@ -1026,7 +1263,7 @@
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -1038,13 +1275,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -1056,19 +1305,19 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:09.759Z"
+             "stringValue": "2026-11-14T01:07:29.856Z"
             }
            },
            {
             "key": "event.sequence",
             "value": {
-             "intValue": "8"
+             "intValue": "9"
             }
            },
            {
             "key": "prompt.id",
             "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
             }
            },
            {
@@ -1092,19 +1341,19 @@
            {
             "key": "cache_read_tokens",
             "value": {
-             "intValue": "26903"
+             "intValue": "31256"
             }
            },
            {
             "key": "cache_creation_tokens",
             "value": {
-             "intValue": "118"
+             "intValue": "119"
             }
            },
            {
             "key": "cache_creation_5m_tokens",
             "value": {
-             "intValue": "118"
+             "intValue": "119"
             }
            },
            {
@@ -1116,25 +1365,25 @@
            {
             "key": "cost_usd",
             "value": {
-             "doubleValue": 0.00028798
+             "doubleValue": 0.000331635
             }
            },
            {
             "key": "cost_usd_micros",
             "value": {
-             "intValue": "288"
+             "intValue": "332"
             }
            },
            {
             "key": "duration_ms",
             "value": {
-             "intValue": "1463"
+             "intValue": "1272"
             }
            },
            {
             "key": "ttft_ms",
             "value": {
-             "intValue": "1451"
+             "intValue": "1258"
             }
            },
            {
@@ -1159,15 +1408,15 @@
           "body": {
            "stringValue": "claude_code.api_request"
           },
-          "observedTimeUnixNano": "1793066649759000000",
-          "timeUnixNano": "1793066649759000000"
+          "observedTimeUnixNano": "1794618449856000000",
+          "timeUnixNano": "1794618449856000000"
          },
          {
           "attributes": [
            {
             "key": "terminal.session",
             "value": {
-             "stringValue": "contract-79260ee908a5"
+             "stringValue": "contract-86d56b416243"
             }
            },
            {
@@ -1179,13 +1428,25 @@
            {
             "key": "session.id",
             "value": {
-             "stringValue": "75e39f82-2164-4fe9-b3fb-9596644aeecf"
+             "stringValue": "15bd2b63-f698-4794-9cfe-224b569d67b3"
+            }
+           },
+           {
+            "key": "anthropic.provider",
+            "value": {
+             "stringValue": "firstParty"
+            }
+           },
+           {
+            "key": "anthropic.custom_base_url",
+            "value": {
+             "boolValue": true
             }
            },
            {
             "key": "terminal.type",
             "value": {
-             "stringValue": "tmux"
+             "stringValue": "ghostty"
             }
            },
            {
@@ -1197,19 +1458,19 @@
            {
             "key": "event.timestamp",
             "value": {
-             "stringValue": "2026-10-27T02:04:09.759Z"
+             "stringValue": "2026-11-14T01:07:29.856Z"
             }
            },
            {
             "key": "event.sequence",
             "value": {
-             "intValue": "9"
+             "intValue": "10"
             }
            },
            {
             "key": "prompt.id",
             "value": {
-             "stringValue": "13d41cd5-0a36-424f-8950-9893b3967400"
+             "stringValue": "ff39efce-14e2-4869-ad8d-d966ee859059"
             }
            },
            {
@@ -1227,7 +1488,7 @@
            {
             "key": "message.uuid",
             "value": {
-             "stringValue": "aff15aac-4142-4764-b8cb-28b0c9b9821b"
+             "stringValue": "e8f57b1d-e41d-435b-b549-0f4f3b58c606"
             }
            },
            {
@@ -1246,13 +1507,13 @@
           "body": {
            "stringValue": "claude_code.assistant_response"
           },
-          "observedTimeUnixNano": "1793066649759000000",
-          "timeUnixNano": "1793066649759000000"
+          "observedTimeUnixNano": "1794618449856000000",
+          "timeUnixNano": "1794618449856000000"
          }
         ],
         "scope": {
          "name": "com.anthropic.claude_code.events",
-         "version": "2.1.300"
+         "version": "2.1.322"
         }
        }
       ]

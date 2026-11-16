@@ -84,8 +84,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Protocol, TypeVar
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -110,6 +112,22 @@ _READ_CHUNK = 65536
 
 
 _T = TypeVar("_T")
+
+
+class _Reader(Protocol):
+    """The read half of the pipe, as the proxy uses it (see :class:`ConnectorHostProxy`)."""
+
+    async def read(self, n: int = -1, /) -> bytes: ...
+
+
+class _Writer(Protocol):
+    """The write half of the pipe, as the proxy uses it; ``wait_closed`` is optional."""
+
+    def write(self, data: bytes, /) -> object: ...
+
+    async def drain(self) -> None: ...
+
+    def close(self) -> object: ...
 
 
 def _unexpected(reply: object, method: str) -> frames.FrameDecodeError:
@@ -138,7 +156,7 @@ def raised_by_child(exc: BaseException) -> bool:
     return bool(getattr(exc, _RAISED_BY_CHILD, False))
 
 
-def _consume_exception(future: asyncio.Future[Any]) -> None:
+def _consume_exception(future: asyncio.Future[object]) -> None:
     """Mark a finished future's exception as retrieved.
 
     A reply future outlives its caller whenever the caller stopped waiting —
@@ -190,17 +208,21 @@ class ConnectorHostProxy:
 
     def __init__(
         self,
-        reader: Any,
-        writer: Any,
+        # The transport is duck-typed by the class's contract (see its
+        # docstring), and the package has no public type for either half.
+        reader: ContractAny,
+        writer: ContractAny,
         *,
         timeout_grace_s: float = 1.0,
         deadline_s: float | None = None,
     ) -> None:
-        self._reader = reader
-        self._writer = writer
+        # The parameters stay duck-typed (see the class docstring); the proxy's
+        # own use of them is the shape these protocols name.
+        self._reader: _Reader = reader
+        self._writer: _Writer = writer
         self._timeout_grace_s = timeout_grace_s
         self._deadline_s = deadline_s
-        self._pending: dict[str, asyncio.Future[Any]] = {}
+        self._pending: dict[str, asyncio.Future[object]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         #: Set once the pipe is gone; every later call repeats it.
         self._dead_reason: str | None = None
@@ -209,7 +231,13 @@ class ConnectorHostProxy:
         self._disconnected = False
 
     @classmethod
-    def from_process(cls, process: Any, **kwargs: Any) -> ConnectorHostProxy:
+    def from_process(
+        cls,
+        process: asyncio.subprocess.Process,
+        *,
+        timeout_grace_s: float = 1.0,
+        deadline_s: float | None = None,
+    ) -> ConnectorHostProxy:
         """Wrap an ``asyncio.subprocess.Process``'s stdin/stdout pipes.
 
         The proxy does not own the process: it neither starts it nor reaps it.
@@ -219,7 +247,9 @@ class ConnectorHostProxy:
             raise ValueError(
                 f"the {CHILD} must be spawned with stdin and stdout pipes for the proxy to use"
             )
-        return cls(process.stdout, process.stdin, **kwargs)
+        return cls(
+            process.stdout, process.stdin, timeout_grace_s=timeout_grace_s, deadline_s=deadline_s
+        )
 
     @property
     def dead_reason(self) -> str | None:
@@ -270,7 +300,7 @@ class ConnectorHostProxy:
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -284,7 +314,7 @@ class ConnectorHostProxy:
         the child's connector resolves the policy for this channel; an explicit
         ``confirm=False`` crosses the wire as the answer it is.
         """
-        kwargs: dict[str, Any] = {
+        kwargs: dict[str, object] = {
             "channel_address": channel_address,
             "value": value,
             "timeout": timeout,
@@ -294,7 +324,7 @@ class ConnectorHostProxy:
 
     async def write_multiple_channels(
         self,
-        operations: list[tuple[str, Any]],
+        operations: Sequence[tuple[str, object]],
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
@@ -305,7 +335,7 @@ class ConnectorHostProxy:
         suppresses recalculation between writes, for instance, cannot do that
         if the parent has already split the batch into separate calls.
         """
-        kwargs: dict[str, Any] = {
+        kwargs: dict[str, object] = {
             "operations": [list(operation) for operation in operations],
             "timeout": timeout,
         }
@@ -319,10 +349,10 @@ class ConnectorHostProxy:
 
     async def validate_channel(self, channel_address: str) -> bool:
         """Whether the channel exists and is reachable, as the child's connector sees it."""
-        valid: bool = await self._call(
+        reply = await self._call(
             "validate_channel", {"channel_address": channel_address}, timeout=None
         )
-        return valid
+        return _expect(reply, bool, "validate_channel")
 
     async def disconnect(self, *, ack_timeout: float = 2.0) -> None:
         """Ask the child to release its connector, then close the pipe.
@@ -359,7 +389,9 @@ class ConnectorHostProxy:
     # Supervisor surface
     # ------------------------------------------------------------------
 
-    async def supervisor_request(self, method: str, kwargs: dict[str, Any], timeout: float) -> Any:
+    async def supervisor_request(
+        self, method: str, kwargs: Mapping[str, object], timeout: float
+    ) -> object:
         """Send one supervisor request (``init``, ``ping``) and await its reply.
 
         Not part of the connector surface: a supervisor that brings a child up
@@ -413,7 +445,9 @@ class ConnectorHostProxy:
     # Request/response plumbing
     # ------------------------------------------------------------------
 
-    async def _call(self, method: str, kwargs: dict[str, Any], timeout: float | None) -> Any:
+    async def _call(
+        self, method: str, kwargs: Mapping[str, object], timeout: float | None
+    ) -> object:
         """Send one request and await its reply."""
         self._raise_if_unusable()
         self._ensure_reader_task()
@@ -427,8 +461,8 @@ class ConnectorHostProxy:
             self._pending.pop(request_id, None)
 
     async def _await_reply(
-        self, future: asyncio.Future[Any], method: str, timeout: float | None
-    ) -> Any:
+        self, future: asyncio.Future[object], method: str, timeout: float | None
+    ) -> object:
         if timeout is not None:
             deadline = timeout + max(self._timeout_grace_s, 0.0)
         elif self._deadline_s is not None:
@@ -444,8 +478,8 @@ class ConnectorHostProxy:
             return future.result()
         raise ChildUnresponsiveError(f"the {CHILD} did not answer {method!r} within {deadline}s")
 
-    def _register(self, request_id: str) -> asyncio.Future[Any]:
-        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    def _register(self, request_id: str) -> asyncio.Future[object]:
+        future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         future.add_done_callback(_consume_exception)
         self._pending[request_id] = future
         return future
@@ -497,7 +531,9 @@ class ConnectorHostProxy:
         except Exception as exc:
             await self._fail_all(f"the {CHILD} sent an unreadable reply stream: {exc}")
 
-    def _dispatch(self, frame: Any) -> None:
+    def _dispatch(
+        self, frame: frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame
+    ) -> None:
         if isinstance(frame, frames.RequestFrame):
             # The parent issues requests; it never serves them. A request
             # arriving here means the stream is not what it claims to be.
@@ -538,13 +574,15 @@ class ConnectorHostProxy:
                 await task
         with contextlib.suppress(Exception):
             self._writer.close()
-        wait_closed = getattr(self._writer, "wait_closed", None)
+        wait_closed: Callable[[], Awaitable[object]] | None = getattr(
+            self._writer, "wait_closed", None
+        )
         if wait_closed is not None:
             with contextlib.suppress(Exception):
                 await wait_closed()
 
 
-def _with_confirm(kwargs: dict[str, Any], confirm: bool | None) -> dict[str, Any]:
+def _with_confirm(kwargs: dict[str, object], confirm: bool | None) -> dict[str, object]:
     """Add the ``confirm`` keyword only when the caller actually supplied one.
 
     ``None`` is the connector contract's *omission* sentinel, not a third

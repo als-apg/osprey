@@ -6,14 +6,16 @@ verdict means from the reason alone and never from the message, which is prose
 for a person to read.
 
 :func:`failure_reason` is the single place a library exception becomes a reason.
-It matches exception *classes* (imported lazily, so a library that is not
-installed simply never matches) and HTTP status codes; it never reads message
-text.
+It matches exception *classes* and HTTP status codes; it never reads message
+text. A library's classes are looked up only once something has imported it:
+an exception can only be an instance of a class whose module is loaded, so a
+library that is not installed, or not yet imported, simply never matches, and
+classifying a failure never pays for importing one.
 """
 
 from __future__ import annotations
 
-import importlib
+import sys
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 if TYPE_CHECKING:
@@ -43,10 +45,15 @@ class HealthResult(NamedTuple):
 
 
 def library_exception_classes(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
-    """The named exception classes of *module_name*, or none when it is not importable."""
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError:
+    """The named exception classes of *module_name*, or none while it is not imported.
+
+    Never imports *module_name*: an exception can only be an instance of one of
+    its classes once the module is loaded, and a cold import of a library such
+    as LiteLLM takes seconds on whatever thread classifies the failure, which
+    for a search lane is the event loop.
+    """
+    module = sys.modules.get(module_name)
+    if module is None:
         return ()
     found = []
     for name in names:

@@ -286,6 +286,36 @@ def _describe_glob(member_root: Path) -> str | None:
         return None
 
 
+def _tag_fetch_hint(member_root: Path, glob: str | None) -> str:
+    """The command that fetches what *member_root*'s version needs, as one line, or ``""``.
+
+    A shallow clone (``git clone --depth 1``) reaches no tag even after
+    ``git fetch --tags``, so it is named apart from a full clone that only
+    lacks tags. Asked only on the refusal path; a git that cannot answer adds
+    nothing.
+    """
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(member_root), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    try:
+        shallow = git("rev-parse", "--is-shallow-repository")
+        if shallow.returncode != 0:
+            return ""
+        if shallow.stdout.strip() == "true":
+            return f"This checkout is shallow:  git -C {member_root} fetch --unshallow --tags\n"
+        if git("describe", "--tags", *(["--match", glob] if glob else [])).returncode != 0:
+            return f"This checkout reaches no tag:  git -C {member_root} fetch --tags\n"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
 def _require_members_satisfy_framework(
     framework_wheel: Path, member_wheels: dict[str, tuple[Path, Path]]
 ) -> None:
@@ -328,6 +358,7 @@ def _require_members_satisfy_framework(
             f"{requirement.name} takes its version from {source} reachable from "
             "the checkout; with none it builds as 0.0.postN.\n"
             "Fetch the tags:  git fetch --tags\n"
+            f"{_tag_fetch_hint(member_root, glob)}"
             "A fork or mirror must sync the osprey-connectors-v* tags as well as "
             "the framework's v* tags.",
         )
@@ -1168,16 +1199,22 @@ def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
     return shipped
 
 
-def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
+def refuse_unshipped_kinds(
+    requirements: Iterable[str], *, listed: Mapping[str, str] | None = None
+) -> None:
     """Refuse a registered measurement kind the project image would not install.
 
     Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
     declaring it. That distribution has to be one the image installs: the
-    framework itself, or a distribution *requirements* names (an index
-    requirement, or a built deployment package by its name).
+    framework itself, a distribution *requirements* names (an index
+    requirement, or a built deployment package by its name), or a listed
+    package whose project file declares that kind (*listed*), which stands for
+    the wheel a caller that builds nothing does not have.
 
     Args:
         requirements: The dependency list the image installs, beside the framework.
+        listed: ``{kind: distribution}`` as
+            :func:`osprey.facility.kinds.listed_kinds` reads it.
 
     Raises:
         BuildProfileError: Naming each kind whose package is not installed.
@@ -1191,7 +1228,10 @@ def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
     for kind in entry_points(group=FACILITY_KINDS_GROUP):
         dist = getattr(kind, "dist", None)
         dist_name = getattr(dist, "name", None)
-        if dist_name is None or canonicalize_name(dist_name) not in shipped:
+        canonical = None if dist_name is None else canonicalize_name(dist_name)
+        if canonical is None or (
+            canonical not in shipped and (listed or {}).get(kind.name) != canonical
+        ):
             refused.append(f"{kind.name!r} (package {dist_name or 'unknown'})")
     if refused:
         raise BuildProfileError(

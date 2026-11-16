@@ -21,28 +21,26 @@ import time
 from pathlib import Path
 from typing import Any
 
+import at
+import numpy as np
 import pytest
 import yaml
+from fastmcp.exceptions import ToolError
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-from fastmcp.exceptions import ToolError  # noqa: E402
-
-from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT  # noqa: E402
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
-from osprey.mcp_server.python_executor import executor  # noqa: E402
-from osprey.mcp_server.python_executor.tools import (  # noqa: E402
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.mcp_server.errors import MISSING_KEY
+from osprey.mcp_server.python_executor import executor
+from osprey.mcp_server.python_executor.tools import (
     model_response_matrix as tool,
 )
-from osprey.simulation import model_request  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
-from osprey_connectors.simulation.view import VARIABLES_SCHEMA  # noqa: E402
-from tests._simulator_view import view_channel  # noqa: E402
-from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
+from osprey.simulation import model_request
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.response import RESULT_TAG, solve_and_print
+from osprey_connectors.simulation.view import VARIABLES_SCHEMA
+from tests._simulator_view import view_channel
+from tests.mcp_server.conftest import assert_raises_error
 
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"
 CORRECTOR_Y = "SR:MAG:VCM:01:CURRENT:SP"

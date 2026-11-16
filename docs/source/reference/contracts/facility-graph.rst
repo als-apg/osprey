@@ -14,15 +14,21 @@ What the Graph Holds
 
 The corpus is a Turtle (``.ttl``) file in the NARAD convention — facts written
 as subject-predicate-object triples — which the neosemantics plugin turns into
-the nodes and relationships a query walks. Four kinds of thing matter to a
+the nodes and relationships a query walks. Seven kinds of thing matter to a
 query:
 
+* **Places** — one node per place, carrying ``placePath`` (its id) and
+  ``sectionCode``, and, unless it is a top place, one ``PARTOF`` to its parent
+  place. A place has no RDF class, so its only label is ``Resource``.
 * **Devices** — one node per physical device, carrying ``deviceId``,
   ``sourceName`` (the device's id), ``system``, ``placePath`` and ``sectionCode``, plus
   ``sPositionM`` (position along the beamline, in metres), ``lengthM``,
   ``ordinalInPlace`` and ``ordinalInModel``, each only when the facility file
   carries it, and the prose for the levels the device sits under:
-  ``familyDescription`` and ``systemDescription``.
+  ``familyDescription`` (from the smallest described group of kind ``family``
+  naming the device) and ``systemDescription``. A device with a place
+  reaches it over ``LOCATEDIN``. Relation claims add edges between devices,
+  places and groups (`Relations`_).
 * **Channel bindings** — one node per control system address, carrying
   ``bindingId``, ``fullPv`` and ``description``, the sentence written for that
   one channel. A device reaches its bindings over ``HASBINDING``.
@@ -35,6 +41,22 @@ query:
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
   without the query naming ``HCorrector``. Classes also carry the synonyms an
   operator would say out loud, as ``skos:altLabel``.
+* **Claims** — one ``:Claim`` node per relation claim the
+  ``facility_graph`` settings keep (by default every claim), holding the
+  evidence behind its edge (`Relations`_).
+* **Groups** — one ``:Group`` node per group that is an end of a written
+  claim, carrying ``groupId``, ``groupKind`` (``family`` or ``section``) and
+  its names, and one ``HASMEMBER`` to each member device. A group no claim names is no node.
+
+Places, devices, channel bindings and groups carry their names as
+``altLabel``, a list; a place's or device's alias names (``scheme_names``) are
+entries too. A name is an identifier, so match a whole entry, ignoring case — ``CONTAINS``
+would let ``U1`` match ``U10``:
+
+.. code-block:: cypher
+   :force:
+
+   MATCH (n) WHERE NOT n:Class AND ANY(l IN n.altLabel WHERE toLower(l) = toLower($name))
 
 The descriptions are what makes the graph reachable from a phrase rather than
 only from a name: "the magnets that bend the beam" matches text no address
@@ -58,10 +80,107 @@ from memory:
   does not exist returns zero rows rather than an error, so a guess produces a
   confident wrong answer — which is what ``get_schema`` is for.
 * ``altLabel`` is a **list**, not a string: the store keeps every synonym
-  instead of letting the last one win. Match it with
-  ``ANY(l IN c.altLabel WHERE l = $label)``. Comparing it to a string —
-  ``c.altLabel = $label`` — is a list against a text and never matches, and the
-  string operators do not apply to it at all.
+  instead of letting the last one win. Match a class synonym over
+  ``(c:Class)`` with ``ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)``.
+  Never compare the list itself with ``=``: ``c.altLabel = $term`` is a list
+  against a text and never matches, and the string operators do not apply to
+  the list at all.
+
+
+Relations
+=========
+
+Each relation claim in the facility file
+(:doc:`/how-to/describe-your-facility`) is an edge from its subject end to its
+object end, each end the device, place or group it names. The edge is one
+relationship type per relation type:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Relation type
+     - Relationship
+   * - ``part_of``
+     - ``PARTOF``
+   * - ``located_in``
+     - ``LOCATEDIN``
+   * - ``powered_by``
+     - ``POWEREDBY``
+   * - ``cabled_to``
+     - ``CABLEDTO``
+   * - ``read_out_by``
+     - ``READOUTBY``
+   * - ``controlled_by``
+     - ``CONTROLLEDBY``
+   * - ``triggered_by``
+     - ``TRIGGEREDBY``
+   * - ``interlocked_by``
+     - ``INTERLOCKEDBY``
+   * - ``bounded_by``
+     - ``BOUNDEDBY``
+   * - ``networked_to``
+     - ``NETWORKEDTO``
+   * - ``supplied_by``
+     - ``SUPPLIEDBY``
+   * - ``same_as``
+     - ``SAMEAS``
+   * - ``runs_on``
+     - ``RUNSON``
+
+The claim's ``standing`` picks the edge. An ``accepted`` claim is the plain
+relationship. A ``contested`` claim is its contested twin, the type with
+``CONTESTED`` appended (``POWEREDBYCONTESTED``), so a walk over plain
+relationships never crosses a disputed fact. A ``superseded`` claim is no edge.
+Ports and units do not change the edge, and equal claims from several sources
+are one edge. ``CABLEDTO``, ``NETWORKEDTO`` and ``SAMEAS`` are symmetric, one
+edge per pair of ends: match them undirected, ``(a)-[:CABLEDTO]-(b)``.
+``SAMEAS`` is a claim like any other; nothing merges two records on it. How a
+claim gets its standing, and a worked example: :doc:`/architecture/facility-relations`.
+
+``PARTOF`` and ``LOCATEDIN`` each gain a meaning. ``PARTOF`` also joins a
+device to a device. A ``located_in`` claim naming a device's own place adds
+nothing, but one naming another place is a second ``LOCATEDIN``, so a query
+can get two rows for one device; the resolved place is the one its
+``placePath`` names.
+
+Each claim the ``facility_graph`` settings keep (by default every claim) is
+also a ``:Claim`` node, the evidence behind its edge. It reaches
+its two ends over ``CLAIMSUBJECT`` and ``CLAIMOBJECT``, and each rival that has
+a claim node too over ``CONTESTS``. It carries these properties, each only when
+the claim has it: ``claimId``, ``relationType``, ``basis`` (``stated`` when the
+claim states none), ``rule``, ``standing``, ``document``, ``documentVersion``,
+``documentState``, ``locator``, ``subjectPort``, ``objectPort``,
+``subjectUnit`` and ``objectUnit``. Each scalar attribute is one more property
+(a bool as ``"true"`` or ``"false"``), under its key when the key is an
+identifier the graph does not already use, else under ``attribute_`` and the
+key with each byte outside ``[A-Za-z0-9_]`` written ``_xHH_``: ``cable-id`` is
+``attribute_cable_x2D_id``. A claim whose end is a group reaches the
+``:Group`` node, which carries ``groupId`` and ``groupKind`` and reaches each
+member device over ``HASMEMBER``.
+
+Two settings of the deployment's config choose what is written:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 30 44
+
+   * - Setting
+     - Values
+     - What it writes
+   * - ``facility_graph.claims``
+     - ``all`` (default), ``contested``, ``none``
+     - Which claims get a ``:Claim`` node: every claim, the claims in a
+       dispute (a non-empty ``contests``, so under a policy the winner and the
+       superseded loser too), or none. The edges stay the same.
+   * - ``facility_graph.basis``
+     - ``all`` (default), ``stated``
+     - Whether ``inferred`` claims and inferred alias names appear at all.
+
+Any other value stops the render with a message naming the setting and its
+values. Under ``basis: stated`` each kept claim shows the standing the build
+stamped, so a stated claim an inferred rival contests stays contested, with
+that rival out of the graph.
 
 
 The Four Tools

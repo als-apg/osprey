@@ -8,8 +8,9 @@ tools via stdio JSON-RPC. This page lists every server that ships in-tree,
 with every tool each one can register. The **10 core servers** are the ones a
 deployment normally renders: ``control_system``, the four channel-finder
 variants, ``workspace``, ``python_executor``, ``ariel``,
-``osprey_facility_knowledge`` and ``graph``. Four more ship in-tree but are off
-by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
+``osprey_facility_knowledge`` and ``graph``. ``pv-directory`` renders only
+when the config has a ``pv_directory`` section. Four more ship in-tree but are
+off by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
 enables one with ``claude_code.servers.<name>.enabled: true``. The
 ``demo`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
 ``optimizer`` stay off in every preset. Build profiles can inject additional servers beyond
@@ -20,8 +21,8 @@ these.
 
 The four channel-finder variants count as four of the ten, but a deployment
 serves exactly one of them — whichever ``channel_finder.pipeline_mode`` names —
-under the single ``channel-finder`` name, which is why the map shows seven
-running processes.
+under the single ``channel-finder`` name. The map shows those seven running
+processes, and ``pv-directory`` where it renders.
 
 
 Control System
@@ -158,6 +159,43 @@ operators ask about channels rather than around general graph exploration. See
 - ``example_queries`` -- Return runnable Cypher examples for the common channel
   questions, each with per-corpus parameter values.
 - ``capabilities`` -- Report the server description, tool list and operating notes.
+
+PV Directory
+------------
+
+``pv-directory``
+~~~~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.pv_directory``
+
+Reads the control system's own directory of channel addresses for the session's
+current control target. It is present only when the config has a
+``pv_directory`` section; the alarm and put-log tools are present only when
+that section configures their source. Every tool is a read and is pre-approved.
+The ``channel-finder`` shared login carries the server; the ``logbook`` and
+``knowledge`` logins switch it off. See :ref:`channel-finder-all-pvs`.
+
+**Tools:**
+
+- ``directory_search`` -- Search the directory by words, name, property values and
+  status, curated channels and announced ones alike, each row marked with its origin.
+- ``directory_properties`` -- List the values one directory property holds, such as
+  each IOC or host, spelled as the directory spells them.
+- ``pv_record`` -- Look up channel addresses: the directory record and, where
+  configured, alarm state, alarm configuration, alarm history, put history and
+  archive facts.
+- ``ioc_record`` -- Look up one IOC: its host, ports, channel counts, engineer, the
+  addresses of its health channels and, with an alarm feed configured, its channels
+  in alarm.
+- ``active_alarms`` -- List every channel in alarm now, with the counts per severity,
+  from the alarm feed.
+- ``alarm_state`` -- Read the current alarm of each channel address from the alarm
+  feed, marking a record stale when the feed has stopped updating.
+- ``alarm_history`` -- List the alarm events the alarm logger recorded for one
+  channel address.
+- ``alarm_config`` -- Look up one channel address in the alarm configuration: its
+  path, guidance, displays, and whether its alarm is enabled and latching.
+- ``put_history`` -- List the writes the put log recorded for one channel address.
 
 Workspace
 ---------

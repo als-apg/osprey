@@ -93,6 +93,13 @@ class SidecarPanel:
             directory once the deployment is copied in, one per entry. A
             failing entry fails the build, so each one decides for itself what
             a missing optional package means.
+        runs_code: Whether the panel runs code a person types, as the
+            container's user and with none of the execution guards an agent's
+            Python run goes through. Such a panel is a shell for whoever opens
+            it, so a deployment whose proxy vouches for every request
+            (``auth.method: none``) is refused while a render shows one: the
+            code would reach that proxy from inside the deployment and be
+            served any login's terminal.
         stop_grace_s: Seconds the sidecar's stop waits between the stop signal
             and the kill: the one number its own ``stop`` hands the process
             stop as its grace, and the one the deployment adds the terminal's
@@ -118,6 +125,7 @@ class SidecarPanel:
     session_writes: bool = False
     entry_pages: tuple[str, ...] = ()
     image_checks: tuple[str, ...] = ()
+    runs_code: bool = False
     stop_grace_s: int = 0
 
 
@@ -145,6 +153,8 @@ SIDECAR_PANELS: dict[str, SidecarPanel] = {
         description="JupyterLab with kernels that follow the terminal session",
         # The sidecar's own status route, reached through the panel proxy.
         health_endpoint="/api/status",
+        # A kernel runs what is typed into a cell.
+        runs_code=True,
         # jupyter-server closes its kernels on its own shutdown; this is how
         # long the stop lets it, before the group is killed.
         stop_grace_s=5,

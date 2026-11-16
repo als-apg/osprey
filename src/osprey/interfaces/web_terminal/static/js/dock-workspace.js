@@ -24,6 +24,7 @@ import { closeKey, defaultLayout, detachPlacement, reopenTerminal } from './dock
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDetached, focusWindow, initPaneWindow } from './pane-window.js';
 import { initFallbackTileBar } from './dock-fallback-bar.js';
+import { GALLERY_PANEL_ID, isArtifactTileKey } from './artifact-tiles.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { subscribe } from '/design-system/js/theme-manager.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
@@ -377,13 +378,16 @@ function wireHolderSync(api, holder) {
  * Hand a whole layout to the holder, which validates it and applies it with
  * one `fromJSON`, then let the iframe adapter settle: it conceals any managed
  * panel the layout lacks and prunes placeholders whose service no longer
- * exists, so no apply leaves a stray iframe or a dead tile.
+ * exists, so no apply leaves a stray iframe or a dead tile. With `panels` (a
+ * stored dock's records) each panel is built with the params stored for it,
+ * not the ones the same panel has on screen (dock-apply.js `restore`).
  * False (nothing changes) for an invalid layout.
  * @param {Layout|null} layout
+ * @param {Record<string, PanelRecord>} [panels]
  * @returns {boolean}
  */
-function applyHeld(layout) {
-  if (!layoutHolder || !layoutHolder.restore(layout)) return false;
+function applyHeld(layout, panels) {
+  if (!layoutHolder || !layoutHolder.restore(layout, panels)) return false;
   redockServices?.();
   syncAgentPane();
   return true;
@@ -624,9 +628,11 @@ function readStored() {
 
 /**
  * The keys the dock can build now: the panels the server lists (enabled
- * built-ins and custom panels) plus every key already in the dock. Before the
- * server's list is known (or when it is absent) the stored layout's own keys
- * are trusted, so nothing is pruned on a guess.
+ * built-ins and custom panels) plus every key already in the dock, and the
+ * stored layout's artifact tiles (artifact-tiles.js) while the Artifacts
+ * panel they frame is listed. Before the server's list is known (or when it
+ * is absent) the stored layout's own keys are trusted, so nothing is pruned on
+ * a guess.
  * @param {unknown} stored
  * @returns {Set<string>}
  */
@@ -634,6 +640,9 @@ function buildableKeys(stored) {
   const keys = new Set(layoutHolder?.layout ? keysOf(layoutHolder.layout) : []);
   const known = serverPanelIds ?? safeKeys(stored);
   for (const key of known) keys.add(key);
+  if (known.includes(GALLERY_PANEL_ID)) {
+    for (const key of safeKeys(stored)) if (isArtifactTileKey(key)) keys.add(key);
+  }
   return keys;
 }
 
@@ -689,7 +698,7 @@ function applyRepaired(stored, { keepTerminal }) {
   }
   const previous = restoredPanels;
   restoredPanels = { ...stored.panels };
-  if (applyHeld(layout)) return true;
+  if (applyHeld(layout, restoredPanels)) return true;
   restoredPanels = previous;
   return false;
 }

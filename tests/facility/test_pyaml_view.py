@@ -28,8 +28,6 @@ from osprey.facility.views.pyaml import (
 )
 from tests.facility._pyaml_trees import measured_tree, view_inputs, write_view
 
-pytest.importorskip("pyaml")
-
 
 def _measurement(doc: dict[str, Any], model: str) -> dict[str, Any]:
     (record,) = [record for record in doc["models"] if record["name"] == model]
@@ -140,7 +138,7 @@ def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
             if "model" in device:
                 address = names.magnet_address(name)
                 assert parse_reference(device["model"]["powerconverter"]).address == address
-            elif device["type"] == "pyaml.bpm.bpm":
+            elif device["type"] == "pyaml.diagnostics.bpm.bpm":
                 assert names.bpm_name(names.bpm_device(name)) == name
             elif device["type"] == "pyaml.rf.rf_plant":
                 assert names.rf_plant_name(names.rf_address(name)) == name

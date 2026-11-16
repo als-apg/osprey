@@ -46,8 +46,6 @@ from tests.facility._mml_built import (
     widen,
 )
 
-at = pytest.importorskip("at")
-
 #: The module's readers share one import per tree, which only holds on one worker.
 pytestmark = [
     pytest.mark.xdist_group("mml_layer_seed_once"),

@@ -4,8 +4,10 @@
 ``vocabulary.yaml`` declares, in a form the standard library reads without
 LinkML: the device-class tree (each class with its parent, whether it is
 abstract, its aliases and IRI), the signal roles and the property names, each
-with its aliases. Every list is sorted by name and every object by key, so the
-same schema always writes the same bytes.
+with its aliases, and the relation types, each with its end kinds, symmetry and
+single-valued key. Every record list is sorted by name and every object by key,
+so the same schema always writes the same bytes; the lists inside a relation
+type keep the order the annotation states them in.
 
 The script needs LinkML (the ``dev`` extra); nothing at runtime does.
 
@@ -33,6 +35,9 @@ SIGNAL_ROLE_ENUM = "signal_role_enum"
 #: The enum holding the property names a device's ``properties`` lists.
 PROPERTY_NAME_ENUM = "property_name_enum"
 
+#: The enum holding the relation types a relation claim's ``type`` names.
+RELATION_TYPE_ENUM = "relation_type_enum"
+
 
 def _permissible_values(view: Any, enum_name: str) -> list[dict[str, Any]]:
     """One record per permissible value of an enum, sorted by name.
@@ -55,6 +60,44 @@ def _permissible_values(view: Any, enum_name: str) -> list[dict[str, Any]]:
                 "description": value.description,
                 "aliases": list(value.aliases or []),
                 "unit": unit.value if unit is not None else None,
+            }
+        )
+    return sorted(records, key=lambda record: record["name"])
+
+
+def _relations(view: Any) -> list[dict[str, Any]]:
+    """The relation type table, one record per type, sorted by name.
+
+    Args:
+        view: A ``SchemaView`` over ``vocabulary.yaml``.
+
+    Returns:
+        ``{name, description, subject, object, symmetric, single_per}`` per type:
+        ``subject``, ``object`` and ``single_per`` are the space-separated
+        annotations split into lists in their stated order (absent: empty), and
+        ``symmetric`` is ``True`` only when the annotation is set true.
+    """
+
+    def annotation(value: Any, key: str) -> Any:
+        found = value.annotations.get(key) if value.annotations else None
+        return found.value if found is not None else None
+
+    def words(value: Any, key: str) -> list[str]:
+        text = annotation(value, key)
+        return str(text).split() if text is not None else []
+
+    enum = view.get_enum(RELATION_TYPE_ENUM, strict=True)
+    records = []
+    for name, value in (enum.permissible_values or {}).items():
+        symmetric = annotation(value, "symmetric")
+        records.append(
+            {
+                "name": name,
+                "description": value.description,
+                "subject": words(value, "subject"),
+                "object": words(value, "object"),
+                "symmetric": symmetric is True or str(symmetric).lower() == "true",
+                "single_per": words(value, "single_per"),
             }
         )
     return sorted(records, key=lambda record: record["name"])
@@ -106,6 +149,7 @@ def render(schema_dir: Path = SCHEMA_DIR) -> str:
             for record in _permissible_values(view, SIGNAL_ROLE_ENUM)
         ],
         "properties": _permissible_values(view, PROPERTY_NAME_ENUM),
+        "relations": _relations(view),
     }
     return json.dumps(table, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 

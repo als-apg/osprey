@@ -420,7 +420,8 @@ def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> 
     assert not any(
         name.startswith("Measurement") and name != "Measurement" for name in schema["classes"]
     )
-    assert not any("kind" in name for name in schema["enums"])
+    # ``group_kind_enum`` is a group's kind (family or section), not a measurement's.
+    assert not any("kind" in name for name in schema["enums"] if name != "group_kind_enum")
     assert set(declared) == {"orm", "dispersion", "trm", "crm", "chromaticity_monitor"}
     assert members == set(SHIPPED_SORTS)
     assert not any(kind.member_sorts for kind in declared.values())

@@ -62,12 +62,17 @@ PANEL = "/panel/jupyter"
 AUDIT_IDENTITY = "notebook-integration"
 TERMINAL_FAMILY_PROBE = "OSPREY_TERMINAL_PROBE"
 
+#: A name the terminal holds for its own use and no list mentions: a provider
+#: key, a database password. Its absence in a cell is the allowlist's doing.
+TERMINAL_ONLY_PROBE = "NOTEBOOK_INTEGRATION_TERMINAL_ONLY"
+
 #: What a cell reports about its own environment.
 PROBE_CODE = (
     "import os, json; "
     'print(json.dumps({"tok": "JUPYTER_TOKEN" in os.environ, '
     '"term": [k for k in os.environ if k.startswith("OSPREY_TERMINAL_")], '
     '"cfg": "OSPREY_CONFIG" in os.environ, '
+    f'"host": "{TERMINAL_ONLY_PROBE}" in os.environ, '
     '"audit": "OSPREY_AUDIT_IDENTITY" in os.environ}))'
 )
 
@@ -112,6 +117,7 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         environment.setenv("TMPDIR", str(root))
         environment.setenv("OSPREY_AUDIT_IDENTITY", AUDIT_IDENTITY)
         environment.setenv(TERMINAL_FAMILY_PROBE, "reachable-from-the-terminal")
+        environment.setenv(TERMINAL_ONLY_PROBE, "held-by-the-terminal")
         environment.setenv(OSPREY_AGENT_DATA_ROOT, str(agent_data))
         yield root
 
@@ -582,7 +588,9 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     ``OSPREY_TERMINAL_`` family is dropped by ``scrub_sandbox_child_env``, which
     is only visible because the terminal's environment set one — all but the
     launch's terminal session, kept by exact name so the audit entries a cell
-    records file under the same session as its OTLP resource.
+    records file under the same session as its OTLP resource. A name the
+    terminal holds that is on no list does not arrive either: the sidecar is
+    spawned on the execution allowlist.
     """
     session_id = uuid.uuid4().hex
 
@@ -595,6 +603,7 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
         "tok": False,
         "term": ["OSPREY_TERMINAL_SESSION"],
         "cfg": True,
+        "host": False,
         "audit": True,
     }
 

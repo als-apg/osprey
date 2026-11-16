@@ -53,15 +53,20 @@ Example:
 """
 
 import asyncio
+from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     Processing,
+    ProcessingMode,
+    SampleSeries,
     aggregate_long_frame,
     long_frame,
     reject_non_numeric,
@@ -79,7 +84,7 @@ logger = get_logger("mya_archiver_connector")
 #: reports duration/integration/rms/updateCount, which OSPREY has no mode for.
 #: ``median`` is absent because MYA does not compute one; see
 #: :meth:`MYAArchiverConnector.get_data`.
-_MYSTATS_STAT = {
+_MYSTATS_STAT: dict[ProcessingMode, str] = {
     "mean": "mean",
     "min": "min",
     "max": "max",
@@ -100,6 +105,102 @@ _DEFAULT_TIMEOUT_S = 60
 #: guard in :meth:`MYAArchiverConnector._localize` refuses that silently-wrong
 #: data rather than serving it.
 _REQUIRED_CLIENT = "4.0.1"
+
+
+class _MyquerySettings(Protocol):
+    """``jlab_archiver_client.config.config``, the library's endpoint settings."""
+
+    myquery_server: str
+    protocol: str
+    interval_path: str
+    mystats_path: str
+    channel_path: str
+
+
+class _ConfigModule(Protocol):
+    """``jlab_archiver_client.config``."""
+
+    config: _MyquerySettings
+
+
+class _QueryModule(Protocol):
+    """``jlab_archiver_client.query``: the request objects, one per endpoint."""
+
+    def IntervalQuery(
+        self,
+        *,
+        channel: str,
+        begin: datetime,
+        end: datetime,
+        deployment: str,
+        unix_timestamps_ms: bool,
+        prior_point: bool,
+    ) -> object: ...
+
+    def MyStatsQuery(
+        self,
+        *,
+        pvlist: list[str],
+        start: datetime,
+        end: datetime,
+        num_bins: int,
+        deployment: str,
+        unix_timestamps_ms: bool,
+    ) -> object: ...
+
+    def ChannelQuery(self, *, pattern: str, deployment: str) -> object: ...
+
+
+class _Interval(Protocol):
+    """An ``interval`` request; ``data`` is set by ``run()``."""
+
+    data: "SampleSeries | None"
+
+    def run(self) -> None: ...
+
+
+class _IntervalModule(Protocol):
+    """``jlab_archiver_client.interval``."""
+
+    def Interval(self, query: object, *, url: str) -> _Interval: ...
+
+
+class _MyStats(Protocol):
+    """A ``mystats`` request; ``data`` is set by ``run()``."""
+
+    data: "pd.DataFrame | None"
+
+    def run(self) -> None: ...
+
+
+class _MyStatsModule(Protocol):
+    """``jlab_archiver_client.mystats``."""
+
+    def MyStats(self, query: object, *, url: str) -> _MyStats: ...
+
+
+class _Channel(Protocol):
+    """A ``channel`` lookup; ``matches`` is set by ``run()``."""
+
+    matches: list[Mapping[str, object]] | None
+
+    def run(self) -> None: ...
+
+
+class _ChannelModule(Protocol):
+    """``jlab_archiver_client.channel``."""
+
+    def Channel(self, query: object, *, url: str) -> _Channel: ...
+
+
+class _JlabArchiverClient(Protocol):
+    """The surface of ``jlab_archiver_client`` the connector calls; it ships no types."""
+
+    config: _ConfigModule
+    query: _QueryModule
+    interval: _IntervalModule
+    mystats: _MyStatsModule
+    channel: _ChannelModule
 
 
 def _like_literal(channel: str) -> str:
@@ -132,16 +233,16 @@ class MYAArchiverConnector(ArchiverConnector):
 
     def __init__(self) -> None:
         self._connected = False
-        # The client library, bound in connect(). Typed Any because
-        # jlab_archiver_client ships no stubs and is imported lazily, so there
-        # is no symbol to name here on a machine without it.
-        self._client: Any = None
+        # The client library, bound in connect() and read through _library().
+        self._client: _JlabArchiverClient | None = None
         self._urls: dict[str, str] = {}
         self._timeout: float = _DEFAULT_TIMEOUT_S
         self._deployment = _DEFAULT_DEPLOYMENT
         self._timezone: ZoneInfo | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """Initialize the myquery client.
 
         Args:
@@ -179,13 +280,14 @@ class MYAArchiverConnector(ArchiverConnector):
             ),
         )
         try:
-            import jlab_archiver_client as jac
+            import jlab_archiver_client
         except ImportError:
             raise ImportError(
                 "jlab_archiver_client is required for the MYA archiver connector. "
                 f"Install with: pip install 'jlab-archiver-client>={_REQUIRED_CLIENT}'"
             ) from None
 
+        jac: _JlabArchiverClient = jlab_archiver_client
         self._client = jac
 
         try:
@@ -226,6 +328,7 @@ class MYAArchiverConnector(ArchiverConnector):
             self._deployment,
         )
 
+    @override
     async def disconnect(self) -> None:
         """Release the client. myquery is stateless HTTP; nothing to close."""
         self._client = None
@@ -233,6 +336,7 @@ class MYAArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("MYA archiver disconnected")
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -280,7 +384,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
         server_side = resolved.mode in _MYSTATS_STAT
 
-        def fetch_all() -> dict[str, pd.Series]:
+        def fetch_all() -> dict[str, SampleSeries]:
             if server_side:
                 return self._fetch_stats(channels, start_utc, end_utc, resolved)
             return self._fetch_events(channels, start_utc, end_utc)
@@ -323,6 +427,16 @@ class MYAArchiverConnector(ArchiverConnector):
                 ) from e
             raise
 
+    def _library(self) -> _JlabArchiverClient:
+        """The client library connect() bound.
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
+        """
+        if self._client is None:
+            raise RuntimeError("MYA archiver not connected")
+        return self._client
+
     def _server_local(self, moment: datetime) -> datetime:
         """The naive wall clock myquery reads a UTC instant as.
 
@@ -333,13 +447,13 @@ class MYAArchiverConnector(ArchiverConnector):
         """
         return moment.astimezone(self._timezone).replace(tzinfo=None)
 
-    def _empty(self, channel: str) -> pd.Series:
+    def _empty(self, channel: str) -> SampleSeries:
         """The no-samples answer for one channel: no rows, right index type."""
         return pd.Series(dtype="float64", index=pd.DatetimeIndex([], tz="UTC"), name=channel)
 
     def _fetch_events(
         self, channels: list[str], start_utc: datetime, end_utc: datetime
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """Every archived event per channel, from myquery's interval endpoint.
 
         The prior point comes back with the rest, at its own timestamp before
@@ -351,9 +465,10 @@ class MYAArchiverConnector(ArchiverConnector):
         """
         begin = self._server_local(start_utc)
         end = self._server_local(end_utc)
-        series: dict[str, pd.Series] = {}
+        client = self._library()
+        series: dict[str, SampleSeries] = {}
         for channel in channels:
-            query = self._client.query.IntervalQuery(
+            query = client.query.IntervalQuery(
                 channel=channel,
                 begin=begin,
                 end=end,
@@ -361,7 +476,7 @@ class MYAArchiverConnector(ArchiverConnector):
                 unix_timestamps_ms=True,
                 prior_point=True,
             )
-            interval = self._client.interval.Interval(query, url=self._urls["interval"])
+            interval = client.interval.Interval(query, url=self._urls["interval"])
             interval.run()
             series[channel] = self._localize(interval.data, channel)
         return series
@@ -372,7 +487,7 @@ class MYAArchiverConnector(ArchiverConnector):
         start_utc: datetime,
         end_utc: datetime,
         resolved: Processing,
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """One server-side aggregate per bin, from myquery's mystats endpoint.
 
         mystats is told how MANY bins to cut the range into, not how wide each
@@ -409,9 +524,10 @@ class MYAArchiverConnector(ArchiverConnector):
         end_utc: datetime,
         num_bins: int,
         resolved: Processing,
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """One mystats round trip, cut into ``num_bins`` equal bins."""
-        query = self._client.query.MyStatsQuery(
+        client = self._library()
+        query = client.query.MyStatsQuery(
             pvlist=channels,
             start=self._server_local(start_utc),
             end=self._server_local(end_utc),
@@ -419,7 +535,7 @@ class MYAArchiverConnector(ArchiverConnector):
             deployment=self._deployment,
             unix_timestamps_ms=True,
         )
-        mystats = self._client.mystats.MyStats(query, url=self._urls["mystats"])
+        mystats = client.mystats.MyStats(query, url=self._urls["mystats"])
         mystats.run()
 
         frame = mystats.data
@@ -441,7 +557,7 @@ class MYAArchiverConnector(ArchiverConnector):
             for channel in channels
         }
 
-    def _localize(self, data: "pd.Series | None", channel: str) -> pd.Series:
+    def _localize(self, data: "SampleSeries | None", channel: str) -> SampleSeries:
         """Read one channel's epoch-millisecond timestamps as UTC instants.
 
         A bin that MYA had no samples for comes back as NaN; an empty bin is not
@@ -475,15 +591,17 @@ class MYAArchiverConnector(ArchiverConnector):
             s.to_numpy(), index=pd.to_datetime(index, unit="ms", utc=True), name=channel
         )
 
-    def _lookup(self, channel: str) -> list[dict[str, Any]]:
+    def _lookup(self, channel: str) -> list[Mapping[str, object]]:
         """Every channel myquery's channel endpoint matches for one address."""
-        query = self._client.query.ChannelQuery(
+        client = self._library()
+        query = client.query.ChannelQuery(
             pattern=_like_literal(channel), deployment=self._deployment
         )
-        found = self._client.channel.Channel(query, url=self._urls["channel"])
+        found = client.channel.Channel(query, url=self._urls["channel"])
         found.run()
         return found.matches or []
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Look up archiving metadata for one channel.
 
@@ -530,14 +648,15 @@ class MYAArchiverConnector(ArchiverConnector):
                     f"Archiver returned the wrong channel. Requested: {channel}. Received: {match}."
                 )
             return ArchiverMetadata(
-                channel=match,
+                channel=channel,
                 is_archived=True,
                 description=f"Archived channel: {match}",
             )
 
         return await asyncio.wait_for(asyncio.to_thread(fetch_metadata), timeout=self._timeout)
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    @override
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """Report which channels MYA archives.
 
         Args:
@@ -557,7 +676,7 @@ class MYAArchiverConnector(ArchiverConnector):
             matches = self._lookup(name)
             return len(matches) == 1 and matches[0]["name"] == name
 
-        available = dict.fromkeys(channels, False)
+        available: dict[str, bool | None] = dict.fromkeys(channels, False)
         for name in channels:
             # Sequential on purpose: myquery answers one pattern per request,
             # and a burst of them from a wide channel list is what the server

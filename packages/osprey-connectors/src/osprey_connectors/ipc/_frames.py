@@ -73,11 +73,12 @@ from __future__ import annotations
 import json
 import struct
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from io import BytesIO
-from typing import Any
+from typing import TypeAlias, TypeGuard
 
 import numpy as np
 
@@ -125,8 +126,17 @@ MAX_FRAME_BYTES = 256 * 1024 * 1024
 
 _HEADER_STRUCT = struct.Struct(">I")
 
+
+def _length_at(buffer: bytes | bytearray, offset: int) -> int:
+    """The length word :data:`_HEADER_STRUCT` packed at *offset*; the caller checked it is there."""
+    return int.from_bytes(buffer[offset : offset + _HEADER_STRUCT.size], "big")
+
+
 #: Marker key identifying a tagged (non-scalar) value node in the JSON header.
 _TAG = "__osprey_ipc__"
+
+#: A node of a frame's JSON header, as ``json`` writes it.
+_Json: TypeAlias = None | bool | int | float | str | list["_Json"] | dict[str, "_Json"]
 
 
 class FrameEncodeError(TypeError):
@@ -149,11 +159,12 @@ class _UnrebuildableValueError(FrameDecodeError):
 
 @dataclass(frozen=True)
 class RequestFrame:
-    """A decoded call request. ``method`` is never validated by the codec."""
+    """A decoded call request. ``method`` and ``kwargs`` are never validated by the codec:
+    the child refuses a bad one in that request's error frame."""
 
     request_id: str
-    method: str
-    kwargs: dict[str, Any]
+    method: object
+    kwargs: object
 
 
 @dataclass(frozen=True)
@@ -161,7 +172,7 @@ class ResultFrame:
     """A decoded successful reply."""
 
     request_id: str
-    value: Any
+    value: object
 
 
 @dataclass(frozen=True)
@@ -201,14 +212,19 @@ def new_request_id() -> str:
 # --------------------------------------------------------------------------
 
 
-def _npy_bytes(array: np.ndarray) -> bytes:
+#: An array of any shape and element type: the one kind of blob a frame carries.
+#: Quoted because ``np.generic`` takes no subscript at run time.
+_Array: TypeAlias = "np.ndarray[tuple[int, ...], np.dtype[np.generic[object]]]"
+
+
+def _npy_bytes(array: _Array) -> bytes:
     """Serialize an array to ``.npy`` bytes, never enabling pickle."""
     buffer = BytesIO()
     np.save(buffer, array, allow_pickle=False)
     return buffer.getvalue()
 
 
-def _npy_load(data: bytes) -> np.ndarray:
+def _npy_load(data: bytes) -> _Array:
     """Read ``.npy`` bytes back, never enabling pickle."""
     buffer = BytesIO(data)
     loaded = np.load(buffer, allow_pickle=False)
@@ -222,7 +238,17 @@ def _npy_load(data: bytes) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 
-def _encode_value(value: Any, blobs: list[bytes]) -> Any:
+def _is_json_object(node: object) -> TypeGuard[dict[str, object]]:
+    """Whether *node* is a JSON object: a dict keyed by strings, as ``json`` writes one."""
+    return isinstance(node, dict) and all(isinstance(key, str) for key in node)
+
+
+def _is_json_array(node: object) -> TypeGuard[list[object]]:
+    """Whether *node* is a JSON array."""
+    return isinstance(node, list)
+
+
+def _encode_value(value: object, blobs: list[bytes]) -> _Json:
     """Turn ``value`` into a JSON node, appending any binary payloads to ``blobs``."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -242,7 +268,9 @@ def _encode_value(value: Any, blobs: list[bytes]) -> Any:
             "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
     tag = type(value).__name__
-    if _DATACLASSES.get(tag) is type(value):
+    if isinstance(value, ChannelValue | ChannelMetadata | ChannelWriteResult) and _DATACLASSES.get(
+        tag
+    ) is type(value):
         return {
             _TAG: tag,
             "fields": {
@@ -253,13 +281,13 @@ def _encode_value(value: Any, blobs: list[bytes]) -> Any:
     raise FrameEncodeError(f"IPC frames cannot carry a value of type {tag!r}")
 
 
-def _decode_value(node: Any, blobs: list[bytes]) -> Any:
+def _decode_value(node: object, blobs: list[bytes]) -> object:
     """Inverse of :func:`_encode_value`."""
     if node is None or isinstance(node, (bool, int, float, str)):
         return node
-    if isinstance(node, list):
+    if _is_json_array(node):
         return [_decode_value(item, blobs) for item in node]
-    if not isinstance(node, dict):
+    if not _is_json_object(node):
         raise FrameDecodeError(f"unsupported JSON node of type {type(node).__name__!r}")
 
     tag = node.get(_TAG)
@@ -270,20 +298,39 @@ def _decode_value(node: Any, blobs: list[bytes]) -> Any:
     if tag == "npscalar":
         return _npy_load(_blob(blobs, node["blob"]))[()]
     if tag == "datetime":
-        return datetime.fromisoformat(node["iso"])
+        iso = node["iso"]
+        if not isinstance(iso, str):
+            raise FrameDecodeError(f"datetime node carries a {type(iso).__name__}, not a string")
+        return datetime.fromisoformat(iso)
     if tag == "dict":
-        return {key: _decode_value(item, blobs) for key, item in node["items"]}
-    cls = _DATACLASSES.get(tag)
-    if cls is None:
+        return _decode_items(node["items"], blobs)
+    if not isinstance(tag, str) or tag not in _DATACLASSES:
         raise FrameDecodeError(f"unknown value tag {tag!r} in frame payload")
-    kwargs = {name: _decode_value(item, blobs) for name, item in node["fields"].items()}
+    cls = _DATACLASSES[tag]
+    fields = node["fields"]
+    if not _is_json_object(fields):
+        raise FrameDecodeError(f"{tag} node fields are not a JSON object")
+    kwargs = {name: _decode_value(item, blobs) for name, item in fields.items()}
     try:
         return cls(**kwargs)
     except (TypeError, ValueError) as exc:
         raise _UnrebuildableValueError(tag, exc) from exc
 
 
-def _blob(blobs: list[bytes], index: Any) -> bytes:
+def _decode_items(items: object, blobs: list[bytes]) -> dict[object, object]:
+    """The dict a ``dict`` node's ``[key, value]`` pairs describe."""
+    if not _is_json_array(items):
+        raise FrameDecodeError(f"dict node items are a {type(items).__name__}, not a list")
+    decoded: dict[object, object] = {}
+    for pair in items:
+        if not _is_json_array(pair) or len(pair) != 2:
+            raise FrameDecodeError(f"dict node item {pair!r} is not a [key, value] pair")
+        key, item = pair
+        decoded[key] = _decode_value(item, blobs)
+    return decoded
+
+
+def _blob(blobs: list[bytes], index: object) -> bytes:
     if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(blobs):
         raise FrameDecodeError(f"blob index {index!r} outside the frame's {len(blobs)} segments")
     return blobs[index]
@@ -294,7 +341,7 @@ def _blob(blobs: list[bytes], index: Any) -> bytes:
 # --------------------------------------------------------------------------
 
 
-def _pack(header: dict[str, Any], blobs: list[bytes]) -> bytes:
+def _pack(header: dict[str, _Json], blobs: list[bytes]) -> bytes:
     header["v"] = PROTOCOL_VERSION
     header["blobs"] = [len(blob) for blob in blobs]
     payload = json.dumps(header).encode("utf-8")
@@ -304,22 +351,22 @@ def _pack(header: dict[str, Any], blobs: list[bytes]) -> bytes:
     return MAGIC + _HEADER_STRUCT.pack(len(body)) + body
 
 
-def encode_request(request_id: str, method: str, kwargs: dict[str, Any] | None = None) -> bytes:
+def encode_request(request_id: str, method: str, kwargs: Mapping[str, object]) -> bytes:
     """Encode a call request. ``method`` is passed through unexamined."""
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "request",
         "request_id": request_id,
         "method": method,
-        "kwargs": _encode_value(dict(kwargs or {}), blobs),
+        "kwargs": _encode_value(dict(kwargs), blobs),
     }
     return _pack(header, blobs)
 
 
-def encode_result(request_id: str, value: Any) -> bytes:
+def encode_result(request_id: str, value: object) -> bytes:
     """Encode a successful reply carrying ``value``."""
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "result",
         "request_id": request_id,
         "value": _encode_value(value, blobs),
@@ -338,7 +385,7 @@ def encode_error(request_id: str, exc: BaseException) -> bytes:
     decodes as a ``ConnectorInternalError`` naming that class.
     """
     blobs: list[bytes] = []
-    header = {
+    header: dict[str, _Json] = {
         "kind": "error",
         "request_id": request_id,
         "class_tag": _registered_tag(exc) or type(exc).__name__,
@@ -352,25 +399,30 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
     """Decode one complete frame, magic prefix included."""
     if len(frame) < 12 or not frame.startswith(MAGIC):
         raise FrameDecodeError("frame does not start with the expected magic prefix")
-    (body_len,) = _HEADER_STRUCT.unpack_from(frame, 4)
+    body_len = _length_at(frame, 4)
     body = frame[8:]
     if len(body) != body_len:
         raise FrameDecodeError(f"frame declares {body_len} body bytes but carries {len(body)}")
-    (header_len,) = _HEADER_STRUCT.unpack_from(body, 0)
+    header_len = _length_at(body, 0)
     if header_len > len(body) - 4:
         raise FrameDecodeError("frame header length runs past the end of the frame")
     try:
-        header = json.loads(body[4 : 4 + header_len].decode("utf-8"))
+        header: object = json.loads(body[4 : 4 + header_len].decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise FrameDecodeError(f"frame header is not valid JSON: {exc}") from exc
-    if not isinstance(header, dict):
+    if not _is_json_object(header):
         raise FrameDecodeError("frame header is not a JSON object")
     if header.get("v") != PROTOCOL_VERSION:
         raise FrameDecodeError(f"frame protocol version {header.get('v')!r} != {PROTOCOL_VERSION}")
 
     blobs: list[bytes] = []
     offset = 4 + header_len
-    for size in header.get("blobs", []):
+    sizes = header.get("blobs", [])
+    if not _is_json_array(sizes):
+        raise FrameDecodeError(f"frame blob sizes are a {type(sizes).__name__}, not a list")
+    for size in sizes:
+        if not isinstance(size, int):
+            raise FrameDecodeError(f"frame blob size {size!r} is not a byte count")
         blobs.append(bytes(body[offset : offset + size]))
         if len(blobs[-1]) != size:
             raise FrameDecodeError("frame blob segment is truncated")
@@ -401,6 +453,8 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
         class_tag = str(header.get("class_tag", ""))
         message = str(header.get("message", ""))
         fields = _decode_value(header.get("fields", {_TAG: "dict", "items": []}), blobs)
+        if not isinstance(fields, dict):
+            raise FrameDecodeError("error frame fields are not a mapping")
         return ErrorFrame(
             request_id=request_id,
             class_tag=class_tag,
@@ -437,7 +491,7 @@ class FrameReader:
         while len(self._buffer) >= 8:
             if bytes(self._buffer[:4]) != MAGIC:
                 raise FrameDecodeError("stream is out of sync: no frame magic at the read point")
-            (body_len,) = _HEADER_STRUCT.unpack_from(self._buffer, 4)
+            body_len = _length_at(self._buffer, 4)
             if body_len > self._max_frame_bytes:
                 raise FrameDecodeError(
                     f"frame declares {body_len} bytes, above the {self._max_frame_bytes} limit"

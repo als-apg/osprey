@@ -8,8 +8,8 @@ composite, the texture engine, the archive and the series primitives are
 imported from their own modules.
 """
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import SupportsInt, TypeGuard
 
 from osprey_connectors.simulation.status import model_status, read_model_status
 from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
@@ -35,7 +35,7 @@ TICK_KEY = "simulation.tick_s"
 DEFAULT_TICK_S = 1.0
 
 
-def resolve_tick_s(config: Mapping[str, Any]) -> float:
+def resolve_tick_s(config: Mapping[str, object]) -> float:
     """The simulated machine's tick period a config asks for.
 
     Args:
@@ -46,8 +46,8 @@ def resolve_tick_s(config: Mapping[str, Any]) -> float:
         ``simulation`` section or its ``tick_s`` entry is absent.
 
     Raises:
-        ValueError: If the value is not a number greater than zero; the
-            message names the key.
+        ValueError: If the value is not a number greater than zero, or the
+            ``simulation`` section is not a mapping; the message names the key.
     """
     return _resolve_period(config, TICK_KEY, DEFAULT_TICK_S)
 
@@ -60,7 +60,7 @@ FAST_TICK_KEY = "simulation.fast_tick_s"
 DEFAULT_FAST_TICK_S = 0.1
 
 
-def resolve_fast_tick_s(config: Mapping[str, Any]) -> float:
+def resolve_fast_tick_s(config: Mapping[str, object]) -> float:
     """The fast period a config asks for.
 
     Args:
@@ -71,15 +71,21 @@ def resolve_fast_tick_s(config: Mapping[str, Any]) -> float:
         when the ``simulation`` section or its ``fast_tick_s`` entry is absent.
 
     Raises:
-        ValueError: If the value is not a number greater than zero; the
-            message names the key.
+        ValueError: If the value is not a number greater than zero, or the
+            ``simulation`` section is not a mapping; the message names the key.
     """
     return _resolve_period(config, FAST_TICK_KEY, DEFAULT_FAST_TICK_S)
 
 
-def _resolve_period(config: Mapping[str, Any], key: str, default: float) -> float:
+def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
+    return isinstance(value, Mapping)
+
+
+def _resolve_period(config: Mapping[str, object], key: str, default: float) -> float:
     """The ``simulation.<entry>`` period ``key`` names, in seconds; ``default`` when absent."""
     section = config.get("simulation") or {}
+    if not _is_mapping(section):
+        raise ValueError(f"{key} cannot be read: `simulation` is {section!r}, not a mapping")
     raw = section.get(key.removeprefix("simulation."))
     if raw is None:
         return default
@@ -88,7 +94,7 @@ def _resolve_period(config: Mapping[str, Any], key: str, default: float) -> floa
     return float(raw)
 
 
-def decode_char_waveform(value: Any) -> str:
+def decode_char_waveform(value: str | Iterable[SupportsInt]) -> str:
     """The text a string channel holds, whichever shape it arrives in.
 
     A ``str`` passes unchanged. An array of character codes (a list, a tuple

@@ -115,7 +115,19 @@
       | *Asks:* Which device does this PV belong to, what else does that device expose, and where does it sit?
       | *Passes if:* answers from the facility graph through its subagent; no invented addresses
 
-.. dropdown:: Tier 2 · 6 tests
+.. dropdown:: Tier 2 · 16 tests
+
+   **A cleared alarm**
+      | *Asks:* Is the heartbeat PV of IOC sim-SR in alarm right now?
+      | *Passes if:* answers no alarm on ca:SIM:SR:HEARTBEAT
+
+   **A latched alarm**
+      | *Asks:* Is the storage ring RF cavity 1 temperature in alarm right now?
+      | *Passes if:* answers a latched, unacknowledged MAJOR alarm on SR:RF:CAVITY:01:TEMPERATURE:RB
+
+   **An acknowledged alarm**
+      | *Asks:* What is the alarm state of the storage ring sector 3 vacuum gauge pressure right now?
+      | *Passes if:* answers an acknowledged MINOR alarm on SR:VAC:GAUGE:SR03:PRESSURE:RB
 
    **Compare with a logged chart**
       | *Asks:* The beam current dipped in the last hour. Is there a similar loss in the logbook, and how do the two compare?
@@ -129,13 +141,41 @@
       | *Asks:* We lost about 5 mA yesterday around 14:32. Did the vacuum do anything weird then?
       | *Passes if:* finds the pressure burst and names sector 7
 
+   **Find a PV only the full list has**
+      | *Asks:* Which PV tells how long the storage-ring IOC, sim-SR, has been running?
+      | *Passes if:* names ca:SIM:SR:UPTIME
+
+   **Find a curated PV**
+      | *Asks:* Which PV reads the storage ring beam lifetime?
+      | *Passes if:* names SR:DIAG:DCCT:01:LIFETIME:RB
+
    **Find a value only a plot shows**
       | *Asks:* What is the run identifier of the sector 9 orbit drift study in the logbook?
       | *Passes if:* the run id, which only the plot's pixels carry
 
+   **IOC host and engineer**
+      | *Asks:* Which host does IOC sim-LTB run on, and who is its engineer?
+      | *Passes if:* answers host virtual-accelerator and engineer 'demo engineer'
+
+   **Is an IOC alive**
+      | *Asks:* Is the storage-ring IOC, sim-SR, alive?
+      | *Passes if:* reads ca:SIM:SR:HEARTBEAT and answers alive
+
    **Rehearse, then apply live**
       | *Asks:* Rehearse this trim on the simulator, then apply it to the live machine; later, what am I pointed at?
       | *Passes if:* rehearsed before the live write, the value lands on the machine, and the location is right after an outside move
+
+   **Show a PV only the full list has**
+      | *Asks:* Show me the heartbeat PV of IOC sim-BTS.
+      | *Passes if:* names ca:SIM:BTS:HEARTBEAT
+
+   **Show a curated PV**
+      | *Asks:* Show me the forward power PV of storage ring RF cavity 1.
+      | *Passes if:* names SR:RF:CAVITY:01:POWER:FWD
+
+   **Show an IOC's health PVs**
+      | *Asks:* Show me IOC sim-SR and list its health PVs.
+      | *Passes if:* names ca:SIM:SR:HEARTBEAT, ca:SIM:SR:UPTIME and ca:SIM:SR:ENGINEER
 
    **Write a new scan plan**
       | *Asks:* Take this corrector through a full hysteresis loop and tell me what you find. (No registered plan does this.)

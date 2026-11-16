@@ -5,14 +5,15 @@
  * tree, one item list per row kind, opened through the hub's shared context
  * menu (panel-context-menu.js):
  *
- *   Agent row   New session · Group by ▸ Kind / Activity · Show pinned sessions ·
- *               Collapse all / Expand all
+ *   Agent row   New session · Artifacts by ▸ Activity / Kind · Show pinned
+ *               sessions · Collapse all / Expand all
  *   Session     Open (Focus on the active one) · Pin / Unpin · Rename… · Use
  *               automatic name (only on a hand-named session) · Export transcript ·
  *               Copy ID · Delete… (disabled on the active one)
  *   Group head  Collapse / Expand · Collapse others
  *   Run         artifact-verbs.js's run rows
- *   Artifact    artifact-verbs.js's artifact rows, Open being the row's click
+ *   Artifact    artifact-verbs.js's artifact rows, Open being the row's click,
+ *               then Open in new session: the artifact as a tile in a new session
  *
  * The pinned group's heading has its own menu (sidebar-session-pins.js).
  *
@@ -34,11 +35,16 @@
 /** @returns {Promise<typeof import('./session-model.js')>} */
 const sessionModel = () => import('./session-model.js');
 
+/** @returns {Promise<typeof import('./tile-new-session.js')>} lazy for the same reason */
+const newSessionAction = () => import('./tile-new-session.js');
+
 import { withPrefix } from './api.js';
 import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { openContextMenu } from './panel-context-menu.js';
-import { heldEntry, readTreeView } from './sidebar-artifact-listing.js';
+import { heldEntry } from './sidebar-artifact-listing.js';
+import { artifactsByItem } from './sidebar-session-view.js';
 import { artifactMenuItems, copyText, runMenuItems } from './artifact-verbs.js';
+import { titleOf } from './sidebar-artifact-rows.js';
 import { showConfirm } from './posture-confirm.js';
 import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
 
@@ -92,23 +98,17 @@ async function setAllSessions(open) {
 }
 
 /**
- * The Agent row's menu: a new session, Group by ▸ Kind / Activity, Show
- * pinned sessions, and one Collapse all / Expand all row worded for what it
- * will do (Collapse all when every session is open).
+ * The Agent row's menu: a new session, Artifacts by ▸ Activity / Kind (the
+ * view menu's row, sidebar-session-view.js), Show pinned sessions, and one
+ * Collapse all / Expand all row worded for what it will do (Collapse all when
+ * every session is open).
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
-  const view = readTreeView();
   return [
     { label: 'New session', run: () => void sessionModel().then((m) => m.switchTo({ new: true })) },
     { divider: true },
-    {
-      label: 'Group by',
-      submenu: [
-        { label: 'Kind', checked: view === 'kind', run: () => void applyView('kind') },
-        { label: 'Activity', checked: view === 'activity', run: () => void applyView('activity') },
-      ],
-    },
+    artifactsByItem(),
     showPinnedItem(),
     { divider: true },
     allOpen()
@@ -273,16 +273,6 @@ export function sessionMenuItems(row) {
   ];
 }
 
-/**
- * Apply a tree mode through the controller. Imported lazily: the controller
- * imports panel-menu-policy, which imports this module.
- * @param {'kind' | 'activity'} view
- */
-async function applyView(view) {
-  const { setTreeView } = await import('./sidebar-artifacts.js');
-  setTreeView(view);
-}
-
 // ---- Group head ----
 
 /** @param {HTMLElement} head  @returns {string} the session part of `${treeId}:${form}` */
@@ -380,7 +370,13 @@ export function menuFor(target) {
     return { row, label: 'Run actions', items: runMenuItems(execId, entry) };
   }
   const open = () => row.click();
-  return { row, label: 'Artifact actions', items: artifactMenuItems(entry, { open }) };
+  // The row's entry as the drag-to-tile path holds it: a run's part has none.
+  const held = heldEntry(row.dataset.id);
+  const newSession = () =>
+    void newSessionAction().then((m) =>
+      m.openArtifactInNewSession({ id: entry.id, entry: held, title: titleOf(entry) })
+    );
+  return { row, label: 'Artifact actions', items: artifactMenuItems(entry, { open, newSession }) };
 }
 
 /**

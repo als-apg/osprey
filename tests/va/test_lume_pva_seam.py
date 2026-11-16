@@ -45,6 +45,8 @@ import math
 import multiprocessing
 import os
 import shutil
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -206,6 +208,8 @@ BPM_X = "SR:DIAG:BPM:03:POSITION:X"
 TUNES = ("SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y")
 CHROMATICITY = ("SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y")
 SR_STATUS = "ca:SIM:SR:STATUS"
+SR_ENGINEER = "ca:SIM:SR:ENGINEER"
+DEMO_ENGINEER = "demo engineer"
 
 #: BPM03's horizontal offset fault, as the model RPC names it.
 BPM_OFFSET = f"SR/{BPM_X}/offset"
@@ -411,6 +415,8 @@ class _Observed:
         self.put_lags: list[int] = []
         self.max_depth = 0
         self.sampling = False
+        self.hold_put_cycle = False
+        self.tick_queued = threading.Event()
 
 
 class _PassFault:
@@ -490,7 +496,11 @@ def _inject_undeliverable_reply(fault: _ReplyFault) -> None:
 
 
 def _instrument(runner: Any, observed: _Observed) -> None:
-    """Count the run loop's passes and how many each value-carrying item waited."""
+    """Count the run loop's passes and how many each value-carrying item waited.
+
+    A put's cycle can be held open once its put has completed, until a tick is
+    queued: the place a cycle is in while it records its outcome.
+    """
     run_cycle = runner._run_cycle
     put = runner.queue.put
 
@@ -499,9 +509,14 @@ def _instrument(runner: Any, observed: _Observed) -> None:
             observed.passes_started += 1
             if item.get("values") and "_enqueued_at" in item:
                 observed.put_lags.append(observed.passes_started - item["_enqueued_at"])
+            held = observed.hold_put_cycle and bool(item.get("values"))
+            if held:
+                observed.hold_put_cycle = False
         try:
             run_cycle(item)
         finally:
+            if held:
+                observed.tick_queued.wait(COMMAND_TIMEOUT_S)
             with observed.lock:
                 observed.passes_done += 1
 
@@ -509,6 +524,8 @@ def _instrument(runner: Any, observed: _Observed) -> None:
         if item.get("values"):
             with observed.lock:
                 item["_enqueued_at"] = observed.passes_started
+        if item.get("tick"):
+            observed.tick_queued.set()
         put(item, *args, **kwargs)
 
     def sample() -> None:
@@ -638,15 +655,28 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
     def undeliverable_next_reply(armed: bool) -> None:
         reply_fault.armed = armed
 
+    def tick_and_wait() -> None:
+        # The queue is served in order, so a job queued behind the tick runs
+        # only once the tick's whole cycle is over, its recorded outcome too.
+        runner._tick()
+        _on_loop(runner, lambda: None)
+
+    def hold_next_put_cycle() -> None:
+        observed.tick_queued.clear()
+        with observed.lock:
+            observed.hold_put_cycle = True
+
     commands: dict[str, Callable[..., Any]] = {
         "config": lambda: json.loads(json.dumps(runner.config)),
         "tick": runner._tick,
+        "tick_and_wait": tick_and_wait,
         "counts": counts,
         "held": lambda names: _on_loop(runner, lambda: composite.held(names)),
         "start_sampling": start_sampling,
         "stop_sampling": stop_sampling,
         "fail_next_pass": fail_next_pass,
         "undeliverable_next_reply": undeliverable_next_reply,
+        "hold_next_put_cycle": hold_next_put_cycle,
     }
     while True:
         try:
@@ -827,11 +857,12 @@ def _ca(address: str) -> dict[str, Any]:
 
 
 def _ca_text(address: str) -> str:
-    """A string channel's text, read once over CA.
+    """A char-array text channel's text, read once over CA.
 
-    The server serves a string variable as a char array, so its text is the
-    array read as a NUL-terminated string (``DBR_CHAR_STR``); a ``DBR_STRING``
-    read of it answers one number per character.
+    The server serves a string variable other than an IOC health address as a
+    char array, so its text is the array read as a NUL-terminated string
+    (``DBR_CHAR_STR``); a ``DBR_STRING`` read of it answers one number per
+    character.
     """
     import aioca
 
@@ -851,6 +882,62 @@ def _ca_precision(address: str) -> int:
     )
     assert control.ok, f"{address} returned nothing over CA"
     return int(control.precision)
+
+
+def _ca_datatype(address: str) -> int:
+    """The native CA type ``address`` is served as."""
+    import aioca
+
+    info = _on_ca_loop(aioca.cainfo(address, timeout=CA_TIMEOUT_S, throw=False))
+    assert info.ok, f"{address} never connected over CA"
+    return int(info.datatype)
+
+
+#: Run in a process of its own: a process has one CA context, and connecting a
+#: connector to a target repoints it under the pytest process's own client.
+_CONNECTOR_READ = """
+import asyncio, json, os, sys
+from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+
+async def read(payload):
+    register_builtin_connectors()
+    connector = await ConnectorFactory.create_control_system_connector(
+        payload["section"], control_target="va"
+    )
+    try:
+        value = (await connector.read_channel(payload["address"])).value
+    finally:
+        await connector.disconnect()
+    return value.tolist() if hasattr(value, "tolist") else value
+
+value = asyncio.run(read(json.load(sys.stdin)))
+sys.stdout.write("\\nOSPREY_READ " + json.dumps(value) + "\\n")
+sys.stdout.flush()
+os._exit(0)
+"""
+
+
+def _connector_read(server: str, address: str) -> Any:
+    """``address``'s value as the ``virtual_accelerator`` connector reads it from ``server``."""
+    gateway = {"address": "127.0.0.1", "port": int(CA_PORTS[server]), "use_name_server": False}
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {
+            "virtual_accelerator": {"gateways": {"read_only": gateway, "write_access": gateway}}
+        },
+    }
+    done = subprocess.run(
+        [sys.executable, "-P", "-c", _CONNECTOR_READ],
+        input=json.dumps({"section": section, "address": address}),
+        capture_output=True,
+        text=True,
+        timeout=CA_TIMEOUT_S * 2,
+        check=False,
+    )
+    for line in reversed(done.stdout.splitlines()):
+        if line.startswith("OSPREY_READ "):
+            return json.loads(line.removeprefix("OSPREY_READ "))
+    raise AssertionError(f"the connector read failed: {(done.stdout + done.stderr)[-500:]}")
 
 
 def _ca_is_long(address: str) -> bool:
@@ -1104,11 +1191,12 @@ def _tick_and_wait(server: _Server) -> None:
 
     A CA read is answered from the server's own copy of each value, which a
     pass sets one channel at a time, so a read made during a pass can see one
-    channel moved and the next not yet.
+    channel moved and the next not yet. The pass waited for is the one queued
+    here: a put completes before its own cycle ends, so a count of finished
+    cycles taken after a put can still be one short, and the next cycle to
+    finish would then be the put's.
     """
-    passes = server.ask("counts")["passes"]
-    server.ask("tick")
-    assert _wait_until(lambda: server.ask("counts")["passes"] > passes), "the pass never finished"
+    server.ask("tick_and_wait")
 
 
 class TestDemoComposite:
@@ -1254,6 +1342,22 @@ class TestDemoComposite:
         assert restated["value"] == held
         assert (restated["severity"], restated["status"]) == NO_ALARM
 
+    def test_a_tick_waited_for_behind_a_put_still_ending_its_cycle_restates_the_setpoint(
+        self, demo_server: _Server
+    ) -> None:
+        held = _ca(CORRECTOR)["value"]
+        target = 0.75 if abs(held - 0.75) > 0.1 else -0.75
+        demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
+        # The put completes before its cycle ends: the outcome is recorded after it.
+        demo_server.ask("hold_next_put_cycle")
+
+        _caput(CORRECTOR, target)
+        _tick_and_wait(demo_server)
+        restated = _ca(CORRECTOR)
+
+        assert restated["value"] == held
+        assert (restated["severity"], restated["status"]) == NO_ALARM
+
     def test_a_failed_tick_pass_is_reported_by_status(self, demo_server: _Server) -> None:
         demo_server.ask("fail_next_pass", "the tick failed on purpose", False)
 
@@ -1312,6 +1416,30 @@ class TestDemoComposite:
 
         assert after["passes"] > before["passes"]
         assert after["solves"] == before["solves"]
+
+    def test_the_engineer_channel_reads_as_its_text_on_both_wires(
+        self, demo_server: _Server
+    ) -> None:
+        import aioca
+
+        assert _ca(SR_ENGINEER)["value"] == DEMO_ENGINEER
+        assert _ca_datatype(SR_ENGINEER) == aioca.DBR_STRING
+        assert demo_server.pva_get(SR_ENGINEER)["value"] == DEMO_ENGINEER
+
+    def test_an_engineer_read_through_the_real_connector_is_its_text(
+        self,
+        demo_server: _Server,  # noqa: ARG002 - the fixture is the server being read
+    ) -> None:
+        assert _connector_read("demo", SR_ENGINEER) == DEMO_ENGINEER
+
+    def test_the_status_channel_stays_a_char_array(self, demo_server: _Server) -> None:  # noqa: ARG002
+        import aioca
+
+        # The text is whatever the model's last pass reported, so a sibling test's
+        # scenario may have changed it; the wire type is what this test pins.
+        text = _ca_text(SR_STATUS)
+        assert isinstance(text, str) and text
+        assert _ca_datatype(SR_STATUS) == aioca.DBR_CHAR
 
 
 # =============================================================================

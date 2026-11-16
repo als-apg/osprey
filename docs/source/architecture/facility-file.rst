@@ -126,6 +126,14 @@ filters the file's own channel records and names a model or a place.
      - A fresh ``{kind, id, unit?, description?}`` per record ``resolve`` returns.
      - ``resolve`` order.
      - Empty when dangling.
+   * - ``resolve_link(target)``
+     - The records a knowledge-page link names: ``resolve(target)``, else the place a ``place/<id>`` target names.
+     - ``resolve`` order.
+     - Empty when dangling.
+   * - ``lookup(text)``
+     - A ``(match, record)`` pair per place or device named by id, then by name, then by a place's last id segment.
+     - ``RECORD_KINDS``, then id; each record once.
+     - Empty.
    * - ``select_channels(selection)``
      - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``engine_role`` and ``plane`` facets AND; a place takes every place under it; ``engine_role`` and ``plane`` match the wiring record naming the address.
      - Document order.
@@ -335,7 +343,11 @@ build indexes from the Turtle that ``services.graphdb.ttl_path`` names: the
 graph view, unless the profile names another.
 
 **Graph.** The facility file as Turtle: one node per place, device and
-channel and per signal named, with the device classes as a class tree.
+channel and per signal named, with the device classes as a class tree; one
+edge per accepted or contested relation claim, one claim node per claim the
+``facility_graph`` settings keep, and one group node per group a claim names.
+Why relations are claims, and how a claim becomes an edge or a place:
+:doc:`facility-relations`.
 
 .. _architecture-facility-schema:
 
@@ -350,7 +362,9 @@ carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so ``loosenings.yaml`` records, per slot NARAD requires, what became
 of it (``dropped``, ``optional``, ``renamed:<slot>`` or ``header``) and why.
-The graph view writes the facility file back in NARAD's terms.
+The graph view writes the facility file back in NARAD's terms. NARAD's
+optional relation slots are not carried; relations are claims
+(:doc:`facility-relations`).
 
 .. raw:: html
    :file: ../_diagrams/facility-vocabulary.html
@@ -411,6 +425,10 @@ A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
 
+Every served model, ``texture`` included, also has read-only IOC health
+channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
+the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
+
 **A model may read another model's records.** A model record's ``inputs``
 lists records other models of the facility wire, each an ``address`` and an
 ``engine`` block in the consuming engine's own words:
@@ -446,7 +464,8 @@ are an injection chain's records with ``engine: {signal: shot}``,
 records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
 ``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
 ``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
-``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. The build
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
+``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
 stops ``engine-invalid`` on a malformed block, a turn record on a ring
 without one, a record of the wrong value type or shape, and a monitor record
 whose element is not a monitor. The settings, their defaults and what a shot

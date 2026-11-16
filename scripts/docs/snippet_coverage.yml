@@ -206,6 +206,12 @@ tested:
     kind: pins
     what: the graph-config map and the constraint equal the seeder's
   - test: tests/docs/test_facility_graph_pages.py
+    pages: [reference/contracts/facility-graph.rst]
+    languages: [cypher]
+    kind: pins
+    contains: "ANY(l IN n.altLabel"
+    what: the record-name match is RECORD_NAME_MATCH_RULE verbatim
+  - test: tests/docs/test_facility_graph_pages.py
     pages: [how-to/facility-knowledge/facility-rules.rst]
     languages: [yaml]
     kind: checks
@@ -242,6 +248,12 @@ tested:
     languages: [literalinclude]
     kind: checks
     what: the included channel list is imported and validated; the other includes resolve inside the example preset
+  - test: tests/docs/test_facility_page_snippets.py
+    pages: [how-to/describe-your-facility.rst]
+    languages: [text]
+    kind: runs
+    matches: "^(type,subject,object|place,within|thing,name,scheme)"
+    what: the relation, place and name tables go through import_relations on a copy of the preset, which then validates
   - test: tests/docs/test_contributing_citations.py
     pages: [contributing/development-setup.rst, contributing/workflow.rst]
     languages: [bash]

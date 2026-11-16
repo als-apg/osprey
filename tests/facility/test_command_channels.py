@@ -17,8 +17,6 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat
 from tests.facility._pyaml_trees import built_document, measured_tree
 
-pytest.importorskip("at")
-
 #: An unwired setpoint whose signal is a command word.
 FIRE = "SR:SCREEN:IN"
 

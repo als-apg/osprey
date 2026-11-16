@@ -304,8 +304,8 @@ than scroll past in the warnings summary. Five groups matter day to day:
   test slow if it would make the fast loop annoying to run; it still runs in CI.
 - **`canopy`** — a test that needs CANOPY; its rule is the marker's text in
   pyproject.toml (`pytest --markers`). To run the contract, install CANOPY and
-  PyDMConverter at the commits `python3 src/osprey/integrations/canopy/proven.py --pins`
-  prints and run `uv run python scripts/check.py run canopy-contract`.
+  PyDMConverter at the `canopy=` and `PyDMConverter=` commits
+  `python3 src/osprey/integrations/canopy/proven.py --pins` prints and run `uv run python scripts/check.py run canopy-contract`.
   `tests/integrations/canopy/fixtures/canopy-copies.json` is the one record of
   every CANOPY file copied into this repository (the three fixtures beside it and
   the bundled `canopy-panel-builder` `SKILL.md`), and a test holds its commit

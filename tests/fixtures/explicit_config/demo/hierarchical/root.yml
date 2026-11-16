@@ -275,6 +275,9 @@ modules:
       name: carol
       tier: admin
 project_name: osprey-freeze
+pv_directory:
+  alarm_state:
+    replay_file: demo:example-alarms
 scaffold:
   user_owned:
   - rules/facility

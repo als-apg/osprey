@@ -510,7 +510,7 @@ class GraphContext:
             return {}
 
     @staticmethod
-    def _setting(key: str, default: int) -> Any:
+    def _setting(key: str, default: int) -> object:
         """Read one tuning key, degrading to *default*.
 
         Args:

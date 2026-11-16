@@ -29,6 +29,7 @@ The tree
        devices.yaml            the devices
        channels.yaml           the control-system channels
        groups.yaml             named sets of devices
+       relations.yaml          claims that two records are related
      classes.yaml              device classes the facility adds
      signals.yaml              signal roles the facility adds
      models.yaml               the simulation models and their wiring
@@ -37,6 +38,8 @@ The tree
      seeds.yaml                how a channel no model wires behaves when simulated
      measurement/<model>.yaml  the measurements a model allows
      scenarios/<name>.yaml     ways the simulated machine departs from its baseline
+     documents.yaml            the source documents records and claims cite
+     policy.yaml               how the build ranks competing claims
      fixes.yaml                corrections to records another source states
      imported/<layer>/         records an importer wrote
      knowledge/                the facility knowledge pages
@@ -86,7 +89,7 @@ call the facility; a facility that states none is called by the project name.
 Records
 =======
 
-The four files under ``records/`` each hold a list of records of one kind.
+The files under ``records/`` each hold a list of records of one kind.
 Every record has an ``id``, and a record states only what its author knows:
 a field left out is either filled by the build or stays absent.
 
@@ -99,7 +102,10 @@ place, unless the device states its own ``place`` in an authored record or a
 fix. A place only an importing layer states (``place_from: imported``) yields
 to a span that is that place or lies inside it, and stands under a span that
 holds it or where none holds the device; any other span holding the device
-contradicts it, and the build stops ``place-conflict``.
+contradicts it, and the build stops ``place-conflict``. A device still without
+a place takes the one its ``located_in`` claims name (``place_from:
+relation``) when no claim on its key is ``contested`` and the accepted claims
+that are not coarse all name one place; the claim's unit is not copied.
 
 .. code-block:: yaml
 
@@ -185,7 +191,39 @@ address means anything to OSPREY. What a channel is comes from its fields:
 
 **Groups** are named sets of devices: an id, a ``description`` in the
 facility's words and the ``members``. A group says which devices belong
-together; what a channel means stays on the channel.
+together; what a channel means stays on the channel. Its ``kind`` is
+``family`` (the default: devices of one sort, described by the group) or
+``section`` (things that belong together, such as a vacuum section). Only a
+family is a channel-finder Family and gives its members their purpose text.
+
+**Relations** are claims, one per source, that two records are related: a
+``type``, a ``subject`` and an ``object``, each naming one device, place or
+group. The build writes each claim's ``standing``: ``accepted``, ``contested``
+when claims state different objects and none ranks first, or ``superseded``;
+and ``contests``, the ids of the claims it disagrees with, when there are any.
+A claim stops the build with ``relation-invalid``, naming the claim, on any of
+seven conditions:
+
+* an end names no device, place or group;
+* an end names more than one of them;
+* an end gives ``unit`` but names no place;
+* an end names a kind the type does not allow there;
+* ``basis: inferred`` comes without its ``rule``;
+* a required attribute is missing;
+* the subject and object name the same end, port included.
+
+``policy.yaml`` ranks competing claims by the kind of document they cite, as
+declared in ``documents.yaml``: ``relations.precedence`` lists kinds per
+relation type or as ``default``. Between claims whose documents rank the same,
+a stated claim breaks the tie over an inferred one unless
+``stated_over_inferred: false``. Without a policy, competing claims stay
+``contested``.
+
+Claims reach the knowledge graph as edges between their ends, by standing: an
+accepted claim is a plain edge, a contested one a separate contested edge, a
+superseded one no edge. Each claim is also a node carrying its source, so a
+query can go from an edge to the document behind it
+(:ref:`reference-facility-graph`).
 
 ``classes.yaml`` adds device classes the shared vocabulary lacks, each as the
 child of an existing class:
@@ -217,10 +255,16 @@ the fields its source states.
 The build merges the layers field by field: per record and per field it takes
 the one value any layer states. Two layers stating different values for one
 field stop the build with ``layer-conflict``, naming the record. A ``set`` fix
-settles it (see `Fixes`_).
+settles it (see `Fixes`_). A group's ``members`` are the exception: the group
+carries every member any layer states, and layers that state different members
+get a ``members-disagree`` warning naming which source states which member,
+until they agree or a ``set`` fix names ``members``. A place's or device's
+``scheme_names`` are joined too, so a layer can add a name to a record another
+layer states; one name in one scheme that two layers state with different
+content is still a ``layer-conflict``.
 
-The importers are ``osprey facility import mml`` and
-``osprey facility import list``.
+The importers are ``osprey facility import mml``,
+``osprey facility import list`` and ``osprey facility import relations``.
 
 A Middle Layer export
 ---------------------
@@ -303,6 +347,113 @@ list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.
 
+.. _how-to-describe-your-facility-relations:
+
+Relation tables
+---------------
+
+``osprey facility import relations TABLE --layer NAME`` reads relation claims,
+from a cable schedule or a rack list, into ``data/facility/imported/<NAME>/``.
+``TABLE`` holds the claims; three optional tables hold what the claims lean on.
+Each is UTF-8 CSV with a header row naming its columns in any order; an empty
+cell is absent.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 16 22 46
+
+   * - Table
+     - Option
+     - Required columns
+     - Optional columns
+   * - claims
+     - ``TABLE``
+     - ``type``, ``subject``, ``object``
+     - ``subject_kind``, ``object_kind`` (``device``, ``place`` or ``group``;
+       empty means ``device``), ``subject_port``, ``object_port``,
+       ``object_unit``, ``attrs`` (``key=value`` pairs separated by ``;``),
+       ``basis``, ``rule``, ``subject_class``, ``object_class``
+   * - names
+     - ``--names``
+     - ``thing``, ``name``, ``scheme``
+     - ``basis``, ``rule``
+   * - places
+     - ``--places``
+     - ``place``
+     - ``within``, ``basis``, ``rule``
+   * - members
+     - ``--members``
+     - ``group``, ``member``
+     - ``member_kind``, ``group_kind`` (``family`` or ``section``)
+
+Every table also takes the citation columns ``document``, ``version``,
+``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``
+needs a ``rule``. Against the demo preset, these three tables put both booster
+focusing quadrupoles on one new supply in a new rack:
+
+.. code-block:: text
+   :caption: cables.csv
+
+   type,subject,object,object_kind,object_class,document,version,locator
+   powered_by,BR/QF01,BR/QF-PS,,PowerSupply,PS-LIST,C,p. 4
+   powered_by,BR/QF02,BR/QF-PS,,,PS-LIST,C,p. 4
+   located_in,BR/QF-PS,RK01,place,,PS-LIST,C,p. 2
+
+.. code-block:: text
+   :caption: racks.csv
+
+   place,within,document,version
+   RK01,BR,PS-LIST,C
+
+.. code-block:: text
+   :caption: names.csv
+
+   thing,name,scheme,document
+   BR/QF-PS,PS-QF-B,cable-schedule,PS-LIST
+
+.. code-block:: bash
+
+   osprey facility import relations cables.csv --layer cables --places racks.csv --names names.csv
+
+Each end and name resolves against the whole facility except the layer being
+replaced. The rules:
+
+* **Stubs.** A device end the facility lacks is created as a stub only when its
+  row states ``subject_class`` or ``object_class``, a class of the facility or
+  the shared vocabulary; one row's class holds for every row naming that
+  device. ``--stub-unknown`` stubs a class-less end as ``Unidentified``, and
+  the build reports such stubs with ``relation-stub``. Without either, the row
+  is refused, so a misspelt name stops the import. Place and group ends are
+  never stubbed.
+* **Places.** ``within`` names an authored place or one the places table
+  creates, never one another imported layer creates, so where a layer puts a
+  place does not depend on import order. A place's id is its path,
+  ``BR/RK01`` above, so one name may repeat under several parents. The build
+  reports a place created top-level with no citation with ``place-unplaced``.
+* **Members.** The members table creates a group no other source has. A row
+  naming a member another source's group lacks adds it: the layer then states
+  that group too, with every member its rows name.
+* **Names.** The names table names any device or place. For one the authored
+  file or another layer states, the layer writes a record carrying only the
+  id and the names, and the build joins them with the names the other sources
+  state. A name for a group is refused: a group has no ``scheme_names``.
+* **Ids.** A claim's id is ``<NAME>/<type>/<hash>``. The hash covers the type,
+  both ends (in either order for a symmetric type), the ports, the type's key
+  attribute and the cited document, never its version, locator or
+  ``imported`` date: a new revision of the schedule keeps every id. A
+  symmetric row written reversed, or a repeated row, is one claim; one fact
+  cited from two documents is two claims. The import never stamps a date of
+  its own.
+
+The layer is replaced whole: ``relations.yaml``, ``devices.yaml`` (the stubs),
+``places.yaml`` and ``groups.yaml``, each written only when it holds a record,
+and a byte copy of each table. A file of the previous run this one does not
+write is removed. Nothing outside ``imported/<NAME>/`` changes: unlike the
+other importers, it neither replaces a bundled facility nor refuses
+hand-written records. A refused row prints one ``source-invalid`` line, every
+refusal is reported and the import writes nothing. The layer name matches
+``[a-z0-9][a-z0-9_-]*`` and is not ``authored``, ``list`` or ``mml``.
+
 Fixes
 =====
 
@@ -328,7 +479,7 @@ channel list above:
 
 ``set`` replaces the fields it names, each whole; ``add`` adds a record;
 ``drop`` removes one. ``kind`` is ``place``, ``device``, ``channel``,
-``wiring``, ``group`` or ``model``. A ``set`` states under ``was`` the value
+``wiring``, ``group``, ``model`` or ``relation``. A ``set`` states under ``was`` the value
 each layer held when the fix was written. When ``was`` is missing, or a later
 import changes that value, the build stops with ``fix-stale`` and prints the
 corrected fix to paste in its place, so a fix never silently outlives the fact it corrected. The result

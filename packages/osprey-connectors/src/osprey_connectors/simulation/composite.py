@@ -15,6 +15,12 @@ child's own variables that no channel names (faults, optics) are reached as
 ``<model>/<name>`` through :meth:`Composite.model_get` and
 :meth:`Composite.model_set` only.
 
+**IOC health.** ``supported_variables`` also holds the view's ``ioc_health``
+addresses, ``<code>:SIM:<model>:<signal>``, read-only and served for every model
+the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds
+since the composite started, ``UPTIME`` is those seconds, both on its clock, and
+``ENGINEER`` is a fixed demo string. No read of one reaches a child.
+
 **Reads.** A physics readback of type float reads ``truth + motion(address,
 t)``, passed through the child's ``readout`` when the engine exports one, then
 clamped; the readout always sees both readings of a monitor, so a read of one
@@ -107,16 +113,18 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Protocol, overload
 
 import numpy as np
+import numpy.typing as npt
 from lume.exceptions import ReadOnlyError
 from lume.model import LUMEModel
-from lume.variables import NDVariable, StrVariable, Variable
+from lume.variables import IntVariable, NDVariable, ScalarVariable, StrVariable, Variable
+from typing_extensions import override
 
 from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
@@ -139,14 +147,28 @@ from osprey_connectors.simulation.texture import (
     is_float_channel,
 )
 from osprey_connectors.simulation.view import (
+    ENGINEER,
+    HEARTBEAT,
     MONITOR,
     SEEDS_FILE,
     SETPOINT,
+    UPTIME,
     VARIABLES_FILE,
     Model,
     SimulatorView,
+    ViewSchemaError,
 )
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import (
+        ChannelRecord,
+        CouplingTerm,
+        DriveRecord,
+        NoiseRecord,
+        ResolvedCoupling,
+        ScenarioRecord,
+    )
 
 __all__ = [
     "Composite",
@@ -170,6 +192,9 @@ _LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 _UDF = "udf"
+
+#: The value ``ENGINEER`` serves.
+_DEMO_ENGINEER = "demo engineer"
 
 _ELLIPSIS = "…"
 _FAULT_SEPARATOR = "/"
@@ -216,22 +241,39 @@ def _default_log_dir() -> Path | None:
     return log_dir()
 
 
-def _plain(value: Any) -> Any:
+def _plain(value: object) -> object:
     """A child's output in its stored representation: a waveform as a flat list."""
     if isinstance(value, np.ndarray):
         if value.ndim == 0:
-            return value.item()
+            item: object = value.item()
+            return item
         return [float(item) for item in value.reshape(-1)]
     if isinstance(value, np.generic):
-        return value.item()
+        scalar: object = value.item()
+        return scalar
     return value
 
 
-def _for_variable(variable: Variable, value: Any) -> Any:
+def _for_variable(variable: Variable, value: object) -> object:
     """A stored value as ``variable`` takes it: a waveform as an array of its dtype and shape."""
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
     return value
+
+
+def _ioc_health_variable(address: str, signal: str) -> Variable:
+    """The read-only variable of one IOC health address.
+
+    Raises:
+        ViewSchemaError: ``signal`` is not an IOC health signal.
+    """
+    if signal == HEARTBEAT:
+        return IntVariable(name=address, default_value=0, read_only=True)
+    if signal == UPTIME:
+        return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
+    if signal == ENGINEER:
+        return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
+    raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
 
 
 def _producers_first(children: Mapping[str, _Child]) -> list[str]:
@@ -258,6 +300,30 @@ def _producers_first(children: Mapping[str, _Child]) -> list[str]:
     return order
 
 
+class _Engine(Protocol):
+    """An engine plug-in, as the ``osprey.simulation.engines`` group names it.
+
+    Its optional functions (``error_text``, ``readout``, ``take_inputs`` and
+    the time contract) are looked up by name.
+    """
+
+    def build(
+        self,
+        model: str,
+        wiring: Sequence[Mapping[str, object]],
+        deck: Path | None,
+        settings: Mapping[str, object],
+        *,
+        active: Mapping[str, object],
+    ) -> LUMEModel: ...
+
+
+class _TimeFunction(Protocol):
+    """A time-contract function of an engine: called with a child's model, then its arguments."""
+
+    def __call__(self, model: LUMEModel | None, /, *args: object) -> object: ...
+
+
 class WriteRefusedError(ValueError):
     """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
 
@@ -273,23 +339,23 @@ class _Child:
     name: str
     source: Model
     owned: list[str]
-    defaults: dict[str, Any]
+    defaults: dict[str, object]
     setpoints: frozenset[str]
     partners: dict[str, tuple[str, ...]]
-    engine: Any = None
+    engine: _Engine | None = None
     model: LUMEModel | None = None
     status: str = STATUS_OK
-    active: dict[str, Any] = field(default_factory=dict)
-    inputs: dict[str, Any] = field(default_factory=dict)
-    last_good: dict[str, Any] = field(default_factory=dict)
-    starts: dict[str, Any] = field(default_factory=dict)
+    active: dict[str, object] = field(default_factory=dict)
+    inputs: dict[str, values.StoredValue] = field(default_factory=dict)
+    last_good: dict[str, object] = field(default_factory=dict)
+    starts: dict[str, object] = field(default_factory=dict)
     #: The active scenarios that fault this child or override one of its
     #: setpoints, in activation order.
     scenarios: tuple[str, ...] = ()
     #: The model inputs: each declared ``{address, engine}`` record with the
     #: child that produces its address, in declared order. Not ``inputs``,
     #: which holds the setpoint values written to the child.
-    takes: tuple[tuple[Mapping[str, Any], str], ...] = ()
+    takes: tuple[tuple[Mapping[str, object], str], ...] = ()
     #: The children that take an input from this one.
     consumers: tuple[str, ...] = ()
     #: The next delivery is a baseline: nothing was delivered since this child
@@ -338,6 +404,7 @@ class Composite(LUMEModel):
             view = SimulatorView.open(view)
         self._instance = instance
         self._clock = clock
+        self._started_s = float(clock())
         self._evolve = evolve
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
@@ -350,14 +417,14 @@ class Composite(LUMEModel):
         self._held_writes: frozenset[str] = frozenset()
         self._faulted: dict[str, ChannelFault] = {}
         self._fault_severity: dict[str, str] = {}
-        self._snapshot: dict[str, Any] = {}
-        self._texture_demands: dict[str, Any] = {}
+        self._snapshot: dict[str, object] = {}
+        self._texture_demands: dict[str, object] = {}
 
         variables = view.document(VARIABLES_FILE)
-        self._scenarios: dict[str, Mapping[str, Any]] = {
+        self._scenarios: dict[str, ScenarioRecord] = {
             str(scenario["name"]): scenario for scenario in view.scenarios()
         }
-        self._channels: dict[str, Mapping[str, Any]] = {
+        self._channels: dict[str, ChannelRecord] = {
             str(channel["address"]): channel for channel in variables["channels"]
         }
         models = {model.name: model for model in view.physics_models()}
@@ -382,6 +449,11 @@ class Composite(LUMEModel):
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
+        self._ioc_health: dict[str, str] = {
+            address: signal
+            for signals in view.ioc_health_by_model().values()
+            for signal, address in signals.items()
+        }
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
@@ -396,6 +468,8 @@ class Composite(LUMEModel):
             self._variables[address] = StrVariable(
                 name=address, default_value=STATUS_OK, read_only=True
             )
+        for address, signal in self._ioc_health.items():
+            self._variables[address] = _ioc_health_variable(address, signal)
 
         self._signature: tuple[str, int] | None | bool = False
         self._refresh()
@@ -435,7 +509,7 @@ class Composite(LUMEModel):
             takes=takes,
         )
 
-    def _start_value(self, child: _Child, address: str) -> Any:
+    def _start_value(self, child: _Child, address: str) -> values.StoredValue:
         """A physics channel's start value: its active write, its wiring default, or zero."""
         channel = self._channels[address]
         value_type = channel.get("value_type")
@@ -448,12 +522,12 @@ class Composite(LUMEModel):
             return values.coerce(default, value_type, channel.get("options"), channel.get("shape"))
         return values.zero(value_type, channel.get("options"), channel.get("shape"))
 
-    def _start_inputs(self, child: _Child) -> dict[str, Any]:
+    def _start_inputs(self, child: _Child) -> dict[str, values.StoredValue]:
         """A child's setpoints at their start values."""
         return {address: self._start_value(child, address) for address in child.setpoints}
 
     @staticmethod
-    def _engine(name: str) -> Any:
+    def _engine(name: str) -> _Engine:
         """The plug-in module registered for engine ``name``.
 
         Raises:
@@ -461,7 +535,8 @@ class Composite(LUMEModel):
         """
         found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
         for entry in found:
-            return entry.load()
+            engine: _Engine = entry.load()
+            return engine
         raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
@@ -521,14 +596,14 @@ class Composite(LUMEModel):
 
     # -- the time contract ---------------------------------------------------
 
-    def _time_function(self, child: _Child, name: str) -> Callable[..., Any] | None:
+    def _time_function(self, child: _Child, name: str) -> _TimeFunction | None:
         """A built child's time-contract function ``name``; ``None`` unless evolving."""
         if not self._evolve or child.model is None:
             return None
         function = getattr(child.engine, name, None)
         return function if callable(function) else None
 
-    def _call_time(self, child: _Child, name: str, *args: Any) -> Any:
+    def _call_time(self, child: _Child, name: str, *args: object) -> object:
         """Call ``child``'s time-contract function ``name`` on its model with ``args``.
 
         Returns what it returns, or ``None`` when the child states no such
@@ -538,10 +613,11 @@ class Composite(LUMEModel):
         if function is None:
             return None
         try:
-            return function(child.model, *args)
+            result: object = function(child.model, *args)
         except Exception as exc:
             self._fail(child, exc)
             return None
+        return result
 
     def _advance_child(self, child: _Child, t_s: float, *, start: bool = False) -> None:
         """Deliver ``child``'s inputs, then apply every step due by ``t_s``; a raise fails it.
@@ -564,7 +640,7 @@ class Composite(LUMEModel):
         for name in child.consumers:
             self._children[name].baseline = True
 
-    def _input_value(self, producer: str, address: str) -> tuple[bool, Any]:
+    def _input_value(self, producer: str, address: str) -> tuple[bool, object]:
         """A producer's plain value of ``address``: ``(False, None)`` when it failed."""
         if producer == TEXTURE_OWNER:
             return True, _plain(self._texture.get([address])[address])
@@ -585,7 +661,7 @@ class Composite(LUMEModel):
         take = getattr(child.engine, "take_inputs", None)
         if not callable(take):
             return
-        pairs: list[tuple[Mapping[str, Any], Any]] = []
+        pairs: list[tuple[Mapping[str, object], object]] = []
         for record, producer in child.takes:
             ok, value = self._input_value(producer, str(record["address"]))
             if ok:
@@ -619,7 +695,7 @@ class Composite(LUMEModel):
         for child in self._children.values():
             deadline = self._call_time(child, "next_deadline")
             if deadline is not None:
-                deadlines.append(float(deadline))
+                deadlines.append(values._real(deadline))
         return min(deadlines) if deadlines else None
 
     def emitted(self) -> frozenset[str]:
@@ -635,12 +711,15 @@ class Composite(LUMEModel):
             if emitted is None:
                 continue
             try:
-                fired.update(str(address) for address in emitted(child.model))
+                addresses = emitted(child.model)
+                if not isinstance(addresses, Iterable):
+                    raise TypeError(f"{type(addresses).__name__!r} object is not iterable")
+                fired.update(str(address) for address in addresses)
             except Exception as exc:
                 self._fail(child, exc)
         return frozenset(fired)
 
-    def _client_write(self, forwarded: Mapping[str, Mapping[str, Any]], t_s: float) -> None:
+    def _client_write(self, forwarded: Mapping[str, Mapping[str, object]], t_s: float) -> None:
         """Hand each child the client writes that reached its model."""
         for model, written in forwarded.items():
             if written:
@@ -685,17 +764,20 @@ class Composite(LUMEModel):
                 self._log(name, overlap_record(overlap, instance=self._instance, pid=os.getpid()))
         self._active = list(active)
 
-        overrides: dict[str, Any] = {}
-        faults: dict[str, dict[str, Any]] = {}
-        drivers: dict[str, Mapping[str, Any]] = {}
-        couple: dict[str, list[Mapping[str, Any]]] = {}
-        noise: dict[str, Mapping[str, Any]] = {}
+        overrides: dict[str, object] = {}
+        faults: dict[str, dict[str, object]] = {}
+        drivers: dict[str, DriveRecord] = {}
+        couple: dict[str, list[CouplingTerm]] = {}
+        noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
         channel_faults: dict[str, str] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
-            scenario = self._scenarios.get(name, {})
+            scenario = self._scenarios.get(name)
+            if scenario is None:
+                # ``nominal`` when the view does not list it: a scenario that writes nothing.
+                continue
             overrides.update(scenario.get("overrides") or {})
             overridden_by[str(name)] = {str(a) for a in scenario.get("overrides") or {}}
             for model, fault in (scenario.get("faults") or {}).items():
@@ -709,7 +791,7 @@ class Composite(LUMEModel):
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
 
-        resolved: dict[str, list[Mapping[str, Any]]] = {}
+        resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
             for term in terms:
                 drive = drivers.get(str(term["driver"]))
@@ -749,9 +831,9 @@ class Composite(LUMEModel):
     def _child_active(
         self,
         child: _Child,
-        overrides: Mapping[str, Any],
-        faults: Mapping[str, Mapping[str, Any]],
-    ) -> dict[str, Any]:
+        overrides: Mapping[str, object],
+        faults: Mapping[str, Mapping[str, object]],
+    ) -> dict[str, object]:
         """A child's active writes and fault seeds."""
         active = {
             address: value for address, value in overrides.items() if address in child.setpoints
@@ -808,8 +890,9 @@ class Composite(LUMEModel):
     # -- the LUME contract ---------------------------------------------------
 
     @property
+    @override
     def supported_variables(self) -> dict[str, Variable]:
-        """Every channel address and status address of the view, by address."""
+        """Every channel, status and IOC health address of the view, by address."""
         return self._variables
 
     @property
@@ -843,7 +926,15 @@ class Composite(LUMEModel):
         """
         return self._texture.reach()
 
-    def get(self, names: list[str] | str) -> dict[str, Any] | Any:
+    @overload
+    def get(self, names: str) -> object: ...
+    @overload
+    def get(self, names: list[str]) -> dict[str, object]: ...
+    # LUME's own signature, which the override has to keep accepting.
+    @overload
+    def get(self, names: list[str] | str) -> dict[str, object] | object: ...
+    @override
+    def get(self, names: list[str] | str) -> dict[str, object] | object:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
         Args:
@@ -871,21 +962,31 @@ class Composite(LUMEModel):
 
     def _partition(
         self, names: Sequence[str]
-    ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
-        """Split names into the status values, the texture's names and each child's names."""
-        statuses: dict[str, Any] = {}
+    ) -> tuple[dict[str, object], list[str], dict[str, list[str]]]:
+        """Split names into the status and IOC health values, the texture's and each child's."""
+        statuses: dict[str, object] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
                 statuses[name] = self._children[self._status[name]].status
+            elif name in self._ioc_health:
+                statuses[name] = self._ioc_health_value(self._ioc_health[name])
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
 
-    def _get(self, names: list[str]) -> dict[str, Any]:
+    def _ioc_health_value(self, signal: str) -> str | int | float:
+        """The value an IOC health signal serves at this instant."""
+        if signal == ENGINEER:
+            return _DEMO_ENGINEER
+        uptime = max(float(self._clock()) - self._started_s, 0.0)
+        return int(uptime) if signal == HEARTBEAT else uptime
+
+    @override
+    def _get(self, names: list[str]) -> dict[str, object]:
         self._refresh()
         t_s = float(self._clock())
         self._advance(t_s)
@@ -899,7 +1000,7 @@ class Composite(LUMEModel):
                 )
         return {name: outputs[name] for name in names}
 
-    def _served(self, names: list[str], t_s: float) -> dict[str, Any]:
+    def _served(self, names: list[str], t_s: float) -> dict[str, object]:
         """The channels as served at ``t_s`` without the channel faults."""
         outputs, texture, physics = self._partition(names)
         if texture:
@@ -914,7 +1015,7 @@ class Composite(LUMEModel):
         channel = self._channels[address]
         return channel.get("role") != SETPOINT and is_float_channel(channel)
 
-    def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
+    def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, object]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
         readbacks = sorted(
             {
@@ -929,20 +1030,20 @@ class Composite(LUMEModel):
             return self._failed_values(child, names)
         moved = self._moving_readbacks(
             child,
-            {address: np.array([float(truth[address])]) for address in readbacks},
+            {address: np.array([values._real(truth[address])]) for address in readbacks},
             np.array([t_s], dtype=np.float64),
         )
         for address in readbacks:
             truth[address] = float(moved[address][0])
         return {name: truth[name] for name in names}
 
-    def _held_demands(self, names: Sequence[str]) -> dict[str, Any]:
+    def _held_demands(self, names: Sequence[str]) -> dict[str, object]:
         """The value last written to each of ``names`` the active scenarios hold.
 
         A physics setpoint's demand is its child's input; a texture setpoint's
         is the value the composite kept for it, absent until a write.
         """
-        demands: dict[str, Any] = {}
+        demands: dict[str, object] = {}
         for name in names:
             if name not in self._held_writes:
                 continue
@@ -955,8 +1056,11 @@ class Composite(LUMEModel):
         return demands
 
     def _moving_readbacks(
-        self, child: _Child, levels: Mapping[str, np.ndarray], times: np.ndarray
-    ) -> dict[str, np.ndarray]:
+        self,
+        child: _Child,
+        levels: Mapping[str, npt.NDArray[np.float64]],
+        times: npt.NDArray[np.float64],
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """A built physics child's moving readbacks: motion, then readout, then clamp.
 
         Args:
@@ -989,7 +1093,7 @@ class Composite(LUMEModel):
             for name, series_ in moved.items()
         }
 
-    def _plain_get(self, child: _Child, names: list[str]) -> dict[str, Any] | None:
+    def _plain_get(self, child: _Child, names: list[str]) -> dict[str, object] | None:
         """A built child's plain reads, or ``None`` once a read fails the child."""
         if child.model is None:
             return None
@@ -1003,9 +1107,9 @@ class Composite(LUMEModel):
         )
         return read
 
-    def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, Any]:
+    def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, object]:
         """What a failed child's channels read: inputs, NaN, or the last good value."""
-        outputs: dict[str, Any] = {}
+        outputs: dict[str, object] = {}
         for name in names:
             channel = self._channels[name]
             value_type = channel_value_type(channel)
@@ -1036,7 +1140,9 @@ class Composite(LUMEModel):
             return (address,)
         return self._children[owner].partners.get(address, (address,))
 
-    def readings(self, levels: Mapping[str, Any], t_s: Any) -> dict[str, np.ndarray]:
+    def readings(
+        self, levels: Mapping[str, float | npt.NDArray[np.float64]], t_s: object
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """Float channels as served at epoch seconds, from levels in place of held values.
 
         A moving channel, a texture float or a physics float readback, reads
@@ -1065,8 +1171,8 @@ class Composite(LUMEModel):
                 raise ValueError(f"{name} is not a float channel of the view")
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
-        out: dict[str, np.ndarray] = {}
-        readbacks: dict[str, dict[str, np.ndarray]] = {}
+        out: dict[str, npt.NDArray[np.float64]] = {}
+        readbacks: dict[str, dict[str, npt.NDArray[np.float64]]] = {}
         for name in names:
             level = np.broadcast_to(np.asarray(levels[name], dtype=np.float64), times.shape)
             owner = self._owner[name]
@@ -1088,16 +1194,16 @@ class Composite(LUMEModel):
                 out.update(self._moving_readbacks(child, owned, times))
         return {name: out[name] for name in names}
 
-    def held(self, names: Sequence[str]) -> dict[str, Any]:
+    def held(self, names: Sequence[str]) -> dict[str, object]:
         """Each channel's held value: no motion, no readout, no clamp.
 
         A texture channel returns the value the texture holds; a physics
         channel its child's plain read; a setpoint the active scenarios hold
         the value last written to it; a faulted reading its unfaulted value;
-        a status address its status.
+        a status address its status; an IOC health address its value now.
 
         Args:
-            names: Channel or status addresses.
+            names: Channel, status or IOC health addresses.
 
         Returns:
             The value by address, in its stored representation.
@@ -1154,7 +1260,8 @@ class Composite(LUMEModel):
         self._refresh()
         return self._children[model].status
 
-    def set(self, values_by_name: dict[str, Any]) -> None:
+    @override
+    def set(self, values_by_name: Mapping[str, object]) -> None:
         """Write channels: physics children first, producers before consumers, the texture last.
 
         Args:
@@ -1170,7 +1277,7 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=True)
 
-    def restore(self, values_by_name: dict[str, Any]) -> None:
+    def restore(self, values_by_name: Mapping[str, object]) -> None:
         """Put channels back as :meth:`set` writes them, without a client write.
 
         For a rollback or a replay: the children's models take the values, and
@@ -1182,11 +1289,11 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=False)
 
-    def _write(self, values_by_name: Mapping[str, Any], *, client: bool) -> None:
+    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> None:
         self._refresh()
         if not values_by_name:
             return
-        coerced: dict[str, Any] = {}
+        coerced: dict[str, values.StoredValue] = {}
         for name, value in values_by_name.items():
             variable = self._variables.get(name)
             if variable is None:
@@ -1208,23 +1315,29 @@ class Composite(LUMEModel):
                 raise WriteRefusedError(str(exc), address=name) from exc
         t_s = float(self._clock())
         self._advance(t_s)
-        forwarded = self._set(coerced)
+        forwarded = self._forward(coerced)
         if not self._evolve:
             for child in self._children.values():
                 self._deliver(child, t_s)
         if client:
             self._client_write(forwarded, t_s)
 
-    def _set(self, values_by_name: dict[str, Any]) -> dict[str, dict[str, Any]]:  # type: ignore[override]
+    @override
+    def _set(self, values_by_name: dict[str, values.StoredValue]) -> None:
+        self._forward(values_by_name)
+
+    def _forward(
+        self, values_by_name: Mapping[str, values.StoredValue]
+    ) -> dict[str, dict[str, values.StoredValue]]:
         """Write the children, then the texture; returns what reached each child's model."""
-        batches: dict[str, dict[str, Any]] = {}
+        batches: dict[str, dict[str, values.StoredValue]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
-        forwarded: dict[str, dict[str, Any]] = {}
+        forwarded: dict[str, dict[str, values.StoredValue]] = {}
         texture = batches.get(TEXTURE_OWNER) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
-        writing: Mapping[str, Any] = {}
+        writing: Mapping[str, values.StoredValue] = {}
         try:
             for model, child in self._children.items():
                 if model in batches:
@@ -1251,8 +1364,8 @@ class Composite(LUMEModel):
         return forwarded
 
     def _set_child(
-        self, child: _Child, batch: Mapping[str, Any]
-    ) -> tuple[Callable[[], None], dict[str, Any]]:
+        self, child: _Child, batch: Mapping[str, values.StoredValue]
+    ) -> tuple[Callable[[], None], dict[str, values.StoredValue]]:
         """Write one child's batch; returns its undo and the values that reached the model.
 
         Every name of the batch lands in the child's inputs; only the names the
@@ -1287,6 +1400,7 @@ class Composite(LUMEModel):
 
         return restore, reached
 
+    @override
     def reset(self) -> None:
         """Return every child to its start state; a failed child is rebuilt.
 
@@ -1329,7 +1443,7 @@ class Composite(LUMEModel):
             raise ValueError(f"model {model!r} has no variable {variable!r}")
         return child, variable
 
-    def model_variables(self) -> dict[str, tuple[Variable, Any]]:
+    def model_variables(self) -> dict[str, tuple[Variable, object]]:
         """Each built physics model's own variables, named ``<model>/<name>``.
 
         A model's own variables are the ones it declares beyond the view's
@@ -1342,7 +1456,7 @@ class Composite(LUMEModel):
             active scenarios; a read-only variable's is ``None``.
         """
         self._refresh()
-        listed: dict[str, tuple[Variable, Any]] = {}
+        listed: dict[str, tuple[Variable, object]] = {}
         for child in self._children.values():
             if child.model is None:
                 continue
@@ -1354,7 +1468,7 @@ class Composite(LUMEModel):
                     )
         return listed
 
-    def model_get(self, names: Sequence[str]) -> dict[str, Any]:
+    def model_get(self, names: Sequence[str]) -> dict[str, object]:
         """Read the children's own variables, each named ``<model>/<name>``.
 
         Raises:
@@ -1362,14 +1476,14 @@ class Composite(LUMEModel):
                 variable, or a variable of a failed model.
         """
         self._refresh()
-        outputs: dict[str, Any] = {}
+        outputs: dict[str, object] = {}
         for name in names:
             child, variable = self._model_variable(name)
             assert child.model is not None
             outputs[name] = child.model.get(variable)
         return outputs
 
-    def model_set(self, values_by_name: Mapping[str, Any]) -> None:
+    def model_set(self, values_by_name: Mapping[str, object]) -> None:
         """Write the children's own variables, each named ``<model>/<name>``.
 
         Raises:
@@ -1378,7 +1492,7 @@ class Composite(LUMEModel):
                 refuses the write.
         """
         self._refresh()
-        batches: dict[str, tuple[_Child, dict[str, Any]]] = {}
+        batches: dict[str, tuple[_Child, dict[str, object]]] = {}
         for name, value in values_by_name.items():
             child, variable = self._model_variable(name)
             batches.setdefault(child.name, (child, {}))[1][variable] = value
@@ -1388,7 +1502,7 @@ class Composite(LUMEModel):
 
     # -- the model log -------------------------------------------------------
 
-    def log_event(self, event: str, **fields: Any) -> None:
+    def log_event(self, event: str, **fields: object) -> None:
         """Append one event record to every physics model's log.
 
         A view with no physics model logs nothing here.
@@ -1400,7 +1514,7 @@ class Composite(LUMEModel):
         for name in self._children:
             self._log(name, {**fields, "event": event})
 
-    def _log(self, model: str, record: Mapping[str, Any]) -> None:
+    def _log(self, model: str, record: Mapping[str, object]) -> None:
         """Append one record to ``model``'s log, and hand it to the process logger."""
         entry = {"instance": self._instance, "pid": os.getpid(), "model": model, **record}
         line = self._log_line(entry)
@@ -1425,7 +1539,7 @@ class Composite(LUMEModel):
             logger.warning(f"cannot append to the {model} log in {self._log_dir}: {exc}")
 
     @staticmethod
-    def _log_line(entry: Mapping[str, Any]) -> str:
+    def _log_line(entry: Mapping[str, object]) -> str:
         """One JSON line, its ``error`` cut so the line and its newline stay under the bound."""
         line = json.dumps(entry, sort_keys=True, ensure_ascii=False)
         error = entry.get("error")

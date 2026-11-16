@@ -856,3 +856,51 @@ describe('openPanelAtTile — the tile bar’s Open panel ▸ placements', () =>
     expect(placement.dockedTileOf('b')).toBeNull();
   });
 });
+
+describe('openPanelLeftOfAgent — a new session’s workspace: the pane left, the Agent right', () => {
+  /** @param {any} holder */
+  const order = (holder) => tiles(holder.layout).map((t) => t.showing);
+
+  test('a service pane lands on the left of the Agent tile, then the open tail runs', () => {
+    const holder = seed(tile('t1', ['terminal'], 'terminal'));
+    placement.openPanelLeftOfAgent('b');
+    expect(order(holder)).toEqual(['b', 'terminal']);
+    expect(holder.layout.split).toBe('row');
+    expect(deps.activate).toHaveBeenCalledExactlyOnceWith('b', { userInitiated: true });
+  });
+
+  test('it is the Agent tile’s own left, whatever tile has the focus', () => {
+    const holder = seed(
+      row(tile('s1', ['a'], 'a', 0.3), tile('t1', ['terminal'], 'terminal', 0.7)),
+      's1'
+    );
+    placement.openPanelLeftOfAgent('b');
+    expect(order(holder)).toEqual(['a', 'b', 'terminal']);
+  });
+
+  test('an artifact tile is placed left of the Agent and activated for its frame', () => {
+    const holder = seed(tile('t1', ['terminal'], 'terminal'));
+    placement.openPanelLeftOfAgent('artifact:a1');
+    expect(order(holder)).toEqual(['artifact:a1', 'terminal']);
+    expect(deps.activate).toHaveBeenCalledExactlyOnceWith('artifact:a1');
+  });
+
+  test('an off-rail panel is revealed through the visibility POST path', () => {
+    seed(tile('t1', ['terminal'], 'terminal'));
+    placement.openPanelLeftOfAgent('z');
+    expect(deps.reveal).toHaveBeenCalledExactlyOnceWith('z');
+  });
+
+  test('with the Agent pane in its own window the plain open runs, beside the focused tile', () => {
+    const holder = seed(tile('s1', ['a'], 'a'), 's1');
+    popped.add('terminal');
+    placement.openPanelLeftOfAgent('b');
+    expect(order(holder)).toEqual(['a', 'b']);
+  });
+
+  test('with no Agent tile in the dock the plain open runs', () => {
+    const holder = seed(row(tile('s1', ['a'], 'a'), tile('s2', ['c'], 'c')), 's1');
+    placement.openPanelLeftOfAgent('b');
+    expect(order(holder)).toEqual(['a', 'b', 'c']);
+  });
+});

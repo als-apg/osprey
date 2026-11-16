@@ -57,14 +57,16 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: ``EXPECTED_BINDINGS`` in all, the 1823 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
 EXPECTED_BINDINGS = 4731
-EXPECTED_DEVICES = 1016
+EXPECTED_DEVICES = 1027
+#: Devices placed in a system: every device but the nine placed nowhere.
+EXPECTED_SYSTEM_DESCRIBED = 1018
 
-#: Devices carrying each device prose predicate: every device carries its
-#: system's text, and only a device some described group names carries a
+#: Devices carrying each device prose predicate: every device placed in a
+#: system carries its system's text, and only a device some described group names carries a
 #: family's.
 EXPECTED_DESCRIBED_DEVICES = {
     "familyDescription": 1016,
-    "systemDescription": EXPECTED_DEVICES,
+    "systemDescription": EXPECTED_SYSTEM_DESCRIBED,
 }
 
 #: Prose predicates on ``narad_sem:ChannelBinding``, one per binding: the
@@ -79,7 +81,7 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
     "familyDescription": 75,
-    "systemDescription": 7,
+    "systemDescription": 8,
 }
 
 #: How many members of a set difference a failure message names before eliding.

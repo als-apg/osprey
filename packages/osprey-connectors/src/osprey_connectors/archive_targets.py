@@ -57,7 +57,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any
 
 from osprey_connectors.simulator import virtual_accelerator_port
 from osprey_connectors.types import (
@@ -94,7 +93,7 @@ _DEFAULT_ADDRESS_SETTING = "url"
 
 #: The targets the facility's archive serves: the real machine and the
 #: stand-in that rehearses it.
-_APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
+APPLIANCE_TARGETS: frozenset[str] = frozenset({TARGET_LIVE, TARGET_STANDIN})
 
 #: The targets the deployment's own store serves: the virtual accelerator.
 _STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
@@ -103,27 +102,32 @@ _STORE_TARGETS: frozenset[str] = frozenset({TARGET_VA})
 _NO_TARGETS: frozenset[str] = frozenset()
 
 __all__ = [
+    "APPLIANCE_TARGETS",
     "archive_targets",
     "archive_withheld",
 ]
 
 
-def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
+def archive_targets(config: object) -> frozenset[str]:
     """The control targets whose history this deployment's ``archiver`` block holds.
 
     Args:
         config: The full config mapping, as loaded from ``config.yml`` — not the
             ``archiver:`` section, because the answer for the mongodb store
             turns on whether the deployment built a simulator, which the
-            section alone does not carry.
+            section alone does not carry. Anything that is not a mapping states
+            no archiver, which is the mock's.
 
     Returns:
-        The targets per the module table — :data:`_APPLIANCE_TARGETS`,
+        The targets per the module table — :data:`APPLIANCE_TARGETS`,
         :data:`_STORE_TARGETS` or :data:`_NO_TARGETS`. A target absent from the
         set has no archive: a caller holding it has nothing to offer, never a
         default to fall back on.
     """
-    section = config.get(_ARCHIVER_SECTION_KEY) if isinstance(config, Mapping) else None
+    if not isinstance(config, Mapping):
+        # No section is the mock's, which has no targets.
+        return _NO_TARGETS
+    section = config.get(_ARCHIVER_SECTION_KEY)
     archiver_type = resolve_archiver_type(section)
     if archiver_type == MOCK_ARCHIVER:
         return _NO_TARGETS
@@ -137,10 +141,10 @@ def archive_targets(config: Mapping[str, Any]) -> frozenset[str]:
 
     if archiver_type in _STORE_ARCHIVERS:
         return _STORE_TARGETS if virtual_accelerator_port(config) is not None else _NO_TARGETS
-    return _APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
+    return APPLIANCE_TARGETS if _names_an_address(archiver_type, settings) else _NO_TARGETS
 
 
-def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
+def archive_withheld(config: object, target: str) -> bool:
     """Whether a session on *target* must be told it has no archive.
 
     The agent's reader of the one ``archiver:`` block asks this before it
@@ -150,7 +154,8 @@ def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
     the archiver pairing's question, asked at build and at the target switch.
 
     Args:
-        config: The full config mapping, as loaded from ``config.yml``.
+        config: The full config mapping, as loaded from ``config.yml``; anything
+            that is not a mapping states the mock.
         target: The control target the session is on.
 
     Returns:
@@ -162,7 +167,7 @@ def archive_withheld(config: Mapping[str, Any], target: str) -> bool:
     return target not in archive_targets(config)
 
 
-def _names_an_address(archiver_type: str, settings: Mapping[str, Any]) -> bool:
+def _names_an_address(archiver_type: str, settings: Mapping[str, object]) -> bool:
     """Whether a facility archive's *settings* state where it is.
 
     A non-blank string under the type's :data:`_ADDRESS_SETTINGS` entry, or

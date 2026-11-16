@@ -23,8 +23,6 @@ from osprey.facility.kinds import TRM_FILE
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import measured_tree, write_view
 
-pytest.importorskip("pyaml")
-
 
 def _trm(directory: Path) -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads((directory / "SR" / TRM_FILE).read_text())
@@ -59,7 +57,7 @@ def test_the_tune_correction_tool_loads_the_matrix(tmp_path: Path) -> None:
     (tool,) = [d for d in configuration["devices"] if d["name"] == "DEFAULT_TUNE_CORRECTION"]
     assert tool["response_matrix"] == f"${{path:{TRM_FILE}}}"
     sr = Accelerator.load(str(directory / "SR" / CONFIGURATION_FILE))
-    assert sr.design.tune.response_matrix.shape == (2, 2)
+    assert sr.design.tool.tune.response_matrix.shape == (2, 2)
 
 
 def test_a_rank_one_matrix_is_written_without_its_correction_tool(tmp_path: Path) -> None:

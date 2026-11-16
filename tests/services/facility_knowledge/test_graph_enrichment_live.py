@@ -142,6 +142,14 @@ RETURN count(d)                     AS total,
        count(d.system)              AS with_system
 """
 
+#: Every device the store holds, bound to a channel or not: a rack or a supply
+#: the facility describes carries a ``deviceId`` and no binding.
+DEVICE_TOTAL = """
+MATCH (d:Resource)
+WHERE d.deviceId IS NOT NULL
+RETURN count(d) AS n
+"""
+
 DEVICE_DETAIL = """
 MATCH (d:Resource {sourceName: $name, sectionCode: $section})
 RETURN d.system              AS system,
@@ -346,11 +354,13 @@ def test_the_demo_corpus_answers_description_and_system_questions(
 
     # --- Every device carries its system's description and SYSTEM token, ----
     # --- and every device a described group names its family's ------------
+    stored = _row(session, DEVICE_TOTAL)["n"]
+    assert stored == census["devices"], (
+        f"the store holds {stored} devices and the corpus declares {census['devices']}"
+    )
     devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
     device_total = devices["total"]
-    assert device_total == census["devices"], (
-        f"the store holds {device_total} devices and the corpus declares {census['devices']}"
-    )
+    assert 0 < device_total <= stored
     assert 0 < census["family_described"] <= device_total
     assert devices["family_described"] == census["family_described"]
     assert devices["system_described"] == device_total

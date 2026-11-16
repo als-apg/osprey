@@ -14,14 +14,13 @@ import copy
 import math
 from typing import Any
 
+import at
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines.pyat_variables import (  # noqa: E402
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines.pyat_variables import (
     RFSwitchVariable,
     rf_on,
 )

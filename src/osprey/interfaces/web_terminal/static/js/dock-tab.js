@@ -70,6 +70,7 @@ import {
 import { icon } from '/design-system/js/icons.js';
 import { closeAllPopovers } from '/design-system/js/popover.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
+import { watchZoomChip } from './pane-zoom.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Source} Source */
 /** @typedef {import('/static/vendor/dock-engine.mjs').TabRects} TabRects */
@@ -593,10 +594,16 @@ class TileTab {
     });
     root.appendChild(actions);
     this._element = root;
-    // Fixed at the right edge, never folded: ⋯ on every bar, then Open in new
-    // window and × on a tile, Reattach in the pane's own window.
+    // Fixed at the right edge, never folded: the zoom chip while the pane is
+    // zoomed (pane-zoom.js), ⋯ on every bar, then Open in new window and × on
+    // a tile, Reattach in the pane's own window.
     actions.appendChild(
       buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
+    );
+    watchZoomChip(
+      actions,
+      terminal ? TERMINAL_KEY : (this._servicePanelId ?? id),
+      this._disposables
     );
 
     if (mode === 'detached') {

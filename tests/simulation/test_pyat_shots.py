@@ -16,13 +16,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.facility.records import FacilityRecords  # noqa: E402
-from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines import pyat_turns  # noqa: E402
-from osprey.simulation.engines.pyat_turn_state import turn_state_of  # noqa: E402
+from osprey.facility.records import FacilityRecords
+from osprey.facility.views.simulator import simulator_wiring
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines import pyat_turns
+from osprey.simulation.engines.pyat_turn_state import turn_state_of
 
 MODEL = "SR"
 INJECTION = "INJ"

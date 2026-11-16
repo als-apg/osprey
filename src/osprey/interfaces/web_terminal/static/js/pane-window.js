@@ -83,6 +83,10 @@ const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
  * @property {<T>(fn: () => T) => T} withEchoSuppressed - run without reporting a focus
  * @property {(doc: Document) => void} installPlaceMenus - wire a window's document for
  *   the shell's place menus (place-menu.js), idempotent per document
+ * @property {(doc: Document) => void} installZoomWheel - hear Ctrl+wheel in a window's
+ *   document (pane-zoom.js), idempotent per document
+ * @property {(iframe: HTMLIFrameElement) => void} fillFrame - a frame filling its window,
+ *   at its pane's zoom (pane-zoom.js)
  */
 
 /**
@@ -301,6 +305,7 @@ function detachAgent(hadTile) {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
         // Again after a reload: a fresh document; once per document otherwise.
         deps.installPlaceMenus?.(mount.ownerDocument);
+        deps.installZoomWheel?.(mount.ownerDocument);
         bar.dress(mount);
         fit();
         if (!told) notify(TERMINAL_RAIL_ID, true);
@@ -370,6 +375,9 @@ function detachService(id, hadTile) {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
         // Again after a reload: a fresh document; once per document otherwise.
         deps.installPlaceMenus?.(mount.ownerDocument);
+        deps.installZoomWheel?.(mount.ownerDocument);
+        // It fills the window by percentages now, at its pane's zoom.
+        deps.fillFrame?.(iframe);
         bar.dress(mount);
         if (!told) {
           iframe.addEventListener('load', onFrameLoad);

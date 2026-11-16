@@ -2269,6 +2269,32 @@ def _content_dir(roots: FacilityRoots) -> Path | None:
     return roots.content if roots.mounted else None
 
 
+def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
+    """The measurement kinds the deployment's listed packages declare, by distribution.
+
+    Read from the project file of each listed ``apps/<name>/`` and each
+    local-path ``dependencies`` entry; nothing is built or imported.
+    """
+    from osprey.apps.rules import deployment_packages
+    from osprey.facility.kinds import listed_kinds
+
+    return listed_kinds(
+        deployment_packages(
+            repo_root, list(build_profile.dependencies or []), apps=build_profile.apps or {}
+        )
+    )
+
+
+def _judges_kinds(build_profile: Any, content_dir: Path | None) -> bool:
+    """Whether this tree is where its listed measurement kinds are judged."""
+    from osprey.facility.kinds import judged_here
+
+    return judged_here(
+        mounted=content_dir is not None,
+        lists_packages=bool(build_profile.apps or build_profile.dependencies),
+    )
+
+
 def _stated_machine_route(profile_path: Path) -> str | None:
     """The ``machine:`` the profile file states, as a remedy names it (``<machine>/``).
 
@@ -4263,7 +4289,10 @@ def _build_repo(
         content_dir = _content_dir(facility_roots)
         facility_sha256 = facility_digest(facility_roots.machine, content_dir=content_dir)
         facility, facility_warnings = build_facility_with_warnings(
-            facility_roots.machine, project_name=name, content_dir=content_dir
+            facility_roots.machine,
+            project_name=name,
+            content_dir=content_dir,
+            judges_kinds=_judges_kinds(build_profile, content_dir),
         )
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)

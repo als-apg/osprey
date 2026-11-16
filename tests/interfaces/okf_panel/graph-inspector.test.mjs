@@ -82,14 +82,38 @@ describe('a node', () => {
     renderInspector(host, { ...hood(), selected: 2 }, handles);
     expect(texts('.osprey-chip-label')).toEqual(['Device · BeamPositionMonitor']);
     expect(texts('.okf-graph-title')).toEqual(['M/BPM1']);
-    expect(texts('.okf-graph-description')).toEqual(['A monitor.']);
+    expect(texts('.okf-graph-description')).toEqual([
+      'A monitor.',
+      'Also called BPM 1, Orbit monitor 1',
+    ]);
     expect(texts('dt')).toEqual(['placePath']);
     expect(texts('dd')).toEqual(['M/S1']);
     expect(texts('.osprey-section-label')).toEqual([
       '→ hasBinding · 1',
       '→ type · 1',
-      '→ inPlace · 1',
+      '→ locatedIn · 1',
     ]);
+  });
+
+  test("the head names the record's own names, not its class's synonyms", () => {
+    renderInspector(host, { ...hood(), selected: 2 }, handles);
+    const lines = texts('.okf-graph-description');
+    expect(lines).toContain('Also called BPM 1, Orbit monitor 1');
+    expect(lines).not.toContain('Also called BPM');
+  });
+
+  test('altLabel is not repeated as a property row', () => {
+    renderInspector(host, { ...hood(), selected: 2 }, handles);
+    expect(texts('dt')).not.toContain('altLabel');
+    expect(texts('dd')).not.toContain('BPM 1, Orbit monitor 1');
+  });
+
+  test('a record without names shows no Also called line', () => {
+    renderInspector(host, { ...hood(), selected: 3 }, handles);
+    expect(texts('.okf-graph-title')).toEqual(['M/Q1']);
+    expect(texts('.okf-graph-description').some((line) => line?.startsWith('Also called'))).toBe(
+      false
+    );
   });
 
   test('a node without a class or properties shows neither', () => {

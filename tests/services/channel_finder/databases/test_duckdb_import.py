@@ -17,12 +17,11 @@ import json
 import time
 from pathlib import Path
 
+import duckdb
 import pytest
 
-duckdb = pytest.importorskip("duckdb")
-
-from osprey.services.channel_finder.databases import duckdb_import as dimp  # noqa: E402
-from osprey.services.channel_finder.databases.middle_layer import (  # noqa: E402
+from osprey.services.channel_finder.databases import duckdb_import as dimp
+from osprey.services.channel_finder.databases.middle_layer import (
     MiddleLayerDatabase,
 )
 

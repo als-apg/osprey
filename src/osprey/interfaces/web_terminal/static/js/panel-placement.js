@@ -48,6 +48,7 @@ import {
 import { ONE_PANEL_PER_TILE } from './dock-policy.js';
 import { closeTab, findTile, keysOf, planDrop, tileOf } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { isArtifactTileKey } from './artifact-tiles.js';
 
 /**
  * The panel-manager state and actions this module places panels through. Every
@@ -110,14 +111,15 @@ export function hasDockedTile(panelId) {
  * visibility-POST path the "+" menu uses. The exception is a non-member that
  * already held a tile before the move (a tile opened from a chat link or the
  * palette and then rearranged): moving it is layout, not a request to join the
- * rail, so it is focused without a POST and stays off it.
+ * rail, so it is focused without a POST and stays off it. An artifact tile
+ * (artifact-tiles.js) is no panel the rail can hold: it is focused the same way.
  * @param {string} panelId
  * @param {boolean} wasOnScreen - the panel held a tile before this placement
  */
 function revealOpenedPanel(panelId, wasOnScreen) {
   const c = ctx();
   if (c.isMember(panelId)) c.activate(panelId, { userInitiated: true });
-  else if (wasOnScreen) c.activate(panelId);
+  else if (wasOnScreen || isArtifactTileKey(panelId)) c.activate(panelId);
   else c.reveal(panelId);
 }
 
@@ -136,6 +138,28 @@ export function openPanelBeside(panelId) {
   }
   const wasOnScreen = hasDockedTile(panelId);
   dockPanelBesideActive(panelId, ctx().label(panelId));
+  revealOpenedPanel(panelId, wasOnScreen);
+}
+
+/**
+ * Open a panel as a NEW tile on the LEFT of the Agent tile, so the Agent
+ * pane stays on the right — a new session's workspace. The reveal tail is
+ * {@link openPanelBeside}'s. With the Agent pane not docked (closed, or in its
+ * own window) there is no tile to place against: the plain open runs.
+ * @param {string} panelId
+ */
+export function openPanelLeftOfAgent(panelId) {
+  const holder = getLayoutHolder();
+  const agentTile =
+    holder && panelId !== TERMINAL_RAIL_ID && !isDetached(TERMINAL_KEY)
+      ? (tileOf(holder.layout ?? null, TERMINAL_KEY)?.tile ?? null)
+      : null;
+  if (agentTile === null) {
+    openPanelBeside(panelId);
+    return;
+  }
+  const wasOnScreen = hasDockedTile(panelId);
+  dockPanelAt(panelId, ctx().label(panelId), { referenceTile: agentTile, direction: 'left' });
   revealOpenedPanel(panelId, wasOnScreen);
 }
 

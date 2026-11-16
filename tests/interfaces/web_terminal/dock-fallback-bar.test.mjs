@@ -29,6 +29,7 @@ beforeAll(() => {
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
   fitTerminal: () => {},
   getCurrentSessionId: () => null,
+  onSessionChange: () => () => {},
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
   fetchJSON: async () => ({}),

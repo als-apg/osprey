@@ -15,7 +15,11 @@ from osprey_connectors.simulation.view import SCHEMAS
 #: The documents of a texture-only view with no channels, by file name.
 _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
     "served_models.json": {"models": ["texture"]},
-    "addresses.json": {"channels": [], "status": []},
+    "addresses.json": {
+        "channels": [],
+        "status": [],
+        "ioc_health": ["T:SIM:texture:HEARTBEAT", "T:SIM:texture:UPTIME", "T:SIM:texture:ENGINEER"],
+    },
     "variables.json": {
         "code": "T",
         "models": [
@@ -126,7 +130,7 @@ def write_texture_view(
         models: Served physics models, each a ``variables.json`` model record
             (``name``, ``engine``, ``settings``, ``deck`` and ``wiring``, every
             wiring record carrying its ``engine_role``, ``plane`` and ``refresh``);
-            each is listed as served with its status address.
+            each is listed as served with its status and IOC health addresses.
 
     Returns:
         The view directory, ``<render>/data/simulator``.
@@ -157,6 +161,11 @@ def write_texture_view(
         "addresses.json": {
             "channels": sorted(channels),
             "status": [f"T:SIM:{name}:STATUS" for name in names],
+            "ioc_health": [
+                f"T:SIM:{name}:{signal}"
+                for name in (*names, "texture")
+                for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
+            ],
         },
         "variables.json": {"code": "T", "models": physics, "channels": records},
         "seeds.json": {"seeds": seeds},

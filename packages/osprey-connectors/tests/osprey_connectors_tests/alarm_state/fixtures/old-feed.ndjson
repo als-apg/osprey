@@ -1,0 +1,3 @@
+{"key": "config:/Demo/RF/DEMO:RF1:CAV:Temp-I", "value": {"enabled": true, "latching": true, "guidance": [{"title": "Action", "details": "Check cooling water flow"}]}, "time": "2020-03-01T08:00:00.000Z"}
+{"key": "state:/Demo/RF/DEMO:RF1:CAV:Temp-I", "value": {"severity": "MAJOR", "current_severity": "OK", "message": "HIHI_ALARM", "current_message": "NO_ALARM"}, "time": "2020-03-01T08:00:30.000Z"}
+{"key": "state:/Demo/Vac/DEMO:VAC1:GAUGE:Pres-I", "value": {"severity": "MINOR_ACK", "current_severity": "MINOR", "message": "HIGH_ALARM", "current_message": "HIGH_ALARM"}, "time": "2020-03-01T08:01:00.000Z"}

@@ -76,7 +76,10 @@ import nbformat
 from osprey.deployment import subprocess_capture
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
-from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
+from osprey.mcp_server.sandbox_env import (
+    configured_child_env_passthrough,
+    scrub_sandbox_child_env,
+)
 from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 
 logger = logging.getLogger(__name__)
@@ -178,6 +181,24 @@ def _deployment_config() -> Mapping[str, Any]:
     from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config()
+
+
+def _child_env_passthrough() -> tuple[str, ...]:
+    """Return the extra names the deployment passes to executed code, or none.
+
+    A config that cannot be read, or a passthrough list that is refused, costs
+    the kernels those names and nothing else: the panel still starts, on the
+    allowlist alone.
+    """
+    try:
+        return configured_child_env_passthrough(_deployment_config())
+    except Exception:
+        logger.warning(
+            "Notebook kernels start without the deployment's passthrough names: "
+            "python_executor.child_env_passthrough could not be read",
+            exc_info=True,
+        )
+        return ()
 
 
 def starter_read_channel(config: Mapping[str, Any]) -> str | None:
@@ -623,19 +644,23 @@ class JupyterSidecar:
         ]
 
     def _child_env(self, token: str, runtime_dir: Path, config_dir: Path) -> dict[str, str]:
-        """The sidecar's environment: the scrubbed parent's, plus the Jupyter directories.
+        """The sidecar's environment: the execution allowlist, plus the Jupyter directories.
 
-        Not the execution sandboxes' allowlist: the sidecar and its kernels run
-        code the operator types, like the PTY child, so they keep the
-        operator's environment minus the credential set and the sandbox-only
-        drop.
+        The same environment every agent-code execution child gets
+        (:func:`~osprey.mcp_server.sandbox_env.scrub_sandbox_child_env`). A
+        kernel runs code a person types rather than code the agent wrote, but
+        it reads the machine through the same ``osprey.runtime`` and needs the
+        same names; the terminal's provider key, database passwords and
+        telemetry login are the terminal server's own, and a cell has no use
+        for them. A name a deployment's cells do need is listed under
+        ``python_executor.child_env_passthrough``, as for the sandboxes.
 
         Args:
             token: The per-launch token the server requires on every request.
             runtime_dir: The per-launch ``JUPYTER_RUNTIME_DIR``.
             config_dir: The per-launch ``JUPYTER_CONFIG_DIR``.
         """
-        env = drop_sandbox_denied_env(os.environ)
+        env = scrub_sandbox_child_env(os.environ, passthrough=_child_env_passthrough())
         env.update(
             {
                 "JUPYTER_TOKEN": token,

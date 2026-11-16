@@ -21,6 +21,14 @@ from osprey.agent_record.client import ClientAnswer, RecordClient
 from osprey.agent_record.contract import Drain
 from osprey.mcp_server import session as s
 from tests.agent_record.fakes import FakeRecordClient
+from tests.agent_record.test_drain import (  # noqa: F401
+    PROJECT,
+    _cfg,
+    _env,
+    _transcript,
+    slow_ingest,
+)
+from tests.agent_record.test_service import _fresh_writer, _token  # noqa: F401
 from tests.mcp_server.conftest import get_tool_fn
 
 SID = "sess-record-1"
@@ -206,14 +214,6 @@ class TestSessionEvents:
 
 # --- through the service -------------------------------------------------------------
 
-from tests.agent_record.test_drain import (  # noqa: E402,F401
-    PROJECT,
-    _cfg,
-    _env,
-    _transcript,
-    slow_ingest,
-)
-from tests.agent_record.test_service import _fresh_writer, _token  # noqa: E402,F401
 
 NOW = datetime.now(UTC).replace(microsecond=0)
 

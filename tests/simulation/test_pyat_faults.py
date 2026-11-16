@@ -18,24 +18,22 @@ import math
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
+import yaml
+from lume_pyat.model import LUMEPyATModel
+from lume_pyat.simulator import PyATSimulator
 
-at = pytest.importorskip("at")
-
-import yaml  # noqa: E402
-from lume_pyat.model import LUMEPyATModel  # noqa: E402
-from lume_pyat.simulator import PyATSimulator  # noqa: E402
-
-from osprey.simulation.engines import pyat_faults  # noqa: E402
-from osprey.simulation.engines.calibration import Linear, to_hardware, to_physics  # noqa: E402
-from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read  # noqa: E402
-from osprey.simulation.engines.pyat_faults import (  # noqa: E402
+from osprey.simulation.engines import pyat_faults
+from osprey.simulation.engines.calibration import Linear, to_hardware, to_physics
+from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read
+from osprey.simulation.engines.pyat_faults import (
     magnet_cal,
     readout,
     rolled,
     supply_attribute,
 )
-from osprey.simulation.engines.pyat_variables import (  # noqa: E402
+from osprey.simulation.engines.pyat_variables import (
     EV_PER_GEV,
     variable_from_wiring,
 )

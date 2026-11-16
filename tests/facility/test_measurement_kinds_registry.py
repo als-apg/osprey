@@ -29,8 +29,6 @@ from tests.facility._fixture_kind import read_entry_points_afresh
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
-pytest.importorskip("pyaml")
-
 pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 
 BUILT_INS = ("chromaticity_monitor", "crm", "dispersion", "orm", "trm")

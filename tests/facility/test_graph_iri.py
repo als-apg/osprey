@@ -21,7 +21,7 @@ DOCUMENT_KEYS = {"place": "places", "device": "devices", "channel": "channels", 
 
 
 def test_kinds_and_namespaces() -> None:
-    assert graph_iri.KINDS == ("place", "device", "channel", "group")
+    assert graph_iri.KINDS == ("place", "device", "channel", "group", "relation")
     for kind in graph_iri.KINDS:
         assert graph_iri.namespace(kind) == f"https://narad.example.org/{kind}/"
         assert graph_iri.iri("demo", kind, "A") == f"https://narad.example.org/{kind}/demo_{kind}_A"
@@ -71,6 +71,22 @@ def test_an_id_with_a_hyphen_round_trips_and_is_pn_local() -> None:
     assert local == "demo_device_SR_x2D_Q_x2D_01"
     assert PN_LOCAL.fullmatch(local)
     assert graph_iri.decode(local, "demo") == "SR-Q-01"
+
+
+def test_a_claim_id_with_a_slash_and_a_hyphen_round_trips() -> None:
+    raw = "sr-q01/powered-by-ps-3"
+    minted = graph_iri.iri("demo", "relation", raw)
+
+    assert minted == (
+        "https://narad.example.org/relation/"
+        "demo_relation_sr_x2D_q01_x2F_powered_x2D_by_x2D_ps_x2D_3"
+    )
+    assert PN_LOCAL.fullmatch(minted.removeprefix(graph_iri.namespace("relation")))
+    assert graph_iri.decode(minted, "demo") == raw
+    assert graph_iri.decode(graph_iri.local_name("demo", "relation", raw), "demo") == raw
+    assert minted != graph_iri.iri("demo", "device", raw)
+    with pytest.raises(ValueError, match="demo"):
+        graph_iri.decode(f"{graph_iri.namespace('device')}demo_relation_A", "demo")
 
 
 @pytest.mark.parametrize("raw", ["", "A/B", "SR:Q1.", "é/ü", "_x2F_", "x2F", "a b", "__", "_x"])
@@ -129,7 +145,7 @@ def test_every_demo_iri_decodes_to_its_raw_id(built_demo: BuiltProject) -> None:
     code = facility["identity"]["code"]
 
     minted: dict[str, tuple[str, str]] = {}
-    for kind in graph_iri.KINDS:
+    for kind in DOCUMENT_KEYS:
         for record in facility[DOCUMENT_KEYS[kind]]:
             raw = record["id"]
             iri = graph_iri.iri(code, kind, raw)

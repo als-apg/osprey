@@ -31,6 +31,8 @@ from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH
 
 __all__ = [
+    "GRAPH_BASIS_KEY",
+    "GRAPH_CLAIMS_KEY",
     "PIPELINE_MODE_KEY",
     "VIEWS",
     "View",
@@ -43,6 +45,10 @@ __all__ = [
 
 #: The rendered config key that selects one channel-finder index view.
 PIPELINE_MODE_KEY = "channel_finder.pipeline_mode"
+
+#: The graph view's settings: which relation claims it writes, and of which basis.
+GRAPH_CLAIMS_KEY = "facility_graph.claims"
+GRAPH_BASIS_KEY = "facility_graph.basis"
 
 
 @dataclass(frozen=True)
@@ -360,6 +366,7 @@ VIEWS: tuple[View, ...] = (
         path="graph",
         written_when=_always,
         write=_write_graph,
+        reads=(GRAPH_CLAIMS_KEY, GRAPH_BASIS_KEY),
     ),
     View(
         name="benchmarks",

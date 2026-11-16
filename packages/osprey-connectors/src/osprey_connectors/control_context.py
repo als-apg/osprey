@@ -141,7 +141,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Generic, Literal, TypeVar
 
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
@@ -248,18 +248,16 @@ REPORT_FILE_PREFIX = "server_"
 REPORT_FILE_SUFFIX = ".json"
 REPORT_FILE_GLOB = f"{REPORT_FILE_PREFIX}*{REPORT_FILE_SUFFIX}"
 
-#: The files this module has parsed, each against the signature that produced
-#: it: the record, and one entry per server report. Keyed by path, because a
-#: reader holds several of these files at once and a change to one of them is
-#: not a reason to re-parse the others.
+#: Guards every :class:`_ParsedFiles` cache below.
 _CACHE_LOCK = threading.Lock()
-_CACHE: dict[str, tuple[tuple[int, int, int], Any]] = {}
 
-#: How many parsed files the cache holds before it is dropped whole. Reports
+#: How many parsed files a cache holds before it is dropped whole. Reports
 #: are named for PIDs, so a long-lived reader would otherwise keep an entry per
 #: server that ever ran; dropping the lot costs one re-read each and cannot go
 #: stale, because every read re-stats before it trusts what it holds.
 _CACHE_MAX_ENTRIES = 128
+
+_Parsed = TypeVar("_Parsed")
 
 #: A machine's three positions. ``off`` is never stored: it is a target absent
 #: from the map.
@@ -306,7 +304,7 @@ class Owner:
     pid: int
     port: int | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This owner as the record's ``owner`` object."""
         return {"kind": self.kind, "pid": self.pid, "port": self.port}
 
@@ -346,11 +344,11 @@ class ControlContext:
     generation: int
     owner: Owner | None = None
     posture: dict[str, str] = field(default_factory=dict)
-    last_switch: dict[str, Any] | None = None
+    last_switch: dict[str, object] | None = None
     switch: Mapping[str, str] = field(default_factory=dict)
     switch_epoch: int | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
 
         The seven contract fields and the schema, and nothing else: a payload
@@ -464,7 +462,7 @@ def record_path() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def _positive_int(value: Any) -> int | None:
+def _positive_int(value: object) -> int | None:
     """*value* as a positive integer, or ``None``.
 
     ``bool`` is excluded on purpose: it is an ``int`` in Python, and a payload
@@ -475,7 +473,7 @@ def _positive_int(value: Any) -> int | None:
     return int(value)
 
 
-def _parse_owner(value: Any) -> Owner | None:
+def _parse_owner(value: object) -> Owner | None:
     """One ``owner`` object as an :class:`Owner`, or ``None`` when ownerless.
 
     Rule 2 of the module contract for this field: an owner has to name a kind
@@ -492,7 +490,7 @@ def _parse_owner(value: Any) -> Owner | None:
     return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
 
 
-def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
+def _switch_word(value: object) -> Literal["asked", "allowed"] | None:
     """One stored ``switch`` value as the word it arms with, or ``None`` for off.
 
     Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
@@ -509,7 +507,7 @@ def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
     return None
 
 
-def _parse_switch(value: Any) -> dict[str, str]:
+def _parse_switch(value: object) -> dict[str, str]:
     """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
@@ -526,14 +524,14 @@ def _parse_switch(value: Any) -> dict[str, str]:
     }
 
 
-def _parse_epoch(value: Any) -> int | None:
+def _parse_epoch(value: object) -> int | None:
     """One ``switch_epoch`` as a non-negative integer, or ``None`` (epoch-less)."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def parse_record(raw: Any) -> ControlContext | None:
+def parse_record(raw: object) -> ControlContext | None:
     """Decode a record, or ``None`` when it states no usable context.
 
     Accepts the decoded JSON object or the raw text/bytes of one, so a reader
@@ -594,29 +592,46 @@ def file_signature(path: Path | None) -> tuple[int, int, int] | None:
     return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
-def _read_cached(path: Path, parse: Callable[[Path], Any]) -> Any:
-    """*path* through *parse*, re-read only when its signature moved. Rule 4.
+class _ParsedFiles(Generic[_Parsed]):
+    """The files one parser has read, each against the signature that produced it.
 
-    An absent file drops whatever the cache held for that path: a report whose
-    server exited and whose file has been swept must not go on being answered
-    from memory.
+    One cache per parser (the record, the server reports), so each holds the one
+    type its parser returns. Keyed by path, because a reader holds several of
+    these files at once and a change to one of them is not a reason to re-parse
+    the others.
     """
-    key = str(path)
-    signature = file_signature(path)
-    if signature is None:
+
+    def __init__(self, parse: Callable[[Path], _Parsed]) -> None:
+        self._parse = parse
+        self._entries: dict[str, tuple[tuple[int, int, int], _Parsed]] = {}
+
+    def read(self, path: Path) -> _Parsed | None:
+        """*path* through the parser, re-read only when its signature moved. Rule 4.
+
+        An absent file drops whatever the cache held for that path: a report whose
+        server exited and whose file has been swept must not go on being answered
+        from memory.
+        """
+        key = str(path)
+        signature = file_signature(path)
+        if signature is None:
+            with _CACHE_LOCK:
+                self._entries.pop(key, None)
+            return None
         with _CACHE_LOCK:
-            _CACHE.pop(key, None)
-        return None
-    with _CACHE_LOCK:
-        cached = _CACHE.get(key)
-    if cached is not None and cached[0] == signature:
-        return cached[1]
-    value = parse(path)
-    with _CACHE_LOCK:
-        if len(_CACHE) >= _CACHE_MAX_ENTRIES:
-            _CACHE.clear()
-        _CACHE[key] = (signature, value)
-    return value
+            cached = self._entries.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        value = self._parse(path)
+        with _CACHE_LOCK:
+            if len(self._entries) >= _CACHE_MAX_ENTRIES:
+                self._entries.clear()
+            self._entries[key] = (signature, value)
+        return value
+
+    def clear(self) -> None:
+        with _CACHE_LOCK:
+            self._entries.clear()
 
 
 #: How a record read ended: a usable record, no file, or a file (or root)
@@ -639,6 +654,9 @@ def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
         return None, "unreadable"
     record = parse_record(raw)
     return (None, "unreadable") if record is None else (record, "ok")
+
+
+_RECORDS = _ParsedFiles(_read)
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -679,7 +697,7 @@ def read_record_status(
     target_path = record_path() if path is None else path
     if target_path is None:
         return None, "unreadable"
-    cached: tuple[ControlContext | None, _RecordStatus] | None = _read_cached(target_path, _read)
+    cached = _RECORDS.read(target_path)
     if cached is not None:
         return cached
     # No signature: absent, or a stat that failed for another reason.
@@ -695,14 +713,14 @@ def read_record_status(
 
 def invalidate_cache() -> None:
     """Forget every parsed file. For tests and for a process that moved roots."""
-    with _CACHE_LOCK:
-        _CACHE.clear()
+    _RECORDS.clear()
+    _REPORTS.clear()
 
 
 # -- writing ----------------------------------------------------------------
 
 
-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
     """Write *payload* to *path* as JSON, replacing any existing file. Rule 3.
 
     The file is replaced whole through ``safety_file.atomic_replace``, so a
@@ -1334,7 +1352,7 @@ def terminus(
     *,
     request_id: str,
     target: str,
-    requested_at: Any,
+    requested_at: object,
     requested_by: str,
     status: str,
     reason: str | None,
@@ -1464,12 +1482,12 @@ class ServerReport:
     applied_target: str | None = None
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
-    reachability: dict[str, Any] = field(default_factory=dict)
-    last_switch: dict[str, Any] | None = None
-    last_posture_realign: dict[str, Any] | None = None
-    targets: dict[str, Any] = field(default_factory=dict)
+    reachability: dict[str, object] = field(default_factory=dict)
+    last_switch: dict[str, object] | None = None
+    last_posture_realign: dict[str, object] | None = None
+    targets: dict[str, object] = field(default_factory=dict)
     updated_at: str | None = None
-    statement: dict[str, Any] | None = None
+    statement: dict[str, dict[str, object] | None] | None = None
 
     @property
     def display_only(self) -> bool:
@@ -1481,7 +1499,7 @@ class ServerReport:
         """
         return self.statement is not None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         """This report as the JSON object its file holds.
 
         The ten contract fields, plus ``statement`` as the eleventh for a
@@ -1489,7 +1507,7 @@ class ServerReport:
         :func:`_parse_report` unchanged and a controls server's report never
         reads back as display-only.
         """
-        payload: dict[str, Any] = {
+        payload: dict[str, object] = {
             "server_pid": self.server_pid,
             "session": self.session,
             "applied_target": self.applied_target,
@@ -1511,14 +1529,14 @@ class ServerReport:
         return payload
 
 
-def _non_negative_int(value: Any) -> int | None:
+def _non_negative_int(value: object) -> int | None:
     """*value* as a non-negative integer, or ``None``. ``bool`` excluded."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
 
 
-def _text(value: Any) -> str | None:
+def _text(value: object) -> str | None:
     """*value* as a non-empty string, or ``None``.
 
     An empty string states nothing, and a reader that compared one to a session
@@ -1527,7 +1545,7 @@ def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _child_pids(value: Any) -> tuple[int, ...]:
+def _child_pids(value: object) -> tuple[int, ...]:
     """*value* as the positive child PIDs it names, in order, without repeats."""
     if not isinstance(value, list | tuple):
         return ()
@@ -1539,7 +1557,7 @@ def _child_pids(value: Any) -> tuple[int, ...]:
     return tuple(pids)
 
 
-def _mapping(value: Any) -> dict[str, Any]:
+def _mapping(value: object) -> dict[str, object]:
     """*value* as a mapping, or an empty one. Anything else states nothing."""
     return dict(value) if isinstance(value, dict) else {}
 
@@ -1554,11 +1572,11 @@ _REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
 #: The keys of a statement's ``writes``: the execution verdict's own terms.
 _WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
 
-_WRITE_POSITIONS: tuple[Any, ...] = (None, "asked", "allowed")
-_MACHINE_KINDS: tuple[Any, ...] = (None, "real", "rehearsal", "simulator")
+_WRITE_POSITIONS: tuple[str | None, ...] = (None, "asked", "allowed")
+_MACHINE_KINDS: tuple[str | None, ...] = (None, "real", "rehearsal", "simulator")
 
 
-def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
+def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, object]:
     """The ``writes`` half of a machine statement, from one execution verdict.
 
     The verdict's own terms and nothing else: ``allowed``, ``position`` (whether
@@ -1580,7 +1598,7 @@ def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, Any]:
     }
 
 
-def _reachable_statement(value: Any) -> dict[str, Any] | None:
+def _reachable_statement(value: object) -> dict[str, object] | None:
     """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
     if not isinstance(value, dict) or value.get("state") not in _REACHABLE_STATES:
         return None
@@ -1592,7 +1610,7 @@ def _reachable_statement(value: Any) -> dict[str, Any] | None:
     return {"state": value["state"], "since": since, "reason": reason}
 
 
-def _writes_statement(value: Any) -> dict[str, Any] | None:
+def _writes_statement(value: object) -> dict[str, object] | None:
     """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
     if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
         return None
@@ -1604,7 +1622,7 @@ def _writes_statement(value: Any) -> dict[str, Any] | None:
     return {key: value.get(key) for key in _WRITES_STATEMENT_KEYS}
 
 
-def _statement(value: Any) -> dict[str, Any] | None:
+def _statement(value: object) -> dict[str, dict[str, object] | None] | None:
     """*value* as a machine statement, or ``None`` when it is not one.
 
     A statement is a mapping holding both ``reachable`` and ``writes``, each
@@ -1626,7 +1644,7 @@ def _statement(value: Any) -> dict[str, Any] | None:
     return {"reachable": reachable, "writes": writes}
 
 
-def _parse_report(raw: Any) -> ServerReport | None:
+def _parse_report(raw: object) -> ServerReport | None:
     """Decode one server report, or ``None`` when it describes no server.
 
     Rule 5. ``server_pid`` is the identity and the only field that can make the
@@ -1699,7 +1717,7 @@ def report_paths() -> list[Path]:
         return []
 
 
-def _read_payload(path: Path) -> dict[str, Any] | None:
+def _read_payload(path: Path) -> dict[str, object] | None:
     """One report file as its JSON object, or ``None``. Never raises."""
     try:
         raw = path.read_text(encoding="utf-8")
@@ -1709,7 +1727,7 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
         logger.debug("Could not read the server report at %s; skipping it", path)
         return None
     try:
-        loaded = json.loads(raw)
+        loaded: object = json.loads(raw)
     except Exception:  # a half-written report is skipped, not fatal
         logger.debug("Server report %s is not valid JSON; skipping it", path.name)
         return None
@@ -1726,10 +1744,12 @@ def _read_entry(path: Path) -> ServerReport | None:
     return None if payload is None else _parse_report(payload)
 
 
+_REPORTS = _ParsedFiles(_read_entry)
+
+
 def read_report(path: Path) -> ServerReport | None:
     """One server's report, or ``None`` when the file states no usable one."""
-    report: ServerReport | None = _read_cached(path, _read_entry)
-    return report
+    return _REPORTS.read(path)
 
 
 def live_reports(
@@ -1823,7 +1843,7 @@ def sweep_dead(
 # -- convergence ------------------------------------------------------------
 
 
-def _switch_at(report: ServerReport, generation: int) -> dict[str, Any] | None:
+def _switch_at(report: ServerReport, generation: int) -> Mapping[str, object] | None:
     """*report*'s switch block when it is about *generation*, else ``None``.
 
     A block that names a different generation is about a swap this record has
@@ -1840,7 +1860,7 @@ def _switch_at(report: ServerReport, generation: int) -> dict[str, Any] | None:
     return block
 
 
-def _bound_epoch(block: dict[str, Any]) -> float | None:
+def _bound_epoch(block: Mapping[str, object]) -> float | None:
     """The ``expires_at`` of *block* as epoch seconds, or ``None`` for no bound.
 
     The bound is a wall clock the publishing server computed from its own

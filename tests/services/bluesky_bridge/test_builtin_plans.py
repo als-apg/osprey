@@ -13,14 +13,7 @@ their own), and (task 2.3, CC-1) the `orm` and `orbit_bump_sweep` plans'
 restore-in-`finally` abort safety, which only their own generator bodies can
 exercise.
 
-The bluesky stack is a core dependency, so these run in the normal unit lane;
-the `pytest.importorskip` guard only skips them in a slimmed install where
-bluesky is absent. To run this file in an isolated venv:
-
-    uv venv /tmp/bluesky-scratch
-    /tmp/bluesky-scratch/bin/pip install -e .
-    /tmp/bluesky-scratch/bin/python -m pytest \
-        tests/services/bluesky_bridge/test_builtin_plans.py -q
+The bluesky stack is a core dependency, so these run in the normal unit lane.
 """
 
 from __future__ import annotations
@@ -33,10 +26,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-pytest.importorskip("bluesky")
-pytest.importorskip("ophyd_async")
-
 from bluesky import RunEngine
 from bluesky.protocols import Location
 from bluesky.utils import FailedStatus, RequestAbort

@@ -13,9 +13,7 @@ same implementation fails immediately. A run that also records the exact
 demand (``<name>_setpoint``) keys on that column instead; the tolerance still
 guards devices that report a single column.
 
-Runs in the normal unit lane -- the bluesky stack is a core dependency -- with
-the same `importorskip` guard as its siblings so a slimmed install skips rather
-than errors.
+Runs in the normal unit lane -- the bluesky stack is a core dependency.
 """
 
 from __future__ import annotations
@@ -25,8 +23,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-
-pytest.importorskip("bluesky")
 
 from osprey.services.bluesky_bridge.figure import (
     DEFAULT_MAX_POINTS,

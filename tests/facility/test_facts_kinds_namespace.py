@@ -21,8 +21,6 @@ from osprey.facility.views.facts import FACTS_FILE, FACTS_KEYS, zero_source_fact
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
-pytest.importorskip("pyaml")
-
 pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 
 BLOCK = {

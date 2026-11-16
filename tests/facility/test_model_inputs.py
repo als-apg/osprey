@@ -8,16 +8,15 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 import yaml
 
-at = pytest.importorskip("at")
-
-from osprey.facility.build import LATER_STAGES  # noqa: E402
-from osprey.facility.compute import check_model_inputs, check_served_inputs  # noqa: E402
-from osprey.facility.validate import StageReport, run_stages  # noqa: E402
-from osprey.simulation.engines import ENTRY_POINT_GROUP  # noqa: E402
-from osprey.simulation.engines import pyat as pyat_engine  # noqa: E402
+from osprey.facility.build import LATER_STAGES
+from osprey.facility.compute import check_model_inputs, check_served_inputs
+from osprey.facility.validate import StageReport, run_stages
+from osprey.simulation.engines import ENTRY_POINT_GROUP
+from osprey.simulation.engines import pyat as pyat_engine
 
 CONSUMER = "fake_input_consumer_engine"
 PLAIN = "fake_input_plain_engine"

@@ -22,21 +22,19 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+import at
 import pytest
 import yaml
+from lume.model import LUMEModel
+from lume.variables import ScalarVariable, Variable
 
-at = pytest.importorskip("at")
-
-from lume.model import LUMEModel  # noqa: E402
-from lume.variables import ScalarVariable, Variable  # noqa: E402
-
-from osprey.facility.build import LATER_STAGES  # noqa: E402
-from osprey.facility.render import render_facility_outputs  # noqa: E402
-from osprey.facility.validate import run_stages  # noqa: E402
-from osprey.simulation.engines import ENTRY_POINT_GROUP  # noqa: E402
-from osprey.simulation.engines import pyat as pyat_engine  # noqa: E402
-from osprey_connectors.simulation import composite as composite_module  # noqa: E402
-from osprey_connectors.simulation.composite import Composite  # noqa: E402
+from osprey.facility.build import LATER_STAGES
+from osprey.facility.render import render_facility_outputs
+from osprey.facility.validate import run_stages
+from osprey.simulation.engines import ENTRY_POINT_GROUP
+from osprey.simulation.engines import pyat as pyat_engine
+from osprey_connectors.simulation import composite as composite_module
+from osprey_connectors.simulation.composite import Composite
 
 PRODUCER_ENGINE = "fake_model_input_producer_engine"
 CONSUMER_ENGINE = "fake_model_input_consumer_engine"

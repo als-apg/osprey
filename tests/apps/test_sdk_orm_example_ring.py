@@ -15,8 +15,6 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("at")
-
 from osprey.apps import sdk
 
 RING = "SR"

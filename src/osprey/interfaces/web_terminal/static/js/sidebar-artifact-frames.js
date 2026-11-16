@@ -9,6 +9,8 @@
  *     status. `artifact_updated` sets the status and re-places an entry whose
  *     owner changed. A frame whose owner is no known row refreshes the model.
  *   - `artifact_deleted` and a reconnect re-fetch the summary.
+ *   - every update and delete also goes to `tileChanged`, for the artifact's
+ *     own tile if it has one (artifact-tiles.js), whatever the tree shows.
  *   - `focus` is followed only when its `session` names the active row's
  *     transcript. A non-automatic agent focus (or any focus on the terminal
  *     surface) takes the pick and records last-artifact; an automatic one only
@@ -32,6 +34,8 @@ import * as model from './session-model.js';
  * @property {(entry: ArtifactEntry) => boolean} inActiveSession
  * @property {(change: 'updated' | 'deleted', entry?: ArtifactEntry) => void} sendChanged
  *   tell the viewer the shown artifact changed
+ * @property {(id: string, change: 'updated' | 'deleted', entry?: ArtifactEntry) => void} tileChanged
+ *   tell the artifact's own tile it changed
  * @property {(all?: boolean) => Promise<void>} summarize  re-fetch the counts
  * @property {() => void} render
  */
@@ -54,6 +58,7 @@ export function createArtifactFrames({
   state,
   inActiveSession,
   sendChanged,
+  tileChanged,
   summarize,
   render,
 }) {
@@ -108,8 +113,10 @@ export function createArtifactFrames({
     } else if (frame.type === 'artifact_updated') {
       if (data.updated(entry, extraListings(entry)) && !knownOwner(entry)) model.refresh();
       if (frame.id === now.shownId) sendChanged('updated', entry);
+      tileChanged(frame.id, 'updated', entry);
     } else if (frame.type === 'artifact_deleted') {
       if (frame.id === now.shownId) sendChanged('deleted');
+      tileChanged(frame.id, 'deleted');
       data.deleted(frame.id);
       if (model.pick() === frame.id) model.setPick(null);
       if (now.focusId === frame.id) now.focusId = null;

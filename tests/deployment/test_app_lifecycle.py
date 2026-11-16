@@ -132,6 +132,60 @@ def test_the_launch_token_mint_is_idempotent(deploy, tmp_path) -> None:
     assert (tmp_path / ".env").read_text().count(f"{name}=") == 1
 
 
+# --- the deployment-wide terminal secret ---------------------------------------------------
+
+OPERATOR_SECRET = "OSPREY_TERMINAL_SECRET"
+
+ALIAS: dict[str, Any] = {
+    **KNOB,
+    "panel": {**KNOB["panel"], "roster_grant": {"single_user_alias": True}},
+}
+
+ROSTER = {"web_terminals": {"users": [{"name": "alice", "index": 0}]}}
+
+
+@pytest.fixture
+def no_operator_secret(monkeypatch) -> None:
+    monkeypatch.delenv(OPERATOR_SECRET, raising=False)
+
+
+@pytest.mark.usefixtures("no_operator_secret")
+def test_an_alias_panel_with_no_roster_gets_the_terminal_secret_minted(deploy, tmp_path) -> None:
+    """The panel's container reads it with no default, and ``osprey web`` reads the same file."""
+    config = _deploy_config(ALIAS)
+    first = deploy(config)
+    second = deploy(config)
+    assert first.get(OPERATOR_SECRET)
+    assert first[OPERATOR_SECRET] == second[OPERATOR_SECRET]
+    assert first.get(launch_token_env("knob-demo"))
+    assert (tmp_path / ".env").read_text().count(f"{OPERATOR_SECRET}=") == 1
+
+
+@pytest.mark.usefixtures("no_operator_secret")
+def test_an_operators_own_terminal_secret_is_kept(deploy, tmp_path) -> None:
+    (tmp_path / ".env").write_text(f"{OPERATOR_SECRET}=operator-chose-this\n", encoding="utf-8")
+    assert deploy(_deploy_config(ALIAS))[OPERATOR_SECRET] == "operator-chose-this"
+
+
+@pytest.mark.usefixtures("no_operator_secret")
+def test_a_panel_that_reads_no_terminal_secret_mints_none(deploy) -> None:
+    assert OPERATOR_SECRET not in deploy(_deploy_config(KNOB))
+
+
+@pytest.mark.usefixtures("no_operator_secret")
+def test_an_alias_panel_on_a_roster_reads_no_deployment_wide_secret() -> None:
+    """Each roster user's own secret is the grant there, so the shared one is not minted."""
+    config = {**_deploy_config(ALIAS), "modules": ROSTER}
+    assert OPERATOR_SECRET not in container_lifecycle.service_token_vars(config)["knob-demo"]
+
+
+@pytest.mark.usefixtures("no_operator_secret")
+def test_an_undeployed_alias_panel_mints_no_terminal_secret() -> None:
+    config = _deploy_config(ALIAS)
+    config["deployed_services"] = []
+    assert "knob-demo" not in container_lifecycle.service_token_vars(config)
+
+
 # --- OSPREY's own credentials stay the static set -----------------------------------------
 
 

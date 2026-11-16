@@ -510,7 +510,7 @@ Earlier releases armed writes per connector type, with
   ``writes: allowed`` --- for every machine, not only the type it named; any
   other value reads ``never``. A shared login always reads ``never``. A file that
   spells both the retired and the new key is refused. The retired keys are
-  refused from 2026.12.0.
+  refused in the next stable release.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
 - **Every machine starts at off.** After the rebuild, nothing writes until a
@@ -520,7 +520,8 @@ Earlier releases armed writes per connector type, with
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
-- **Two countdowns, warn now, refused from 2026.12.0.** A facility tool that
+- **Two countdowns, warn now, refused in the next stable release.** A facility
+  tool that
   a server lists under ``permissions.ask``, or whose name carries a
   destructive marker, and that is missing from that server's
   ``mcp_servers.<server>.writes`` list, is a build warning.
@@ -682,6 +683,11 @@ control-system connector answers about the present.
 
 Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
+``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
+are ``None`` when the archiver cannot say; ``check_availability`` raises
+``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
+answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
+newest sample); the default answers every part unknown, with a reason.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
 with exactly three columns, sorted by ``channel`` then ``timestamp``:

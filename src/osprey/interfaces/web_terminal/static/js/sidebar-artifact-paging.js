@@ -2,7 +2,10 @@
 /**
  * Paging for the session tree's scroll boxes. A box asks for its next page
  * when its end is near; a box given enough room to hold all it has never
- * scrolls, so it asks again after each render and each resize.
+ * scrolls, so it asks again after each render and each resize. At the same
+ * points a box that scrolls is marked `data-overflows`, which draws the fade
+ * at its bottom edge (sidebar-artifacts.css): a box that holds all its rows
+ * shows them all, unfaded.
  */
 
 /** How close to the end of a box (two rows) a scroll asks for the next page. */
@@ -31,8 +34,12 @@ export function createBoxPager({ isServed, loadMore, boxes }) {
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      // A box with no layout (hidden, detached) has no room to fill.
-      for (const box of boxes()) if (box.clientHeight > 0) pageBox(box);
+      for (const box of boxes()) {
+        // A box with no layout (hidden, detached) has no room to fill.
+        if (box.clientHeight === 0) continue;
+        box.toggleAttribute('data-overflows', box.scrollHeight > box.clientHeight + 1);
+        pageBox(box);
+      }
     });
   }
 

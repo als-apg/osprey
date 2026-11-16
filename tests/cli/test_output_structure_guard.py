@@ -329,10 +329,11 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "stderr and this is the one document on stdout, which scripts parse.",
     ),
     "cli/profile_cmd.py": (
-        1,
-        "profile card's `click.echo(json.dumps(rows))`. The --json branch runs "
-        "inside output.machine_mode(), so every human line is on stderr and this "
-        "is the one document on stdout, the same class as audit_cmd's report.",
+        2,
+        "profile card's `click.echo(json.dumps(rows))` and profile panels' "
+        "`click.echo(json.dumps(matrix))`. Each --json branch runs inside "
+        "output.machine_mode(), so every human line is on stderr and this is the "
+        "one document on stdout, the same class as audit_cmd's report.",
     ),
     "cli/init_cmd.py": (
         1,
@@ -355,8 +356,8 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "path carries diff bytes only.",
     ),
     "cli/facility_cmd.py": (
-        5,
-        "Three classes, all already blessed elsewhere. One is the --print-exporter "
+        6,
+        "Four classes, all already blessed elsewhere. One is the --print-exporter "
         "byte render: `osprey facility import mml --print-exporter` prints the "
         "layer's mml_export.m for a caller redirecting it into a file, the same "
         "class as users_cmd's byte render. The second is the import's one step, "
@@ -370,7 +371,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "piping it into a JSON parser, the same class as query_cmd's document; "
         "and its `facility show: no record <id>` / `facility show: <id> names a "
         "<kind> and a <kind>` stop, one bare line on stderr like the import's "
-        "stops beside it.",
+        "stops beside it. The fourth is `osprey facility validate`'s closing "
+        "`relations: N claims ...` summary, one bare line on stderr beside the "
+        "`response check <model>:` lines the build prints there, read by a "
+        "caller that greps stderr for the claim counts.",
     ),
 }
 

@@ -335,7 +335,10 @@ project image and every web-terminal image (they share the project
 Dockerfile), ``auth-sidecar`` for the login sidecar, and a service's build
 directory name, such as ``bluesky`` or ``event_dispatcher``, for the rest.
 
-A cache that has never been written is a BuildKit warning, not an error. Writing
+A cache that has never been written is a BuildKit warning, not an error. A cache
+whose registry fails to serve one of its layers fails BuildKit's build, so
+``osprey up`` builds that image again once without ``OSPREY_BUILD_CACHE_FROM``
+and logs a warning; the rebuild is slower, never wrong. Writing
 one needs Docker's containerd image store or a ``docker-container`` builder;
 the classic overlay2 store refuses ``OSPREY_BUILD_CACHE_TO``. Under Podman
 neither variable has any effect. With neither set, deploys build as they always

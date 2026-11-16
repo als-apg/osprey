@@ -141,7 +141,7 @@ describe('the overview', () => {
     ]);
     expect($('graph-context').textContent).toBe('Overview');
     expect($('graph-stage').querySelector('.okf-graph-status')?.textContent).toBe(
-      '10 nodes and 9 relations, grouped by type'
+      '10 nodes and 10 relations, grouped by type'
     );
     expect($('graph-chip').textContent?.trim()).toBe('10 nodes · built from the facility file');
     expect(view.location()).toBeNull();
@@ -149,7 +149,7 @@ describe('the overview', () => {
     expect($('graph-depth').hidden).toBe(true);
   });
 
-  test('the legend lists every relation with its count, and tags a derived one', () => {
+  test('the legend lists every relation with its count', () => {
     const rows = [...$('graph-relations').querySelectorAll('.okf-graph-legend-row')].map((row) =>
       [...row.querySelectorAll('span')].map((span) => span.textContent).join(' ')
     );
@@ -158,7 +158,8 @@ describe('the overview', () => {
       'readsSignal 1',
       'writesSignal 1',
       'type 2',
-      'inPlace derived 2',
+      'locatedIn 2',
+      'partOf 1',
       'calibrates 1',
     ]);
     const kinds = [...$('graph-kinds').querySelectorAll('.okf-graph-legend-name')];
@@ -233,11 +234,11 @@ describe('a neighbourhood', () => {
 
   test('draws the nodes around the focus, and marks it', () => {
     expect(drawnLabels().sort()).toEqual(
-      ['BeamPositionMonitor', 'M/BPM1', 'M/Q1', 'M/S1', 'M:BPM1:X', 'position_x'].sort()
+      ['BeamPositionMonitor', 'M', 'M/BPM1', 'M/Q1', 'M/S1', 'M:BPM1:X', 'position_x'].sort()
     );
     expect(nodeEl('2').querySelector('.okf-graph-focus')).not.toBeNull();
     expect($('graph-stage').querySelector('.okf-graph-status')?.textContent).toBe(
-      '6 nodes · 6 relations around M/BPM1 (2 hops)'
+      '7 nodes · 7 relations around M/BPM1 (2 hops)'
     );
     expect($('graph-modes').querySelector('[aria-pressed="true"]')?.textContent).toBe(
       'Neighbourhood'
@@ -258,13 +259,15 @@ describe('a neighbourhood', () => {
       'Device · BeamPositionMonitor'
     );
     expect(inspector.querySelector('.okf-graph-title')?.textContent).toBe('M/BPM1');
-    expect(inspector.querySelector('.okf-graph-description')?.textContent).toBe('A monitor.');
+    expect(
+      [...inspector.querySelectorAll('.okf-graph-description')].map((line) => line.textContent)
+    ).toEqual(['A monitor.', 'Also called BPM 1, Orbit monitor 1']);
     expect([...inspector.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
       'placePath',
     ]);
     expect(
       [...inspector.querySelectorAll('.osprey-section-label')].map((label) => label.textContent)
-    ).toEqual(['→ hasBinding · 1', '→ type · 1', '→ inPlace · 1']);
+    ).toEqual(['→ hasBinding · 1', '→ type · 1', '→ locatedIn · 1']);
     // The focus needs no "Focus here".
     expect([...inspector.querySelectorAll('.osprey-btn')].map((b) => b.textContent)).toEqual([
       'Knowledge page',
@@ -422,7 +425,7 @@ describe('the right-click menus', () => {
     expect($('graph-inspector').hidden).toBe(true);
     expect(view.location()).toBe('d:M/BPM1');
     expect($('graph-stage').querySelector('.okf-graph-status')?.textContent).toBe(
-      '6 nodes · 6 relations around M/BPM1 (2 hops)'
+      '7 nodes · 7 relations around M/BPM1 (2 hops)'
     );
   });
 

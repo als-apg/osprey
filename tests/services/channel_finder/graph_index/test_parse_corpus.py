@@ -43,8 +43,9 @@ DEMO_BINDINGS = 4731
 DEMO_WRITE_ONLY = 674
 DEMO_READ_ONLY = 4052
 DEMO_MAGNETS = 480
-#: 38 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
-#: leaves that pruning drops.
+#: 47 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
+#: ``ChannelBinding`` and the eight infrastructure classes whose devices bind no
+#: channel. Their parent ``Infrastructure`` stays, as the parent of a class.
 DEMO_CLASS_COUNT = 36
 #: The channels bound to the top place rather than to a device: no system, no
 #: class.
@@ -504,5 +505,6 @@ class TestTheBuildsGraphView:
                 "LN",
                 "LTB",
                 *(f"SECT{number}" for number in range(1, 13)),
+                *("HALL", "ROW3", "RK07", "RK08", "G2"),
             }
         )

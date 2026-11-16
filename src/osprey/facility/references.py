@@ -1,7 +1,8 @@
 """Facility references: a mention of a facility record in text.
 
 A :class:`FacilityReference` is one span of a text that names a channel id or a
-device id of the facility file, with the kinds of record that id resolves to.
+device id of the facility file, or a place through a ``place/<id>`` link, with
+the kinds of record that target resolves to.
 A finder turns text into references: :func:`find_facility_links` for the markup
 an author writes on a knowledge page, :func:`find_facility_references` for a
 quoted id in logbook prose, looked up in the facility file. :func:`resolved_references`
@@ -13,7 +14,9 @@ A facility link is a standard markdown inline link whose destination uses the
 whitespace, a parenthesis, an angle bracket or a backslash is written as a
 CommonMark angle-bracket destination around the whole destination,
 ``[label](<facility:ADDRESS WITH SPACES>)``.
-:class:`osprey.facility.records.FacilityRecords` resolves the target.
+:meth:`osprey.facility.records.FacilityRecords.resolve_link` resolves the target:
+a channel id or a device id, or ``place/<id>`` for a place, where an exact
+channel or device id wins. Logbook prose never names a place.
 
 The link finder reads markdown link syntax only: a link inside a fenced code
 block or an inline code span is not a link, and nothing outside a link is ever
@@ -25,9 +28,9 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from osprey.facility.records import LINK_KINDS, LinkKind
+from osprey.facility.records import LINK_KINDS, PLACE_LINK_PREFIX, LinkKind, describe_records
 
 if TYPE_CHECKING:
     from osprey.facility.records import FacilityRecords
@@ -62,9 +65,21 @@ _CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", re.DOTALL)
 _ESCAPE = re.compile(r"\\(.)", re.DOTALL)
 
 
+#: The kinds a reference may carry: the link kinds, or a place alone for the
+#: ``place/<id>`` link form.
+ReferenceKind = LinkKind | Literal["place"]
+
+_PLACE_KINDS: tuple[ReferenceKind, ...] = ("place",)
+
+
 def _link_kinds(kinds: Collection[str]) -> tuple[LinkKind, ...]:
     """The link kinds among ``kinds``, in ``LINK_KINDS`` order and distinct."""
     return tuple(kind for kind in LINK_KINDS if kind in kinds)
+
+
+def _reference_kinds(kinds: Collection[str]) -> tuple[ReferenceKind, ...]:
+    """The link kinds among ``kinds``, or ``("place",)`` when a place is all there is."""
+    return _link_kinds(kinds) or (_PLACE_KINDS if "place" in kinds else ())
 
 
 @dataclass(frozen=True)
@@ -76,9 +91,11 @@ class FacilityReference:
             starts.
         end: The Unicode code-point offset into the text just past the
             mention; greater than ``start``.
-        target: The channel id or device id the mention names; never empty.
+        target: The channel id or device id the mention names, or a link's
+            ``place/<id>`` text; never empty.
         kinds: The kinds of record ``target`` resolves to, in ``LINK_KINDS``
-            order and distinct; empty when it resolves to none or was not
+            order and distinct, or ``("place",)`` for a ``place/<id>`` link
+            that names a place; empty when it resolves to none or was not
             looked up.
         label: The text an author gave a facility link, with its backslash
             escapes undone; ``None`` for a mention that is not a link. A mention
@@ -92,7 +109,7 @@ class FacilityReference:
     start: int
     end: int
     target: str
-    kinds: tuple[LinkKind, ...] = ()
+    kinds: tuple[ReferenceKind, ...] = ()
     label: str | None = None
 
     def __post_init__(self) -> None:
@@ -105,9 +122,16 @@ class FacilityReference:
                 f"a mention spans its target {self.target!r}, not {self.start}..{self.end}"
             )
         kinds = tuple(self.kinds)
-        if any(kind not in LINK_KINDS for kind in kinds):
-            raise ValueError(f"a reference resolves to channels or devices, not {kinds!r}")
-        if kinds != _link_kinds(kinds):
+        if kinds == _PLACE_KINDS:
+            if self.label is None or not self.target.startswith(PLACE_LINK_PREFIX):
+                raise ValueError(
+                    f"only a {PLACE_LINK_PREFIX}<id> link resolves to a place, not {self.target!r}"
+                )
+        elif any(kind not in LINK_KINDS for kind in kinds):
+            raise ValueError(
+                f"a reference resolves to channels or devices, or a place alone, not {kinds!r}"
+            )
+        elif kinds != _link_kinds(kinds):
             raise ValueError(
                 f"a reference's kinds are channel then device, each once, not {kinds!r}"
             )
@@ -194,9 +218,9 @@ def find_facility_links(
         target = _ESCAPE.sub(r"\1", angle) if angle is not None else parsed.group("bare")
         if not target:
             continue
-        kinds: tuple[LinkKind, ...] = ()
+        kinds: tuple[ReferenceKind, ...] = ()
         if records is not None:
-            kinds = _link_kinds({record.kind for record in records.resolve(target)})
+            kinds = _reference_kinds({record.kind for record in records.resolve_link(target)})
         found.append(
             FacilityReference(
                 match.start(),
@@ -273,14 +297,22 @@ def resolved_references(
         One ``{start, end, target, kinds, label, records}`` per reference, in
         the order given. ``records`` lists one ``{kind, id, unit?,
         description?}`` per record the target resolves to (empty for a target
-        the facility file does not hold), or is ``None`` without records.
+        the facility file does not hold), or is ``None`` without records: a
+        link resolves through
+        :meth:`~osprey.facility.records.FacilityRecords.resolve_link`, a
+        mention through :meth:`~osprey.facility.records.FacilityRecords.resolve`.
+        ``target`` stays the reference's own text, ``place/<id>`` for a place
+        link.
     """
     resolved: list[dict[str, Any]] = []
     for found in references:
-        described = records.describe(found.target) if records is not None else None
+        described = None
+        if records is not None:
+            resolve = records.resolve if found.label is None else records.resolve_link
+            described = describe_records(resolve(found.target))
         kinds = found.kinds
         if described is not None:
-            kinds = _link_kinds({entry["kind"] for entry in described})
+            kinds = _reference_kinds({entry["kind"] for entry in described})
         resolved.append(
             {
                 "start": found.start,

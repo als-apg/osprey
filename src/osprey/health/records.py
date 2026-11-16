@@ -69,11 +69,15 @@ CONFIG_DEPENDENT = frozenset(
         "dispatch",
         "service_capabilities",
         "ariel_modules",
+        "pv_directory",
+        "pv_directory_alarm_feed",
     }
 )
 
 # Core categories in the on_demand cost class (gated behind ``--full``).
-ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat", "ariel_modules"})
+ON_DEMAND_CORE = frozenset(
+    {"claude_cli_pinned", "model_chat", "ariel_modules", "pv_directory_alarm_feed"}
+)
 
 
 def load_config(
@@ -267,7 +271,7 @@ def build_records(
             continue
 
         factory = get_core_category_factory(name)
-        # Five categories take a `cwd`, and the anchor follows the ZONE the
+        # Ten categories take a `cwd`, and the anchor follows the ZONE the
         # material they look for lives in — not a house style. Getting it wrong
         # is silent: the check reports a present file as missing.
         if name in ("file_system", "systemd_unit", "archive", "simulator"):
@@ -281,17 +285,24 @@ def build_records(
             # `simulator`: the simulator view is found from the repo root, the
             # way `osprey sim status` finds it.
             func = factory(expanded, context=None, cwd=project_path)
-        elif name in ("safety_chain", "rendered", "service_capabilities"):
+        elif name in (
+            "safety_chain",
+            "rendered",
+            "service_capabilities",
+            "pv_directory",
+            "pv_directory_alarm_feed",
+        ):
             # Build output: the rendered `.claude/`, `.mcp.json`, the hook files
             # and the knowledge bundle's manifest sit beside the rendered config,
-            # so these compare the render zone against what the build wrote.
+            # so these compare the render zone against what the build wrote. The
+            # PV directory's service paths are relative to the rendered config.
             func = factory(expanded, context=None, cwd=render_path)
         elif name == "channel_finder":
             # NOT the repo root. A channel database is build-owned output, and
             # the rendered config states its path relative to the config's own
             # directory (`<repo>/build`), so anchoring it on the repo root looks
             # one zone too high and reports a present database as missing. The
-            # five categories do not all take the same anchor on purpose.
+            # ten categories do not all take the same anchor on purpose.
             func = factory(expanded, context=None, cwd=render_path)
         else:
             func = factory(expanded, context=None)

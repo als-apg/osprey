@@ -21,9 +21,12 @@ from osprey.deployment.build_cache import (
     PROJECT_KEY,
     build_cache_args,
     compose_cache_override,
+    run_image_build,
     service_cache_key,
+    without_cache_source,
 )
 from osprey.deployment.compose_generator import compose_base_cmd
+from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.runtime_helper import ComposeProvider
 from osprey.deployment.web_terminals import provision, render_images
 
@@ -278,3 +281,151 @@ def test_a_podman_project_build_carries_no_cache_flags() -> None:
     cmd = container_lifecycle._project_image_build_cmd({"project_name": "p"}, "podman", "/proj")
 
     assert _cache_flags(cmd) == []
+
+
+# ---------------------------------------------------------------------------
+# A source the registry fails to serve costs a rebuild, not the build
+# ---------------------------------------------------------------------------
+
+#: The line BuildKit wrote when GHCR failed to serve a layer the project key lists.
+SOURCE_READ_FAILURE = (
+    b"ERROR: failed to build: failed to solve: failed to compute cache key: failed to copy: "
+    b"httpReadSeeker: failed open: could not fetch content descriptor sha256:243d57ac8fd5 "
+    b"(application/vnd.oci.image.layer.v1.tar+gzip) from remote: not found\n"
+)
+#: A COPY of a file the context lacks: the same opening words, a broken recipe.
+MISSING_CONTEXT_FILE = (
+    b"ERROR: failed to build: failed to solve: failed to compute cache key: "
+    b'failed to calculate checksum of ref abc::def: "/missing.txt": not found\n'
+)
+DIRECT = [
+    "docker",
+    "build",
+    "-t",
+    "p:local",
+    "-f",
+    "/proj/build/Dockerfile",
+    "--cache-from",
+    "type=registry,ref=ghcr.io/org/cache:project",
+    "--cache-to",
+    "type=registry,ref=ghcr.io/org/cache:project,mode=max",
+    "/proj",
+]
+
+
+def test_a_direct_build_loses_its_source_and_keeps_its_sink() -> None:
+    assert without_cache_source(DIRECT) == [
+        "docker",
+        "build",
+        "-t",
+        "p:local",
+        "-f",
+        "/proj/build/Dockerfile",
+        "--cache-to",
+        "type=registry,ref=ghcr.io/org/cache:project,mode=max",
+        "/proj",
+    ]
+
+
+def test_a_build_without_a_source_has_nothing_to_drop() -> None:
+    assert without_cache_source(["docker", "build", "-t", "p:local", "/proj"]) is None
+
+
+@pytest.mark.usefixtures("cache_env")
+def test_a_compose_override_is_written_again_without_its_source(tmp_path: Path) -> None:
+    files = [_compose_file(tmp_path)]
+    argv = compose_base_cmd(["docker", "compose"], files, tmp_path, env_file_args=[]) + ["build"]
+
+    fallback = without_cache_source(argv)
+
+    assert fallback is not None
+    assert fallback[-1] == "build"
+    entries = _f_entries(fallback)
+    assert entries[0] == files[0]
+    document = yaml.safe_load(Path(entries[-1]).read_text(encoding="utf-8"))
+    assert document == {
+        "services": {
+            "bluesky-bridge": {
+                "build": {"cache_to": ["type=registry,ref=ghcr.io/org/cache:bluesky,mode=max"]}
+            }
+        }
+    }
+
+
+def test_an_override_that_only_read_is_dropped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(CACHE_FROM_ENV, SOURCE)
+    files = [_compose_file(tmp_path)]
+    argv = compose_base_cmd(["docker", "compose"], files, tmp_path, env_file_args=[])
+
+    assert _f_entries(without_cache_source(argv) or []) == files
+
+
+class _Builds:
+    """Runs one argv per call, failing each in turn with the output it is handed."""
+
+    def __init__(self, tmp_path: Path, *outputs: bytes | None) -> None:
+        self.tmp_path = tmp_path
+        self.outputs = list(outputs)
+        self.argvs: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> None:
+        self.argvs.append(argv)
+        output = self.outputs.pop(0)
+        if output is not None:
+            spool = self.tmp_path / f"build-{len(self.argvs)}.log"
+            spool.write_bytes(output)
+            raise CapturedProcessError(argv, 1, spool)
+
+
+def test_a_source_the_registry_fails_to_serve_is_built_without(tmp_path: Path) -> None:
+    builds = _Builds(tmp_path, SOURCE_READ_FAILURE, None)
+
+    run_image_build(DIRECT, builds)
+
+    assert builds.argvs == [DIRECT, without_cache_source(DIRECT)]
+
+
+def test_the_rebuild_failing_is_the_failure_raised(tmp_path: Path) -> None:
+    builds = _Builds(tmp_path, SOURCE_READ_FAILURE, b"ERROR: something else\n")
+
+    with pytest.raises(CapturedProcessError) as raised:
+        run_image_build(DIRECT, builds)
+
+    assert raised.value.cmd == without_cache_source(DIRECT)
+    assert len(builds.argvs) == 2
+
+
+@pytest.mark.parametrize("output", [MISSING_CONTEXT_FILE, b"ERROR: process did not complete\n"])
+def test_any_other_failure_is_not_rebuilt(tmp_path: Path, output: bytes) -> None:
+    builds = _Builds(tmp_path, output)
+
+    with pytest.raises(CapturedProcessError):
+        run_image_build(DIRECT, builds)
+
+    assert builds.argvs == [DIRECT]
+
+
+def test_a_build_that_read_no_source_is_not_rebuilt(tmp_path: Path) -> None:
+    plain = ["docker", "build", "-t", "p:local", "/proj"]
+    builds = _Builds(tmp_path, SOURCE_READ_FAILURE)
+
+    with pytest.raises(CapturedProcessError):
+        run_image_build(plain, builds)
+
+    assert builds.argvs == [plain]
+
+
+def test_a_verbose_run_with_no_spool_is_not_rebuilt() -> None:
+    """Under --verbose the output went to the terminal; there is nothing to read."""
+    argvs: list[list[str]] = []
+
+    def run(argv: list[str]) -> None:
+        argvs.append(argv)
+        raise CapturedProcessError(argv, 1, None)
+
+    with pytest.raises(CapturedProcessError):
+        run_image_build(DIRECT, run)
+
+    assert argvs == [DIRECT]

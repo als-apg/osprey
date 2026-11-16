@@ -5,11 +5,12 @@ a ``with`` block and restores their levels afterwards.
 """
 
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 
 @contextmanager
-def _suppress_logger_level(logger_name: str | list[str], level: int):
+def _suppress_logger_level(logger_name: str | list[str], level: int) -> Iterator[dict[str, int]]:
     """Context manager to temporarily raise logger level to suppress messages.
 
     Args:
@@ -37,7 +38,7 @@ def _suppress_logger_level(logger_name: str | list[str], level: int):
 
 
 @contextmanager
-def quiet_logger(logger_name: str | list[str]):
+def quiet_logger(logger_name: str | list[str]) -> Iterator[dict[str, int]]:
     """Context manager to temporarily suppress INFO-level messages from logger(s).
 
     This is a convenience wrapper around _suppress_logger_level() that specifically

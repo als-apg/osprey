@@ -3,8 +3,8 @@
   "_description": "Every pinned demo-facility count the expansion moves, one entry per stated value. `pin` is `assign:NAME` (a module-level constant, compared after literal_eval), `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side). `facility` holds the counts the built demo facility must show.",
   "facility": {
     "channels": 4731,
-    "devices": 1016,
-    "groups": 79,
+    "devices": 1027,
+    "groups": 80,
     "setpoints": 674,
     "readables": 4057
   },
@@ -72,12 +72,12 @@
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:The build holds {value} devices",
-      "value": 1016
+      "value": 1027
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:devices in {value} groups",
-      "value": 79
+      "value": 80
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
@@ -92,22 +92,22 @@
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:def test_the_demo_holds_{value}_devices",
-      "value": 1016
+      "value": 1027
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:_devices_in_{value}_groups",
-      "value": 79
+      "value": 80
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:assert len(built_demo.facility[\"devices\"]) == {value}",
-      "value": 1016
+      "value": 1027
     },
     {
       "file": "tests/facility/test_demo_fingerprint.py",
       "pin": "text:assert len(groups) == {value}",
-      "value": 79
+      "value": 80
     },
     {
       "file": "tests/facility/test_compute_demo.py",
@@ -356,7 +356,7 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_MAGNETS",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
@@ -381,7 +381,7 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:/ {value} magnets",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
@@ -391,12 +391,12 @@
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "assign:EXPECTED_TRIPLES_LOADED",
-      "value": 40928
+      "value": 44145
     },
     {
       "file": "tests/integration/test_graphdb_store.py",
       "pin": "text:and its {value} triples",
-      "value": 40928
+      "value": 44145
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
@@ -421,6 +421,11 @@
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "assign:EXPECTED_MAGNETS",
+      "value": 481
+    },
+    {
+      "file": "tests/integration/test_graph_mcp.py",
+      "pin": "assign:EXPECTED_BOUND_MAGNETS",
       "value": 480
     },
     {
@@ -446,22 +451,22 @@
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:lists exactly the {value} verified devices",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:compare 200 against {value} and",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:reaches the same {value} without",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/integration/test_graph_mcp.py",
       "pin": "text:demo machine has {value} magnets",
-      "value": 480
+      "value": 481
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_parse_corpus.py",
@@ -531,7 +536,7 @@
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
       "pin": "assign:DEMO_SECTIONS",
-      "value": 19
+      "value": 24
     },
     {
       "file": "tests/services/channel_finder/graph_index/test_build.py",
@@ -576,7 +581,12 @@
     {
       "file": "tests/templates/test_demo_ttl.py",
       "pin": "assign:EXPECTED_DEVICES",
-      "value": 1016
+      "value": 1027
+    },
+    {
+      "file": "tests/templates/test_demo_ttl.py",
+      "pin": "assign:EXPECTED_SYSTEM_DESCRIBED",
+      "value": 1018
     },
     {
       "file": "tests/templates/test_demo_ttl.py",
@@ -596,7 +606,7 @@
     {
       "file": "tests/templates/test_demo_ttl.py",
       "pin": "text:The census below ({value}",
-      "value": 1016
+      "value": 1027
     },
     {
       "file": "tests/templates/test_demo_ttl.py",
@@ -656,7 +666,12 @@
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
       "pin": "assign:EXPECTED_DEVICES",
-      "value": 1016
+      "value": 1027
+    },
+    {
+      "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
+      "pin": "assign:EXPECTED_SYSTEM_DESCRIBED",
+      "value": 1018
     },
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
@@ -665,7 +680,7 @@
     },
     {
       "file": "tests/services/facility_knowledge/test_demo_ttl_consistency.py",
-      "pin": "text:\"familyDescription\": {value},\n    \"systemDescription\": EXPECTED_DEVICES",
+      "pin": "text:\"familyDescription\": {value},\n    \"systemDescription\": EXPECTED_SYSTEM_DESCRIBED",
       "value": 1016
     },
     {
@@ -673,7 +688,7 @@
       "pin": "assign:EXPECTED_DISTINCT_DEVICE_TEXTS",
       "value": {
         "familyDescription": 75,
-        "systemDescription": 7
+        "systemDescription": 8
       }
     },
     {
@@ -759,7 +774,7 @@
     {
       "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",
       "pin": "text:written from the facility file: {value} devices",
-      "value": 1016
+      "value": 1027
     },
     {
       "file": "docs/source/how-to/facility-knowledge/use-facility-graph.rst",

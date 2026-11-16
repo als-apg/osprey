@@ -15,6 +15,7 @@
  * @module chat-follow
  */
 
+import { emitChat } from './chat-events.js';
 import { endsTurn, isResponseFrame } from './chat-frames.js';
 
 /** @typedef {import('./chat-client.js').ChatEvent} ChatEvent */
@@ -37,7 +38,8 @@ import { endsTurn, isResponseFrame } from './chat-frames.js';
 /**
  * @typedef {object} TurnFollower
  * @property {(frame: ChatEvent) => void} frame - one frame from the feed, its opening snapshot included
- * @property {() => void} noAgent - the feed found no agent for the chat
+ * @property {(model?: string | null) => void} noAgent - the feed found no agent for
+ *   the chat; *model* is the one that will answer its first prompt, when the server names it
  * @property {() => void} restart - a new feed opens: no turn followed, no frame seen yet
  * @property {() => void} logChanged - the log changed under any transcript read in
  *   flight: this tab sent a prompt, or the console was cleared
@@ -167,8 +169,8 @@ export function createTurnFollower(host) {
 
   /**
    * The snapshot each (re)connect of the feed opens with: whether a turn runs,
-   * the requests it waits on, the newest frame's number and the window's last
-   * reading.
+   * the requests it waits on, the newest frame's number, the window's last
+   * reading and the model that answers.
    * @param {ChatEvent} hello
    */
   function onHello(hello) {
@@ -189,6 +191,8 @@ export function createTurnFollower(host) {
     }
     // The window's last reading, so the meter is right on a tab that opens mid-session.
     if (hello.context) host.draw(hello.context);
+    // The model, so the tag shows on a tab that opens before the next turn.
+    emitChat('model', { model: typeof hello.model === 'string' ? hello.model : null });
   }
 
   /**
@@ -234,7 +238,11 @@ export function createTurnFollower(host) {
 
   return {
     frame,
-    noAgent,
+    noAgent(model = null) {
+      // No agent runs yet: the model that will answer is the deployment's.
+      emitChat('model', { model: typeof model === 'string' && model ? model : null });
+      noAgent();
+    },
     restart() {
       mirroring = null;
       lastSeq = null;

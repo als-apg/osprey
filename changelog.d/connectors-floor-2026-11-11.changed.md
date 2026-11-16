@@ -1,1 +1,0 @@
-The framework, `osprey-optimizer` and `pyaml-cs-osprey` require `osprey-connectors>=2026.11.11`, the first release that checks a batch of writes whole before sending any and carries `raise_for_write_results()`.

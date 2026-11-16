@@ -97,6 +97,18 @@
   span:
     model: LINE
     from_marker: START
+- id: SR/SECT3/G2
+  level: girder
+  description: Sector 3, girder 2
+- id: HALL
+  level: building
+  description: Equipment hall
+- id: HALL/ROW3
+  level: row
+- id: HALL/ROW3/RK07
+  level: rack
+- id: HALL/ROW3/RK08
+  level: rack
 - id: GTL
   level: machine
   description: 'Gun-to-Linac Line (GTL): the start of the injector. A thermionic electron gun produces the beam; bucking coils cancel the solenoid field on its cathode, two sub-harmonic bunchers compress the long gun pulse into bunches the linac can capture, and solenoids hold the low-energy beam together on its way to the linac. Correctors steer it, beam position monitors and screens show where it is, and an integrating current transformer measures the charge the gun delivers.'

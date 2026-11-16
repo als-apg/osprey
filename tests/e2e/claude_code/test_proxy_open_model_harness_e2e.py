@@ -26,13 +26,7 @@ import subprocess
 
 import httpx
 import pytest
-
-from osprey.agent_runner.launcher import agent_cli_path
-from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
-from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
-
-claude_agent_sdk = pytest.importorskip("claude_agent_sdk")
-from claude_agent_sdk import (  # noqa: E402
+from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
@@ -42,6 +36,10 @@ from claude_agent_sdk import (  # noqa: E402
     query,
     tool,
 )
+
+from osprey.agent_runner.launcher import agent_cli_path
+from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
+from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = os.environ.get("OSPREY_E2E_OLLAMA_MODEL", "qwen2.5:32b-32k")

@@ -55,8 +55,9 @@ if TYPE_CHECKING:
 #: * ``handleMultival='ARRAY'`` restricted by ``multivalPropList`` to
 #:   ``skos:altLabel`` — the one predicate in the NARAD vocabulary that
 #:   genuinely repeats, since an ontology class carries a handful of synonyms
-#:   ("bend", "bending magnet", "dipole").  Those land as a Cypher list the
-#:   synonym lookups can search element by element.  The prop list is what keeps
+#:   ("bend", "bending magnet", "dipole") and a place, device or channel any
+#:   number of names.  Those land as a Cypher list the synonym and name
+#:   lookups can search element by element.  The prop list is what keeps
 #:   the rest of the graph scalar (``.sectionCode = 'GTL'``, not ``['GTL']``):
 #:   ARRAY on its own would wrap *every* property in a list and rewrite every
 #:   query.

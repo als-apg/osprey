@@ -425,7 +425,7 @@ def create_app(bundle_path=None, graph_path=None) -> FastAPI:
 
     @app.get("/api/graph")
     async def api_graph() -> Response:
-        """The facility graph as ``{"nodes", "edges", "derived"}``.
+        """The facility graph as ``{"nodes", "edges"}``.
 
         The shape is :func:`osprey.interfaces.okf_panel.graph.graph_payload`'s.
         404 when the deployment has no facility graph: unlike the bundle, a

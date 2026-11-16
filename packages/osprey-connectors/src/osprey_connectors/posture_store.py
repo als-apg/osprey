@@ -132,11 +132,13 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Final, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
+
+from typing_extensions import override
 
 from osprey_connectors import session_hold
 from osprey_connectors.identity import acting_identity
@@ -151,6 +153,10 @@ from osprey_connectors.types import (
     tier_writes,
 )
 from osprey_connectors.workspace import resolve_shared_data_root
+
+if TYPE_CHECKING:
+    # ``control_context`` imports this module at load time.
+    from osprey_connectors.control_context import ControlContext
 
 logger = logging.getLogger("osprey_connectors.posture_store")
 
@@ -336,9 +342,11 @@ class NoOwner:
 
     __slots__ = ()
 
+    @override
     def __str__(self) -> str:
         return "<no owner>"
 
+    @override
     def __repr__(self) -> str:
         return "<no owner>"
 
@@ -448,7 +456,7 @@ def bound_owner() -> str | NoOwner:
 
 
 @contextmanager
-def bind_owner(kwargs: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def bind_owner(kwargs: Mapping[str, object]) -> Iterator[dict[str, object]]:
     """Bind the owner riding on *kwargs* for the body, yielding the kwargs without it.
 
     The one way an owner enters a queueserver worker: the bridge puts it on the
@@ -649,7 +657,7 @@ def _control_context_tree() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def parse_posture_value(value: Any) -> dict[str, str]:
+def parse_posture_value(value: object) -> dict[str, str]:
     """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
 
     The grammar of the mirror field (rule 2), in one place:
@@ -704,7 +712,7 @@ class _TreeContext(NamedTuple):
             the ways of not knowing happened.
     """
 
-    record: Any
+    record: ControlContext | None
     unavailable: str | None
 
 
@@ -825,7 +833,7 @@ def _read_no_follow(path: Path) -> str:
     return text
 
 
-def _read_tree_context(tree: Path, owner: str) -> _TreeContext:
+def _read_tree_context(tree: Path, owner: object) -> _TreeContext:
     """*owner*'s whole record out of the read-only *tree*, with the reason when there is none.
 
     The reader a container uses when it holds the whole tree and no chip of its
@@ -941,15 +949,17 @@ def _read_tree_context(tree: Path, owner: str) -> _TreeContext:
         # an unexpected failure on a present record leaves a switch that may
         # exist unread, so it answers unavailable rather than guessing.
         logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
-        if getattr(exc, "errno", None) == errno.ELOOP:
+        code: object = getattr(exc, "errno", None)
+        if code == errno.ELOOP:
             return _TreeContext(None, _tree_planted_link(record_file, "record"))
-        if getattr(exc, "errno", None) == errno.EFBIG:
+        if code == errno.EFBIG:
             # Asked by name for the same reason the planted link is: the size
             # bound refuses a file whose mode and group are beyond reproach, so
             # the generic remedy points at two things an operator then finds
             # correct.
             return _TreeContext(None, _tree_record_oversized(record_file))
-        detail = getattr(exc, "strerror", None) or type(exc).__name__
+        strerror: object = getattr(exc, "strerror", None)
+        detail = strerror or type(exc).__name__
         return _TreeContext(
             None, _tree_record_unreadable(record_file, f"could not be read ({detail})")
         )
@@ -1037,7 +1047,7 @@ _LOGIN_TIERS: Final = TIER_WORDS
 
 
 def owner_tier_term(
-    section: Any, owner: str | NoOwner | None
+    section: object, owner: str | NoOwner | None
 ) -> Literal["skip", "never", "asked", "allowed", "unknown"]:
     """The owner's tier out of ``control_system.login_tiers`` — the verdict's owner rung.
 
@@ -1058,8 +1068,7 @@ def owner_tier_term(
     Logins match exactly: no case folding, no trimming. Never raises.
     """
     try:
-        carries = isinstance(section, dict) and _LOGIN_TIERS_LEAF in section
-        if not carries:
+        if not (isinstance(section, dict) and _LOGIN_TIERS_LEAF in section):
             return "unknown" if _tree_is_bound() else "skip"
         login_tiers = section[_LOGIN_TIERS_LEAF]
         if not isinstance(login_tiers, dict) or not all(
@@ -1076,7 +1085,7 @@ def owner_tier_term(
 
 
 def write_ceiling(
-    section: Any, owner: str | NoOwner | None, *, tree_bound: bool | None = None
+    section: object, owner: str | NoOwner | None, *, tree_bound: bool | None = None
 ) -> Literal["never", "asked", "allowed", "unknown"]:
     """The highest position a write by *owner* runs at: the verdict's ceiling.
 
@@ -1134,7 +1143,7 @@ class WriteVerdict:
 
 
 def write_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -1217,11 +1226,11 @@ class _RecordSeen:
 
     def __init__(self) -> None:
         self.read = False
-        self.record: Any = None
+        self.record: ControlContext | None = None
 
 
 def _write_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
@@ -1243,7 +1252,9 @@ def _write_verdict(
     )
 
 
-def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+def _verdict_kind(
+    section: object, target: object
+) -> Literal["real", "rehearsal", "simulator"] | None:
     """The machine kind a verdict on *target* names, or ``None``. Never raises.
 
     The name decides whether the target resolves at all; the published report
@@ -1257,7 +1268,7 @@ def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "si
         return None
 
 
-def backstop_verdict(section: Any) -> WriteVerdict:
+def backstop_verdict(section: object) -> WriteVerdict:
     """The verdict for a write no target or owner can be named for.
 
     The floor under every write path that cannot be traced to one machine: it
@@ -1346,7 +1357,7 @@ def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
 
 
 def execution_verdict(
-    section: Any,
+    section: object,
     target: str | None,
     *,
     owner: str | NoOwner | None = None,
@@ -1378,7 +1389,7 @@ def execution_verdict(
 
 
 def _with_hold(
-    section: Any, verdict: WriteVerdict, session_keys: Sequence[str] | None
+    section: object, verdict: WriteVerdict, session_keys: Sequence[str] | None
 ) -> WriteVerdict:
     """*verdict* as :func:`execution_verdict` answers it: the hold after the backstop."""
     if not backstop_verdict(section).allowed:
@@ -1390,8 +1401,8 @@ def _with_hold(
 
 
 def _write_refusal(
-    section: Any,
-    target: Any,
+    section: object,
+    target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
     seen: _RecordSeen | None = None,
@@ -1408,6 +1419,8 @@ def _write_refusal(
         return "readonly_run", None
     if not tier_allows(section):
         return "tier_never", None
+    if target is None:  # resolve_target refuses it too; said here for the type
+        return "target_unknown", None
     try:
         resolve_target(section, target)
     except Exception:  # ValueError by contract; anything else is no resolution either

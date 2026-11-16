@@ -468,7 +468,25 @@ class ValidateRequest(BaseModel):
 
 @router.get("/info")
 async def get_info(request: Request):
-    """Return pipeline type and pipeline-specific metadata."""
+    """Return pipeline type and pipeline-specific metadata.
+
+    With the ``pv_directory`` section configured, the payload also carries the
+    ``directory`` scope descriptor, computed per request so its label follows a
+    target move; without it the key is absent and the payload is today's.
+    """
+    info = _pipeline_info(request)
+    service = getattr(request.app.state, "directory_service", None)
+    if service is not None:
+        from osprey.interfaces.channel_finder.directory_api import directory_descriptor
+
+        info["directory"] = await directory_descriptor(
+            request.app.state.config, request.app.state.pv_directory, service
+        )
+    return info
+
+
+def _pipeline_info(request: Request) -> dict[str, Any]:
+    """The paradigm and its metadata, as ``/api/info`` reports them."""
     # An unconfigured project has no paradigm at all — that is a reportable
     # state, not a request defect. The data routes still refuse through
     # ``_pipeline_type``; this route is how the UI learns what it is talking
@@ -733,9 +751,8 @@ def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:
 
     The rows are already the pruned device taxonomy: the build applied the
     pruning once, over the whole corpus, and the ``total_classes`` badge counts
-    those same rows. They are not pruned again here — a second pass would drop
-    an abstract parent whose only subclass the first pass removed, and the tree
-    would then disagree with the badge.
+    those same rows. They are not pruned again here, so the tree the route
+    serves is the population the badge counted.
 
     An index that binds nothing answers the empty-corpus shape the explorer
     already branches on: no classes to draw, and the remedy in

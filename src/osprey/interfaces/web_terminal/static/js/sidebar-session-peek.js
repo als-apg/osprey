@@ -19,6 +19,12 @@
  *     leaves the tree.
  *   - CLICK. An artifact row opens that artifact (`onPick`, the tree's own
  *     artifact click); "N more" switches to the session (`onMore`).
+ *   - DRAG. An artifact row dragged out of the peek (into the dock, where it
+ *     opens in a tile of its own, sidebar-artifacts.js) keeps the peek open
+ *     and unchanged while the drag runs: a native drag stops pointer events,
+ *     so the pointer's leave would otherwise close it under the drag, and a
+ *     redraw would take the dragged row out of the page. The drag's end
+ *     (its dragend, a drop, or the release of the pointer) closes it.
  *
  * The rows are the tree's own (sidebar-artifact-rows.js), from the session's
  * listing (sidebar-artifact-listing.js), newest first and at most
@@ -44,6 +50,9 @@ export const PEEK_CLOSE_MS = 150;
 
 /** The most artifact rows a peek lists. */
 export const PEEK_ROWS = 8;
+
+/** What ends a drag out of the peek: its own end, a drop, the pointer's release. */
+const DRAG_TERMINATORS = ['dragend', 'drop', 'mouseup', 'pointerup'];
 
 /** Space between the sidebar's edge and the peek, and the window margin. */
 const GAP = 8;
@@ -93,6 +102,8 @@ export function createSessionPeek(deps) {
   let host = null;
   let opening = 0;
   let closing = 0;
+  /** A row is being dragged out of the peek. */
+  let dragging = false;
 
   function element() {
     if (el?.isConnected) return el;
@@ -102,6 +113,7 @@ export function createSessionPeek(deps) {
     el.setAttribute('role', 'dialog');
     el.hidden = true;
     el.addEventListener('click', onPeekClick);
+    el.addEventListener('dragstart', onDragStart);
     document.body.append(el);
     return el;
   }
@@ -149,6 +161,7 @@ export function createSessionPeek(deps) {
   }
 
   function closeLater() {
+    if (dragging) return;
     clearTimeout(closing);
     closing = window.setTimeout(dismiss, PEEK_CLOSE_MS);
   }
@@ -158,7 +171,7 @@ export function createSessionPeek(deps) {
    * unfolded or left the tree. The tree calls this after every render.
    */
   function refresh() {
-    if (!openId) return;
+    if (!openId || dragging) return;
     const row = anchor();
     if (!row || row.getAttribute('aria-expanded') === 'true') return close();
     const listing = deps.listing(openId);
@@ -215,6 +228,28 @@ export function createSessionPeek(deps) {
     peek.style.top = `${Math.round(Math.max(GAP, top))}px`;
   }
 
+  /**
+   * A row of the peek starts a drag: hold the peek as it is until the drag ends.
+   * A drag the tree refused (`preventDefault`) never runs and holds nothing.
+   * @param {DragEvent} event
+   */
+  function onDragStart(event) {
+    if (dragging) return;
+    clearTimeout(closing);
+    clearTimeout(opening);
+    dragging = true;
+    const end = () => {
+      for (const type of DRAG_TERMINATORS) document.removeEventListener(type, end, true);
+      dragging = false;
+      close();
+    };
+    for (const type of DRAG_TERMINATORS) document.addEventListener(type, end, true);
+    // The tree decides later in the same dispatch whether the drag may run.
+    setTimeout(() => {
+      if (event.defaultPrevented && dragging) end();
+    }, 0);
+  }
+
   /** @param {MouseEvent} event */
   function onPeekClick(event) {
     const target = event.target instanceof Element ? event.target : null;
@@ -264,7 +299,7 @@ export function createSessionPeek(deps) {
 
   /** @param {Event} event */
   function onOutside(event) {
-    if (!openId) return;
+    if (!openId || dragging) return;
     const target = event.target instanceof Node ? event.target : null;
     if (target && el?.contains(target)) return;
     close();
@@ -280,7 +315,7 @@ export function createSessionPeek(deps) {
     document.addEventListener('keydown', onKey, { signal });
     document.addEventListener('pointerdown', onOutside, { capture: true, signal });
     document.addEventListener('scroll', onOutside, { capture: true, passive: true, signal });
-    window.addEventListener('blur', close, { signal });
+    window.addEventListener('blur', () => dragging || close(), { signal });
     signal.addEventListener('abort', () => {
       close();
       el?.remove();

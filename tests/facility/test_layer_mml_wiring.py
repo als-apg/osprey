@@ -27,8 +27,6 @@ from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
 from osprey.simulation.engines.calibration import Linear, Table
 from tests.fixtures.mml._trees import SUPPORTED
 
-at = pytest.importorskip("at")
-
 #: The module's readers share one import per tree, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_wiring")
 

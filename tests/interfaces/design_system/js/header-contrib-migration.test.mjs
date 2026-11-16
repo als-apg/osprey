@@ -4,8 +4,8 @@
  * else. `text` is retired: the bar shows the tile's name and no subtitle.
  *
  * The check reads each file, drops its comments and scans the item literals
- * (`kind: '…'`). A kind built from a variable is not caught: this is a guard
- * against drift, not a parser. Run:
+ * (`kind: '…'`), a `showToast(` line aside. A kind built from a variable is not
+ * caught: this is a guard against drift, not a parser. Run:
  *   npx vitest run tests/interfaces/design_system/js/header-contrib-migration.test.mjs
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -59,9 +59,21 @@ function withoutComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1');
 }
 
+/**
+ * A toast's options name a `kind` too (design-system toast.js): that is the
+ * toast's severity, shown in the panel's own page, and never reaches the shell.
+ * @param {string} source @returns {string} the source without its `showToast(` lines
+ */
+function withoutToasts(source) {
+  return source
+    .split('\n')
+    .filter((line) => !line.includes('showToast('))
+    .join('\n');
+}
+
 /** @param {string} relPath @returns {string[]} the item kinds the file names, in order */
 function kindsIn(relPath) {
-  const text = withoutComments(readFileSync(join(ROOT, relPath), 'utf8'));
+  const text = withoutToasts(withoutComments(readFileSync(join(ROOT, relPath), 'utf8')));
   return [...text.matchAll(/\bkind:\s*['"]([a-z-]+)['"]/g)].map((m) => m[1]);
 }
 

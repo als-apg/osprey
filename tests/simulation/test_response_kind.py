@@ -21,21 +21,19 @@ from typing import Any
 
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.mcp_server.python_executor import executor  # noqa: E402
-from osprey.mcp_server.python_executor.tools import (  # noqa: E402
+from osprey.mcp_server.python_executor import executor
+from osprey.mcp_server.python_executor.tools import (
     model_response_matrix as tool,
 )
-from osprey.simulation import model_request  # noqa: E402
-from osprey.simulation.response import (  # noqa: E402
+from osprey.simulation import model_request
+from osprey.simulation.response import (
     DEFAULT_KIND,
     RESPONSE_KINDS,
     RESULT_TAG,
     solve_and_print,
 )
-from tests.apps.test_sdk_model import RING, _ring_render  # noqa: E402
-from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
+from tests.apps.test_sdk_model import RING, _ring_render
+from tests.mcp_server.conftest import assert_raises_error
 
 CORRECTOR = "COR_1:X:SP"
 

@@ -52,6 +52,17 @@ do not attempt their work with your own tools.
   Documented vs. computed: a value that is simply *documented* — a nominal tune, a design beta, terminology — comes from **facility-knowledge** (it wins when the knowledge bundle has the value). Anything that must be *computed* on the lattice model goes to **pyat-specialist**.
 
 
+## Control-System Directory
+
+The directory is the control system's own list of every channel and IOC, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `directory_properties`, `directory_search`, `ioc_record`, `pv_record`.
+
+- Check the curated channels first (through **channel-finder**, which searches the directory when they do not answer).
+- Directory names are the control system's own, not curated: say so when you report one.
+- A "no_match" answer is not evidence that a channel does not exist; "unavailable" means the directory did not answer.
+- Build queries only from the user's words or property values the directory listed.
+- Whether an IOC is alive, and its engineer: `ioc_record` names its health channels; read them with `channel_read`. An advancing HEARTBEAT means alive.
+- To show a channel or IOC, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
+
 ## Measurements
 
 - Measure an orbit, dispersion, tune or chromaticity response, or the chromaticity, with `mcp__python__pyaml_measure`; it holds the control target's run lock; a stopped or failed measurement leaves its setpoints where they stopped and its result lists each with its value before the call — report those to the operator; one killed at the timeout names only the channels it attempted. Never step setpoints for a measurement through `mcp__python__execute`.

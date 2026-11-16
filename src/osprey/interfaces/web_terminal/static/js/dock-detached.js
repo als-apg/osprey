@@ -225,6 +225,20 @@ export function createDetachedPanes(placement) {
       changed();
     },
 
+    /**
+     * Replace the params a detached pane's record carries (undefined: none).
+     * Not announced: the holder announces a change it makes on its own.
+     * @param {string} key
+     * @param {Record<string, any> | undefined} params
+     */
+    setParams(key, params) {
+      const entry = entries.get(key);
+      if (!entry) return;
+      const record = { ...entry.panelRecord };
+      delete record.params;
+      entry.panelRecord = params == null ? record : { ...record, params };
+    },
+
     /** Whether `layout` docks any detached pane. @param {Layout|null} layout */
     docks(layout) {
       return entries.size > 0 && keysOf(layout).some((key) => entries.has(key));

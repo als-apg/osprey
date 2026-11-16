@@ -39,9 +39,16 @@ kind's package. A kind's package should import OSPREY only through
 
 The build stops on:
 
-- a measurement file listing a kind no installed package registers;
+- a measurement file listing a kind no installed package registers, in a
+  tree that mounts a machine root or lists an application or a dependency; a
+  tree doing none of these is a machine tree on its own, where the kind is
+  deferred with a ``kind-deferred`` warning and judged by the deployment that
+  mounts it;
 - a registered kind, listed or not, whose package the project image does not
-  install;
+  install (``osprey facility validate``, which builds no wheel, reads the kinds
+  of a local-path ``dependencies`` entry or a listed ``apps/<name>/`` from the
+  package's ``pyproject.toml``; entry points a build backend computes are not
+  read);
 - two distributions declaring one name (a built-in name included);
 - an entry point that loads anything but a declaration or a mapping of its
   fields, a mapping naming a field the declaration does not have, or a

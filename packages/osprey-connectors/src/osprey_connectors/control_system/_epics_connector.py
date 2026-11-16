@@ -13,12 +13,31 @@ import contextvars
 import fnmatch
 import operator
 import os
+import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from types import ModuleType
+from typing import (
+    Literal,
+    ParamSpec,
+    Protocol,
+    Required,
+    SupportsFloat,
+    SupportsIndex,
+    SupportsInt,
+    TypedDict,
+    TypeGuard,
+    TypeVar,
+    TypeVarTuple,
+    runtime_checkable,
+)
 
+from typing_extensions import Buffer, override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -29,12 +48,15 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     _batch_send_verdict,
     _verdict_refusal,
+    normalise_limit_pair,
     values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
-from osprey_connectors.control_system._epics_bulk import CABulk, normalise_address
+from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
+from osprey_connectors.control_system._gateway_role import GatewayRole
 from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
+    CurrentValueReader,
     c_numeral,
     step_read_timeout_seconds,
 )
@@ -49,6 +71,10 @@ from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import WRITES_KEY, machine_kind
 
 logger = get_logger("epics_connector")
+
+P = ParamSpec("P")
+T = TypeVar("T")
+Ts = TypeVarTuple("Ts")
 
 #: Seconds between two stale-transport probes of :meth:`EPICSConnector.wait_stale`.
 STALE_PROBE_INTERVAL_S = 1.0
@@ -95,8 +121,11 @@ class _WriteExecutor(concurrent.futures.Executor):
         self._threads: set[threading.Thread] = set()
         self._serial = 0
 
-    def submit(self, fn, /, *args, **kwargs):
-        future: concurrent.futures.Future = concurrent.futures.Future()
+    @override
+    def submit(
+        self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+    ) -> concurrent.futures.Future[T]:
+        future: concurrent.futures.Future[T] = concurrent.futures.Future()
 
         def run() -> None:
             try:
@@ -125,6 +154,7 @@ class _WriteExecutor(concurrent.futures.Executor):
         thread.start()
         return future
 
+    @override
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         del cancel_futures  # a started phase is never cancelled; nothing queues
         with self._lock:
@@ -185,7 +215,46 @@ _DBF_WHOLE_RANGES = {
 }
 
 
-def _alarm_name(code: Any) -> str:
+@runtime_checkable
+class _SupportsTrunc(Protocol):
+    """An object ``int()`` reads through ``__trunc__`` (Python 3.13 and earlier)."""
+
+    def __trunc__(self) -> int: ...
+
+
+@runtime_checkable
+class _SupportsBuffer(Protocol):
+    """An object exposing the buffer protocol to Python (PEP 688, Python 3.12+)."""
+
+    def __buffer__(self, flags: int, /) -> memoryview: ...
+
+
+def _int_or_none(value: object) -> int | None:
+    """``int(value)``, or ``None`` when ``int()`` refuses it with ``TypeError``/``ValueError``.
+
+    The check ahead of the call names what ``int()`` reads: text and bytes,
+    ``__int__``, ``__index__``, ``__trunc__`` and buffers. Anything else is an
+    object ``int()`` raises ``TypeError`` for.
+    """
+    if not isinstance(
+        value,
+        str
+        | bytes
+        | bytearray
+        | memoryview
+        | SupportsInt
+        | SupportsIndex
+        | _SupportsTrunc
+        | _SupportsBuffer,
+    ):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _alarm_name(code: object) -> str:
     """Map a Channel Access alarm status code onto its EPICS name.
 
     Channel Access reports the alarm status as a small integer; the rest of
@@ -198,14 +267,13 @@ def _alarm_name(code: Any) -> str:
     """
     if isinstance(code, bool):
         return "UNKNOWN"
-    try:
-        index = int(code)
-    except (TypeError, ValueError):
+    index = _int_or_none(code)
+    if index is None:
         return "UNKNOWN"
     return _ALARM_NAMES[index] if 0 <= index < len(_ALARM_NAMES) else "UNKNOWN"
 
 
-def _ca_type_name(datatype: Any) -> str | None:
+def _ca_type_name(datatype: object) -> str | None:
     """The field type of a reading, spelled ``time_<type>`` as pyepics spelled it.
 
     Readings are requested in the ``TIME`` form, and ``raw_metadata["type"]``
@@ -216,7 +284,7 @@ def _ca_type_name(datatype: Any) -> str | None:
     return None
 
 
-def _is_enum_type(pv_type: Any) -> bool:
+def _is_enum_type(pv_type: object) -> bool:
     """True when a Channel Access field type names an enumeration.
 
     The type of an ``mbbi``/``bi``/``bo`` is spelled ``"enum"`` or, in the
@@ -226,7 +294,7 @@ def _is_enum_type(pv_type: Any) -> bool:
     return "enum" in str(pv_type)
 
 
-def _ca_plain(value: Any) -> Any:
+def _ca_plain(value: object) -> object:
     """An aioca reading as a plain Python value.
 
     aioca hands back subclasses of ``str``/``int``/``float`` and of
@@ -254,7 +322,47 @@ class _Unwritable(ValueError):
     """A value the channel's field type cannot hold exactly; nothing was sent."""
 
 
-def _whole_number(element: Any, field_type: int) -> int:
+def _exports_buffer(element: object) -> TypeGuard[Buffer]:
+    """Whether ``element`` exports the buffer protocol, which ``float()`` reads as text.
+
+    :class:`Buffer` answers it from Python 3.12, where every exporter has
+    ``__buffer__``. Before that it knows only bytes, bytearray and memoryview,
+    and the C API's own test is asked (ctypes is already loaded: aioca reaches
+    libca through it).
+    """
+    if isinstance(element, Buffer):
+        return True
+    if sys.version_info >= (3, 12):
+        return False
+    import ctypes
+
+    return bool(ctypes.pythonapi.PyObject_CheckBuffer(ctypes.py_object(element)))
+
+
+def _integer_value(element: object) -> int | None:
+    """The integer ``element`` holds, or ``None`` when it holds none.
+
+    Its ``__index__`` when it has one that answers, else ``float()`` of it when
+    that is a whole number. Text never reaches here: :func:`_whole_number`
+    reads it by the C rule first.
+    """
+    if isinstance(element, SupportsIndex):
+        try:
+            return operator.index(element)
+        except TypeError:
+            pass
+    # What float() reads: a number, or a buffer read as text. Anything else it
+    # refuses with a TypeError.
+    if not (isinstance(element, SupportsFloat | SupportsIndex) or _exports_buffer(element)):
+        return None
+    try:
+        real = float(element)
+    except (TypeError, ValueError):
+        return None
+    return int(real) if real.is_integer() else None
+
+
+def _whole_number(element: object, field_type: int) -> int:
     """``element`` as the integer a whole-number field holds, exactly.
 
     Text is read by the C rule an integer field reads it with
@@ -268,25 +376,16 @@ def _whole_number(element: Any, field_type: int) -> int:
     elif isinstance(element, bytes | bytearray):
         raise _Unwritable(f"{element!r} is not a whole number, and the channel holds integers")
     else:
-        try:
-            number = operator.index(element)
-        except TypeError:
-            try:
-                real = float(element)
-            except (TypeError, ValueError):
-                real = None
-            if real is None or not real.is_integer():
-                raise _Unwritable(
-                    f"{element!r} is not a whole number, and the channel holds integers"
-                ) from None
-            number = int(real)
+        number = _integer_value(element)
+        if number is None:
+            raise _Unwritable(f"{element!r} is not a whole number, and the channel holds integers")
     low, high = _DBF_WHOLE_RANGES[field_type]
     if not low <= number <= high:
         raise _Unwritable(f"{element!r} is outside the channel's integer range [{low}, {high}]")
     return int(number)
 
 
-def _whole_numbers(value: Any, field_type: int) -> Any:
+def _whole_numbers(value: object, field_type: int) -> int | list[int]:
     """``value`` as the whole number, or list of them, a whole-number field holds."""
     if isinstance(value, list | tuple):
         return [_whole_number(element, field_type) for element in value]
@@ -300,7 +399,13 @@ def _whole_numbers(value: Any, field_type: int) -> Any:
     return _whole_number(value, field_type)
 
 
-def _ca_put_form(value: Any, field_type: Any, count: Any) -> tuple[Any, bool]:
+def _ca_put_form(
+    # ``count`` is aioca's ``cainfo().count``, which this module only guesses the
+    # type of (:class:`~._epics_bulk.CaInfo`): read as ``object`` and checked.
+    value: object,
+    field_type: int,
+    count: object,
+) -> tuple[object, bool]:
     """``value`` as it is put to a field of ``field_type``, and whether it goes as text.
 
     Left to itself, aioca sends any ``str`` as ``DBR_STRING`` and the IOC
@@ -341,7 +446,28 @@ def _ca_put_form(value: Any, field_type: Any, count: Any) -> tuple[Any, bool]:
     return value, False
 
 
-def _char_text(value: Any) -> Any:
+@dataclass(frozen=True, slots=True)
+class _PutSent:
+    """A put that went out and, when waited for, was acknowledged.
+
+    ``sent`` is the value as it went out (text read into a number for a
+    numeric field, a whole float as the integer it is), the one a confirming
+    read is compared with; ``as_text`` says it went to a char array as text.
+    """
+
+    sent: object
+    as_text: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _PutFault:
+    """A put that was not sent, not acknowledged, or not taken; ``failure`` says why."""
+
+    verdict: Literal["not_sent", "unacknowledged", "unwritable", "cs_refused", "put_failed"]
+    failure: object
+
+
+def _char_text(value: object) -> object:
     """A char array read back as the text it holds, up to its first NUL."""
     if hasattr(value, "__array__") and not isinstance(value, str):
         import numpy
@@ -351,7 +477,7 @@ def _char_text(value: Any) -> Any:
     return value
 
 
-def _ca_failure(channel_address: str, failure: Any, action: str) -> Exception:
+def _ca_failure(channel_address: str, failure: object, action: str) -> Exception:
     """The exception a failed aioca call is raised as: the channel did not answer.
 
     A Channel Access failure is about the one channel: the CA context belongs
@@ -368,7 +494,14 @@ def _ca_failure(channel_address: str, failure: Any, action: str) -> Exception:
     )
 
 
-def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str | None]:
+@runtime_checkable
+class _GetItemIterable(Protocol):
+    """An object ``iter()`` walks through ``__getitem__`` (the old sequence protocol)."""
+
+    def __getitem__(self, index: int, /) -> object: ...
+
+
+def _enum_label_fields(labels: object, index: object) -> tuple[list[str] | None, str | None]:
     """Normalize a raw label list and resolve the label for ``index``.
 
     Every branch fails soft: a control system that reports no labels, reports
@@ -379,9 +512,11 @@ def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str |
     """
     if labels is None or isinstance(labels, (str, bytes)):
         return None, None
+    if not isinstance(labels, Iterable | _GetItemIterable):
+        return None, None  # not iterable — nothing usable was reported
     try:
-        normalized = [str(label) for label in labels]
-    except TypeError:  # not iterable — nothing usable was reported
+        normalized = [str(label) for label in iter(labels)]
+    except TypeError:  # not iterable after all — nothing usable was reported
         return None, None
     if not normalized:
         return None, None
@@ -395,7 +530,7 @@ def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str |
     return normalized, label
 
 
-def _severity_int(severity: Any) -> int | None:
+def _severity_int(severity: object) -> int | None:
     """Coerce a reported alarm severity to ``int``, or ``None`` if unreported.
 
     ``None`` means "the protocol carried no severity" and is deliberately
@@ -404,54 +539,77 @@ def _severity_int(severity: Any) -> int | None:
     """
     if severity is None:
         return None
-    try:
-        return int(severity)
-    except (TypeError, ValueError):
-        return None
+    return _int_or_none(severity)
 
 
-def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
+def _readback_alarm_fields(readback: object) -> tuple[str | None, int | None]:
     """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
 
     ``None`` means "the readback carried no alarm metadata" and is deliberately
     distinct from a reported healthy readback (severity ``0``), so a consumer
     can tell "no alarm" from "no information".
     """
-    metadata = getattr(readback, "metadata", None)
+    metadata: object = getattr(readback, "metadata", None)
     if metadata is None:
         return None, None
 
-    status = getattr(metadata, "alarm_status", None)
-    raw = getattr(metadata, "raw_metadata", None) or {}
+    status: object = getattr(metadata, "alarm_status", None)
+    raw: object = getattr(metadata, "raw_metadata", None) or {}
     severity = _severity_int(raw.get("severity") if isinstance(raw, dict) else None)
 
     return (str(status) if status is not None else None, severity)
 
 
-#: ``ChannelMetadata`` limit field -> attribute of a CTRL-form aioca reading carrying it.
-_CA_CTRL_LIMITS: tuple[tuple[str, str], ...] = (
-    ("display_low", "lower_disp_limit"),
-    ("display_high", "upper_disp_limit"),
-    ("control_low", "lower_ctrl_limit"),
-    ("control_high", "upper_ctrl_limit"),
-    ("warning_low", "lower_warning_limit"),
-    ("warning_high", "upper_warning_limit"),
-    ("alarm_low", "lower_alarm_limit"),
-    ("alarm_high", "upper_alarm_limit"),
-)
+class _LimitFields(TypedDict):
+    """The limit pairs and write access of :class:`ChannelMetadata`, as its keyword arguments."""
+
+    display_low: float | None
+    display_high: float | None
+    control_low: float | None
+    control_high: float | None
+    warning_low: float | None
+    warning_high: float | None
+    alarm_low: float | None
+    alarm_high: float | None
+    writable: bool | None
 
 
-def _ca_ctrl_limits(ctrl: Any, writable: bool | None) -> dict[str, Any]:
+def _ca_ctrl_limits(ctrl: object, writable: bool | None) -> _LimitFields:
     """The CTRL limits of a channel and this client's write access, as metadata kwargs.
 
     Read off the channel's CTRL-form reading; an absent reading (its fetch
-    failed) yields no limits. The values are handed over raw --
-    :class:`ChannelMetadata` normalises them, which is what turns an unset
-    ``0``/``0`` range into ``None``.
+    failed) yields no limits. Each pair goes through
+    :func:`normalise_limit_pair`, the rule :class:`ChannelMetadata` applies on
+    construction (an unset ``0``/``0`` range becomes ``None``); it is
+    idempotent, so the metadata ends up holding what the raw values gave it.
     """
-    found: dict[str, Any] = {field: getattr(ctrl, attr, None) for field, attr in _CA_CTRL_LIMITS}
-    found["writable"] = writable
-    return found
+
+    def limit(attr: str) -> object:
+        return getattr(ctrl, attr, None)
+
+    display_low, display_high = normalise_limit_pair(
+        limit("lower_disp_limit"), limit("upper_disp_limit")
+    )
+    control_low, control_high = normalise_limit_pair(
+        limit("lower_ctrl_limit"), limit("upper_ctrl_limit")
+    )
+    warning_low, warning_high = normalise_limit_pair(
+        limit("lower_warning_limit"), limit("upper_warning_limit")
+    )
+    alarm_low, alarm_high = normalise_limit_pair(
+        limit("lower_alarm_limit"), limit("upper_alarm_limit")
+    )
+    return {
+        "display_low": display_low,
+        "display_high": display_high,
+        "control_low": control_low,
+        "control_high": control_high,
+        "warning_low": warning_low,
+        "warning_high": warning_high,
+        "alarm_low": alarm_low,
+        "alarm_high": alarm_high,
+        "writable": writable,
+    }
 
 
 # Normative-type identifiers the PVA read path maps specially. Compared with a
@@ -467,7 +625,7 @@ _NT_NDARRAY_ID = "epics:nt/NTNDArray:"
 _PVA_METADATA_REQUEST = "field(alarm,timeStamp,display,control,valueAlarm)"
 
 
-def _pva_type_id(value: Any) -> str:
+def _pva_type_id(value: object) -> str:
     """Return the normative-type id of a p4p Value, or "" when it has none."""
     get_id = getattr(value, "getID", None)
     if not callable(get_id):
@@ -478,7 +636,14 @@ def _pva_type_id(value: Any) -> str:
         return ""
 
 
-def _pva_field(container: Any, name: str, default: Any = None) -> Any:
+@runtime_checkable
+class _Subscriptable(Protocol):
+    """An object a field is read from by name, ``container[name]``."""
+
+    def __getitem__(self, name: str, /) -> object: ...
+
+
+def _pva_field(container: object, name: str, default: object = None) -> object:
     """Read one field from a p4p Value (or nested sub-Value), tolerating absence.
 
     Optional NT fields (``display``, ``precision``, ``attribute``) are present on
@@ -490,10 +655,12 @@ def _pva_field(container: Any, name: str, default: Any = None) -> Any:
     getter = getattr(container, "get", None)
     if callable(getter):
         try:
-            found = getter(name, None)
+            found: object = getter(name, None)
         except Exception:
             found = None
         return default if found is None else found
+    if not isinstance(container, _Subscriptable):
+        return default  # ``container[name]`` would raise TypeError
     try:
         found = container[name]
     except Exception:
@@ -501,12 +668,68 @@ def _pva_field(container: Any, name: str, default: Any = None) -> Any:
     return default if found is None else found
 
 
-def _pva_color_mode(value: Any) -> Any:
+def _pva_items(container: object, name: str) -> Iterator[object]:
+    """The entries of a list-valued field (an NT structure array, say); none when absent.
+
+    Raises:
+        TypeError: The field holds something that cannot be iterated.
+    """
+    found = _pva_field(container, name, [])
+    if not found:
+        return iter(())
+    if not isinstance(found, Iterable | _GetItemIterable):
+        raise TypeError(f"'{type(found).__name__}' object is not iterable")
+    return iter(found)
+
+
+def _pva_color_mode(value: object) -> object:
     """Extract the areaDetector ColorMode NTAttribute, or None when absent."""
-    for entry in _pva_field(value, "attribute", []) or []:
+    for entry in _pva_items(value, "attribute"):
         if _pva_field(entry, "name", "") == "ColorMode":
             return _pva_field(entry, "value")
     return None
+
+
+class _GatewayBlock(TypedDict, total=False):
+    """One gateway entry of the connector's config block (see :meth:`EPICSConnector.connect`)."""
+
+    address: str
+    port: int | str
+    use_name_server: object
+
+
+class _Gateways(TypedDict, total=False):
+    """The connector block's ``gateways`` table, by role."""
+
+    read_only: _GatewayBlock
+    write_access: _GatewayBlock
+
+
+class _Closable(Protocol):
+    """A transport handle released with ``close()``."""
+
+    def close(self) -> None: ...
+
+
+class _PvaContext(Protocol):
+    """The surface of a p4p client ``Context`` the connector calls; p4p ships no types."""
+
+    def get(self, name: str, request: str | None = ..., timeout: float = ...) -> object: ...
+
+    def monitor(
+        self, name: str, cb: Callable[[object], None], *, notify_disconnect: bool = ...
+    ) -> _Closable: ...
+
+    def close(self) -> None: ...
+
+
+class _PvaPayload(TypedDict, total=False):
+    """One normative type's reading: its value, and what it adds to the metadata."""
+
+    value: Required[object]
+    raw_metadata: dict[str, object]
+    enum_labels: list[str] | None
+    enum_label: str | None
 
 
 class _ChannelSubscription:
@@ -527,7 +750,7 @@ class _ChannelSubscription:
 
     __slots__ = ("_closed", "ca_loop", "handle", "kind")
 
-    def __init__(self, kind: str, handle: Any, ca_loop: Any = None) -> None:
+    def __init__(self, kind: str, handle: _Closable | None, ca_loop: CaLoop | None = None) -> None:
         self.kind = kind
         self.handle = handle
         self.ca_loop = ca_loop
@@ -546,7 +769,7 @@ class _ChannelSubscription:
         try:
             if self.ca_loop is not None:
                 self.ca_loop.call_soon(self._release)
-            else:
+            elif self.handle is not None:
                 self.handle.close()
         except Exception as exc:  # teardown is best effort, never fatal
             logger.debug(f"Subscription teardown failed for {self.kind} handle: {exc}")
@@ -596,9 +819,11 @@ class _PvaMetadataSlot:
         self.address = address
         self.lock = threading.Lock()
         self.metadata: ChannelMetadata | None = None
-        self.waiters: list[asyncio.Future] = []
+        self.waiters: list[asyncio.Future[ChannelMetadata | None]] = []
 
-    def settle(self, waiters: list[asyncio.Future], result: ChannelMetadata | None) -> None:
+    def settle(
+        self, waiters: list[asyncio.Future[ChannelMetadata | None]], result: ChannelMetadata | None
+    ) -> None:
         """Hand ``result`` to each waiter on the loop that owns it."""
         for waiter in waiters:
             # A waiter whose loop is closed has nobody waiting on it.
@@ -606,7 +831,9 @@ class _PvaMetadataSlot:
                 waiter.get_loop().call_soon_threadsafe(_settle_waiter, waiter, result)
 
 
-def _settle_waiter(waiter: asyncio.Future, result: ChannelMetadata | None) -> None:
+def _settle_waiter(
+    waiter: asyncio.Future[ChannelMetadata | None], result: ChannelMetadata | None
+) -> None:
     """Resolve a parked ``get_metadata`` future unless it already finished."""
     if not waiter.done():
         waiter.set_result(result)
@@ -654,7 +881,7 @@ class EPICSConnector(ControlSystemConnector):
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
         # The `max_step` fresh-read budget, replaced from the connector's own
         # config block on connect. Set here so the reader is usable on a
@@ -663,10 +890,10 @@ class EPICSConnector(ControlSystemConnector):
         self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
         # The `fresh_reads` key, kept readable; every CA read goes to the wire.
         self._fresh_reads = False
-        self._subscriptions: dict[str, Any] = {}
+        self._subscriptions: dict[str, _ChannelSubscription] = {}
         # aioca, and the CA loop every call to it runs on; both set by connect().
-        self._aioca: Any = None
-        self._ca: CaLoop = None  # type: ignore[assignment]
+        self._aioca: Aioca | None = None
+        self._ca: CaLoop | None = None
         # Per channel, the CTRL-form reading that carries units, precision,
         # enum labels and limits for one-shot reads: fetched on a channel's
         # first read, then reused, since they describe the record rather than
@@ -674,20 +901,20 @@ class EPICSConnector(ControlSystemConnector):
         # _epics_bulk); the two can differ after a record's limits change: a
         # one-shot read describes the record as first seen, a subscription as
         # it is now. Touched only on the CA loop.
-        self._ca_ctrl: dict[str, Any] = {}
+        self._ca_ctrl: dict[str, object] = {}
         self._epics_configured = False
         # The gateway role connect() pointed Channel Access at, and whether the
         # block configures a write gateway at all. A write the verdict allows
         # is refused ``switching`` while a configured write gateway was not
         # selected (see :meth:`_role_refusal`); a connector that never
         # connected selected nothing and has no write gateway to lag behind.
-        self._selected_role: str | None = None
+        self._selected_role: GatewayRole | None = None
         self._write_gateway_configured = False
         # PVA routing state. Empty globs => this connector is pure Channel
         # Access: p4p is never imported and no PVA environment variable is set.
         self._pva_channel_globs: list[str] = []
-        self._p4p: Any = None
-        self._pva_context: Any = None
+        self._p4p: ModuleType | None = None
+        self._pva_context: _PvaContext | None = None
         # Per PVA subscription id: the metadata its monitor delivered.
         self._pva_metadata_slots: dict[str, _PvaMetadataSlot] = {}
         # The Channel Access subscription path (_epics_bulk), built on first need.
@@ -709,7 +936,8 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor: _WriteExecutor | None = None
         self._write_executor_lock = threading.Lock()
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure EPICS environment and test connection.
 
@@ -788,7 +1016,7 @@ class EPICSConnector(ControlSystemConnector):
             readonly_gateway_refusal,
         )
 
-        gateways = config.get("gateways", {}) or {}
+        gateways: _Gateways = config.get("gateways") or _Gateways()
         # The whole write verdict, the same one the reference monitor takes.
         try:
             writes_enabled = self._writes_enabled
@@ -811,7 +1039,7 @@ class EPICSConnector(ControlSystemConnector):
             try:
                 from osprey_connectors.config import get_config_value
 
-                section = get_config_value("control_system", {})
+                section: object = get_config_value("control_system", {})
             except (FileNotFoundError, RuntimeError):
                 section = {}
             raise ConnectionError(
@@ -837,9 +1065,12 @@ class EPICSConnector(ControlSystemConnector):
         # environment as it stands.
         ca_env = current_ca_env()
         self._name_server = None
+        # ``host:port`` of the gateway pointed at; None when none is configured.
+        configured_gateway: str | None = None
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
+            configured_gateway = f"{address}:{port}"
             use_name_server = config_flag(
                 gateway_config.get("use_name_server"),
                 key=f"control_system.connector.{self._connector_type}.gateways."
@@ -871,13 +1102,13 @@ class EPICSConnector(ControlSystemConnector):
         # gateway: a read-only run must never ride an earlier connector's write
         # gateway, and a notebook kernel that follows a target switch must
         # reach the new machine.
-        self._ca = get_ca_loop()
-        await self._ca.point_at(ca_env)
+        self._ca = ca = get_ca_loop()
+        await ca.point_at(ca_env)
         self._ca_bulk()
         self._selected_role = gateway_role if gateway_config else None
         self._write_gateway_configured = bool(write_gateway)
-        if gateway_config:
-            logger.debug(f"Configured EPICS gateway: {address}:{port}")
+        if configured_gateway is not None:
+            logger.debug(f"Configured EPICS gateway: {configured_gateway}")
             self._epics_configured = True
 
         # The ceiling on the fresh read a `max_step` check makes before a
@@ -900,7 +1131,7 @@ class EPICSConnector(ControlSystemConnector):
         # served by the p4p client; every other address keeps using Channel
         # Access. An absent or empty list is a hard no-op: no p4p import, no PVA
         # environment variable, no client context.
-        pva_channels = config.get("pva_channels") or []
+        pva_channels: str | Iterable[object] = config.get("pva_channels") or []
         if isinstance(pva_channels, str):
             pva_channels = [pva_channels]
         self._pva_channel_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
@@ -919,7 +1150,7 @@ class EPICSConnector(ControlSystemConnector):
                     "epics.pva_channels). Install with: pip install p4p"
                 ) from None
 
-            pva_gateway = config.get("pva_gateway") or {}
+            pva_gateway: _GatewayBlock = config.get("pva_gateway") or _GatewayBlock()
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
                 pva_port = pva_gateway.get("port")
@@ -961,7 +1192,7 @@ class EPICSConnector(ControlSystemConnector):
             # read: concurrent reads (read_multiple_channels gathers several
             # asyncio.to_thread calls) would otherwise race to build it.
             try:
-                self._pva_context = self._p4p.client.thread.Context("pva")
+                self._pva_context = p4p.client.thread.Context("pva")
             except (RuntimeError, OSError) as exc:
                 raise ConnectorUnavailableError(
                     f"PVA client context could not be built: {exc}"
@@ -994,6 +1225,7 @@ class EPICSConnector(ControlSystemConnector):
             fnmatch.fnmatchcase(channel_address, pattern) for pattern in self._pva_channel_globs
         )
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup EPICS connections on both transports.
 
@@ -1043,6 +1275,7 @@ class EPICSConnector(ControlSystemConnector):
         self._connected = False
         logger.info("EPICS connector disconnected")
 
+    @override
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
@@ -1074,7 +1307,7 @@ class EPICSConnector(ControlSystemConnector):
 
         name = normalise_address(channel_address)
         deadline = (time.time() + timeout,)
-        return await self._ca.run(self._read_channel_ca(name, deadline, timeout))
+        return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout))
 
     # ------------------------------------------------------------------
     # Channel Access (aioca). Every coroutine here runs on the CA loop.
@@ -1084,9 +1317,9 @@ class EPICSConnector(ControlSystemConnector):
     # fresh allowance per call.
     # ------------------------------------------------------------------
 
-    async def _ca_connect(self, name: str, deadline: tuple[float]) -> Any:
+    async def _ca_connect(self, name: str, deadline: tuple[float]) -> object:
         """Connect ``name`` within ``deadline``; record the outcome for :meth:`wait_stale`."""
-        connected = await self._aioca.connect(name, timeout=deadline, throw=False)
+        connected = await self._ca_client.connect(name, timeout=deadline, throw=False)
         if connected:
             # A new connect: the channel's first, or its first since it failed,
             # and not one a subscription record already holds connected. A
@@ -1118,7 +1351,7 @@ class EPICSConnector(ControlSystemConnector):
         write confirmation compares -- the one thing it needs them for.
         ``timeout`` is only quoted in the error.
         """
-        aioca = self._aioca
+        aioca = self._ca_client
         connected = await self._ca_connect(name, deadline)
         if not connected:
             raise ChannelUnreachableError(
@@ -1134,11 +1367,12 @@ class EPICSConnector(ControlSystemConnector):
         writable = None
         if ctrl == "always":
             info = await aioca.cainfo(name, timeout=deadline, throw=False)
-            if not isinstance(info, aioca.CANothing):
+            # A failed cainfo answers its CANothing: an exception, never a CaInfo.
+            if not isinstance(info, Exception):
                 writable = getattr(info, "write", None)
         return self._ca_channel_value(reading, fields, writable)
 
-    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> Any:
+    async def _ca_ctrl_fields(self, name: str, deadline: tuple[float]) -> object:
         """The channel's CTRL-form reading (units, precision, labels, limits), or ``None``.
 
         Fetched once per channel and reused: these fields describe the record,
@@ -1150,7 +1384,7 @@ class EPICSConnector(ControlSystemConnector):
         cached = self._ca_ctrl.get(name)
         if cached is not None:
             return cached
-        aioca = self._aioca
+        aioca = self._ca_client
         fields = await aioca.caget(
             name, format=aioca.FORMAT_CTRL, count=1, timeout=deadline, throw=False
         )
@@ -1161,7 +1395,7 @@ class EPICSConnector(ControlSystemConnector):
         return fields
 
     def _ca_channel_value(
-        self, reading: Any, ctrl: Any, writable: bool | None = None
+        self, reading: object, ctrl: object, writable: bool | None = None
     ) -> ChannelValue:
         """Build the connector's ChannelValue from a TIME-form reading and its CTRL fields.
 
@@ -1200,7 +1434,7 @@ class EPICSConnector(ControlSystemConnector):
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
     @staticmethod
-    def _ca_ctrl_metadata(ctrl: Any, writable: bool | None) -> ChannelMetadata:
+    def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
         """Metadata of a subscribed channel that has delivered control data but no value yet."""
         return ChannelMetadata(
             units=getattr(ctrl, "units", "") or "",
@@ -1210,68 +1444,65 @@ class EPICSConnector(ControlSystemConnector):
         )
 
     async def _put_ca(
-        self, channel_address: str, value: Any, wait: bool, deadline: tuple[float]
-    ) -> tuple[str, Any]:
+        self, channel_address: str, value: object, wait: bool, deadline: tuple[float]
+    ) -> _PutSent | _PutFault:
         """Put ``value`` within ``deadline``; say whether it was sent, acknowledged, or refused.
 
         Connect, field-type lookup and put share the one deadline T the
         caller set before handing this to the CA loop, so time spent queued
         for the loop is charged to it too.
 
-        Answers one of:
+        Answers a :class:`_PutFault` whose ``verdict`` is one of:
 
-        - ``("not_sent", failure)``: the channel never connected, or the
-          deadline ran out before the put was issued, so nothing left this
-          process.
-        - ``("unacknowledged", failure)``: the put went out and its callback did
-          not arrive in time. aioca reports this and a connect timeout with the
+        - ``"not_sent"``: the channel never connected, or the deadline ran out
+          before the put was issued, so nothing left this process.
+        - ``"unacknowledged"``: the put went out and its callback did not
+          arrive in time. aioca reports this and a connect timeout with the
           same code, which is why connecting is a step of its own here.
-        - ``("unwritable", reason)``: the value is one the channel's field
-          type cannot hold exactly (see :func:`_ca_put_form`), so nothing was
-          sent.
-        - ``("cs_refused", failure)``: the IOC's access security denied it.
-        - ``("put_failed", failure)``: the IOC answered the put and did not
-          take it (a disabled record, a value it could not convert).
-        - ``("sent", (sent, as_text))``: sent, and, when ``wait``,
-          acknowledged. ``sent`` is the value as it went out (text read into a
-          number for a numeric field, a whole float as the integer it is), the
-          one a confirming read is compared with; ``as_text`` says it went to
-          a char array as text.
+        - ``"unwritable"``: the value is one the channel's field type cannot
+          hold exactly (see :func:`_ca_put_form`), so nothing was sent; the
+          ``failure`` is the reason.
+        - ``"cs_refused"``: the IOC's access security denied it.
+        - ``"put_failed"``: the IOC answered the put and did not take it (a
+          disabled record, a value it could not convert).
+
+        or a :class:`_PutSent`: sent, and, when ``wait``, acknowledged.
 
         Any other failure is raised: it leaves the outcome genuinely unknown,
         and every answer above claims to know it.
         """
-        aioca = self._aioca
+        aioca = self._ca_client
         connected = await self._ca_connect(channel_address, deadline)
         if not connected:
-            return "not_sent", f"did not connect: {connected}"
+            return _PutFault("not_sent", f"did not connect: {connected}")
         # The channel's own field type decides what goes out. cainfo reads it
         # from the channel just connected, without a round trip to the IOC.
         info = await aioca.cainfo(channel_address, timeout=deadline, throw=False)
-        if isinstance(info, aioca.CANothing):
-            return "not_sent", f"field type unreadable: {info}"
+        # A failed cainfo answers its CANothing: an exception, never a CaInfo.
+        if isinstance(info, Exception):
+            return _PutFault("not_sent", f"field type unreadable: {info}")
         try:
             put_value, as_text = _ca_put_form(value, info.datatype, info.count)
         except _Unwritable as reason:
-            return "unwritable", reason
+            return _PutFault("unwritable", reason)
         datatype = aioca.DBR_CHAR_STR if as_text else None
         sent = value if as_text else put_value
         if time.time() >= deadline[0]:
             # aioca would time an exhausted deadline out before sending,
             # and that would read as a put that went out unacknowledged.
-            return "not_sent", TimeoutError("the put deadline ran out before the put")
+            return _PutFault("not_sent", TimeoutError("the put deadline ran out before the put"))
         done = await aioca.caput(
             channel_address, put_value, datatype=datatype, wait=wait, timeout=deadline, throw=False
         )
         if done:
-            return "sent", (sent, as_text)
+            return _PutSent(sent, as_text)
         code = getattr(done, "errorcode", None)
         if code == _ECA_TIMEOUT:
-            return "unacknowledged", done
+            return _PutFault("unacknowledged", done)
         if code == _ECA_NOWTACCESS:
-            return "cs_refused", done
+            return _PutFault("cs_refused", done)
         if code == _ECA_PUTFAIL:
-            return "put_failed", done
+            return _PutFault("put_failed", done)
         raise ChannelUnreachableError(
             channel_address, f"Write to '{channel_address}' failed: {done}"
         )
@@ -1315,7 +1546,37 @@ class EPICSConnector(ControlSystemConnector):
             )
         return failure
 
-    def _require_pva_context(self, channel_address: str, action: str) -> Any:
+    @property
+    def _ca_loop(self) -> CaLoop:
+        """The CA loop connect() pointed at this connector's gateway.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so no Channel
+                Access call has a loop to run on.
+        """
+        ca = self._ca
+        if ca is None:
+            raise ConnectorUnavailableError(
+                "No Channel Access loop: connect() points one at the configured gateway."
+            )
+        return ca
+
+    @property
+    def _ca_client(self) -> Aioca:
+        """aioca, as connect() imported it.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so there is no
+                Channel Access client to call.
+        """
+        aioca = self._aioca
+        if aioca is None:
+            raise ConnectorUnavailableError(
+                "No Channel Access client: connect() imports aioca for this connector."
+            )
+        return aioca
+
+    def _require_pva_context(self, channel_address: str, action: str) -> _PvaContext:
         """The PVA client context, or the connector's own unavailability.
 
         Raises:
@@ -1330,7 +1591,7 @@ class EPICSConnector(ControlSystemConnector):
             )
         return context
 
-    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> Any:
+    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> object:
         """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
 
         Failures are raised through :meth:`_pva_failure`, the one funnel that
@@ -1370,11 +1631,11 @@ class EPICSConnector(ControlSystemConnector):
         value = self._pva_get(channel_address, timeout)
         return self._pva_channel_value(channel_address, value)
 
-    def _pva_channel_value(self, channel_address: str, value: Any) -> ChannelValue:
+    def _pva_channel_value(self, channel_address: str, value: object) -> ChannelValue:
         """Map a p4p Value onto :class:`ChannelValue` by normative type."""
         type_id = _pva_type_id(value)
         timestamp = self._pva_timestamp(value)
-        raw_metadata: dict[str, Any] = {"nt_id": type_id}
+        raw_metadata: dict[str, object] = {"nt_id": type_id}
         raw_metadata.update(self._pva_alarm_metadata(value))
 
         if type_id.startswith(_NT_NDARRAY_ID):
@@ -1396,7 +1657,7 @@ class EPICSConnector(ControlSystemConnector):
         return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
 
     def _pva_metadata(
-        self, value: Any, timestamp: datetime, raw_metadata: dict[str, Any]
+        self, value: object, timestamp: datetime, raw_metadata: dict[str, object]
     ) -> ChannelMetadata:
         """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
 
@@ -1413,26 +1674,43 @@ class EPICSConnector(ControlSystemConnector):
         units = _pva_field(display, "units", "") or ""
         precision = _pva_field(display, "precision")
         description = _pva_field(display, "description") or None
+        # Only _pva_alarm_metadata writes the message, and always as text.
+        message = raw_metadata.get("alarm_message")
+        alarm_status = message if isinstance(message, str) and message else None
+        # Normalised here by the rule ChannelMetadata applies on construction,
+        # which is idempotent, so the metadata holds what the fields gave it.
+        display_low, display_high = normalise_limit_pair(
+            _pva_field(display, "limitLow"), _pva_field(display, "limitHigh")
+        )
+        control_low, control_high = normalise_limit_pair(
+            _pva_field(control, "limitLow"), _pva_field(control, "limitHigh")
+        )
+        warning_low, warning_high = normalise_limit_pair(
+            _pva_field(value_alarm, "lowWarningLimit"), _pva_field(value_alarm, "highWarningLimit")
+        )
+        alarm_low, alarm_high = normalise_limit_pair(
+            _pva_field(value_alarm, "lowAlarmLimit"), _pva_field(value_alarm, "highAlarmLimit")
+        )
 
         return ChannelMetadata(
             units=str(units),
             precision=int(precision) if isinstance(precision, int | float) else None,
-            alarm_status=raw_metadata.get("alarm_message") or None,
+            alarm_status=alarm_status,
             alarm_severity=_severity_int(raw_metadata.get("severity")),
             timestamp=timestamp,
             description=str(description) if description else None,
-            display_low=_pva_field(display, "limitLow"),
-            display_high=_pva_field(display, "limitHigh"),
-            control_low=_pva_field(control, "limitLow"),
-            control_high=_pva_field(control, "limitHigh"),
-            warning_low=_pva_field(value_alarm, "lowWarningLimit"),
-            warning_high=_pva_field(value_alarm, "highWarningLimit"),
-            alarm_low=_pva_field(value_alarm, "lowAlarmLimit"),
-            alarm_high=_pva_field(value_alarm, "highAlarmLimit"),
+            display_low=display_low,
+            display_high=display_high,
+            control_low=control_low,
+            control_high=control_high,
+            warning_low=warning_low,
+            warning_high=warning_high,
+            alarm_low=alarm_low,
+            alarm_high=alarm_high,
             raw_metadata=raw_metadata,
         )
 
-    def _pva_timestamp(self, value: Any) -> datetime:
+    def _pva_timestamp(self, value: object) -> datetime:
         """Channel timestamp from the NT timeStamp field, else now()."""
         stamp = _pva_field(value, "timeStamp")
         seconds = _pva_field(stamp, "secondsPastEpoch", 0) or 0
@@ -1442,7 +1720,7 @@ class EPICSConnector(ControlSystemConnector):
             return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
         return datetime.now(get_facility_timezone())
 
-    def _pva_alarm_metadata(self, value: Any) -> dict[str, Any]:
+    def _pva_alarm_metadata(self, value: object) -> dict[str, object]:
         """Alarm fields, recorded raw so nothing about the alarm state is lost."""
         alarm = _pva_field(value, "alarm")
         if alarm is None:
@@ -1454,16 +1732,16 @@ class EPICSConnector(ControlSystemConnector):
             "alarm_message": str(message),
         }
 
-    def _pva_scalar_value(self, value: Any) -> dict[str, Any]:
+    def _pva_scalar_value(self, value: object) -> _PvaPayload:
         """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
         scalar = _pva_field(value, "value")
-        dtype = getattr(scalar, "dtype", None)
+        dtype: object = getattr(scalar, "dtype", None)
         return {
             "value": scalar,
             "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
         }
 
-    def _pva_enum_value(self, value: Any) -> dict[str, Any]:
+    def _pva_enum_value(self, value: object) -> _PvaPayload:
         """NTEnum: the INDEX is the value; the choices become enum metadata.
 
         Both halves of a state reading reach the operator, and each in the place
@@ -1480,7 +1758,7 @@ class EPICSConnector(ControlSystemConnector):
         """
         enum_field = _pva_field(value, "value")
         index = _pva_field(enum_field, "index")
-        choices = list(_pva_field(enum_field, "choices", []) or [])
+        choices = list(_pva_items(enum_field, "choices"))
         labels, label = _enum_label_fields(choices, index)
 
         return {
@@ -1494,7 +1772,7 @@ class EPICSConnector(ControlSystemConnector):
             },
         }
 
-    def _pva_ndarray_value(self, channel_address: str, value: Any) -> dict[str, Any]:
+    def _pva_ndarray_value(self, channel_address: str, value: object) -> _PvaPayload:
         """NTNDArray: the carried array, reshaped per its dimension list.
 
         The array is taken from the selected union member exactly as p4p decoded
@@ -1503,7 +1781,7 @@ class EPICSConnector(ControlSystemConnector):
         """
         codec = _pva_field(value, "codec")
         codec_name = str(_pva_field(codec, "name", "") or "")
-        dimensions = [_pva_field(dim, "size") for dim in _pva_field(value, "dimension", []) or []]
+        dimensions = [_pva_field(dim, "size") for dim in _pva_items(value, "dimension")]
 
         if codec_name:
             # Never reshape a compressed payload: the union carries the
@@ -1517,7 +1795,7 @@ class EPICSConnector(ControlSystemConnector):
 
         array = _pva_field(value, "value")
         color_mode = _pva_color_mode(value)
-        raw_metadata: dict[str, Any] = {
+        raw_metadata: dict[str, object] = {
             "dtype": str(getattr(array, "dtype", type(array).__name__)),
             "dimensions": dimensions,
             "color_mode": color_mode,
@@ -1541,7 +1819,8 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
         return {"value": array, "raw_metadata": raw_metadata}
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    @override
+    def current_value_reader(self) -> CurrentValueReader | None:
         """The channel's present value, read with the client this connector connected with.
 
         The limits validator calls this synchronously from a worker thread, so
@@ -1554,16 +1833,16 @@ class EPICSConnector(ControlSystemConnector):
         the CA client must not be pointed at an address routed over PVAccess.
         """
 
-        def read_current(channel_address: str) -> Any:
+        def read_current(channel_address: str) -> object:
             if self._is_pva_channel(channel_address):
                 return None
-            aioca = self._aioca
             budget = self._step_read_timeout
             try:
+                aioca = self._ca_client
                 # One budget S for connection and get together (aioca bounds
                 # both under one timeout); the extra second only backs up a
                 # CA loop that does not answer at all.
-                reading = self._ca.run_sync(
+                reading = self._ca_loop.run_sync(
                     aioca.caget(normalise_address(channel_address), timeout=budget, throw=False),
                     timeout=budget + 1.0,
                 )
@@ -1583,7 +1862,7 @@ class EPICSConnector(ControlSystemConnector):
                 self._write_executor = _WriteExecutor()
             return self._write_executor
 
-    async def _run_write_phase(self, fn: Callable[..., Any], *args: Any) -> Any:
+    async def _run_write_phase(self, fn: Callable[[*Ts], T], *args: *Ts) -> T:
         """Run one blocking write phase on the write executor, inside the caller's context.
 
         ``loop.run_in_executor`` alone starts the worker from a fresh context;
@@ -1594,11 +1873,12 @@ class EPICSConnector(ControlSystemConnector):
         context = contextvars.copy_context()
         return await loop.run_in_executor(self._write_pool(), context.run, fn, *args)
 
+    @override
     def _write_route_open(self) -> bool:
         """No write gateway is configured, or ``connect()`` selected it."""
         return not self._write_gateway_configured or self._selected_role == "write_access"
 
-    def _role_refusal(self, channel_address: str, value: Any) -> ChannelWriteResult | None:
+    def _role_refusal(self, channel_address: str, value: object) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.
 
         Called only for a write the verdict allowed. The block configures a
@@ -1623,8 +1903,9 @@ class EPICSConnector(ControlSystemConnector):
         )
         return _verdict_refusal(channel_address, value, verdict)
 
+    @override
     def _write_precheck(
-        self, channel_address: str, value: Any
+        self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
         """The record a write names, and the refusal that needs no I/O to make."""
         # One name for the whole write, decided before any check runs. ``X``,
@@ -1662,10 +1943,11 @@ class EPICSConnector(ControlSystemConnector):
         # switch. Refused before limits validation reads anything.
         return channel_address, self._role_refusal(channel_address, value)
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -1714,7 +1996,7 @@ class EPICSConnector(ControlSystemConnector):
         # executor, so a caller on the event loop is never stalled by the
         # blocking read that max_step validation waits for, and the validation
         # never queues behind PVA reads on the default executor.
-        def _validate():
+        def _validate() -> Exception | None:
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
@@ -1737,7 +2019,7 @@ class EPICSConnector(ControlSystemConnector):
         return await self._put_and_verify(channel_address, value, timeout, confirm)
 
     async def _put_and_verify(
-        self, channel_address: str, value: Any, timeout: float, confirm: bool
+        self, channel_address: str, value: object, timeout: float, confirm: bool
     ) -> ChannelWriteResult:
         """Put one value that passed every check, and confirm it when asked.
 
@@ -1750,74 +2032,11 @@ class EPICSConnector(ControlSystemConnector):
         # phase has one deadline T, set here so the wait for the CA loop is
         # charged to it as well.
         put_deadline = (time.time() + timeout,)
-        put_result, payload = await self._ca.run(
+        put = await self._ca_loop.run(
             self._put_ca(channel_address, value, wait=bool(confirm), deadline=put_deadline)
         )
-
-        if put_result == "cs_refused":
-            # The control system was asked and said no: access security, not
-            # a client bug, and nothing was written.
-            logger.warning(f"Control system refused write to {channel_address}: {payload}")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
-                error_message=(
-                    f"Write to '{channel_address}' refused by the control system "
-                    f"(access security); no value was written: {payload}"
-                ),
-            )
-
-        # The value was sent and its callback never came: nothing has said the
-        # IOC took it, so the outcome is unknown and no re-read is made.
-        if put_result == "unacknowledged":
-            logger.warning(
-                f"EPICS put not acknowledged within {timeout}s: {channel_address} = {value}"
-            )
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=(
-                    f"Write to '{channel_address}' could not be confirmed — the control "
-                    f"system did not acknowledge the put within {timeout}s"
-                ),
-            )
-
-        if put_result == "unwritable":
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.VALIDATION_ERROR,
-                error_message=(
-                    f"Write to '{channel_address}' refused: {payload}. No value was sent."
-                ),
-            )
-
-        if put_result == "put_failed":
-            logger.warning(f"IOC did not take the put to {channel_address}: {payload}")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=(
-                    f"Write to '{channel_address}' failed: the IOC answered the put and "
-                    f"did not take it: {payload}"
-                ),
-            )
-
-        if put_result == "not_sent":
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=(
-                    f"Failed to write to channel '{channel_address}': no value was sent "
-                    f"within {timeout}s ({payload})"
-                ),
-            )
+        if isinstance(put, _PutFault):
+            return self._put_fault_result(channel_address, value, timeout, put)
 
         if not confirm:
             # Nothing was checked, and nothing may be claimed: the result stays
@@ -1844,7 +2063,7 @@ class EPICSConnector(ControlSystemConnector):
                 ),
             )
 
-        sent, as_text = payload
+        sent, as_text = put.sent, put.as_text
         if as_text:
             # Written to a char array as text, so it is read back as text.
             observed.value = _char_text(observed.value)
@@ -1881,7 +2100,79 @@ class EPICSConnector(ControlSystemConnector):
             notes=f"Channel holds {observed.value}, sent {value}",
         )
 
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+    @staticmethod
+    def _put_fault_result(
+        channel_address: str, value: object, timeout: float, put: _PutFault
+    ) -> ChannelWriteResult:
+        """The result of a put that was not sent, not acknowledged, or not taken."""
+        payload = put.failure
+        if put.verdict == "cs_refused":
+            # The control system was asked and said no: access security, not
+            # a client bug, and nothing was written.
+            logger.warning(f"Control system refused write to {channel_address}: {payload}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
+                error_message=(
+                    f"Write to '{channel_address}' refused by the control system "
+                    f"(access security); no value was written: {payload}"
+                ),
+            )
+
+        # The value was sent and its callback never came: nothing has said the
+        # IOC took it, so the outcome is unknown and no re-read is made.
+        if put.verdict == "unacknowledged":
+            logger.warning(
+                f"EPICS put not acknowledged within {timeout}s: {channel_address} = {value}"
+            )
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=(
+                    f"Write to '{channel_address}' could not be confirmed — the control "
+                    f"system did not acknowledge the put within {timeout}s"
+                ),
+            )
+
+        if put.verdict == "unwritable":
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=RefusalReason.VALIDATION_ERROR,
+                error_message=(
+                    f"Write to '{channel_address}' refused: {payload}. No value was sent."
+                ),
+            )
+
+        if put.verdict == "put_failed":
+            logger.warning(f"IOC did not take the put to {channel_address}: {payload}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=(
+                    f"Write to '{channel_address}' failed: the IOC answered the put and "
+                    f"did not take it: {payload}"
+                ),
+            )
+
+        # "not_sent": nothing left this process.
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.FAILED,
+            error_message=(
+                f"Failed to write to channel '{channel_address}': no value was sent "
+                f"within {timeout}s ({payload})"
+            ),
+        )
+
+    @override
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, object] | None:
         """What the named records hold, read together on the CA loop.
 
         One ``caget`` per record, all in flight at once under the one budget
@@ -1889,22 +2180,22 @@ class EPICSConnector(ControlSystemConnector):
         is started. A record that did not answer maps to ``None``, which fails
         its step check closed.
         """
-        aioca = self._aioca
         budget = self._step_read_timeout
 
-        async def read_all() -> list[Any]:
+        async def read_all() -> list[object | BaseException]:
             return await asyncio.gather(
                 *(aioca.caget(name, timeout=budget, throw=False) for name in channel_addresses),
                 return_exceptions=True,
             )
 
         try:
+            aioca = self._ca_client
             # The extra second only backs up a CA loop that does not answer at all.
-            readings = await asyncio.wait_for(self._ca.run(read_all()), budget + 1.0)
+            readings = await asyncio.wait_for(self._ca_loop.run(read_all()), budget + 1.0)
         except Exception as exc:
             logger.debug(f"max_step read of {len(channel_addresses)} channels failed: {exc}")
             return dict.fromkeys(channel_addresses)
-        held: dict[str, Any] = {}
+        held: dict[str, object] = {}
         for name, reading in zip(channel_addresses, readings, strict=True):
             if isinstance(reading, BaseException):
                 if not isinstance(reading, Exception | aioca.CANothing):
@@ -1914,9 +2205,11 @@ class EPICSConnector(ControlSystemConnector):
                 held[name] = _ca_plain(reading)
         return held
 
+    @override
     async def _send_batch(
         self,
-        batch: list[tuple[str, Any]],
+        # Each value as write_channel takes it: the extension contract leaves it open.
+        batch: list[tuple[str, ContractAny]],
         timeout: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:
@@ -1934,7 +2227,7 @@ class EPICSConnector(ControlSystemConnector):
             return [_verdict_refusal(name, value, refused) for name, value in batch]
         timeout = timeout or self._timeout
 
-        async def send(name: str, value: Any) -> ChannelWriteResult:
+        async def send(name: str, value: object) -> ChannelWriteResult:
             confirmed = self._resolve_confirm(name) if confirm is None else confirm
             try:
                 return await self._put_and_verify(name, value, timeout, confirmed)
@@ -1964,18 +2257,20 @@ class EPICSConnector(ControlSystemConnector):
         the same deadline.
         """
         deadline = (time.time() + timeout,)
-        return await self._ca.run(
+        return await self._ca_loop.run(
             self._read_channel_ca(
                 normalise_address(channel_address), deadline, timeout, ctrl="enum"
             )
         )
 
+    @override
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
@@ -2014,12 +2309,12 @@ class EPICSConnector(ControlSystemConnector):
             return self._subscribe_pva(channel_address, callback, loop, on_connection)
 
         bulk = self._ca_bulk()
-        subscription = _ChannelSubscription("ca", None, ca_loop=self._ca)
+        subscription = _ChannelSubscription("ca", None, ca_loop=self._ca_loop)
         sub_id = f"{channel_address}_{id(subscription)}"
         # Closing the subscription leaves the record, on the CA loop.
         subscription.handle = _BulkHandle(bulk, sub_id)
         try:
-            await self._ca.run(
+            await self._ca_loop.run(
                 bulk.subscribe(
                     channel_address,
                     sub_id,
@@ -2048,8 +2343,8 @@ class EPICSConnector(ControlSystemConnector):
         with self._bulk_lock:
             if self._bulk is None:
                 self._bulk = CABulk(
-                    self._aioca,
-                    self._ca,
+                    self._ca_client,
+                    self._ca_loop,
                     value_factory=self._ca_channel_value,
                     metadata_factory=self._ca_ctrl_metadata,
                     held_warning_s=self._timeout,
@@ -2069,8 +2364,9 @@ class EPICSConnector(ControlSystemConnector):
         async def create_context() -> None:
             aioca.get_channel_infos()
 
-        await self._ca.run(create_context())
+        await self._ca_loop.run(create_context())
 
+    @override
     async def wait_stale(self) -> None:
         """Raise :class:`ConnectorUnavailableError` once this connector's Channel Access transport has gone stale.
 
@@ -2120,7 +2416,7 @@ class EPICSConnector(ControlSystemConnector):
         if self._name_server is None:
             await asyncio.get_running_loop().create_future()
         while True:
-            stale = await self._ca.run(self._stale_now())
+            stale = await self._ca_loop.run(self._stale_now())
             if stale:
                 names = sorted(stale)
                 reasons = ", ".join(sorted(set(stale.values())))
@@ -2131,6 +2427,7 @@ class EPICSConnector(ControlSystemConnector):
                 )
             await asyncio.sleep(STALE_PROBE_INTERVAL_S)
 
+    @override
     def channel_key(self, address: str) -> str:
         """``ca://X``, ``X.VAL`` and ``X`` are one record's value field: key ``X``."""
         return normalise_address(address.strip()).removesuffix(".VAL")
@@ -2142,7 +2439,7 @@ class EPICSConnector(ControlSystemConnector):
         is absent here, and so is not held down.
         """
         try:
-            infos = self._aioca.get_channel_infos()
+            infos = self._ca_client.get_channel_infos()
         except Exception:
             return {}
         return {info.name: bool(info.connected) for info in infos}
@@ -2231,7 +2528,7 @@ class EPICSConnector(ControlSystemConnector):
         connected = False
         slot = _PvaMetadataSlot(channel_address)
 
-        def pva_callback(update: Any) -> None:
+        def pva_callback(update: object) -> None:
             """Wrapper to convert a p4p monitor update to our format."""
             nonlocal connected
             if isinstance(update, Exception):
@@ -2254,7 +2551,7 @@ class EPICSConnector(ControlSystemConnector):
             if not connected and on_connection is not None:
                 loop.call_soon_threadsafe(on_connection, True)
             connected = True
-            waiters: list[asyncio.Future] = []
+            waiters: list[asyncio.Future[ChannelMetadata | None]] = []
             with slot.lock:
                 if slot.metadata is None:
                     slot.metadata = channel_value.metadata
@@ -2272,6 +2569,7 @@ class EPICSConnector(ControlSystemConnector):
         logger.debug(f"PVA subscription created: {sub_id}")
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from channel changes, whichever transport opened them."""
         subscription = self._subscriptions.pop(subscription_id, None)
@@ -2302,10 +2600,11 @@ class EPICSConnector(ControlSystemConnector):
         without a value anyway. Enum labels come from a read.
         """
         value = self._pva_get(channel_address, timeout, request=_PVA_METADATA_REQUEST)
-        raw_metadata: dict[str, Any] = {"nt_id": _pva_type_id(value)}
+        raw_metadata: dict[str, object] = {"nt_id": _pva_type_id(value)}
         raw_metadata.update(self._pva_alarm_metadata(value))
         return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel, over whichever transport serves it.
 
@@ -2341,7 +2640,7 @@ class EPICSConnector(ControlSystemConnector):
             return await asyncio.to_thread(self._read_metadata_pva, channel_address, self._timeout)
 
         if self._bulk is not None:
-            bulk_metadata: ChannelMetadata | None = await self._ca.run(
+            bulk_metadata: ChannelMetadata | None = await self._ca_loop.run(
                 self._bulk.metadata(channel_address, self._timeout)
             )
             if bulk_metadata is not None:
@@ -2359,7 +2658,7 @@ class EPICSConnector(ControlSystemConnector):
         :class:`ChannelUnreachableError` when no update arrived within
         ``timeout_s``.
         """
-        waiter: asyncio.Future = asyncio.get_running_loop().create_future()
+        waiter: asyncio.Future[ChannelMetadata | None] = asyncio.get_running_loop().create_future()
         parked: list[_PvaMetadataSlot] = []
         try:
             for slot in slots:
@@ -2382,6 +2681,7 @@ class EPICSConnector(ControlSystemConnector):
                     if waiter in slot.waiters:
                         slot.waiters.remove(waiter)
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """
         Check if channel exists and is accessible.

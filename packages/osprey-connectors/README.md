@@ -1,13 +1,14 @@
 # osprey-connectors
 
-Lean control-system and archiver connectors for OSPREY. A control-system
-connector reads and writes the channels of one machine; an archiver connector
-reads their history as a pandas `DataFrame`. Every connector of a kind answers
-the same API, so the code above them does not change when the machine behind
-them does. The package also carries what those connectors need — configuration
-loading, logging, the error taxonomy, the write-safety records and the
-simulation core behind the virtual accelerator — without the rest of the OSPREY
-framework (agents, capabilities, web UI, etc.).
+Lean connectors to a control system and the read-only services beside it: a
+control-system connector reads and writes the channels of one machine; an
+archiver reads their history; a channel directory, an alarm-state feed, an
+alarm log and a put log answer what those services know. Every connector of a
+kind answers the same API, so the code above them does not change when the
+machine behind them does. The package also carries what those connectors need —
+configuration loading, logging, the error taxonomy, the write-safety records and
+the simulation core behind the virtual accelerator — without the rest of the
+OSPREY framework (agents, capabilities, web UI, etc.).
 
 Documentation: <https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html>
 
@@ -38,6 +39,15 @@ A connector is built by `ConnectorFactory` from its registered type name, after
 | archiver | `doocs_archiver` | DOOCS local history (needs `doocs4py`) |
 | archiver | `mya_archiver` | JLab's MYA, over the myquery HTTP service (needs `jlab-archiver-client`) |
 | archiver | `mock_archiver` | The simulated machine's history (needs a facility built by `osprey build`) |
+| directory | `channelfinder` | A ChannelFinder directory service |
+| alarm_state | `phoebus_alarm_server` | A Phoebus alarm server's Kafka topic (needs `osprey-connectors[alarm-state]`) |
+| alarm_log | `phoebus_alarm_logger` | A Phoebus alarm logger |
+| put_log | `caputlog` | A caPutLog put-history service |
+
+The directory, alarm and put-log kinds are built from a `BackendSpec` by
+`ConnectorFactory.create_service`; `service_targets` makes the specs of a
+deployment's `pv_directory` section, per control target. A backend of your own
+registers with `register_service(kind, name, cls)` or is named by dotted path.
 
 A type name that holds a dot, such as `my_site.connectors.MyConnector`, is
 imported as a module path and class name, so a connector of your own needs no
@@ -66,13 +76,14 @@ Most modules are their own API, each imported by its own path:
 | Writing safely | `posture_env` (the read-only run), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
 | The deployment's machines | `simulator` (its virtual accelerator), `standin` (its stand-in soft IOC), `archive_targets` (which machines its archive serves), `honesty` (the one connector pairing a deployment may not have) |
 | Supervising connector processes | `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
+| Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind on each target) |
 | Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole) |
 
 So are the `simulation` package and its modules (`simulation.state`,
 `simulation.view`, `simulation.archive`, ...): its root imports neither numpy
 nor lume, and the heavier modules are imported by their own names.
 
-Three subpackages gather their implementation modules behind one namespace,
+Seven subpackages gather their implementation modules behind one namespace,
 and their names are imported from the subpackage itself:
 
 | Namespace | What it holds |
@@ -80,6 +91,10 @@ and their names are imported from the subpackage itself:
 | `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
 | `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the field name a channel is stored under, the MongoDB client arguments |
 | `osprey_connectors.ipc` | What a connector-host supervisor needs: launching and stopping a child, the proxy and the pool, endpoint derivation and verification, and the errors a frame raises (the wire codec itself is internal) |
+| `osprey_connectors.directory` | The channel directory contract (`ChannelDirectory`, `DirectoryQuery`, `DirectoryPage`, ...) |
+| `osprey_connectors.alarm_state` | The alarm-state feed contract (`AlarmState`, `AlarmStateRecord`, `AlarmStateRow`, `AlarmStates`, `AlarmConfigRecord`, `severity_rank`) |
+| `osprey_connectors.alarm_log` | The alarm log contract (`AlarmLog`, `AlarmHistoryRow`) |
+| `osprey_connectors.put_log` | The put log contract (`PutLog`, `PutRow`) |
 
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.

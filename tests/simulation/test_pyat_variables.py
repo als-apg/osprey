@@ -20,22 +20,20 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import at
+import numpy as np
 import pytest
+import yaml
+from lume.exceptions import ReadOnlyError
+from lume_pyat.actions import PyATReadOnlyScalarVariable
+from lume_pyat.exceptions import OrbitSolveError
+from lume_pyat.model import LUMEPyATModel
+from lume_pyat.simulator import PyATSimulator
+from pydantic import ValidationError
 
-at = pytest.importorskip("at")
-
-import numpy as np  # noqa: E402
-import yaml  # noqa: E402
-from lume.exceptions import ReadOnlyError  # noqa: E402
-from lume_pyat.actions import PyATReadOnlyScalarVariable  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
-from lume_pyat.model import LUMEPyATModel  # noqa: E402
-from lume_pyat.simulator import PyATSimulator  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
-
-from osprey.simulation.engines import calibration as cal  # noqa: E402
-from osprey.simulation.engines import pyat_variables  # noqa: E402
-from osprey.simulation.engines.pyat_variables import (  # noqa: E402
+from osprey.simulation.engines import calibration as cal
+from osprey.simulation.engines import pyat_variables
+from osprey.simulation.engines.pyat_variables import (
     EV_PER_GEV,
     CalibratedSetpoint,
     EnergyVariable,

@@ -11,24 +11,22 @@
  *     {@link SessionCues.selecting} holds it there until the switch has
  *     happened or did not.
  *   - "+". A new session, as the row's menu starts one (`switchTo({new:
- *     true})`: the chat's New conversation, or a new terminal session), with
- *     the Agent pane opened first.
+ *     true})`: the chat's New conversation, or a new terminal session). The
+ *     new session opens on the Agent pane alone (session-layout.js).
  *   - THE PEEK. A folded session's artifacts on hover (sidebar-session-peek.js).
  *
  * @module sidebar-session-cues
  */
 
 import { onChat } from './chat-events.js';
-import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
 import * as model from './session-model.js';
 import { createSessionPeek } from './sidebar-session-peek.js';
 
 /** The Sessions row's "+" (index.html). */
 export const NEW_SESSION_ID = 'sidebar-new-session';
 
-/** Start a new session, the Agent pane opened first. */
+/** Start a new session. */
 export function newSession() {
-  if (!isTerminalPanelOpen()) openTerminalPanel();
   void model.switchTo({ new: true });
 }
 

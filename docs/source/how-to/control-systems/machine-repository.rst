@@ -64,7 +64,10 @@ same) and name its facility directory in the root ``profile.yml``:
 ``machine:`` resolves and is folded into the profile hash like ``data:``
 (:doc:`/how-to/build-profiles`), so a new machine commit reports the build out of date.
 Only the root ``profile.yml`` states it; every login drives the same
-machine. A machine builds to the same facility file standalone and mounted.
+machine. A machine builds to the same facility file standalone and mounted,
+except for a measurement kind only the mounting deployment's package registers:
+standalone, the kind is deferred with a ``kind-deferred`` warning and the
+deployment judges its block (:doc:`/how-to/register-a-measurement-kind`).
 
 With ``machine:`` set, ``osprey facility import`` writes into the machine root,
 except the knowledge index, which goes under the deployment's

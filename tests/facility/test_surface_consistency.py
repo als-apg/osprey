@@ -11,7 +11,7 @@ holds, per section of the demo machine, the joins no single-surface test makes:
   query is *added* when it targets a channel beyond the frozen fingerprint);
 * every class a section's devices carry, every machine-level place and every
   family of the section has a description, and the section's new classes,
-  places and families are present.
+  places and families are present. A group of kind ``section`` is no family.
 
 The expectations live in :data:`SECTIONS`, one row per section, so a section
 the demo gains is one more row. Each check is a function that returns what it
@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import is_family
 from osprey.facility.validate import vocabulary
 from osprey.services.archiver_recorder.config import ChannelSet, resolve_channel_addresses
 from osprey_connectors.simulation.values import is_waveform
@@ -55,7 +56,7 @@ class Section:
             section that lies beyond the frozen fingerprint.
         new_classes: Device classes the section introduces.
         new_places: Places the section introduces.
-        new_families: Families (groups) the section introduces.
+        new_families: Families (groups of kind ``family``) the section introduces.
     """
 
     waveforms: frozenset[str] = frozenset()
@@ -252,7 +253,9 @@ def description_gaps(
         expected.new_classes
     )
     places = {p["id"]: p for p in facility["places"] if id_section(p["id"]) == section}
-    families = {g["id"]: g for g in facility["groups"] if id_section(g["id"]) == section}
+    families = {
+        g["id"]: g for g in facility["groups"] if id_section(g["id"]) == section and is_family(g)
+    }
     machine_places = {pid for pid, p in places.items() if p.get("level") == "machine"}
 
     gaps = {
@@ -383,3 +386,14 @@ def test_a_new_family_without_a_description_is_reported(
             del group["description"]
     gaps = description_gaps("SR", SECTIONS["SR"], facility, vocabulary()["classes"])
     assert gaps == {"families without a description": ["SR/SEPTUM"]}
+
+
+def test_a_section_without_a_description_is_no_family_gap(
+    built_demo: BuiltProject,
+) -> None:
+    facility = copy.deepcopy(built_demo.facility)
+    [section] = [group for group in facility["groups"] if group.get("kind") == "section"]
+    assert section["id"] == "SR/VS03"
+    del section["description"]
+    gaps = description_gaps("SR", SECTIONS["SR"], facility, vocabulary()["classes"])
+    assert gaps == {}

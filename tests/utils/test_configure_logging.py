@@ -104,6 +104,114 @@ class TestHandlerInstallation:
         assert len(_rich_handlers()) == 1
 
 
+def _render_root(root, *, rich_tracebacks: bool):
+    """A directory whose render is ``build/config.yml``, as a deployed terminal's is."""
+    (root / "build").mkdir(parents=True)
+    config = root / "build" / "config.yml"
+    config.write_text(f"logging:\n  rich_tracebacks: {str(rich_tracebacks).lower()}\n")
+    return config
+
+
+class _Collected(logging.Handler):
+    """Keeps every record it is handed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+class TestLoggingSettingsFollowTheConfig:
+    """The handler reads the config this process resolves, and says so when it cannot."""
+
+    @pytest.fixture(autouse=True)
+    def _no_ambient_config(self, monkeypatch):
+        for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(
+            osprey_connectors.logger, "_settings_warning_given", False, raising=False
+        )
+
+    @pytest.fixture
+    def collected(self):
+        handler = _Collected()
+        logging.getLogger().addHandler(handler)
+        return handler
+
+    def test_a_render_root_with_build_config_is_honoured(self, tmp_path, monkeypatch):
+        _render_root(tmp_path, rich_tracebacks=False)
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        assert _rich_handlers()[0].rich_tracebacks is False
+
+    def test_a_later_call_applies_the_config_the_process_has_since_resolved(
+        self, tmp_path, monkeypatch
+    ):
+        """An entry point configures logging before it knows its deployment; once
+        it has published the render, a second call applies that render's settings
+        to the handler already installed."""
+        config = _render_root(tmp_path / "repo", rich_tracebacks=False)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        configure_logging()
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        configure_logging()
+
+        assert _rich_handlers() == [handler]
+        assert handler.rich_tracebacks is False
+
+    def test_a_handler_someone_else_installed_keeps_its_settings(self, tmp_path, monkeypatch):
+        _render_root(tmp_path, rich_tracebacks=False)
+        monkeypatch.chdir(tmp_path)
+        foreign = RichHandler(rich_tracebacks=True)
+        logging.getLogger().addHandler(foreign)
+
+        configure_logging()
+
+        assert foreign.rich_tracebacks is True
+
+    def test_settings_that_cannot_be_read_are_warned_about_once(self, monkeypatch, collected):
+        def boom(*args, **kwargs):
+            raise RuntimeError("config unavailable")
+
+        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+
+        configure_logging()
+        configure_logging()
+
+        warnings = [r for r in collected.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "RuntimeError: config unavailable" in warnings[0].getMessage()
+        assert _rich_handlers()[0].rich_tracebacks is True
+
+    def test_a_named_config_that_does_not_exist_is_warned_about(
+        self, tmp_path, monkeypatch, collected
+    ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+
+        configure_logging()
+
+        assert [r.levelno for r in collected.records] == [logging.WARNING]
+
+    def test_a_directory_with_no_config_is_not_a_warning(self, tmp_path, monkeypatch, collected):
+        """A command run outside any deployment has no settings to miss."""
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        assert collected.records == []
+        assert _rich_handlers()[0].rich_tracebacks is True
+
+
 class TestAdditiveSemantics:
     def test_foreign_handlers_survive(self):
         root = logging.getLogger()

@@ -221,6 +221,28 @@ class TestValidation:
         for valid in ("ariel", "lattice", "artifacts", "grafana"):
             assert valid in detail
 
+    def test_an_artifact_tile_is_accepted_while_the_artifacts_panel_is_known(self):
+        """A tile pinned to one artifact is keyed ``artifact:<id>``, which is no panel id."""
+        client = _make_client()
+        tiled = copy.deepcopy(LAYOUT)
+        tiled["items"][1].update(tabs=["artifact:0a1b2c3d4e5f"], showing="artifact:0a1b2c3d4e5f")
+        resp = _report(client, tiled)
+        assert resp.status_code == 200
+        assert client.app.state.dock_layout == tiled
+
+    def test_an_artifact_tile_is_refused_without_the_artifacts_panel(self):
+        client = _make_client(enabled_panels={"ariel", "lattice"})
+        tiled = copy.deepcopy(LAYOUT)
+        tiled["items"][1].update(tabs=["artifact:0a1b2c3d4e5f"], showing="artifact:0a1b2c3d4e5f")
+        assert _report(client, tiled).status_code == 422
+
+    @pytest.mark.parametrize("key", ["artifact:", "artifact:a/b", "artifact:" + "a" * 65])
+    def test_an_artifact_tile_key_with_a_bad_id_is_refused(self, key):
+        client = _make_client()
+        bad = copy.deepcopy(LAYOUT)
+        bad["items"][1].update(tabs=[key], showing=key)
+        assert _report(client, bad).status_code == 422
+
     def test_a_tile_holding_two_panels_is_refused_one_panel_per_tile(self):
         """A valid tree by the engine's grammar, but OSPREY's dock shows one panel per tile."""
         client = _make_client()
@@ -310,6 +332,12 @@ class TestPopouts:
     def test_an_unknown_pop_out_is_refused(self):
         client = _make_client()
         assert _report_popouts(client, TERMINAL_ONLY, ["nope"]).status_code == 422
+
+    def test_an_artifact_tile_may_be_detached(self):
+        client = _make_client()
+        resp = _report_popouts(client, TERMINAL_ONLY, ["artifact:0a1b2c3d4e5f"])
+        assert resp.status_code == 200
+        assert resp.json()["popouts"] == ["artifact:0a1b2c3d4e5f"]
 
     def test_a_null_layout_with_the_agent_detached_is_an_empty_dock(self):
         """Detaching the Agent pane from the default layout leaves the dock empty."""

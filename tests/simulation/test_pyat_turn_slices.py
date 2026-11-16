@@ -14,12 +14,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 
-at = pytest.importorskip("at")
-
-from osprey.simulation.engines import pyat_turns as turns  # noqa: E402
+from osprey.simulation.engines import pyat_turns as turns
 
 DECK = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example/decks/SR.json"
 MARKER = "INJ"

@@ -22,6 +22,11 @@ computed device slots in place on the document:
   importing layer alone states (``imported``) yields to a span that is that
   place or inside it, and stands under a span that holds it or where none
   holds the device.
+  A device still without a place after that takes it from its ``located_in``
+  claims (``relation``) when no claim on its key is ``contested`` and the
+  accepted claims that are not coarse all name one place; a claim's unit is
+  not copied. A disputed key projects nothing: the ``relation-contested``
+  warning of the relations stage is the report.
 * ``ordinalInPlace``, ``ordinalInModel``: per (class, place) and per
   (class, model), in s order with ties by id, a periodic model's s read
   modulo its length; a device with an ``s`` and no ``model`` is numbered in
@@ -33,9 +38,9 @@ resolve or that overlaps another at its level (``span-invalid``), an imported
 place that contradicts its span, a stated position that contradicts the deck
 or lies outside a single-pass deck (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
-(``wiring-conflict``), a declared ``texture`` model or a channel on a status
-address (``model-conflict``), a model input that cannot be delivered (see
-``check_model_inputs``), a nominal or a wired start value outside its limits band
+(``wiring-conflict``), a declared ``texture`` model or a channel on a status or
+IOC health address (``model-conflict``), a model input that cannot be delivered
+(see ``check_model_inputs``), a nominal or a wired start value outside its limits band
 (``seed-invalid``), an unseeded setpoint whose limits band excludes 0
 (``seed-missing``), and a scenario fault keyed by a name that is neither a
 channel nor a variable of the model's engine (``engine-invalid``); a wired
@@ -60,6 +65,13 @@ from typing import Any
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
 from osprey.facility.provenance import add_defaults, set_place_from
+from osprey.facility.relations import (
+    ACCEPTED,
+    CONTESTED,
+    claim_keys,
+    coarse_reasons,
+    end_identity,
+)
 from osprey.facility.scenarios import (
     check_scenario_attachments,
     check_scenario_engines,
@@ -72,6 +84,7 @@ from osprey.facility.validate import (
     _cycle_from,
     need,
     paired_nominal_error,
+    relation_types,
     stating_files,
 )
 from osprey.facility.wiring import element_stop
@@ -217,6 +230,7 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
         return run.errors
     _agree(run, computed, decks)
     _places(run, positions, spans)
+    _project_places(document)
     _nominal_band(run)
     run.errors.extend(check_scenario_engines(document))
     run.errors.extend(check_scenario_attachments(document, validated.facility_dir))
@@ -245,22 +259,25 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
+    from osprey.facility.views.simulator import ioc_health_addresses, status_address
+
     code = run.document["identity"]["code"]
-    status = {
-        f"{code}:SIM:{model['name']}:STATUS": model["name"]
-        for model in models
-        if str(model["name"]).casefold() != TEXTURE
-    }
+    physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]
+    served = {status_address(code, name): (name, "status") for name in physics}
+    for name in (*physics, TEXTURE):
+        for address in ioc_health_addresses(code, name):
+            served[address] = (name, "IOC health")
     for channel in run.document.get("channels", []):
-        name = status.get(channel["id"])
-        if name is not None:
+        owner = served.get(channel["id"])
+        if owner is not None:
+            name, kind = owner
             run.stop(
                 "model-conflict",
                 "channel",
                 channel["id"],
                 stating_files(channel, None, _MODELS_FILE),
-                f"the address is model {name}'s status channel",
-                "rename the channel; the simulator serves the status address itself",
+                f"the address is model {name}'s {kind} channel",
+                f"rename the channel; the simulator serves the {kind} address itself",
             )
 
 
@@ -884,6 +901,47 @@ def _origin(device: Mapping[str, Any], fixed: set[str]) -> str | None:
 
 def _place_from(device: dict[str, Any], place_from: str) -> None:
     device["provenance"] = set_place_from(device.get("provenance", {}), place_from)
+
+
+def _project_places(document: Mapping[str, Any]) -> None:
+    """Give each unplaced device the place its ``located_in`` claims agree on.
+
+    Per ``located_in`` key (one per subject device): nothing when the device
+    already has a place or any claim on the key is ``contested``; otherwise the
+    accepted claims that are not coarse there must name exactly one place, which
+    becomes the device's place with ``place_from: relation``. Stated and
+    inferred claims count alike; the claims' order does not matter.
+    """
+    claims = [c for c in document.get("relations") or [] if c.get("type") == "located_in"]
+    if not claims:
+        return
+    types = relation_types()
+    by_key: dict[Any, list[Mapping[str, Any]]] = {}
+    for claim in claims:
+        for key in claim_keys(claim, types):
+            by_key.setdefault(key, []).append(claim)
+    devices = {device["id"]: device for device in document.get("devices", [])}
+    for key, on_key in by_key.items():
+        subject = dict(key[1:]).get("subject")
+        if subject is None or subject[0] != "device":
+            continue
+        device = devices.get(subject[1])
+        if device is None or device.get("place") is not None:
+            continue
+        if any(claim.get("standing") == CONTESTED for claim in on_key):
+            continue
+        named = {
+            end_identity(claim.get("object") or {})
+            for claim in on_key
+            if claim.get("standing") == ACCEPTED and not coarse_reasons(claim, on_key, types)
+        }
+        if len(named) != 1:
+            continue
+        [target] = named
+        if target is None or target[0] != "place":
+            continue
+        device["place"] = target[1]
+        _place_from(device, "relation")
 
 
 # --- nominal band --------------------------------------------------------------------

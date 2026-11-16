@@ -69,7 +69,10 @@ export const OUTCOME_MAX_AGE_S = 60;
 /* ---- derived facts (the pure ones live in control-target-facts.js) ---- */
 
 /**
- * What the last switch did to THIS row, when it is still news.
+ * What the last switch did to THIS row, when it is still news: `switching…`
+ * while it runs, and a refusal or an expiry once answered. A switch that
+ * landed says nothing here: the machine is in the card under "The agent is
+ * on", which is the answer.
  *
  * Matched on the target the outcome names, never on "the session moved": the
  * chip matches the request by `request_id` and hands the outcome on, and a
@@ -95,7 +98,7 @@ function switchOutcome(row, state, ctx) {
   // different vocabulary: it is the `data-status` value terminal.css keys the
   // outcome line on, the same split kindAttr makes between the route's words
   // and the stylesheet's.
-  if (last.status === SWITCH_APPLIED) return { status: 'success', text: '✓ switched' };
+  if (last.status === SWITCH_APPLIED) return null;
   // refused / failed / expired render the operator phrase for the word the
   // gate (or the client's own deadline, for a request nothing ever answered)
   // put on them, with the gate's own sentence on the title where it sent one.

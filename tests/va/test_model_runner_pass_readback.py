@@ -22,8 +22,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pytest
 
-pytest.importorskip("at")
-
 from osprey.services.virtual_accelerator.serving.runner_config import (
     pass_readback,
     periodic_addresses,

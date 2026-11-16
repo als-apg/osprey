@@ -796,8 +796,10 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(holder.dirty).toBe(false);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(serverReport).toHaveBeenCalledTimes(3);
-    // One warning for the run of failures, not one per attempt.
-    expect(warn).toHaveBeenCalledTimes(1);
+    // One warning for the run of failures, not one per attempt. Only the
+    // reporter's own count: modules loaded on the way may warn about the page.
+    const own = warn.mock.calls.filter(([message]) => String(message).startsWith('dock-sync:'));
+    expect(own).toHaveLength(1);
     warn.mockRestore();
   });
 
@@ -1004,6 +1006,19 @@ describe('echo guard — active-panel change routing (core invariant)', () => {
 
     expect(setPanelFocus).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(setPanelVisibility).not.toHaveBeenCalled();
+  });
+
+  test('a human focus of an artifact tile applies locally and is not reported', async () => {
+    const api = makeApi();
+    const { mod } = await wire(api);
+    const focused = vi.fn();
+    mod.setTileFocusHandler(focused);
+
+    api.activePanel = { id: 'iframe:artifact:a1' };
+    api.fireActive();
+
+    expect(focused).toHaveBeenCalledExactlyOnceWith('artifact:a1');
+    expect(setPanelFocus).not.toHaveBeenCalled();
   });
 
   test('each distinct human focus POSTs once — no coalescing, no duplication', async () => {

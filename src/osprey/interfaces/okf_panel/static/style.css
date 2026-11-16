@@ -447,7 +447,8 @@ body {
 #graph-view [data-relation='writesSignal'] { --okf-relation: var(--color-warning); }
 #graph-view [data-relation='type'],
 #graph-view [data-relation='subClassOf'] { --okf-relation: var(--chart-series-4); }
-#graph-view [data-relation='inPlace'] { --okf-relation: var(--chart-series-5); }
+#graph-view [data-relation='locatedIn'] { --okf-relation: var(--chart-series-5); }
+#graph-view [data-relation='partOf'] { --okf-relation: var(--chart-series-6); }
 
 /* -- Sidebar: the drawing, the depth and the legend ----------------------- */
 
@@ -512,17 +513,6 @@ label.okf-graph-legend-row:hover {
   color: var(--text-muted);
 }
 
-.okf-graph-tag {
-  padding: 0 var(--space-1);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: help;
-}
-
 .okf-graph-swatch {
   flex: none;
   width: 22px;
@@ -582,7 +572,8 @@ label.okf-graph-legend-row:hover {
 }
 
 .okf-graph-edge[data-relation='type'] { stroke-dasharray: 4 3; }
-.okf-graph-edge[data-relation='inPlace'] { stroke-dasharray: 1 3; stroke-linecap: round; }
+.okf-graph-edge[data-relation='locatedIn'] { stroke-dasharray: 1 3; stroke-linecap: round; }
+.okf-graph-edge[data-relation='partOf'] { stroke-dasharray: 8 3 1 3; stroke-linecap: round; }
 
 .okf-graph-arrow {
   fill: var(--okf-relation);

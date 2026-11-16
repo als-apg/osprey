@@ -50,6 +50,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     TurnInProgressError,
     TurnSilenceTimeout,
     build_operator_child_env,
+    default_chat_model,
     is_terminal_event,
 )
 from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
@@ -76,6 +77,9 @@ router = APIRouter()
 _DEFAULT_TURN_TIMEOUT_S = 600
 # Cadence of `: heartbeat` SSE comment frames emitted while awaiting SDK events.
 HEARTBEAT_INTERVAL_S = 15
+#: The header of a 204 from the chat's event feed: the model that will answer
+#: the chat's first prompt. Omitted when the deployment's model cannot be resolved.
+CHAT_MODEL_HEADER = "X-Osprey-Chat-Model"
 
 
 class ChatRequest(BaseModel):
@@ -151,11 +155,11 @@ def clip_input(value: Any, depth: int = 0) -> Any:
 
 #: The fields the chat client receives, per frame type the wire reduces: what
 #: the chat renders and nothing else. ``seq`` rides every frame (the follower
-#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` reads,
-#: so the child's conversation id (``session_id`` on init) reaches the chat on
-#: no frame; the browser learns it only from the hand-off door. Cost and turn
-#: counts on ``result``, and the breakdowns of a ``context`` reading, are never
-#: sent.
+#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` and
+#: the model tag (``model`` on init) read, so the child's conversation id
+#: (``session_id`` on init) reaches the chat on no frame; the browser learns it
+#: only from the hand-off door. Cost and turn counts on ``result``, and the
+#: breakdowns of a ``context`` reading, are never sent.
 _CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
     "result": frozenset({"type", "seq", "is_error", "duration_ms"}),
     "context": frozenset({"type", "seq", "used_tokens", "window_tokens", "percent"}),
@@ -164,6 +168,8 @@ _CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
             "type",
             "seq",
             "subtype",
+            # init
+            "model",
             # agent_done
             "tool_use_id",
             "status",
@@ -651,6 +657,19 @@ async def answer_chat_permission(
     return Response(status_code=204)
 
 
+async def _default_model(request: Request) -> str | None:
+    """The deployment's default chat model, resolved once per app, off the event loop.
+
+    The feed of a chat with no agent is asked again every few seconds, so the
+    config is read on the first ask only. A model that cannot be resolved is
+    kept as ``None`` too.
+    """
+    state = request.app.state
+    if not hasattr(state, "chat_default_model"):
+        state.chat_default_model = await asyncio.to_thread(default_chat_model, state.project_cwd)
+    return cast("str | None", state.chat_default_model)
+
+
 @router.get("/api/chat/{chat_id}/events")
 async def chat_events(chat_id: str, request: Request) -> Response:
     """A live feed of everything the chat's agent does, for any tab bound to it.
@@ -662,12 +681,14 @@ async def chat_events(chat_id: str, request: Request) -> Response:
     Frames carry ``seq``, so a tab that also holds the turn's own stream draws
     each frame once. 204 with no body while no agent runs for the chat yet: a fresh
     chat has none until its first prompt starts one. That is a normal state, not an
-    error; the client retries slowly until a prompt starts one.
+    error; the client retries slowly until a prompt starts one. The 204 names the
+    model that will answer in :data:`CHAT_MODEL_HEADER`.
     """
     registry = request.app.state.operator_registry
     session = registry.get_chat_session(chat_id)
     if session is None or not session.is_active:
-        return Response(status_code=204)
+        model = await _default_model(request)
+        return Response(status_code=204, headers={CHAT_MODEL_HEADER: model} if model else None)
     feed, hello = session.subscribe()
 
     async def stream():

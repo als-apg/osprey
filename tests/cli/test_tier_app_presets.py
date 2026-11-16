@@ -308,9 +308,9 @@ _APP_FORBIDDEN_KEYS = frozenset(
     {"extends", "exclude", "services", "deployed_services", "provider", "data", "deploy_services"}
 )
 
-# The tool servers the flagship host runs. An app's render starts from the
-# registry defaults, not from the host's switches, so each app names every one
-# of these it does without.
+# The tool servers the flagship host runs. A shared login's render starts from
+# the registry defaults, not from the host's switches, so each login names every
+# one of these it does without.
 HOST_SERVERS = (
     "controls",
     "python",
@@ -321,12 +321,13 @@ HOST_SERVERS = (
     "graph",
     "bluesky",
     "health",
+    "pv-directory",
 )
-# Which host servers each app keeps; every other host server is switched off.
+# Which host servers each shared login keeps; every other host server is switched off.
 APP_SERVERS_ON = {
     "logbook": {"osprey_workspace", "ariel", "graph"},
     "knowledge": {"osprey_workspace", "osprey_facility_knowledge", "channel-finder", "graph"},
-    "channel-finder": {"osprey_workspace", "channel-finder"},
+    "channel-finder": {"osprey_workspace", "channel-finder", "pv-directory"},
 }
 
 
@@ -1655,14 +1656,14 @@ class TestDemoTiersAndApps:
         self, built_layered_stack: Path
     ) -> None:
         """The channel-finder login is the hierarchical, file-based channel
-        finder and nothing else: no graph — the store is not dialled and the
-        server is not rendered — no logbook, no control system.
+        finder plus the PV directory it keeps: no graph — the store is not
+        dialled and the server is not rendered — no logbook, no control system.
         """
         project = _render_dir(built_layered_stack, "channel-finder")
         assert project.is_dir(), "the channel-finder login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
-        assert set(servers) == {"channel-finder", "osprey_workspace"}
+        assert set(servers) == {"channel-finder", "osprey_workspace", "pv-directory"}
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert config["channel_finder"]["pipeline_mode"] == "hierarchical"
         assert config["web"]["default_panel"] == "channel-finder"

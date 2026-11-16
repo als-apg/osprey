@@ -687,7 +687,7 @@ function reconcilePending() {
  * **A terminus alone is not enough to retire one**, and that is the whole
  * point. Under the fleet rule the record's `applied` terminus is normally
  * ALREADY in view when a deadline passes — the wait was on the servers, not on
- * the record — so retiring on it would flip the chip to `✓ switched` while a
+ * the record — so retiring on it would show the switch as landed while a
  * server is still on the old generation. That is the exact misreport this task
  * exists to prevent, and a connector rebuild outlasting `REQUEST_TTL_S` is an
  * ordinary way to reach it.
@@ -886,7 +886,7 @@ export function isWatchdogFrame(frame) {
  * The overlay is unconditional because {@link dropOvertakenSynthesis} has
  * already removed any synthesis the route has overtaken — including the case
  * that matters most: a terminus saying `applied` for the very request a
- * controls server then failed to apply, which would read as `✓ switched` on a
+ * controls server then failed to apply, which would read as landed on a
  * switch that did not land.
  * @returns {PostureView|null}
  */

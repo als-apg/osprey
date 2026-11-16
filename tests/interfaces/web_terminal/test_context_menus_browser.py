@@ -5,7 +5,7 @@ Shift+F10 with focus on it, the menu taking focus on its first row and Escape
 handing it back. Pins:
 
 - A tile bar's ⋯ and a right-click on the bar offer the same rows.
-- A pop-out's bar carries the window rows (Reattach, Reload, Close window) and
+- A pop-out's bar carries the window rows (Reattach, Zoom, Reload, Close window) and
   none of the dock's; Close window closes the window and the panel keeps its
   sidebar row, with no tile coming back.
 - A right-click on the terminal body opens the Terminal menu.
@@ -245,7 +245,9 @@ def test_a_tile_bars_more_button_and_a_right_click_on_the_bar_offer_the_same_row
         assert from_bar == [
             "Open panel",
             "Maximize",
+            "Zoom",
             "Open in new window",
+            "Open in new session",
             "Reload",
             "Reveal in sidebar",
             "Close tile",
@@ -282,12 +284,13 @@ def test_a_pop_out_bar_has_the_window_rows_and_close_window_keeps_the_sidebar_ro
         # The window rows, Close window last; nothing that acts on a dock or
         # on the rail membership of a panel already on it.
         assert labels[labels.index("Reattach") :] in (
-            ["Reattach", "Reload", "Close window"],
-            ["Reattach", "Reload", "Help", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Close window"],
+            ["Reattach", "Zoom", "Reload", "Help", "Close window"],
         ), labels
         for verb in (
             "Open panel",
             "Maximize",
+            "Open in new session",
             "Reveal in sidebar",
             "Close tile",
             "Remove from rail",
@@ -440,7 +443,9 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         page = _open_dock_hub(chromium_browser, dock)
         expect(rail_entry(page, "svc-a", enabled_only=True)).to_have_count(1, timeout=10_000)
 
-        assert _menu_key(page, rail_entry(page, "svc-a"))[0] == "Open"
+        labels = _menu_key(page, rail_entry(page, "svc-a"))
+        assert labels[0] == "Open", labels
+        assert labels[labels.index("Open in new window") + 1] == "Open in new session", labels
 
         page.evaluate(
             """async () => {
@@ -511,11 +516,13 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
 
     labels = _menu_key(page, page.locator("#sidebar-agent-row"), aria="Sessions actions")
     assert labels[0] == "New session", labels
+    assert "Open in new session" not in labels, labels
 
     labels = _menu_key(page, page.locator("#sidebar-toggle"), aria="Sidebar")
     assert "Collapse sidebar" in labels and "Reset layout" in labels, labels
 
     labels = _menu_key(page, tree_session)
+    assert "Open in new session" not in labels, labels
     assert "Rename…" in labels, labels
 
     # An artifact row: the seeded session holding the beam profile, opened.
@@ -531,7 +538,8 @@ def test_the_menu_key_opens_the_sidebar_menus(hub, page):
     # Pinned by its id: `.first` is re-run on every use, and a redraw can put
     # another row first.
     artifact = page.locator(f'{_TREE} .osprey-list-row[data-id="{first.get_attribute("data-id")}"]')
-    assert _menu_key(page, artifact), "the artifact row's menu has rows"
+    labels = _menu_key(page, artifact)
+    assert labels[:2] == ["Open", "Open in new session"], labels
 
     # A pinned session draws the Pinned group, whose heading has a menu.
     page.evaluate(

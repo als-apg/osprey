@@ -641,6 +641,22 @@ _CONFIG_PANEL_ID = "config"
 #: the id must not become a way to move or close the operator's terminal.
 _TERMINAL_PANEL_ID = "terminal"
 
+#: Panel id of the artifact gallery, which every artifact tile frames.
+_ARTIFACTS_PANEL_ID = "artifacts"
+
+#: Layout key of a tile pinned to one artifact (``artifact-tiles.js``):
+#: ``artifact:`` and the artifact's id. It is no panel id; a layout report may
+#: name it while the Artifacts panel is known.
+_ARTIFACT_TILE_KEY = re.compile(r"artifact:[A-Za-z0-9_-]{1,64}")
+
+
+def _is_dock_key(key: str, known: set[str]) -> bool:
+    """Whether a dock layout report may name *key*: the terminal, a known panel id,
+    or an artifact tile while the Artifacts panel is known."""
+    if key == _TERMINAL_PANEL_ID or key in known:
+        return True
+    return _ARTIFACTS_PANEL_ID in known and _ARTIFACT_TILE_KEY.fullmatch(key) is not None
+
 
 def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
     """Record an agent-origin panel command in the agent-activity history buffer.
@@ -873,8 +889,9 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal`, holds
     one panel per tile (``one_panel_per_tile``,
     :func:`~osprey.interfaces.web_terminal.presets.crowded_tile`) and whose
-    every key other than the terminal is a known panel id; a pop-out is the
-    terminal or a known panel id, and is not in the tree. A dock whose panes are
+    every key other than the terminal is a known panel id or, while the
+    Artifacts panel is known, an artifact tile (``artifact:<id>``); a pop-out is
+    one of those too, and is not in the tree. A dock whose panes are
     all in windows of their own (the Agent pane detached from the default
     layout) reports ``layout: None`` with those pop-outs, and an empty dock with
     none left reports ``layout: None`` alone. The layout is stored
@@ -918,7 +935,7 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 
 
 def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
-    """``layout`` normalised, once it passes the dock layout rules and names only known panels.
+    """``layout`` normalised, once it passes the dock layout rules and names only known keys.
 
     The same check guards a dock's report (``/api/panel-layout``) and an op's
     result (``/api/panel-op-result``). ``None`` is an empty dock, which passes
@@ -927,7 +944,8 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
     Raises:
         HTTPException: 422 when the layout breaks a dock layout rule,
             puts several panels in one tile (``one_panel_per_tile``) or names a
-            key that is neither the terminal nor a known panel id.
+            key that is neither the terminal, a known panel id nor an artifact
+            tile of a known Artifacts panel (:func:`_is_dock_key`).
     """
     if layout is None:
         return None
@@ -942,7 +960,7 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
             detail=f"{crowded}: {ONE_PANEL_PER_TILE}: {ONE_PANEL_PER_TILE_TEXT}",
         )
     known = _known_panel_ids(request)
-    unknown = [key for key in layout_keys(layout) if key != _TERMINAL_PANEL_ID and key not in known]
+    unknown = [key for key in layout_keys(layout) if not _is_dock_key(key, known)]
     if unknown:
         raise HTTPException(
             status_code=422,
@@ -954,15 +972,15 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
 def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) -> list[str]:
     """``popouts`` sorted and deduplicated, once each names a pane outside ``layout``.
 
-    A pop-out is the terminal (the Agent pane) or a known panel id. ``layout``
-    may be ``None``, an empty dock.
+    A pop-out is the terminal (the Agent pane), a known panel id or an artifact
+    tile (:func:`_is_dock_key`). ``layout`` may be ``None``, an empty dock.
 
     Raises:
         HTTPException: 422 when a pop-out is an unknown id, or is also in the tree
             (a pane is in a window or in a tile, never both).
     """
     known = _known_panel_ids(request)
-    bad = [key for key in popouts if key != _TERMINAL_PANEL_ID and key not in known]
+    bad = [key for key in popouts if not _is_dock_key(key, known)]
     if bad:
         raise HTTPException(status_code=422, detail=f"Unknown pop-out panel ids: {bad}")
     docked = set(layout_keys(layout))

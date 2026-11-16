@@ -9,7 +9,12 @@ list.
 
 Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
 the conflict check runs over what is left: two present unequal values on a
-field no ``set`` names stop the build (``layer-conflict``). Last, the schema
+field no ``set`` names stop the build (``layer-conflict``). Three set slots are
+joined instead (``UNIONED``): a group carries every member any source states
+(``members-disagree`` warns when the sources differ), and a place or device
+carries every ``scheme_names`` entry any source states, where one
+``(name, scheme)`` key two sources give different contents still stops the
+build. Last, the schema
 defaults are filled and recorded in each record's provenance: a channel that
 states no description but names a signal is given one composed from its
 owner, its signal and its unit, recorded as a default; a setpoint that
@@ -21,7 +26,7 @@ recorded as a default.
     schema: osprey.facility.fixes/1
     fixes:
       - op: set                      # set | add | drop
-        kind: channel                # place | device | channel | wiring | group | model
+        kind: channel                # place | device | channel | wiring | group | model | relation
         id: SR:QF:SP
         fields: {role: setpoint}     # set: the fields it replaces, each whole
         was: {role: {mml: readback}} # set: per field, every layer's present value
@@ -38,8 +43,9 @@ and view reads one settings map; a patched setting is recorded as a default.
 A patch of a setting a source states, or that another listed kind patches,
 stops the build naming both.
 
-Every list compares and emits in source order except the set-valued slots,
-which compare and emit sorted by their string form. Records emit sorted by id,
+Every list compares and emits in source order except the set-valued slots:
+a plain set compares and emits sorted by its string form, a keyed set
+(``scheme_names``, ``citations``) ordered by its key. Records emit sorted by id,
 models by name with ``texture`` last, wiring inside its model by id. The result
 does not depend on the order of fixes.yaml.
 """
@@ -47,24 +53,28 @@ does not depend on the order of fixes.yaml.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import add_defaults, build_provenance
 from osprey.facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
+    KEYED_SETS,
     KIND_CLASS,
     RECORD_FILES,
     SET_VALUED_SLOTS,
     Sources,
+    citation_dates,
     group_families,
+    keyed_clashes,
+    keyed_order,
 )
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
@@ -72,6 +82,7 @@ __all__ = [
     "FIXES_FILE",
     "FIXES_HEADER",
     "SET_VALUED",
+    "UNIONED",
     "CombineResult",
     "combine",
 ]
@@ -89,8 +100,17 @@ SET_VALUED: dict[str, frozenset[str]] = {
     for kind in RECORD_FILES.values()
 }
 
+#: The set slots a layer adds to, per record kind: the record carries every
+#: entry any source states, where every other field must agree across sources.
+#: ``citations`` is not one: a layer stating a record's citations states them all.
+UNIONED: dict[str, frozenset[str]] = {
+    "group": frozenset({"members"}),
+    "place": frozenset({"scheme_names"}),
+    "device": frozenset({"scheme_names"}),
+}
+
 _OPS = ("set", "add", "drop")
-_KINDS = ("place", "device", "channel", "wiring", "group", "model")
+_KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
 _FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
 
 _SLICE_WEIGHT = 1
@@ -102,6 +122,7 @@ _PLURAL = {
     "channel": "channels",
     "group": "groups",
     "model": "models",
+    "relation": "relations",
 }
 
 
@@ -158,17 +179,21 @@ class CombineResult:
         document: The combined records in facility-file shape: ``identity``
             (when a source states one), ``classes``, ``signals``, ``places``, ``devices``,
             ``channels``, ``groups``, ``models`` (each with its ``wiring``),
-            ``limits`` (when a source states one) and ``scenarios``. Complete
+            ``limits`` (when a source states one), ``scenarios``, and
+            ``relations`` and ``documents`` (each when non-empty). Complete
             only when ``errors`` is empty.
         errors: Every stop found.
         dropped: ``(kind, id)`` of each record a ``drop`` removed, to the fix
             that removed it (a channel's or model's wiring records name the
             channel's or model's fix).
+        warnings: One ``members-disagree`` per group whose sources state
+            different members, sorted by group id.
     """
 
     document: dict[str, Any]
     errors: list[FacilityBuildError]
     dropped: dict[tuple[str, str], dict[str, Any]]
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
 
 
 def combine(sources: Sources) -> CombineResult:
@@ -182,7 +207,9 @@ def combine(sources: Sources) -> CombineResult:
         ``fix-stale``, ``fix-duplicate``, ``fix-computed``, ``fix-authored``,
         ``fix-referenced``, ``layer-conflict``, ``source-invalid`` for a
         fixes.yaml entry of the wrong shape, and ``value-invalid`` for a kind's
-        settings transform that fails or patches a setting already stated.
+        settings transform that fails or patches a setting already stated. A
+        group's ``members`` are the union of what its sources state; sources
+        that differ warn ``members-disagree`` unless a fix names the field.
     """
     return _Combiner(sources).run()
 
@@ -204,6 +231,16 @@ def _show(value: Any) -> str:
     return text.strip().removesuffix("...").strip()
 
 
+def _was_dates(kind: str, was: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """A fix's ``was`` with its citation dates as text, as the layers hold them."""
+    out: dict[str, Any] = {}
+    for name, layers in was.items():
+        out[name] = {
+            layer: citation_dates(kind, {name: value})[name] for layer, value in layers.items()
+        }
+    return out
+
+
 def _group_list(value: Any) -> Any:
     """A group role's ids as a sorted list; a value neither text nor a list stays for S3."""
     if isinstance(value, str):
@@ -216,7 +253,8 @@ def _group_list(value: Any) -> Any:
 def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """A value in the form it is compared and emitted in.
 
-    Set-valued lists are sorted by string form, a measurement's ``kinds`` and
+    Set-valued lists are sorted by string form, a keyed set (``KEYED_SETS``)
+    collapsed and ordered by key, a measurement's ``kinds`` and
     each of its group roles too (a role naming one group becomes a list of
     one), and each slice without a ``weight`` gets the constant default.
 
@@ -225,6 +263,8 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """
     value = copy.deepcopy(value)
     if name in SET_VALUED.get(kind, ()) and isinstance(value, list):
+        if name in KEYED_SETS:
+            return keyed_order(name, value), frozenset()
         return sorted(value, key=str), frozenset()
     if kind == "model" and name == "measurement" and isinstance(value, dict):
         kinds = value.get("kinds")
@@ -244,6 +284,20 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     return value, frozenset()
 
 
+def _unioned(kind: str, name: str, values: Sequence[_Value]) -> bool:
+    """Whether the sources' values of a field are joined: a ``UNIONED`` slot stated as lists."""
+    return name in UNIONED.get(kind, ()) and all(isinstance(v.value, list) for v in values)
+
+
+def _union(kind: str, name: str, values: Sequence[_Value]) -> Any:
+    """Every entry any source states, each once, in the slot's compared order."""
+    entries: dict[str, Any] = {}
+    for stated in values:
+        for entry in stated.value:
+            entries.setdefault(f"{type(entry).__name__}:{entry!r}", entry)
+    return _normalize(kind, name, list(entries.values()))[0]
+
+
 def _id_key(kind: str) -> str:
     return "name" if kind == "model" else "id"
 
@@ -254,6 +308,7 @@ class _Combiner:
         self.errors: list[FacilityBuildError] = []
         self.records: dict[tuple[str, str], _Record] = {}
         self.dropped: dict[tuple[str, str], dict[str, Any]] = {}
+        self.warnings: list[FacilityBuildWarning] = []
 
     def run(self) -> CombineResult:
         fixes = self._parse_fixes()
@@ -274,7 +329,7 @@ class _Combiner:
         document = self._emit()
         if not self.errors:
             self._patch_settings(document)
-        return CombineResult(document, self.errors, self.dropped)
+        return CombineResult(document, self.errors, self.dropped, self.warnings)
 
     # --- fixes.yaml shape -----------------------------------------------------
 
@@ -349,9 +404,9 @@ class _Combiner:
             kind,
             rid,
             why,
-            fields=dict(fields or {}),
-            record=dict(record or {}),
-            was=None if "was" not in entry else dict(was or {}),
+            fields=citation_dates(kind, fields or {}),
+            record=citation_dates(kind, record or {}),
+            was=None if "was" not in entry else _was_dates(kind, was or {}),
         )
 
     # --- collecting -----------------------------------------------------------
@@ -473,6 +528,8 @@ class _Combiner:
                     f"remove {quoted_slots(computed)} from the fix",
                 )
                 return
+            if self._keyed_clash(fix, kind, rid, fields, "record"):
+                return
             if (kind, rid) in self.records:
                 self._error(
                     "fix-duplicate",
@@ -550,6 +607,8 @@ class _Combiner:
                 f"remove {quoted_slots(computed)} from the fix",
             )
             return
+        if self._keyed_clash(fix, fix.kind, fix.id, fix.fields, "fields"):
+            return
         current: dict[str, dict[str, Any]] = {}
         for name in sorted(fix.fields):
             values = target.values.get(name, [])
@@ -580,6 +639,21 @@ class _Combiner:
             value, filled = _normalize(fix.kind, name, raw)
             target.set_fields[name] = _Value(None, None, value, filled)
         target.fix = fix
+
+    def _keyed_clash(
+        self, fix: _Fix, kind: str, rid: str, fields: Mapping[str, Any], where: str
+    ) -> bool:
+        """Refuse a fix value that states one key of a keyed set with two contents."""
+        clashed = False
+        for name in sorted(set(fields) & SET_VALUED.get(kind, frozenset())):
+            for key in keyed_clashes(name, fields[name]):
+                self._shape_error(
+                    f"{FIXES_FILE}.fixes.{fix.position}.{where}.{name}",
+                    f"{kind} {rid} `{name}` states two contents for key {key}",
+                    f"keep one entry per key in `{name}`",
+                )
+                clashed = True
+        return clashed
 
     def _was_matches(self, fix: _Fix, current: dict[str, dict[str, Any]]) -> bool:
         if fix.was is None:
@@ -637,6 +711,7 @@ class _Combiner:
                 for slices in wiring.current("slices"):
                     if any(isinstance(s, dict) and s.get("device") == rid for s in slices or []):
                         yield f"wiring {wiring.id} (slices)"
+            yield from self._relation_referrers("device", rid)
         elif kind == "place":
             yield from self._on_referrers("place", rid)
             for device in self._live("device"):
@@ -645,6 +720,7 @@ class _Combiner:
             for place in self._live("place"):
                 if "/" in place.id and place.id.rsplit("/", 1)[0] == rid:
                     yield f"place {place.id} (parent)"
+            yield from self._relation_referrers("place", rid)
         elif kind == "model":
             for place in self._live("place"):
                 if any(
@@ -666,6 +742,13 @@ class _Combiner:
                     and any(rid in group_families(value) for value in groups.values())
                 ):
                     yield f"measurement/{model}.yaml (groups)"
+            yield from self._relation_referrers("group", rid)
+
+    def _relation_referrers(self, kind: str, rid: str) -> Iterator[str]:
+        for relation in self._live("relation"):
+            for end in ("subject", "object"):
+                if any(isinstance(e, dict) and e.get(kind) == rid for e in relation.current(end)):
+                    yield f"relation {relation.id} ({end})"
 
     def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:
         for channel in self._live("channel"):
@@ -682,6 +765,12 @@ class _Combiner:
                 values = record.values[name]
                 if all(_same(values[0].value, v.value) for v in values[1:]):
                     continue
+                if _unioned(record.kind, name, values):
+                    if name in KEYED_SETS:
+                        self._keys_disagree(record, name, values)
+                    else:
+                        self._members_disagree(record, values)
+                    continue
                 shown = "; ".join(f"{v.layer}={_show(v.value)}" for v in values)
                 self.errors.append(
                     FacilityBuildError(
@@ -694,6 +783,50 @@ class _Combiner:
                     )
                 )
 
+    def _keys_disagree(self, record: _Record, name: str, values: list[_Value]) -> None:
+        """Stop on each key of a joined keyed set that two sources give different contents."""
+        entries = [entry for v in values for entry in v.value]
+        layers = ", ".join(sorted({str(v.layer) for v in values}))
+        for key in keyed_clashes(name, entries):
+            self.errors.append(
+                FacilityBuildError(
+                    "layer-conflict",
+                    record.id,
+                    record.files(),
+                    f"state the entry alike in each source, or add a `set` fix for `{name}` "
+                    "to fixes.yaml",
+                    record_kind=record.kind,
+                    detail=f"`{name}` states two contents for key {key}: {layers}",
+                )
+            )
+
+    def _members_disagree(self, record: _Record, values: list[_Value]) -> None:
+        """Warn that a group's sources state different members, naming who states which."""
+        stated = {v.file or FIXES_FILE: {str(member) for member in v.value} for v in values}
+        files = sorted(stated)
+        differing = []
+        for member in sorted(set().union(*stated.values())):
+            has = [file for file in files if member in stated[file]]
+            lacks = [file for file in files if member not in stated[file]]
+            if lacks:
+                differing.append(f"{member} in {', '.join(has)}, not in {', '.join(lacks)}")
+        total = len(set().union(*stated.values()))
+        self.warnings.append(
+            FacilityBuildWarning(
+                kind="members-disagree",
+                record_kind=record.kind,
+                record_id=record.id,
+                detail=(
+                    f"sources state different `members`: {'; '.join(differing)}; "
+                    f"the group carries all {total}"
+                ),
+                remedy=(
+                    "state the same members in each source, or add a `set` fix for "
+                    "`members` to fixes.yaml"
+                ),
+            )
+        )
+
     # --- emission ---------------------------------------------------------------
 
     def _merged(self, record: _Record) -> tuple[dict[str, Any], set[str]]:
@@ -702,7 +835,10 @@ class _Combiner:
         for name in sorted(set(record.values) | set(record.set_fields)):
             chosen = record.set_fields.get(name)
             candidates = [chosen] if chosen is not None else record.values[name]
-            fields[name] = copy.deepcopy(candidates[0].value)
+            if chosen is None and _unioned(record.kind, name, candidates):
+                fields[name] = _union(record.kind, name, candidates)
+            else:
+                fields[name] = copy.deepcopy(candidates[0].value)
             if name == "slices" and frozenset.intersection(*(c.filled for c in candidates)):
                 defaults.add("slices.weight")
         return fields, defaults
@@ -763,6 +899,13 @@ class _Combiner:
         if self.sources.limits is not None:
             document["limits"] = copy.deepcopy(self.sources.limits)
         document["scenarios"] = copy.deepcopy(self.sources.scenarios)
+        relations = [rec for (k, _), rec in emitted.items() if k == "relation"]
+        if relations:
+            document["relations"] = relations
+        if self.sources.documents:
+            document["documents"] = sorted(
+                copy.deepcopy(self.sources.documents), key=lambda d: str(d["id"])
+            )
         return document
 
     # --- the measurement kinds' settings patches -------------------------------

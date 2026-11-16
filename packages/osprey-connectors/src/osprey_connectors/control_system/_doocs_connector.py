@@ -9,10 +9,13 @@ Date: 2026-07-01
 
 import asyncio
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Protocol
 
+from typing_extensions import override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -21,14 +24,51 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
+    _CheckNotMade,
+    _SendFailed,
+    _SendStep,
     values_match,
 )
-from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import (
+    CurrentValueReader,
+    LimitsValidator,
+)
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DOOCS
 
 logger = get_logger("doocs_connector")
+
+
+class _EqTimestamp(Protocol):
+    """The timestamp of a doocs4py ``EqData`` reading."""
+
+    def get_seconds_and_microseconds_since_epoch(self) -> tuple[int, int]: ...
+
+
+class _EqData(Protocol):
+    """A doocs4py ``EqData`` reading."""
+
+    macropulse: object
+    timestamp: _EqTimestamp
+
+    def get_data(self) -> object: ...
+
+
+class _Doocs4py(Protocol):
+    """The surface of :mod:`doocs4py` the connector calls; doocs4py ships no types."""
+
+    def names(self, pattern: str) -> Sequence[Sequence[str]]: ...
+
+    def get(self, address: str) -> _EqData: ...
+
+    def set(self, address: str, value: object) -> None: ...
+
+    def Address(self, address: str) -> object: ...
+
+    def subscribe(self, address: object, callback: Callable[[_EqData], None]) -> None: ...
+
+    def unsubscribe(self, address: object) -> None: ...
 
 
 class DOOCSConnector(ControlSystemConnector):
@@ -38,12 +78,15 @@ class DOOCSConnector(ControlSystemConnector):
     Provides read/write access to DOOCS properties.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected: bool = False
-        self._subscriptions: dict[str, Any] = {}
+        self._subscriptions: dict[str, object] = {}
         self._timeout_s: float = DEFAULT_TIMEOUT_S
+        # doocs4py, set by connect().
+        self._doocs4py: _Doocs4py | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure DOOCS environment and test connection.
 
@@ -64,7 +107,7 @@ class DOOCSConnector(ControlSystemConnector):
             import doocs4py
 
             self._doocs4py = doocs4py
-            logger.debug(f"DOOCS connector: doocs4py version {self._doocs4py.__version__} loaded")
+            logger.debug(f"DOOCS connector: doocs4py version {doocs4py.__version__} loaded")
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
@@ -79,7 +122,7 @@ class DOOCSConnector(ControlSystemConnector):
         # off the event loop and within the bound.
         try:
             names = await asyncio.wait_for(
-                asyncio.to_thread(self._doocs4py.names, "*"), self._timeout_s
+                asyncio.to_thread(self._doocs.names, "*"), self._timeout_s
             )
         except TimeoutError:
             raise ConnectorUnavailableError(
@@ -97,6 +140,7 @@ class DOOCSConnector(ControlSystemConnector):
         self._connected = True
         logger.debug("DOOCS connector initialized")
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup DOOCS connections."""
         # Unsubscribe from all active subscriptions
@@ -106,10 +150,26 @@ class DOOCSConnector(ControlSystemConnector):
         self._connected = False
         logger.info("DOOCS connector disconnected")
 
+    @property
+    def _doocs(self) -> _Doocs4py:
+        """doocs4py, as connect() imported it.
+
+        Raises:
+            ConnectorUnavailableError: connect() has not run, so there is no
+                DOOCS client to call.
+        """
+        doocs4py = self._doocs4py
+        if doocs4py is None:
+            raise ConnectorUnavailableError(
+                "No DOOCS client: connect() imports doocs4py for this connector."
+            )
+        return doocs4py
+
     def _bound(self, timeout: float | None) -> float:
         """The per-call ``timeout`` when one is given, else the block's ``timeout_s``."""
         return timeout if timeout is not None else self._timeout_s
 
+    @override
     async def read_channel(
         self,
         channel_address: str,
@@ -152,7 +212,7 @@ class DOOCSConnector(ControlSystemConnector):
         cannot be reached.
         """
         try:
-            data = self._doocs4py.get(address)  # EqData
+            data = self._doocs.get(address)
         except TimeoutError:
             raise
         except Exception as exc:
@@ -181,7 +241,8 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def current_value_reader(self) -> Callable[[str], Any] | None:
+    @override
+    def current_value_reader(self) -> CurrentValueReader:
         """The property's present value, read through this connector's own client.
 
         ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
@@ -189,15 +250,16 @@ class DOOCSConnector(ControlSystemConnector):
         metadata a full read builds around it.
         """
 
-        def read_current(channel_address: str) -> Any:
-            return self._doocs4py.get(channel_address).get_data()
+        def read_current(channel_address: str) -> object:
+            return self._doocs.get(channel_address).get_data()
 
         return read_current
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -237,14 +299,14 @@ class DOOCSConnector(ControlSystemConnector):
         #
         # A limits violation propagates unchanged; any other validation error
         # means the check could not be made, and an unmade check is not
-        # permission to write — the closure hands that case back as a sentinel
-        # and the refusal itself is built on the loop, by the base class's one
+        # permission to write — the closure hands that case back as a
+        # _CheckNotMade and the refusal itself is built on the loop, by the base class's one
         # helper, so all four connectors word it identically.
         #
         # The offload is bounded, and a send that outlives its bound is
         # unconfirmed: the worker thread cannot be stopped, so the set may
         # still arrive.
-        def _validate_and_set():
+        def _validate_and_set() -> _SendStep:
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
@@ -254,18 +316,16 @@ class DOOCSConnector(ControlSystemConnector):
                 except ChannelLimitsViolationError:
                     raise  # limits refusal propagates unchanged (carries LIMITS semantics)
                 except Exception as e:
-                    return ("refused", e)  # sentinel: no set issued
+                    return _CheckNotMade(e)  # no set issued
             try:
-                self._doocs4py.set(channel_address, value)
+                self._doocs.set(channel_address, value)
             except Exception as e:
-                return ("send_failed", e)
-            return ("ok", None)
+                return _SendFailed(e)
+            return None
 
         bound = self._bound(timeout)
         try:
-            send_result, payload = await asyncio.wait_for(
-                asyncio.to_thread(_validate_and_set), bound
-            )
+            step = await asyncio.wait_for(asyncio.to_thread(_validate_and_set), bound)
         except TimeoutError:
             logger.warning(f"DOOCS set of {channel_address} did not return within {bound}s")
             return ChannelWriteResult(
@@ -279,15 +339,15 @@ class DOOCSConnector(ControlSystemConnector):
                 notes="The value may still arrive; what the property holds is unknown",
             )
 
-        if send_result == "refused":
-            return self._validation_refusal(channel_address, value, payload)
+        if isinstance(step, _CheckNotMade):
+            return self._validation_refusal(channel_address, value, step.error)
 
-        if send_result == "send_failed":
+        if isinstance(step, _SendFailed):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to '{channel_address}': {payload}",
+                error_message=f"Failed to write to '{channel_address}': {step.error}",
                 notes="DOOCS did not take the value",
             )
 
@@ -322,7 +382,7 @@ class DOOCSConnector(ControlSystemConnector):
                 notes="The value was sent; what the property holds is unknown",
             )
 
-        observed = readback.value
+        observed: object = readback.value
         confirmed = values_match(value, observed)
 
         logger.debug(
@@ -340,18 +400,21 @@ class DOOCSConnector(ControlSystemConnector):
             ),
         )
 
+    @override
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
         callback: Callable[[ChannelValue], None],
         *,
-        on_connection: Callable[[bool], None] | None = None,  # noqa: ARG002 - accepted and ignored: DOOCS reports no connection state
+        on_connection: Callable[[bool], None]
+        | None = None,  # accepted and ignored: DOOCS reports no connection state
     ) -> str:
         """
         Subscribe to property value changes.
@@ -367,7 +430,7 @@ class DOOCSConnector(ControlSystemConnector):
         """
         loop = asyncio.get_event_loop()
 
-        def doocs_callback(data):  # EqData
+        def doocs_callback(data: _EqData) -> None:
             """Wrapper to convert DOOCS callback to Osprey format."""
             value = data.get_data()
             macropulse = data.macropulse
@@ -393,29 +456,32 @@ class DOOCSConnector(ControlSystemConnector):
             loop.call_soon_threadsafe(callback, prop_value)
 
         # Subscribe
-        address = self._doocs4py.Address(channel_address)
-        self._doocs4py.subscribe(address, doocs_callback)
+        address = self._doocs.Address(channel_address)
+        self._doocs.subscribe(address, doocs_callback)
 
         # Generate subscription ID
         sub_id = f"{channel_address}_{secrets.token_hex(8)}"
-        self._subscriptions[sub_id] = self._doocs4py.Address(channel_address)
+        self._subscriptions[sub_id] = self._doocs.Address(channel_address)
 
         logger.debug(f"DOOCS subscription created: {sub_id}")
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from DOOCS property changes."""
         if subscription_id in self._subscriptions:
             address = self._subscriptions[subscription_id]
-            self._doocs4py.unsubscribe(address)
+            self._doocs.unsubscribe(address)
             del self._subscriptions[subscription_id]
             logger.debug(f"DOOCS subscription removed: {subscription_id}")
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel."""
         channel_value = await self.read_channel(channel_address)
         return channel_value.metadata
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """
         Check if property exists and is accessible.

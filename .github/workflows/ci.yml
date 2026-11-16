@@ -888,11 +888,11 @@ jobs:
         claude plugin marketplace add "$GITHUB_WORKSPACE"
         claude plugin install osprey@osprey
 
-    - name: Check the plugin exposes all eleven skills
+    - name: Check the plugin exposes all twelve skills
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
-        grep -q 'Skills (11)' /tmp/details.txt
-        for s in build-app contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
+        grep -q 'Skills (12)' /tmp/details.txt
+        for s in build-app contribute design-philosophy doc-sync facility-review housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   stop-on-failed-cheap-lane:
     # A deterministic cheap lane failed, so the run cannot pass: cancel the rest. A job of its own, so the
@@ -1183,8 +1183,10 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        # test_chart_value_reading.py deploys a full stack and runs on the benchmark board only.
+        # The chart-value-reading and PV directory benchmarks deploy a stack and
+        # run on the benchmark board only; this job carries the stack-free tier-2 tests.
         uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
+          --ignore=tests/e2e/tier2/test_pv_directory_agentic.py \
           -v --tb=short
 
   deploy-e2e:

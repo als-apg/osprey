@@ -37,9 +37,9 @@ The config is read as nested sections only, because that is how the rendered
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from osprey_connectors._config_read import coerce_port, is_loopback, nested_value
+from osprey_connectors.types import TARGET_VA, configured_targets
 
 #: Where a rendered ``config.yml`` states the simulator's Channel Access port,
 #: dotted as the build's service injector writes it, the reach contract
@@ -48,12 +48,13 @@ VIRTUAL_ACCELERATOR_PORT_KEY = "services.virtual_accelerator.port"
 
 __all__ = [
     "VIRTUAL_ACCELERATOR_PORT_KEY",
+    "has_simulator",
     "virtual_accelerator_active",
     "virtual_accelerator_port",
 ]
 
 
-def virtual_accelerator_port(config: Mapping[str, Any]) -> int | None:
+def virtual_accelerator_port(config: Mapping[str, object]) -> int | None:
     """The Channel Access port the deployment's simulator serves, if it built one.
 
     Args:
@@ -69,7 +70,7 @@ def virtual_accelerator_port(config: Mapping[str, Any]) -> int | None:
 
 
 def virtual_accelerator_active(
-    config: Mapping[str, Any], *, endpoint_host: str, endpoint_port: int | None
+    config: Mapping[str, object], *, endpoint_host: str, endpoint_port: int | None
 ) -> bool:
     """Whether *endpoint* is this deployment's own simulator rather than a real machine.
 
@@ -94,3 +95,23 @@ def virtual_accelerator_active(
     if port is None or port != endpoint_port:
         return False
     return is_loopback(endpoint_host)
+
+
+def has_simulator(config: object) -> bool:
+    """Whether the build has a simulator.
+
+    The port alone answers no for an in-process virtual accelerator; the
+    connector type alone answers no for a facility baseline that keeps its
+    simulator. The simulator view cannot decide, because every build writes it.
+
+    Args:
+        config: The full config mapping, as loaded from ``config.yml``. The build
+            validator, which sees an overlay, passes the overlay with
+            ``services.virtual_accelerator.port`` filled in from the profile.
+            Anything that is not a mapping has no simulator.
+    """
+    if not isinstance(config, Mapping):
+        return False
+    return virtual_accelerator_port(config) is not None or TARGET_VA in configured_targets(
+        config.get("control_system")
+    )

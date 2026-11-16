@@ -4,13 +4,13 @@
 Agent Skills
 ============
 
-Osprey ships eleven **agent skills** --- packaged, step-by-step instructions that a
+Osprey ships twelve **agent skills** --- packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project's own
 playbooks.
 
-All eleven travel together in one plugin, ``osprey``, published from the root of
+All twelve travel together in one plugin, ``osprey``, published from the root of
 the ``als-apg/osprey`` repository. Claude Code and Codex install it from there
 with two commands each.
 
@@ -97,7 +97,7 @@ Command syntax: `learn.chatgpt.com/docs/developer-commands
 
 .. Retrieved 2026-09-01, and verified against codex-cli 0.149 on 2026-09-02.
 
-The eleven skills
+The twelve skills
 -----------------
 
 .. list-table::
@@ -124,6 +124,12 @@ The eleven skills
      - The guided setup, as a conversation: installs Osprey if it is missing,
        inventories what exists, and sets up or migrates a deployment for an
        accelerator, beamline, or detector one confirmed card at a time.
+   * - ``/osprey:facility-review``
+     - Resolves what the facility build flags, with the maintainer of the
+       facility repository: starts from ``osprey facility validate``, groups
+       the stops and warnings that share a cause, asks one question per
+       group, and writes each confirmed answer to ``fixes.yaml`` or
+       ``policy.yaml``. Never edits an imported layer and never commits.
    * - ``/osprey:upstream-scout``
      - Investigates whether something a facility needs is an Osprey gap, a
        deployment gap, or already supported; judges whether the fix is
@@ -151,9 +157,10 @@ The eleven skills
        production seams alive. A campaign mode prunes one subsystem's whole
        test surface.
 
-In Codex the same eleven are ``$design-philosophy``, ``$contribute``,
-``$pre-commit``, ``$release``, ``$setup``, ``$upstream-scout``, ``$panel``,
-``$build-app``, ``$housekeeping``, ``$doc-sync``, and ``$test-audit``.
+In Codex the same twelve are ``$design-philosophy``, ``$contribute``,
+``$pre-commit``, ``$release``, ``$setup``, ``$facility-review``,
+``$upstream-scout``, ``$panel``, ``$build-app``, ``$housekeeping``,
+``$doc-sync``, and ``$test-audit``.
 
 The skills route to each other: ``/osprey:contribute`` hands a standalone
 validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
@@ -170,6 +177,8 @@ The workflow behind each one is documented on its own page:
 - :doc:`development-setup` --- the checks ``/osprey:pre-commit`` runs.
 - :doc:`/getting-started/osprey-install` --- the deployer-facing page,
   written for someone standing up a deployment.
+- :doc:`/how-to/describe-your-facility` --- the facility tree, the fixes and
+  the build ``/osprey:facility-review`` works from.
 - :doc:`/how-to/web-terminal/panels` --- the panel contract, with the
   extension seam on :doc:`extending-osprey`.
 - :doc:`/how-to/apps/build-your-own-app` --- the app contract

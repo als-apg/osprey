@@ -15,6 +15,7 @@ beside the project image (:func:`osprey.deployment.container_lifecycle._build_re
 registry-mode deploys build nothing here.
 """
 
+import functools
 import os
 import posixpath
 from collections.abc import Iterator, Mapping
@@ -26,7 +27,7 @@ from typing import Any, cast
 from osprey.agent_runner.provider_env import load_provider_spec
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args
+from osprey.deployment.build_cache import PROJECT_KEY, build_cache_args, run_image_build
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
@@ -123,7 +124,9 @@ def _resolve_render_claude_cli_version(project_path: str) -> str | None:
         return None
     from osprey.agent_runner.launcher import pinned_cli_version
 
-    return pinned_cli_version(render_config.get("claude_code") or {})
+    claude_code = render_config.get("claude_code")
+    # A block that is not a mapping states no pin, like an unreadable config.
+    return pinned_cli_version(claude_code if isinstance(claude_code, Mapping) else {})
 
 
 def _render_image_build_cmd(
@@ -982,12 +985,15 @@ def build_render_images(
             # idempotent, so the per-render loop declares it each pass.
             _report_group("renders")
             with (report := single_image_build_reporter(image_tag)):
-                run_captured(
+                run_image_build(
                     cmd,
-                    env=env,
-                    spool_name=f"build-render-{image_tag.split(':', 1)[0]}",
-                    repo_root=repo_root,
-                    on_line=report,
+                    functools.partial(
+                        run_captured,
+                        env=env,
+                        spool_name=f"build-render-{image_tag.split(':', 1)[0]}",
+                        repo_root=repo_root,
+                        on_line=report,
+                    ),
                 )
             # One line per image, after its own build: the slowest step of a
             # local-mode deploy, and the only progress an operator gets while

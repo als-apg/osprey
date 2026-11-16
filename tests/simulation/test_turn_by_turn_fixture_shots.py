@@ -22,16 +22,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 import yaml
 
-at = pytest.importorskip("at")
-
-from osprey.simulation.engines import pyat as engine  # noqa: E402
-from osprey.simulation.engines.pyat_turn_readout import TurnReadout  # noqa: E402
-from osprey_connectors.simulation.composite import Composite  # noqa: E402
-from tests.facility._turn_by_turn_fixture import (  # noqa: E402
+from osprey.simulation.engines import pyat as engine
+from osprey.simulation.engines.pyat_turn_readout import TurnReadout
+from osprey_connectors.simulation.composite import Composite
+from tests.facility._turn_by_turn_fixture import (
     ARMED,
     ARMS,
     CURRENT_SETPOINT,
