@@ -29,7 +29,7 @@
  * Algorithms whose xopt generator is a `BayesianGenerator` (the service's
  * `_resolve_n_initial` branches on that class; BAxUS subclasses it).
  */
-export const BAYESIAN_ALGORITHMS = Object.freeze([
+const BAYESIAN_ALGORITHMS = Object.freeze([
   'upper_confidence_bound',
   'expected_improvement',
   'baxus',
@@ -215,7 +215,7 @@ export function plannedEvaluations(config) {
 }
 
 /**
- * What the approval card's environment read depends on: the stored draft's
+ * What the review's environment read depends on: the stored draft's
  * environment, target and tuned variables. Empty when there is nothing to read.
  *
  * @param {OptimizationConfig|null} config
@@ -228,7 +228,7 @@ export function approvalEnvKey(config) {
 }
 
 /**
- * The approval card's own read of the stored draft's environment, keyed by
+ * The review's own read of the stored draft's environment, keyed by
  * {@link approvalEnvKey} and independent of the form's pickers.
  *
  * @typedef {{
@@ -430,8 +430,9 @@ export function runControls(status) {
 
 /**
  * The write-authorization line for a started run, from the job's
- * `write_authorization` record. `awaiting` is the case the operator must act
- * on: the chip in the web terminal.
+ * `write_authorization` record. `awaiting` is the case a person must act on:
+ * the run's owner approves the request from the control-target switch of
+ * their own web terminal, so the line names that account and that place.
  *
  * @param {Record<string, any>|null|undefined} auth
  * @returns {{ tone: 'warn'|'ok'|'info'|'err', text: string }|null}
@@ -445,8 +446,10 @@ export function authorizationNote(auth) {
       return {
         tone: 'warn',
         text:
-          'Waiting for write approval: approve the request in the web terminal' +
-          (auth.id ? ` (request ${auth.id}).` : '.'),
+          `Nothing is written until ${auth.owner || "the run's owner"} approves. ` +
+          `Open the control-target switch in ${auth.owner ? `${auth.owner}'s` : 'their'} ` +
+          "web terminal and approve the optimizer's request under Programs" +
+          (auth.id ? ` (request ${String(auth.id).slice(0, 8)}).` : '.'),
       };
     case 'granted':
       return { tone: 'ok', text: 'Writes authorized.' };
@@ -460,4 +463,68 @@ export function authorizationNote(auth) {
     default:
       return null;
   }
+}
+
+/**
+ * Where a write authorization was approved (`write_authorization.approver`).
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+const APPROVAL_SURFACES = Object.freeze({
+  chip: 'the control-target switch of a web terminal',
+  cli: 'the command line',
+  write_switch: 'the write switch, set to allowed',
+});
+
+/**
+ * @typedef {{
+ *   state: string|null,
+ *   owner: string|null,
+ *   id: string|null,
+ *   steps: number|null,
+ *   approver: string|null,
+ *   approvedFrom: string|null,
+ *   expiresAt: number|null,
+ *   channels: { channel: string, min: number, max: number }[],
+ *   completion: string|null,
+ * }} AuthorizationScope
+ */
+
+/**
+ * What a run's write authorization covers, read from the job's
+ * `write_authorization` record: the writes it allows (`steps`, the
+ * evaluations plus one completion write unless the run holds), the channels
+ * and the range of each, who owns it and its request id, and once granted
+ * where it was approved (`approver`, a surface) and when it expires
+ * (`expires_at_ns`, as milliseconds since the epoch). A field the record does
+ * not carry is null (the channels: empty): the record grows from `requesting`
+ * to `granted`, and it never says how many writes were used.
+ *
+ * @param {Record<string, any>|null|undefined} auth
+ * @returns {AuthorizationScope|null}
+ */
+export function authorizationScope(auth) {
+  if (!auth || typeof auth !== 'object') return null;
+  const text = (/** @type {unknown} */ v) => (typeof v === 'string' && v ? v : null);
+  const steps = Number.isInteger(auth.steps) && auth.steps >= 0 ? auth.steps : null;
+  const ns = auth.expires_at_ns;
+  const channels = [];
+  if (auth.channels && typeof auth.channels === 'object') {
+    for (const [channel, range] of Object.entries(auth.channels)) {
+      const [min, max] = Array.isArray(range) ? range : [];
+      if (Number.isFinite(min) && Number.isFinite(max)) channels.push({ channel, min, max });
+    }
+  }
+  const approver = text(auth.approver);
+  return {
+    state: text(auth.state),
+    owner: text(auth.owner),
+    id: auth.id == null ? null : String(auth.id),
+    steps,
+    approver,
+    approvedFrom: approver ? (APPROVAL_SURFACES[approver] ?? approver) : null,
+    expiresAt: typeof ns === 'number' && Number.isFinite(ns) && ns > 0 ? ns / 1e6 : null,
+    channels,
+    completion: text(auth.completion),
+  };
 }

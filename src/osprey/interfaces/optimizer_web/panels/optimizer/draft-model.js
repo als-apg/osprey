@@ -8,8 +8,9 @@
  * own, so fields it does not edit (surrogate model, environment config,
  * execution mode) survive an update untouched.
  *
- * After a save the form is re-seeded from the STORED draft, and
- * {@link boundChanges} names every bound the service moved on the way in.
+ * After a save the service's stored draft is read back, and
+ * {@link boundChanges} and {@link movedKnobs} name every bound it moved on
+ * the way in (clamped to the environment's range or snapped to the step grid).
  *
  * @module draft-model
  */
@@ -39,10 +40,11 @@
  * }} FormState
  */
 
+import { DEFAULT_OBSERVABLE_DIRECTION } from './approval-model.js';
 import { fmt } from './hyperscript.js';
 
 export const ON_COMPLETE_OPTIONS = Object.freeze(['apply_best', 'restore', 'hold']);
-export const DEFAULT_ITERATIONS = 20;
+const DEFAULT_ITERATIONS = 20;
 
 /**
  * A fresh form for an environment, optionally seeded by a preset and the
@@ -84,11 +86,19 @@ export function formFromEnv(env, { name = '', preset = null, bounds = null } = {
  * The form for an existing (stored) draft, so the operator edits what the
  * agent or another panel wrote.
  *
+ * The service writes the objective's direction into every draft it stores,
+ * also when nobody chose one. A stored direction that is the objective's own
+ * is seeded blank ("its own"), so it follows the objective when the operator
+ * picks another one; a direction set against the objective's own stays.
+ *
  * @param {OptimizationConfig} config
  * @param {EnvironmentDetails} env
  * @returns {FormState}
  */
 export function formFromConfig(config, env) {
+  const observable = config.objective_name ? env.observables?.[config.objective_name] : null;
+  const own = observable ? observable.direction || DEFAULT_OBSERVABLE_DIRECTION : null;
+  const direction = config.objective_direction || '';
   const form = formFromEnv(env);
   const tuned = config.variables ? new Set(config.variables) : null;
   const overrides = config.variable_overrides || {};
@@ -106,7 +116,7 @@ export function formFromConfig(config, env) {
     base: config,
     preset: config.preset || '',
     objective: config.objective_name || '',
-    direction: config.objective_direction || '',
+    direction: direction === own ? '' : direction,
     algorithm: config.algorithm || 'random',
     nIterations: config.n_iterations ?? DEFAULT_ITERATIONS,
     nInitial: config.n_initial_samples ?? null,
@@ -200,31 +210,57 @@ export function buildConfig(form, { environment, target }) {
 }
 
 /**
- * Every tuned bound the stored draft holds at a value other than the one sent,
- * as `"<name> max 400 → 300"`. The service clamps a window to the
- * environment's range and snaps it to the variable's step grid
- * (`safety_min + n*step`), so a stored bound is rarely bit-identical to the
- * sent one; bounds are compared as the form displays them ({@link fmt}), so
- * float noise from the snap never reads as a change.
+ * Every tuned bound the stored draft holds at a value other than the one
+ * sent. The service clamps a window to the environment's range and snaps it
+ * to the variable's step grid (`safety_min + n*step`), so a stored bound is
+ * rarely bit-identical to the sent one; bounds are compared as the form
+ * displays them ({@link fmt}), so float noise from the snap never reads as a
+ * change.
  *
  * @param {OptimizationConfig} sent
  * @param {OptimizationConfig} stored
- * @returns {string[]}
+ * @returns {{ name: string, bound: 'min'|'max', before: number, after: number }[]}
  */
-export function boundChanges(sent, stored) {
-  /** @type {string[]} */
-  const changes = [];
+function movedBounds(sent, stored) {
+  /** @type {{ name: string, bound: 'min'|'max', before: number, after: number }[]} */
+  const moved = [];
   const kept = stored.variable_overrides || {};
   for (const [name, asSent] of Object.entries(sent.variable_overrides || {})) {
     for (const bound of /** @type {const} */ (['min', 'max'])) {
       const before = asSent[bound];
       const after = kept[name]?.[bound];
       if (before != null && after != null && fmt(before) !== fmt(after)) {
-        changes.push(`${name} ${bound} ${fmt(before)} → ${fmt(after)}`);
+        moved.push({ name, bound, before, after });
       }
     }
   }
-  return changes;
+  return moved;
+}
+
+/**
+ * Every bound the service moved on the way in ({@link movedBounds}), as
+ * `"<name> max 400 → 300"`.
+ *
+ * @param {OptimizationConfig} sent
+ * @param {OptimizationConfig} stored
+ * @returns {string[]}
+ */
+export function boundChanges(sent, stored) {
+  return movedBounds(sent, stored).map(
+    ({ name, bound, before, after }) => `${name} ${bound} ${fmt(before)} → ${fmt(after)}`
+  );
+}
+
+/**
+ * The knobs whose search window the service moved on the way in
+ * ({@link movedBounds}), each named once, in the order of the sent draft.
+ *
+ * @param {OptimizationConfig} sent
+ * @param {OptimizationConfig} stored
+ * @returns {string[]}
+ */
+export function movedKnobs(sent, stored) {
+  return [...new Set(movedBounds(sent, stored).map((m) => m.name))];
 }
 
 /**

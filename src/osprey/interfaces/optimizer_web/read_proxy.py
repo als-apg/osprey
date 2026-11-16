@@ -134,9 +134,20 @@ async def get_environment_presets(request: Request, name: str) -> JSONResponse:
     return await _forward_get(request, f"/environments/{segment(name)}/presets")
 
 
+@router.get("/environments/{name}/observables")
+async def get_environment_observables(request: Request, name: str) -> JSONResponse:
+    return await _forward_get(request, f"/environments/{segment(name)}/observables")
+
+
 @router.get("/environments/{name}/initial-bounds")
 async def get_environment_initial_bounds(request: Request, name: str) -> JSONResponse:
     return await _forward_get(request, f"/environments/{segment(name)}/initial-bounds")
+
+
+@router.get("/jobs")
+async def list_jobs(request: Request) -> JSONResponse:
+    """Relay the service's list of jobs that have not ended (drafts and the active run)."""
+    return await _forward_get(request, "/jobs")
 
 
 # Declared before /jobs/{job_id}, as on the service, so "current" is not read
@@ -164,3 +175,18 @@ async def get_job_config(request: Request, job_id: str) -> JSONResponse:
 @router.get("/models")
 async def list_models(request: Request) -> JSONResponse:
     return await _forward_get(request, "/models")
+
+
+@router.get("/results")
+async def list_results(request: Request) -> JSONResponse:
+    """Relay the list of stored runs (one entry per results directory)."""
+    return await _forward_get(request, "/results")
+
+
+# Two segments, as on the service: the identifier of a stored run is
+# ``<environment>/<timestamp>``. A third segment (``restore-preview``) is not
+# matched here, so no restore route is reachable through this proxy.
+@router.get("/results/{env}/{timestamp}")
+async def get_result(request: Request, env: str, timestamp: str) -> JSONResponse:
+    """Relay one stored run: its config, best and initial points and every evaluation."""
+    return await _forward_get(request, f"/results/{segment(env)}/{segment(timestamp)}")

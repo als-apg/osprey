@@ -12,7 +12,7 @@
  */
 
 /** Statuses of a job whose worker holds the machine (or is about to). */
-export const ACTIVE_STATUSES = Object.freeze(['submitted', 'running', 'paused', 'cancelling']);
+const ACTIVE_STATUSES = Object.freeze(['submitted', 'running', 'paused', 'cancelling']);
 
 export const ACTIVE_MS = 1000;
 export const DRAFT_MS = 2000;

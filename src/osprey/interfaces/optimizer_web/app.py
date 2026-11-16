@@ -4,10 +4,8 @@ shared HTTP client onto the optimizer service.
 Shaped like ``osprey.interfaces.bluesky_web.app``. What the app owns is serving
 and plumbing: its container healthcheck, a default no-cache header, one
 ``httpx.AsyncClient`` and the resolved service URL on ``app.state`` for every
-router to use, and the mount for the panel bundle plus the shared
-design-system assets. The bundle is served verbatim except its ``index.html``,
-which is rendered so ``vendor_url()`` can resolve a vendored library to the CDN
-or to a locally fetched copy.
+router to use, and the mount that serves the panel bundle verbatim (its
+``index.html`` included) plus the shared design-system assets.
 
 What it does NOT own is policy. The read proxy and the write relay pass the
 service's answers through verbatim; the service decides what a request may do.
@@ -20,20 +18,17 @@ Panel mounts: ``panels/optimizer`` -> ``/optimizer``.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from starlette.responses import Response
+from fastapi import FastAPI
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces._media_types import PinnedTypeStaticFiles
 from osprey.interfaces.optimizer_web import read_proxy, relay
-from osprey.interfaces.vendor import vendor_url
 from osprey.optimizer_connection import OPTIMIZER_TIMEOUT_S, optimizer_url
 
 _PANELS_ROOT = Path(__file__).parent / "panels"
@@ -108,25 +103,12 @@ app.include_router(read_proxy.router)
 app.include_router(relay.router)
 
 
-def _panel_index_route(templates: Jinja2Templates) -> Callable:
-    """Build the GET handler that renders one bundle's ``index.html``."""
-
-    async def _index(request: Request) -> Response:
-        return templates.TemplateResponse(request, "index.html", {})
-
-    return _index
-
-
 for _mount_path, _panel_name in _PANEL_MOUNTS:
     _panel_dir = _PANELS_ROOT / _panel_name
     os.makedirs(_panel_dir, exist_ok=True)
-    _templates = Jinja2Templates(directory=str(_panel_dir))
-    _templates.env.globals["vendor_url"] = vendor_url
-    # Registered BEFORE the mount so the three spellings of the bundle root
-    # reach the renderer rather than the raw, unrendered index.
-    _index_route = _panel_index_route(_templates)
-    for _index_path in (_mount_path, f"{_mount_path}/", f"{_mount_path}/index.html"):
-        app.get(_index_path, include_in_schema=False)(_index_route)
+    # ``html=True`` answers the bundle root (``/optimizer/``) with its
+    # ``index.html``; the bare mount path redirects to the slash form, so the
+    # page's relative ``css/`` and ``js/`` references resolve inside the bundle.
     app.mount(
         _mount_path,
         PinnedTypeStaticFiles(directory=_panel_dir, html=True),

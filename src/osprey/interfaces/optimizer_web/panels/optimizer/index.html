@@ -9,12 +9,25 @@
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/design-system/css/primitives.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
-<link rel="stylesheet" href="panel.css">
-<!-- Plotly as a classic, parser-blocking script, so the `Plotly` global exists
-     before the module graph below runs. vendor_url() picks the CDN, or the
-     locally fetched vendor/ copy under OSPREY_OFFLINE; the local path is
-     RELATIVE so it resolves under the web terminal's /panel/{id}/ proxy. -->
-<script src="{{ vendor_url('Plotly.js', 'vendor/plotly-3.3.1.min.js') }}"></script>
+<!-- The panel's own sheets: one per zone, shared component or view, tokens
+     only. Paths are RELATIVE so they resolve under the web terminal's
+     /panel/{id}/ proxy. -->
+<link rel="stylesheet" href="css/shell.css">
+<link rel="stylesheet" href="css/runs-list.css">
+<link rel="stylesheet" href="css/knob-bar.css">
+<link rel="stylesheet" href="css/facts-strip.css">
+<link rel="stylesheet" href="css/empty-view.css">
+<!-- Set-up and review views. -->
+<link rel="stylesheet" href="css/config-sections.css">
+<link rel="stylesheet" href="css/draft-stage.css">
+<link rel="stylesheet" href="css/setup-view.css">
+<link rel="stylesheet" href="css/review-view.css">
+<!-- The run page. -->
+<link rel="stylesheet" href="css/objective-chart.css">
+<link rel="stylesheet" href="css/run-page.css">
+<!-- Outcome, history and a past run. -->
+<link rel="stylesheet" href="css/outcome-view.css">
+<link rel="stylesheet" href="css/history-view.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Optimizer</title>
 <script type="module">
@@ -26,37 +39,54 @@
 </script>
 </head>
 <body>
-<div class="panel" id="optimizer-root">
-  <!-- The one header row: which machine (target), which environment and its
-       status LED. The target has NO default: a run never lands on a machine
-       nobody named. The panel follows the service's current job. -->
-  <div class="osprey-panel-toolbar">
+<!-- The panel root is the size container `panel` the narrow rules query.
+     Toolbar: what the screen is about (control target, environment), the
+     status chip, the history toggle and one primary action slot. Below it:
+     the runs list, the stage and the inspector. Every zone is filled by the
+     modules; nothing here is a placeholder for data. -->
+<div class="opt-app" id="optimizer-root" data-panel-root>
+  <header class="osprey-panel-toolbar" aria-label="Optimizer">
     <div class="osprey-panel-toolbar__start">
-      <select id="target-select" class="picker" aria-label="Control target"></select>
-      <select id="env-select" class="picker" aria-label="Environment">
-        <option value="">Environment&hellip;</option>
-      </select>
-      <span id="status-chip" class="osprey-chip osprey-chip--connecting" role="status"
-            aria-label="Optimizer status: connecting…"><span
-            id="status-label" class="osprey-chip-label">connecting&hellip;</span></span>
+      <button type="button" class="osprey-icon-btn" id="runs-toggle" aria-controls="runs"></button>
+      <span class="opt-target-slot" id="target-slot"></span>
     </div>
-  </div>
-  <div id="panel-banner" class="banner banner-err" role="alert" hidden></div>
+    <span class="osprey-panel-toolbar__text" id="env-text"></span>
+    <div class="osprey-panel-toolbar__end" id="toolbar-end">
+      <button type="button" class="osprey-chip osprey-chip--connecting" id="status-chip"
+              aria-haspopup="dialog" aria-label="Optimizer status: connecting…"><span
+              class="osprey-chip-label" id="status-label">connecting&hellip;</span></button>
+      <button type="button" class="osprey-icon-btn" id="history-btn" aria-pressed="false"
+              aria-label="Past runs" title="Past runs"
+              data-tip-detail="Every stored run in one table."></button>
+      <span class="opt-primary-slot" id="primary-slot"></span>
+    </div>
+  </header>
+  <div class="osprey-banner osprey-banner--err opt-banner" id="panel-banner" role="alert" hidden></div>
 
-  <div class="view-scroll">
-    <div class="columns">
-      <div class="column">
-        <!-- The approval surface reads the STORED draft (GET jobs/{id}/config),
-             never the form below; Start sends that response's revision. -->
-        <section id="approval-card" class="card" aria-label="Approve and start"></section>
-        <section id="run-card" class="card" aria-label="Run" hidden>
-          <div id="run-status"></div>
-          <div id="live-plot" class="live-plot"></div>
-        </section>
+  <div class="opt-body">
+    <aside class="osprey-panel-sidebar" id="runs" aria-label="Runs" data-open="false">
+      <div class="osprey-panel-sidebar-head">
+        <div class="opt-side-tools">
+          <label class="osprey-search-field" id="runs-filter-field" data-expanded>
+            <input id="run-filter" type="search" placeholder="Filter runs"
+                   aria-label="Filter past runs" autocomplete="off">
+          </label>
+          <button type="button" class="osprey-icon-btn" id="new-run" aria-label="New run"
+                  title="New run"
+                  data-tip-detail="Set up a run by hand. The agent can also draft one in the chat."></button>
+        </div>
       </div>
-      <div class="column">
-        <section id="form-card" class="card" aria-label="Draft"></section>
-      </div>
+      <div class="opt-side-list" id="runs-list"></div>
+    </aside>
+    <div class="osprey-splitter" id="runs-handle" role="separator" aria-orientation="vertical"
+         tabindex="0" aria-label="Resize the runs list"></div>
+
+    <div class="opt-main" id="main" data-drawer="closed">
+      <section class="opt-stage" id="stage" aria-label="Stage"></section>
+      <button type="button" class="osprey-edge-tab" id="edge-tab" aria-controls="inspector"
+              aria-expanded="false"><span class="osprey-edge-dot" id="edge-dot" hidden></span><span
+              class="osprey-chev left"></span><span class="osprey-edge-label" id="edge-label"></span></button>
+      <aside class="osprey-detail opt-inspector" id="inspector" aria-label="Inspector"></aside>
     </div>
   </div>
 </div>

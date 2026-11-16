@@ -55,3 +55,12 @@ test('fmt keeps significant figures and dashes non-numbers', () => {
   expect(fmt(Number.NaN)).toBe('—');
   expect(fmt('3')).toBe('—');
 });
+
+test('fmt never drops an integer digit: a longer integer part is rounded to an integer', () => {
+  expect(fmt(1234567.5, 5)).toBe('1234568');
+  expect(fmt(-1234567.5, 5)).toBe('-1234568');
+  expect(fmt(123456.4, 5)).toBe('123456');
+  expect(fmt(12345.67, 5)).toBe('12346');
+  expect(fmt(0.000123456789, 3)).toBe('0.000123');
+  expect(fmt(Number.POSITIVE_INFINITY, 5)).toBe('—');
+});

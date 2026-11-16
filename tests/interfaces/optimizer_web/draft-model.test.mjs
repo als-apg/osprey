@@ -12,6 +12,7 @@ import {
   buildConfig,
   formFromConfig,
   formFromEnv,
+  movedKnobs,
   parseNumber,
   savedMessage,
 } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/draft-model.js';
@@ -108,6 +109,15 @@ describe('formFromConfig → buildConfig', () => {
     );
   });
 
+  test("a stored direction that is the objective's own seeds as its own; one set against it stays", () => {
+    // The service writes the objective's own direction into every stored draft.
+    const own = formFromConfig(storedConfig({ objective_direction: 'MAXIMIZE' }), envDetails());
+    expect(own.direction).toBe('');
+    expect(buildConfig(own, WHERE).config?.objective_direction).toBeNull();
+    const against = formFromConfig(storedConfig({ objective_direction: 'MINIMIZE' }), envDetails());
+    expect(against.direction).toBe('MINIMIZE');
+  });
+
   test('no selected variable is an error, never "all variables"', () => {
     const form = formFromEnv(envDetails());
     for (const v of form.vars) v.include = false;
@@ -163,6 +173,23 @@ test('a real snap is named, as the service adjusting the bound, not as a limit',
   expect(msg.tone).toBe('warn');
   expect(msg.text).toContain("adjusted by the service to the environment's range and step");
   expect(msg.text).not.toContain('environment limit');
+});
+
+test('movedKnobs names each knob whose window the service moved, once, and nothing else', () => {
+  const sent = storedConfig({
+    variable_overrides: {
+      phase_a: { min: -400, max: 400, step_size: 0.5 },
+      sol_b: { min: 0, max: 2, step_size: 0.01 },
+    },
+  });
+  const stored = storedConfig({
+    variable_overrides: {
+      phase_a: { min: -180, max: 180, step_size: 0.5 },
+      sol_b: { min: 0, max: 2 + 1e-12, step_size: 0.01 },
+    },
+  });
+  expect(movedKnobs(sent, stored)).toEqual(['phase_a']);
+  expect(movedKnobs(stored, stored)).toEqual([]);
 });
 
 test('parseNumber: blank is null, junk is null', () => {

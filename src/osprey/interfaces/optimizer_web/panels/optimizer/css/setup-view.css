@@ -1,0 +1,199 @@
+/*
+ * OPTIMIZER panel: the set-up's inspector (setup-view.js, setup-form.js,
+ * knob-picker.js): four folders of fields, the knob picker, the foot with
+ * Save. The stage is draft-stage.css. Tokens and the `--opt-` sizes of
+ * shell.css only.
+ */
+
+.opt-su-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-su-body > * {
+  flex-shrink: 0;
+}
+
+.opt-su-body > .opt-note .osprey-btn {
+  margin-left: var(--space-1);
+  vertical-align: baseline;
+}
+
+/* The folders: Goal, Knobs, Search, When it ends. */
+.opt-folder {
+  min-width: 0;
+  border-top: var(--opt-hairline) solid var(--surface-hairline);
+  padding-top: var(--space-1);
+}
+
+.opt-folder > summary .osprey-aside {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-folder-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.opt-folder-body > * {
+  flex-shrink: 0;
+}
+
+.opt-sub-folder > .osprey-form-grid {
+  padding: var(--space-2) 0 0;
+}
+
+.opt-help {
+  align-self: center;
+  cursor: help;
+}
+
+.opt-help:focus-visible {
+  outline: var(--opt-rule) solid var(--color-accent);
+  outline-offset: var(--opt-hairline);
+}
+
+.opt-su-body .osprey-field.is-err > .osprey-field-input,
+.opt-su-body .osprey-field.is-err > .osprey-seg {
+  box-shadow: 0 0 0 var(--opt-hairline) var(--color-error);
+}
+
+.opt-textarea {
+  height: auto;
+  min-height: calc(var(--control-h) * 2);
+  padding: var(--space-1) var(--space-2);
+  resize: vertical;
+}
+
+.opt-readout {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.opt-readout:empty {
+  display: none;
+}
+
+/* A constraint: observable, relation, threshold, unit, remove. */
+.opt-cons-edits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-cons-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--opt-cons-val-w) auto auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.opt-cons-edit > select.osprey-field-input {
+  height: var(--control-h-sm);
+  font-size: var(--text-sm);
+}
+
+.opt-num {
+  text-align: right;
+}
+
+/* The knob picker: preset, filter, the knobs in the run, the others. */
+.opt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.opt-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.opt-filter-row .osprey-search-field {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.opt-pick-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-pick-list > .osprey-list-head {
+  padding: 0;
+  margin-top: var(--space-2);
+}
+
+.opt-pick-list > .osprey-list-empty,
+.opt-pick-more > .osprey-list-empty {
+  padding-left: 0;
+}
+
+.opt-pick-row {
+  min-height: var(--opt-pick-row-min-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+}
+
+.opt-pick-row:hover {
+  background: var(--surface-hover);
+}
+
+.opt-pick.is-err > .opt-pick-row {
+  box-shadow: inset var(--opt-rule) 0 0 var(--color-error);
+}
+
+.opt-pick-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.opt-pick-label,
+.opt-pick-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.opt-pick-label {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.opt-pick-sub {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.opt-pick.is-in .opt-pick-sub {
+  color: var(--text-secondary);
+}
+
+.opt-pick-opts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-3) var(--space-7);
+}
+
+.opt-pick-more {
+  margin-top: var(--space-2);
+}
+
+.opt-pick-more > summary {
+  padding-left: 0;
+}
