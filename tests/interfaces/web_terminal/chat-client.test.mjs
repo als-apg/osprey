@@ -886,4 +886,52 @@ describe('followChat', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     feed.close();
   });
+
+  test('close aborts the open connection and a 204 that lands after close is not reported', async () => {
+    vi.useFakeTimers();
+    /** @type {AbortSignal[]} */
+    const signals = [];
+    /** @type {(value: any) => void} */
+    let answer = () => {};
+    const fetchMock = vi.fn(
+      (/** @type {string} */ _url, /** @type {any} */ init) =>
+        new Promise((resolve) => {
+          signals.push(init.signal);
+          answer = resolve;
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(1);
+    feed.close();
+    expect(signals[0].aborted).toBe(true);
+
+    answer({ ok: true, status: 204, body: null });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(onNoAgent).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a reconnect aborts the previous connection's signal", async () => {
+    vi.useFakeTimers();
+    /** @type {AbortSignal[]} */
+    const signals = [];
+    const fetchMock = vi.fn(async (/** @type {string} */ _url, /** @type {any} */ init) => {
+      signals.push(init.signal);
+      if (signals.length === 1) throw new TypeError('network down');
+      return new Promise(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const feed = chat.followChat('c', { onEvent: vi.fn() });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signals).toHaveLength(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    feed.close();
+    expect(signals[1].aborted).toBe(true);
+  });
 });
