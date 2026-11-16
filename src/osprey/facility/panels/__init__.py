@@ -2,9 +2,11 @@
 
 :mod:`~osprey.facility.panels.tables` reads and checks the rule tables;
 :mod:`~osprey.facility.panels.model` joins them with the facility file into
-the :class:`PanelGraph` every later step reads through.
+the :class:`PanelGraph` every later step reads through;
+:mod:`~osprey.facility.panels.health` turns values into states.
 """
 
+from osprey.facility.panels.health import State, channel_state, rollup, rule_channels, worst
 from osprey.facility.panels.model import (
     Channel,
     Citation,
@@ -32,7 +34,12 @@ __all__ = [
     "PanelTableError",
     "PanelTables",
     "Pose",
+    "State",
     "Thing",
+    "channel_state",
     "load_graph",
     "read_tables",
+    "rollup",
+    "rule_channels",
+    "worst",
 ]
