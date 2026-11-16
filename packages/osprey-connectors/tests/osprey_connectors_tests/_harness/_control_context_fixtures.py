@@ -42,7 +42,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.types import CONTROL_TARGETS, is_control_target
 from osprey_connectors_tests._paths import REPO_ROOT
 
 #: The target a record carries when a test does not care which one it is.
@@ -185,7 +185,12 @@ def write_control_context(
     Args:
         root: The agent-data root. The acting identity's directory below it —
             :func:`state_dir_under` — is created if it does not exist.
-        target: The control target the deployment is pointed at.
+        target: The control target the deployment is pointed at. A name that
+            is not a :data:`~osprey_connectors.types.ControlTarget` — which no
+            record can be built with — is written to the field VERBATIM over a
+            record built on :data:`DEFAULT_TARGET`, so a suite pinning how the
+            reader treats an unknown target reads the real file through the
+            real parser.
         generation: How many times that has moved.
         posture: Per-target narrowings, ``{target: "sandbox"}``. Empty when
             omitted, which is "the deployment ceiling is in charge". Anything
@@ -213,8 +218,9 @@ def write_control_context(
         The path written.
     """
     verbatim = posture is not None and not isinstance(posture, Mapping)
+    known_target = is_control_target(target)
     record = control_context.ControlContext(
-        target=target,
+        target=target if known_target else DEFAULT_TARGET,
         generation=generation,
         owner=owner() if owned_by is SELF_OWNER else owned_by,
         posture={} if verbatim else dict(posture or {}),
@@ -226,6 +232,8 @@ def write_control_context(
         payload["posture"] = posture
         if switch is not None:
             payload["switch"] = dict(switch)
+        if not known_target:
+            payload["target"] = target
         return write_payload(path, payload)
     control_context.write_record(record, path=path)
     control_context.invalidate_cache()
@@ -238,6 +246,12 @@ def write_control_context(
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["switch"] = dict(switch)
             write_payload(path, payload)
+    if not known_target:
+        # Last, so the switch seeded above went through a record the reader
+        # still accepted; the unknown name lands verbatim on top.
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["target"] = target
+        write_payload(path, payload)
     control_context.invalidate_cache()
     return path
 
