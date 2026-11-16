@@ -346,3 +346,31 @@ def test_rules_lists_every_row_of_every_held_channel(panel_graph: PanelGraph) ->
     # and the one on a simulation-only channel
     assert len(rows) == 13
     assert {row.channel for row in rows}.isdisjoint({VA_CHANNEL, *HIDDEN_CHANNELS})
+
+
+def test_a_place_carries_its_level_and_a_device_none(panel_graph):
+    assert panel_graph.thing("XR/XR01/RK1").level == "rack"
+    assert panel_graph.thing("XR/XR01").level == "sector"
+    assert panel_graph.thing("XR01:QF1").level is None
+
+
+def test_a_channel_carries_its_stated_tolerance(panel_graph):
+    assert panel_graph.channel("XR01:QF1:Current-SP").tolerance == ("absolute", 0.05)
+    assert panel_graph.channel("XR01:QD1:Current-SP").tolerance is None
+
+
+def test_record_type_gives_the_table_row_of_a_held_channel(panel_graph):
+    row = panel_graph.record_type("XR01:QF1:Current-SP")
+    assert row is not None and (row.record_type, row.source) == ("ao", "xr-ioc")
+    assert panel_graph.record_type("XR01:QD1:Current-SP") is None
+    assert panel_graph.record_type(VA_CHANNEL) is None
+    assert panel_graph.record_type("XR02:SAF1:Trip-Sts") is None  # on an excluded thing
+
+
+def test_pictures_give_a_class_rows_in_file_order(panel_graph):
+    parts = panel_graph.pictures("Quadrupole")
+    assert [(part.view, part.part) for part in parts] == [
+        ("end", "pole 1"),
+        ("end", "thermal switch 1"),
+    ]
+    assert panel_graph.pictures("Dipole") == []

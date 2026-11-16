@@ -16,7 +16,8 @@ channel, and ``XR01:QF1`` and ``XR01:IP1`` at the same ``s_m``, and ``XR02:IP1``
 ring-frame row and no ``s_m``. The channel
 ``XR01:IP1:State-Sts`` has health rows from two sources that disagree on value
 ``0``; ``XR02:IP2:Interlock-Sts`` is an excluded channel on a kept thing;
-``VA:XR:InjectionKnob`` is a simulation-only channel.
+``VA:XR:InjectionKnob`` is a simulation-only channel; ``XR01:QF1:Current-SP``
+states a tolerance.
 """
 
 from __future__ import annotations

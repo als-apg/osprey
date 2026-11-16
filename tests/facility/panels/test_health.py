@@ -315,3 +315,21 @@ def test_the_bit_form_tolerates_the_spaces_the_comparisons_do():
     assert row_matches("bit1 = 1", 2) is True
     assert row_matches(">= 5", 5) is True
     assert row_matches("> 5", 6) is True
+
+
+@pytest.mark.parametrize(
+    ("row_value", "expected"),
+    [
+        ("0", True),
+        ("!=0", True),
+        ("bit1=1", True),
+        (">=5", True),
+        ("expr:a>3", False),
+        ("bit1=2", False),
+        ("<x", False),
+    ],
+)
+def test_supported_says_whether_the_engine_can_evaluate_a_row(row_value, expected):
+    from osprey.facility.panels.health import supported
+
+    assert supported(row_value) is expected

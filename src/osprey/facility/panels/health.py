@@ -156,6 +156,11 @@ def row_matches(row_value: str, value: Any) -> bool:
     return test is not None and test(value)
 
 
+def supported(row_value: str) -> bool:
+    """Whether the engine can evaluate a health row's value (see :func:`row_matches`)."""
+    return _parse(row_value) is not None
+
+
 def unsupported(graph: PanelGraph) -> dict[str, int]:
     """The health row forms the engine cannot evaluate, with how many rows use each.
 

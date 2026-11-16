@@ -4,9 +4,13 @@
     device: XR01:QF1
   role: setpoint
   pair: XR01:QF1:Current-RB
+  unit: A
+  tolerance:
+    absolute: 0.05
 - id: XR01:QF1:Current-RB
   'on':
     device: XR01:QF1
+  unit: A
   names:
   - XR-ML:QF1:AM
 - id: XR01:QD1:Current-SP

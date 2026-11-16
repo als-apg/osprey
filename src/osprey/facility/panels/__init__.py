@@ -3,15 +3,28 @@
 :mod:`~osprey.facility.panels.tables` reads and checks the rule tables;
 :mod:`~osprey.facility.panels.model` joins them with the facility file into
 the :class:`PanelGraph` every later step reads through;
-:mod:`~osprey.facility.panels.health` turns values into states.
+:mod:`~osprey.facility.panels.health` turns values into states;
+:mod:`~osprey.facility.panels.view` and :mod:`~osprey.facility.panels.describe`
+say what each screen contains, without layout.
 """
 
+from osprey.facility.panels.describe import (
+    checkout,
+    describe,
+    device_card,
+    health_rollup,
+    place_view,
+    rack_elevation,
+    set_overview,
+    targets,
+)
 from osprey.facility.panels.health import (
     State,
     channel_state,
     rollup,
     row_matches,
     rule_channels,
+    supported,
     unsupported,
     worst,
 )
@@ -31,6 +44,7 @@ from osprey.facility.panels.tables import (
     Pose,
     read_tables,
 )
+from osprey.facility.panels.view import Target, View
 
 __all__ = [
     "Channel",
@@ -43,13 +57,24 @@ __all__ = [
     "PanelTables",
     "Pose",
     "State",
+    "Target",
     "Thing",
+    "View",
     "channel_state",
+    "checkout",
+    "describe",
+    "device_card",
+    "health_rollup",
     "load_graph",
+    "place_view",
+    "rack_elevation",
     "read_tables",
     "rollup",
     "row_matches",
     "rule_channels",
+    "set_overview",
+    "supported",
+    "targets",
     "unsupported",
     "worst",
 ]

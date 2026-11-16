@@ -50,7 +50,9 @@ from osprey.facility.panels.tables import (
     Pair,
     PanelTableError,
     PanelTables,
+    PicturePart,
     Pose,
+    RecordType,
     read_tables,
 )
 from osprey.facility.records import FacilityRecords
@@ -97,6 +99,9 @@ class Thing:
         place: A device's place; a place's parent (its id without the last
             ``/`` segment, when that place exists); ``None`` for a group.
         citations: The documents the record cites.
+        level: A place's ``level`` (the facility's word for its depth of the
+            tree, such as ``rack``); ``None`` for a device, a group or a place
+            with none.
     """
 
     id: str
@@ -104,6 +109,7 @@ class Thing:
     cls: str | None
     place: str | None
     citations: tuple[Citation, ...] = ()
+    level: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,8 @@ class Channel:
         record_type: The record type ``record_types.csv`` states, or ``None``.
         unit: The facility file's unit, or ``None``.
         description: The facility file's description, or ``None``.
+        tolerance: The facility file's ``tolerance`` as ``(term, amount)``,
+            ``term`` being ``absolute`` or ``relative``; ``None`` with none.
     """
 
     name: str
@@ -132,6 +140,7 @@ class Channel:
     record_type: str | None = None
     unit: str | None = None
     description: str | None = None
+    tolerance: tuple[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +189,17 @@ def _citation(source: Any) -> Citation | None:
         state=_text(source.get("state")),
         locator=_text(source.get("locator")),
     )
+
+
+def _tolerance(record: Any) -> tuple[str, float] | None:
+    """The one ``absolute`` or ``relative`` term a built tolerance states, or ``None``."""
+    if not isinstance(record, Mapping):
+        return None
+    for term in ("absolute", "relative"):
+        amount = record.get(term)
+        if isinstance(amount, int | float) and not isinstance(amount, bool):
+            return (term, float(amount))
+    return None
 
 
 def _ring_frame(poses: list[Pose]) -> str | None:
@@ -233,6 +253,10 @@ class PanelGraph:
             if rule.channel in self._channel:
                 self._rules.setdefault(rule.channel, []).append(rule)
         self._read_pairs(tables)
+        self._pictures: dict[str, list[PicturePart]] = {}
+        for part in tables.pictures:
+            if part.document not in self._excluded_documents:
+                self._pictures.setdefault(part.device_class, []).append(part)
 
     # -- building -------------------------------------------------------------
 
@@ -275,6 +299,7 @@ class PanelGraph:
                     cls=_text(record.get("class")) if kind == "device" else None,
                     place=place if place in places else None,
                     citations=self._citations(record),
+                    level=_text(record.get("level")) if kind == "place" else None,
                 )
         return things
 
@@ -282,6 +307,7 @@ class PanelGraph:
         self, records: FacilityRecords, tables: PanelTables, excluded: set[str]
     ) -> None:
         types = {row.channel: row for row in tables.record_types}
+        self._types: dict[str, RecordType] = {}
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
         for record in records.of_kind("channel"):
@@ -304,8 +330,11 @@ class PanelGraph:
                 record_type=row.record_type if row is not None else None,
                 unit=_text(record.get("unit")),
                 description=_text(record.get("description")),
+                tolerance=_tolerance(record.get("tolerance")),
             )
             self._channel[name] = channel
+            if row is not None:
+                self._types[name] = row
             holders = dict.fromkeys(
                 [holder, *(("device", str(device)) for device in record.get("endpoint_of") or ())]
             )
@@ -472,6 +501,14 @@ class PanelGraph:
     def rules(self) -> list[HealthRule]:
         """Every health row of every channel the graph holds, by channel then file order."""
         return [row for rows in self._rules.values() for row in rows]
+
+    def record_type(self, channel: str) -> RecordType | None:
+        """The ``record_types.csv`` row of a channel the graph holds, or ``None``."""
+        return self._types.get(channel)
+
+    def pictures(self, device_class: str) -> list[PicturePart]:
+        """The ``pictures.csv`` rows of a device class, in file order."""
+        return list(self._pictures.get(device_class, ()))
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
