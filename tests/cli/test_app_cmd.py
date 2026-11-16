@@ -340,6 +340,19 @@ def test_a_class_a_style_block_of_the_page_defines_passes(
     assert result.exit_code == 0, result.output
 
 
+def test_the_reference_panel_passes_as_an_applications_panel(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    from osprey.interfaces.design_system import panels
+
+    app_dir = _app(lifecycle_repo)
+    shutil.copytree(Path(panels.__file__).parent / "reference", app_dir / "panel")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+
+
 @pytest.mark.usefixtures("js")
 def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
     runner: CliRunner, lifecycle_repo: Path
