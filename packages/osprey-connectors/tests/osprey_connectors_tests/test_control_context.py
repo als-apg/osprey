@@ -13,13 +13,13 @@ import json
 import os
 import stat
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.errors import StateUnavailableError
+from osprey_connectors.errors import NaiveDatetimeError, StateUnavailableError
 from osprey_connectors.model import evolve
 from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
@@ -908,6 +908,41 @@ def test_a_report_round_trips_through_its_payload():
     assert control_context._parse_report(report.model_dump(mode="json")) == report
 
 
+@pytest.mark.parametrize(
+    "stamp", ["2026-01-01T01:00:00Z", "2026-01-01T01:00:00+00:00", "2025-12-31T18:00:00-07:00"]
+)
+def test_a_report_stamp_reads_as_its_instant_and_is_written_in_utc(stamp):
+    report = control_context._parse_report(_report_payload(4321, updated_at=stamp))
+    assert report is not None
+    assert report.updated_at == datetime(2026, 1, 1, 1, tzinfo=UTC)
+    assert report.model_dump(mode="json")["updated_at"] == "2026-01-01T01:00:00+00:00"
+
+
+def _answered(requested_at):
+    return control_context.terminus(
+        control_context.ControlContext(target="va", generation=0),
+        request_id="r-1",
+        target="live",
+        requested_at=requested_at,
+        requested_by="pid:1",
+        status=control_context.SWITCH_APPLIED,
+        reason=None,
+        detail="",
+        generation=1,
+    )
+
+
+def test_a_switch_answer_stores_its_request_stamp_in_utc():
+    stamp = datetime(2026, 1, 1, 9, 0, 0, 250_000, tzinfo=timezone(timedelta(hours=9)))
+    assert _answered(stamp).last_switch["requested_at"] == "2026-01-01T00:00:00.250000+00:00"
+    assert _answered(None).last_switch["requested_at"] is None
+
+
+def test_a_switch_answer_refuses_a_naive_request_stamp():
+    with pytest.raises(NaiveDatetimeError):
+        _answered(datetime(2026, 1, 1))
+
+
 @pytest.mark.parametrize("value", [None, 0, -1, True, "4321", 4321.0])
 def test_a_report_without_a_server_pid_is_no_report(value):
     assert control_context._parse_report(_report_payload(value)) is None
@@ -943,6 +978,9 @@ def test_a_server_that_has_not_answered_yet_reports_no_applied_target():
         ("last_posture_realign", 3, None),
         ("targets", [], {}),
         ("updated_at", 17, None),
+        ("updated_at", "soon", None),
+        ("updated_at", "", None),
+        ("updated_at", "2026-01-01T00:00:00", None),
     ],
 )
 def test_a_degraded_report_field_degrades_alone(field, value, expected):
@@ -1336,7 +1374,7 @@ def test_an_applying_report_with_no_bound_is_never_converged():
     reports = [_applying(4321, expires_in=None)]
 
     assert control_context.converged(record, reports, None) is False
-    far_future = datetime.now(UTC).timestamp() + 86_400
+    far_future = datetime.now(UTC) + timedelta(days=1)
     assert control_context.converged(record, reports, None, now=far_future) is False
 
 
@@ -1409,19 +1447,53 @@ def test_an_applying_report_is_unconverged_up_to_its_bound_inclusive():
     block = {"generation": 7, "status": "applying", "expires_at": expires_at.isoformat()}
     reports = [_applying(4321, expires_in=None, last_switch=block)]
 
-    assert control_context.converged(record, reports, None, now=expires_at.timestamp()) is False
-    assert (
-        control_context.converged(record, reports, None, now=expires_at.timestamp() + 0.001) is True
-    )
+    assert control_context.converged(record, reports, None, now=expires_at) is False
+    just_past = expires_at + timedelta(microseconds=1)
+    assert control_context.converged(record, reports, None, now=just_past) is True
 
 
-def test_a_naive_bound_is_unconverged_as_utc():
-    """Two processes on one host write the same wall clock, tz-stamped or not."""
+def test_the_bound_is_compared_as_an_instant_whatever_its_zone():
+    """A bound stated in another zone is the same moment; ``now`` in another zone too."""
     record = _context()
-    block = {"generation": 7, "status": "applying", "expires_at": _stamp(300, tz=None)}
+    expires_at = datetime.now(UTC) + timedelta(seconds=30)
+    elsewhere = timezone(timedelta(hours=-7))
+    block = {
+        "generation": 7,
+        "status": "applying",
+        "expires_at": expires_at.astimezone(elsewhere).isoformat(),
+    }
     reports = [_applying(4321, expires_in=None, last_switch=block)]
 
-    assert control_context.converged(record, reports, None) is False
+    at_bound = expires_at.astimezone(timezone(timedelta(hours=9)))
+    assert control_context.converged(record, reports, None, now=at_bound) is False
+    just_past = at_bound + timedelta(microseconds=1)
+    assert control_context.converged(record, reports, None, now=just_past) is True
+
+
+def test_a_naive_now_is_refused():
+    record = _context()
+    reports = [_applying(4321)]
+
+    with pytest.raises(NaiveDatetimeError):
+        control_context.blocking_pids(record, reports, None, now=datetime(2026, 1, 1))
+    with pytest.raises(NaiveDatetimeError):
+        control_context.converged(record, reports, None, now=datetime(2026, 1, 1))
+
+
+@pytest.mark.parametrize("offset_s", [300.0, -300.0], ids=["ahead", "past"])
+def test_a_naive_bound_is_no_bound(offset_s):
+    """A stamp with no offset states no moment, so it keeps blocking, even one long past.
+
+    Read as UTC before instants were aware datetimes, a naive bound in the past
+    let the fleet converge; it now reads as no bound at all.
+    """
+    record = _context()
+    block = {"generation": 7, "status": "applying", "expires_at": _stamp(offset_s, tz=None)}
+    reports = [_applying(4321, expires_in=None, last_switch=block)]
+
+    for session in (None, "sess-other"):
+        assert control_context.converged(record, reports, session) is False
+        assert control_context.blocking_pids(record, reports, session) == (4321,)
 
 
 @pytest.mark.parametrize("block", [None, {"status": "applying"}, {"generation": 7}])

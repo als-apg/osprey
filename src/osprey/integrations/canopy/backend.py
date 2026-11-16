@@ -755,7 +755,7 @@ class OspreyPVConnector:
             server_pid=os.getpid(),
             applied_target=binding.target,
             applied_generation=binding.generation,
-            updated_at=datetime.fromtimestamp(self._wall_clock(), UTC).isoformat(),
+            updated_at=datetime.fromtimestamp(self._wall_clock(), UTC),
             statement={"reachable": self._report_reach(), "writes": session.writes},
         )
         try:

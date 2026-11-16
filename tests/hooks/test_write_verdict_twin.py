@@ -616,19 +616,21 @@ def test_twin_and_package_agree_over_every_shared_fixture(case, tmp_path, monkey
     assert (_agree(_SECTION, "live")[1] == "session_held") is spec["held"]
 
 
-def _flags_with(**overrides) -> list[dict]:
+def _flags_with(*, drop: tuple[str, ...] = (), **overrides) -> list[dict]:
+    """One closed flag, readable as written; *overrides* replace keys and *drop* removes them."""
     flag = {
         "flag_id": "f1",
         "source": "s",
         "reason": "r",
         "prompt_ref": "p",
         "prompt_excerpt": "",
-        "opened_at": "t",
+        "opened_at": "2026-01-01T00:00:00+00:00",
         "state": "closed",
         "stop_unconfirmed": False,
         "started": [],
     }
-    return [{**flag, **overrides}]
+    merged = {**flag, **overrides}
+    return [{key: value for key, value in merged.items() if key not in drop}]
 
 
 @pytest.mark.parametrize(
@@ -663,6 +665,52 @@ def test_twin_and_package_read_every_record_alike(store, payload):
     (store / HOLD_KEY / reader.HOLD_RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
     assert reader.is_held(HOLD_KEY) is session_hold.is_held(HOLD_KEY)
     _agree(_SECTION, "live")
+
+
+@pytest.mark.parametrize(
+    "flags, held",
+    [
+        (_flags_with(), False),
+        (_flags_with(opened_at="2026-01-01T00:00:00Z"), False),
+        (_flags_with(opened_at="2025-12-31T17:00:00.250000-07:00"), False),
+        (_flags_with(opened_at=None), False),
+        (_flags_with(answered_at="2026-01-01T00:01:00+00:00", stop_marked_at=None), False),
+        (_flags_with(opened_at="t"), True),
+        (_flags_with(opened_at=""), True),
+        (_flags_with(opened_at="2026-01-01T00:00:00"), True),
+        (_flags_with(opened_at=1767225600), True),
+        (_flags_with(drop=("opened_at",)), True),
+        (_flags_with(answered_at="t"), True),
+        (_flags_with(answered_at="2026-01-01T00:01:00"), True),
+        (_flags_with(answered_at=0), True),
+        (_flags_with(stop_marked_at=""), True),
+        (_flags_with(stop_marked_at="2026-01-01T00:02:00"), True),
+    ],
+    ids=[
+        "offset",
+        "zulu",
+        "other-zone",
+        "null-opened-at",
+        "answered",
+        "text-opened-at",
+        "empty-opened-at",
+        "naive-opened-at",
+        "int-opened-at",
+        "no-opened-at",
+        "text-answered-at",
+        "naive-answered-at",
+        "int-answered-at",
+        "empty-stop-marked-at",
+        "naive-stop-marked-at",
+    ],
+)
+def test_a_closed_flags_stamps_are_judged_alike(store, flags, held):
+    """A stamp either reader cannot read as an instant holds the session on both."""
+    record = {"schema": 1, "session_key": HOLD_KEY, "flags": flags}
+    (store / HOLD_KEY / reader.HOLD_RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    assert reader.is_held(HOLD_KEY) is held
+    assert session_hold.is_held(HOLD_KEY) is held
+    assert (_agree(_SECTION, "live")[1] == "session_held") is held
 
 
 @pytest.mark.parametrize(

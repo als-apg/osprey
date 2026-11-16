@@ -6,19 +6,34 @@ detail. Each expected value below was captured from the writers before the
 records' ``to_payload`` methods were replaced by their serializers, and every
 case writes through the module's own file writer, so a change to a serializer,
 a field order, a key or a number's type shows here as a byte difference.
+
+The time fields' bytes were re-captured when instants became aware datetimes:
+every stamp a writer stores is ISO-8601 in UTC with an explicit ``+00:00``
+(``.ffffff`` when it has microseconds), never ``Z`` and never an integer of
+nanoseconds. A file in the previous ns-integer format is unreadable, and each
+reader of one lands on its fail-closed path: a write verdict refuses
+``auth_unreadable``, a request is listed as unreadable, and a session hold
+record holds.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
+import uuid
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, session_hold
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_context import ControlContext, Owner, ServerReport
+from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.write_authorization import (
     Approver,
     ChannelRange,
@@ -28,8 +43,14 @@ from osprey_connectors.write_authorization import (
     Revocation,
     WriteRequest,
 )
+from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import FIXTURE_IDENTITY
+from osprey_connectors_tests._paths import REPO_ROOT
 
 ID = "0123456789abcdef0123456789abcdef"
+
+#: The fixed instant every pinned stamp is an offset from.
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 CONTEXT_FULL = ControlContext(
     target="live",
@@ -57,10 +78,22 @@ REPORT_DISPLAY = ServerReport(
     last_switch={"state": "applying", "expires_at": "2026-01-01T00:01:00+00:00"},
     last_posture_realign={"at": "x", "posture": {"va": "sandbox"}},
     targets={"va": {"label": "VA", "kind": "simulator"}},
-    updated_at="2026-01-01T00:00:00+00:00",
+    updated_at=T0 + timedelta(microseconds=500_000),
     statement={"reachable": {"state": "yes", "since": "t", "reason": None}, "writes": None},
 )
 REPORT_SERVER = ServerReport(server_pid=99)
+#: A switch answer: the request's own stamp, given in another zone, is stored in UTC.
+CONTEXT_TERMINUS = control_context.terminus(
+    CONTEXT_BARE,
+    request_id="r-2",
+    target="live",
+    requested_at=datetime(2026, 1, 1, 9, 30, 15, 125_000, tzinfo=timezone(timedelta(hours=9.5))),
+    requested_by="pid:4242",
+    status=control_context.SWITCH_APPLIED,
+    reason=None,
+    detail="",
+    generation=1,
+)
 GRANT = Grant(
     id=ID,
     owner="alice",
@@ -70,22 +103,26 @@ GRANT = Grant(
     # Built in this process, an ``int`` bound or lease is kept as given.
     channels={"SR:B:SP": ChannelRange(min=0, max=10.5), "SR:A:SP": ChannelRange(min=-1.5, max=2)},
     steps=3,
-    issued_at_ns=100,
-    expires_at_ns=200,
+    issued_at=T0 + timedelta(seconds=100),
+    expires_at=T0 + timedelta(seconds=200),
     lease_s=60,
-    approver=Approver(identity="alice", surface="chip", at_ns=100),
+    approver=Approver(identity="alice", surface="chip", approved_at=T0 + timedelta(seconds=100)),
     label="run-1",
-    revoked=Revocation(at_ns=150, by="alice"),
+    revoked=Revocation(revoked_at=T0 + timedelta(seconds=150, microseconds=250_000), by="alice"),
 )
 LEDGER = Ledger(
     authorization=ID,
     holder_pid=42,
     holder_start="777",
     pid_ns="pid:[4026531836]",
-    lease_until_ns=300,
+    lease_expires_at=T0 + timedelta(seconds=300),
     steps=(
-        LedgerStep(n=1, at_ns=110, channels=("SR:A:SP",)),
-        LedgerStep(n=2, at_ns=120, channels=("SR:A:SP", "SR:B:SP")),
+        LedgerStep(n=1, spent_at=T0 + timedelta(seconds=110), channels=("SR:A:SP",)),
+        LedgerStep(
+            n=2,
+            spent_at=T0 + timedelta(seconds=120, microseconds=5),
+            channels=("SR:A:SP", "SR:B:SP"),
+        ),
     ),
 )
 REQUEST = WriteRequest(
@@ -95,8 +132,8 @@ REQUEST = WriteRequest(
     target="live",
     channels={"SR:A:SP": ChannelRange(min=0.0, max=1.0)},
     steps=4,
-    requested_at_ns=90,
-    expires_at_ns=200,
+    requested_at=T0 + timedelta(seconds=90),
+    expires_at=T0 + timedelta(seconds=200),
     lease_s=30.5,
     label="scan",
     completion="restore",
@@ -185,7 +222,7 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
       "kind": "simulator"
     }
   },
-  "updated_at": "2026-01-01T00:00:00+00:00",
+  "updated_at": "2026-01-01T00:00:00.500000+00:00",
   "statement": {
     "reachable": {
       "state": "yes",
@@ -211,12 +248,130 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
   "updated_at": null
 }""",
     ),
+    "context_terminus": (
+        CONTEXT_TERMINUS,
+        b"""{
+  "schema": 1,
+  "owner": null,
+  "target": "live",
+  "generation": 1,
+  "posture": {
+    "live": "sandbox",
+    "va": "sandbox",
+    "standin": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "r-2",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "pid:4242",
+    "status": "applied",
+    "reason": null,
+    "detail": "",
+    "generation": 1
+  },
+  "switch": {},
+  "switch_epoch": null
+}""",
+    ),
 }
 
 AUTHORIZATION_FILES: dict[str, tuple[BaseModel, bytes]] = {
     "grant": (
         GRANT,
         b"""{
+  "approver": {
+    "approved_at": "2026-01-01T00:01:40+00:00",
+    "identity": "alice",
+    "surface": "chip"
+  },
+  "channels": {
+    "SR:A:SP": {
+      "max": 2,
+      "min": -1.5
+    },
+    "SR:B:SP": {
+      "max": 10.5,
+      "min": 0
+    }
+  },
+  "expires_at": "2026-01-01T00:03:20+00:00",
+  "holder": "bob",
+  "id": "0123456789abcdef0123456789abcdef",
+  "issued_at": "2026-01-01T00:01:40+00:00",
+  "label": "run-1",
+  "lease_s": 60,
+  "owner": "alice",
+  "revoked": {
+    "by": "alice",
+    "revoked_at": "2026-01-01T00:02:30.250000+00:00"
+  },
+  "schema": 1,
+  "steps": 3,
+  "switch_epoch": 5,
+  "target": "live"
+}
+""",
+    ),
+    "ledger": (
+        LEDGER,
+        b"""{
+  "authorization": "0123456789abcdef0123456789abcdef",
+  "holder_pid": 42,
+  "holder_start": "777",
+  "lease_expires_at": "2026-01-01T00:05:00+00:00",
+  "pid_ns": "pid:[4026531836]",
+  "schema": 1,
+  "steps": [
+    {
+      "channels": [
+        "SR:A:SP"
+      ],
+      "n": 1,
+      "spent_at": "2026-01-01T00:01:50+00:00"
+    },
+    {
+      "channels": [
+        "SR:A:SP",
+        "SR:B:SP"
+      ],
+      "n": 2,
+      "spent_at": "2026-01-01T00:02:00.000005+00:00"
+    }
+  ]
+}
+""",
+    ),
+    "request": (
+        REQUEST,
+        b"""{
+  "channels": {
+    "SR:A:SP": {
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "completion": "restore",
+  "expires_at": "2026-01-01T00:03:20+00:00",
+  "holder": "bob",
+  "id": "0123456789abcdef0123456789abcdef",
+  "label": "scan",
+  "lease_s": 30.5,
+  "owner": "alice",
+  "requested_at": "2026-01-01T00:01:30+00:00",
+  "schema": 1,
+  "steps": 4,
+  "target": "live"
+}
+""",
+    ),
+}
+
+#: The bytes the writers stored before instants were aware datetimes: every
+#: stamp an integer of nanoseconds under an ``_ns`` name. Copied from the pins
+#: this module held then; no reader of this version reads them.
+PREVIOUS_AUTHORIZATION_FILES: dict[str, bytes] = {
+    "grant": b"""{
   "approver": {
     "at_ns": 100,
     "identity": "alice",
@@ -249,10 +404,7 @@ AUTHORIZATION_FILES: dict[str, tuple[BaseModel, bytes]] = {
   "target": "live"
 }
 """,
-    ),
-    "ledger": (
-        LEDGER,
-        b"""{
+    "ledger": b"""{
   "authorization": "0123456789abcdef0123456789abcdef",
   "holder_pid": 42,
   "holder_start": "777",
@@ -278,10 +430,7 @@ AUTHORIZATION_FILES: dict[str, tuple[BaseModel, bytes]] = {
   ]
 }
 """,
-    ),
-    "request": (
-        REQUEST,
-        b"""{
+    "request": b"""{
   "channels": {
     "SR:A:SP": {
       "max": 1.0,
@@ -301,7 +450,6 @@ AUTHORIZATION_FILES: dict[str, tuple[BaseModel, bytes]] = {
   "target": "live"
 }
 """,
-    ),
 }
 
 
@@ -334,6 +482,12 @@ def test_the_stored_record_and_report_read_back_as_written() -> None:
         CONTEXT_FULL.last_switch,
     )
     assert record.posture == {"va": "sandbox"}
+    answered = control_context.parse_record(STATE_DIRECTORY_FILES["context_terminus"][1])
+    assert answered is not None
+    assert answered.last_switch == CONTEXT_TERMINUS.last_switch
+    stamp = answered.last_switch["requested_at"]
+    assert isinstance(stamp, str)
+    assert parse_instant(stamp) == datetime(2026, 1, 1, 0, 0, 15, 125_000, tzinfo=UTC)
     for name in ("report_display", "report_server"):
         report, stored = STATE_DIRECTORY_FILES[name]
         assert control_context._parse_report(json.loads(stored)) == report
@@ -349,3 +503,191 @@ def test_an_authorization_file_reads_back_as_written(name: str, parse: object) -
     parsed = parse(stored)
     # Read from a file, a number field is a float (``60`` reads as ``60.0``).
     assert parsed.model_dump(mode="json") == record.model_dump(mode="json")
+
+
+# -- a file in the previous format -------------------------------------------
+
+_PARSERS = {"grant": wa._parse_grant, "ledger": wa._parse_ledger, "request": wa._parse_request}
+
+#: A previous stamp's name for each instant field.
+_PREVIOUS_NAMES = {
+    "issued_at": "issued_at_ns",
+    "expires_at": "expires_at_ns",
+    "requested_at": "requested_at_ns",
+    "approved_at": "at_ns",
+    "revoked_at": "at_ns",
+    "spent_at": "at_ns",
+    "lease_expires_at": "lease_until_ns",
+}
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _previous_format(value: Any) -> Any:
+    """A record's JSON form as the previous writer stored it: each instant ns under its old name."""
+    if isinstance(value, dict):
+        return {
+            _PREVIOUS_NAMES.get(key, key): (
+                (parse_instant(item) - _EPOCH) // timedelta(microseconds=1) * 1000
+                if key in _PREVIOUS_NAMES
+                else _previous_format(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_previous_format(item) for item in value]
+    return value
+
+
+def _shape(value: Any) -> Any:
+    """*value* with every leaf replaced by its type: the keys and nesting a file has."""
+    if isinstance(value, dict):
+        return {key: _shape(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_shape(item) for item in value]
+    return type(value).__name__
+
+
+@pytest.mark.parametrize("name", list(PREVIOUS_AUTHORIZATION_FILES))
+def test_the_previous_format_of_a_pinned_record_has_the_previous_pins_shape(name: str) -> None:
+    """The conversion the end-to-end cases use is the previous writer's, key for key."""
+    record, _ = AUTHORIZATION_FILES[name]
+    payload = _previous_format(record.model_dump(mode="json"))
+    assert _shape(payload) == _shape(json.loads(PREVIOUS_AUTHORIZATION_FILES[name]))
+
+
+@pytest.mark.parametrize("name", list(PREVIOUS_AUTHORIZATION_FILES))
+def test_a_file_in_the_previous_format_does_not_read(name: str) -> None:
+    with pytest.raises(ValueError):
+        _PARSERS[name](PREVIOUS_AUTHORIZATION_FILES[name])
+
+
+SECTION = {"type": "epics", "writes": "allowed"}
+OPS = [("A:SP", 5.0)]
+
+
+@pytest.fixture
+def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A host with this login's record (every switch off, an epoch) and no grant."""
+    data = tmp_path / "root"
+    isolate_verdict_environment(monkeypatch, data)
+    for name in (wa.AUTHORIZATION_ENV_VAR, wa.LEDGER_DIR_ENV_VAR, "OSPREY_SESSION_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
+    write_control_context(data, switch={})
+    return data
+
+
+def _approved() -> Grant:
+    """A grant this login approved for itself, issued and its lease started."""
+    control_context.invalidate_cache()
+    record = control_context.read_record()
+    assert record is not None and isinstance(record.switch_epoch, int)
+    now = datetime.now(UTC)
+    grant = Grant(
+        id=uuid.uuid4().hex,
+        owner=FIXTURE_IDENTITY,
+        holder=FIXTURE_IDENTITY,
+        target="va",
+        switch_epoch=record.switch_epoch,
+        channels={"A:SP": ChannelRange(min=0.0, max=10.0)},
+        steps=3,
+        issued_at=now,
+        expires_at=now + timedelta(hours=12),
+        lease_s=60.0,
+        approver=Approver(identity="alice", surface="chip", approved_at=now),
+        label="run-1",
+    )
+    wa._issue_grant(grant)
+    wa.start_lease(grant.id)
+    return grant
+
+
+def _file_of(name: str, grant_id: str) -> Path:
+    if name == "grant":
+        directory = wa.authorizations_dir()
+        suffix = ".json"
+    else:
+        directory = wa.ledger_dir()
+        suffix = ".ledger.json"
+    assert directory is not None
+    return directory / f"{grant_id}{suffix}"
+
+
+@pytest.mark.usefixtures("host")
+@pytest.mark.parametrize("name", ["grant", "ledger"])
+def test_a_write_over_a_file_in_the_previous_format_refuses_unreadable(name: str) -> None:
+    """The same grant and lease allow; the file rewritten as the previous writer did refuses."""
+    grant = _approved()
+    assert wa._verdict(SECTION, "va", OPS, grant.id, None, None).allowed is True
+
+    path = _file_of(name, grant.id)
+    previous = _previous_format(json.loads(path.read_bytes()))
+    path.write_text(json.dumps(previous, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    before = path.read_bytes()
+
+    answer = wa._verdict(SECTION, "va", OPS, grant.id, None, None)
+    assert (answer.allowed, answer.reason) == (False, "auth_unreadable")
+    spent = wa._spend(SECTION, "va", OPS, grant.id, None, None)
+    assert (spent.allowed, spent.reason) == (False, "auth_unreadable")
+    assert path.read_bytes() == before
+
+
+def test_a_request_in_the_previous_format_is_listed_as_unreadable(tmp_path: Path) -> None:
+    directory = tmp_path / "requests"
+    directory.mkdir()
+    old = directory / f"{ID}.json"
+    old.write_bytes(PREVIOUS_AUTHORIZATION_FILES["request"])
+    current = evolve(REQUEST, id="ab" * 16)
+    wa._write_json(directory / f"{current.id}.json", current.model_dump(mode="json"))
+
+    found, unreadable = wa.list_requests(directory)
+
+    assert [request.id for request in found] == [current.id]
+    assert unreadable == (old,)
+
+
+def _load_hook_twin(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """The shipped stdlib hook twin, by path; its ``sys.path`` insert is undone."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    hook = REPO_ROOT / "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py"
+    spec = importlib.util.spec_from_file_location("_stored_bytes_target_state", hook)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+HOLD_KEY = "3f2b8c1e-6a0d-4c55-9a1e-0b7f2d4e9c11"  # gitleaks:allow - a test session id
+
+
+def test_a_hold_record_in_the_previous_format_holds_on_both_readers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The answered synthetic flag reads as released with ``null``; with the previous ``""``, held."""
+    monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
+    twin = _load_hook_twin(monkeypatch)
+    root = tmp_path / "session_holds"
+    path = root / HOLD_KEY / session_hold.RECORD_NAME
+    path.parent.mkdir(parents=True)
+    path.write_text("{not json", encoding="utf-8")
+    assert session_hold.answer_flags(
+        HOLD_KEY, [session_hold.UNREADABLE_FLAG_ID], answer="continue", operator="op", root=root
+    ) == (session_hold.UNREADABLE_FLAG_ID,)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    [entry] = payload["flags"]
+    assert (entry["flag_id"], entry["state"], entry["opened_at"]) == (
+        session_hold.UNREADABLE_FLAG_ID,
+        "closed",
+        None,
+    )
+    assert entry["answered_at"].endswith("+00:00")
+    assert session_hold.is_held(HOLD_KEY, root=root) is False
+    assert twin.is_held(HOLD_KEY, root=root) is False
+
+    # As the previous writer stored it: an empty ``opened_at`` and a ``Z`` stamp.
+    entry.update(opened_at="", answered_at=entry["answered_at"].replace("+00:00", "Z"))
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    assert session_hold.is_held(HOLD_KEY, root=root) is True
+    assert twin.is_held(HOLD_KEY, root=root) is True

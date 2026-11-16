@@ -358,9 +358,11 @@ and a switch moved to *asked* or *allowed* does not widen it. The how-to is
 
 **Three files, three writers.** Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
-repeated key, every number finite. A request or grant is written only inside
-three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at_ns``
-at most 24 hours after its ``requested_at_ns`` or ``issued_at_ns``
+repeated key, every number finite, every instant an ISO-8601 string that
+states its offset (written ``+00:00``; a file of an earlier version, which
+stored integer nanoseconds, refuses). A request or grant is written only inside
+three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at``
+at most 24 hours after its ``requested_at`` or ``issued_at``
 (``MAX_EXPIRES_S``), and a ``lease_s`` of at most 600 seconds; a write past
 one raises ``ValueError`` and writes nothing. Reading does not apply them, so
 a file already on disk past a ceiling is honoured as before. A file that is
@@ -377,20 +379,20 @@ there and cannot be read refuses; an absent grant is no authorization
    * - request
      - ``<ledger dir>/requests/<id>.json``, the holder
      - ``id``, ``owner``, ``holder``, ``target``, ``channels``
-       (``{address: {min, max}}``), ``steps``, ``requested_at_ns``,
-       ``expires_at_ns``, ``lease_s``, ``label``, ``completion``
+       (``{address: {min, max}}``), ``steps``, ``requested_at``,
+       ``expires_at``, ``lease_s``, ``label``, ``completion``
        (``none`` | ``apply_best`` | ``restore``)
    * - grant
      - ``<owner's state dir>/authorizations/<id>.json``, the approver (chip or
        CLI); a self-issued one in the holder's ledger dir
-     - the request's fields but ``requested_at_ns`` and ``completion``, plus
-       ``switch_epoch``, ``issued_at_ns``, ``approver``
-       (``{identity, surface: chip | cli | write_switch, at_ns}``) and
-       ``revoked`` (``null`` or ``{at_ns, by}``)
+     - the request's fields but ``requested_at`` and ``completion``, plus
+       ``switch_epoch``, ``issued_at``, ``approver``
+       (``{identity, surface: chip | cli | write_switch, approved_at}``) and
+       ``revoked`` (``null`` or ``{revoked_at, by}``)
    * - ledger
      - ``<ledger dir>/<id>.ledger.json``, the holder's connector child
      - ``authorization``, ``holder_pid``, ``holder_start``, ``pid_ns``,
-       ``lease_until_ns``, ``steps`` (``[{n, at_ns, channels}]``)
+       ``lease_expires_at``, ``steps`` (``[{n, spent_at, channels}]``)
 
 The grant's id is the request's, so a holder waits for exactly that id. The
 ledger directory is ``OSPREY_WRITE_LEDGER_DIR`` (on a deployment,

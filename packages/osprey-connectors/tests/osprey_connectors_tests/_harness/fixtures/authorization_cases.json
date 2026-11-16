@@ -99,7 +99,7 @@
   },
   {
     "id": "ledger-misnumbered",
-    "ledger": {"steps": [{"n": 2, "at_ns": 1, "channels": ["A:SP"]}]},
+    "ledger": {"steps": [{"n": 2, "spent_at": "2026-01-01T00:00:01+00:00", "channels": ["A:SP"]}]},
     "expect": {"allowed": false, "reason": "auth_unreadable"}
   },
   {
@@ -165,7 +165,7 @@
   },
   {
     "id": "revoked-by-a-stop",
-    "grant": {"revoked": {"at_ns": 1, "by": "test-operator"}},
+    "grant": {"revoked": {"revoked_at": "2026-01-01T00:00:01+00:00", "by": "test-operator"}},
     "expect": {"allowed": false, "reason": "auth_revoked"}
   },
   {
@@ -176,24 +176,24 @@
   },
   {
     "id": "expired",
-    "grant": {"issued_at_ns": 0, "expires_at_ns": "@past"},
+    "grant": {"issued_at": "1970-01-01T00:00:00+00:00", "expires_at": "@past"},
     "expect": {"allowed": false, "reason": "auth_expired"}
   },
   {
     "id": "self-issued-at-allowed",
     "switch": "allowed",
-    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "approved_at": "2026-01-01T00:00:01+00:00"}},
     "expect": {"allowed": true, "reason": null}
   },
   {
     "id": "self-issued-at-asked",
     "switch": "asked",
-    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "approved_at": "2026-01-01T00:00:01+00:00"}},
     "expect": {"allowed": false, "reason": "auth_revoked"}
   },
   {
     "id": "self-issued-with-the-switch-off",
-    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "at_ns": 1}},
+    "grant": {"approver": {"identity": "test-operator", "surface": "write_switch", "approved_at": "2026-01-01T00:00:01+00:00"}},
     "expect": {"allowed": false, "reason": "auth_revoked"}
   },
   {
@@ -204,7 +204,7 @@
   },
   {
     "id": "lease-past-its-time",
-    "ledger": {"lease_until_ns": "@past"},
+    "ledger": {"lease_expires_at": "@past"},
     "expect": {"allowed": false, "reason": "auth_lease_lapsed"}
   },
   {

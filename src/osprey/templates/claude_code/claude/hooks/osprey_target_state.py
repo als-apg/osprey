@@ -1784,14 +1784,44 @@ HOLD_SESSION_ENV_VAR = "OSPREY_SESSION_ID"
 
 #: Mirrors ``session_hold._SAFE_KEY``: one path segment.
 _HOLD_SAFE_KEY = r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
-#: Mirrors ``session_hold._STR_FIELDS``.
-_HOLD_STR_FIELDS = ("flag_id", "source", "reason", "prompt_ref", "prompt_excerpt", "opened_at")
+#: Mirrors the string fields of ``session_hold._FlagEntry``.
+_HOLD_STR_FIELDS = ("flag_id", "source", "reason", "prompt_ref", "prompt_excerpt")
+#: Mirrors its stamps: ``opened_at`` is always there, the other two only once
+#: an answer or a stop has set them.
+_HOLD_STAMP_FIELDS = ("answered_at", "stop_marked_at")
+
+
+def _hold_stamp(value):
+    """Whether *value* is ``None`` or a stamp ``osprey_connectors.model.parse_instant`` reads.
+
+    An ISO-8601 instant that states its offset; ``Z`` is rewritten first because
+    Python 3.9's ``datetime.fromisoformat`` does not read it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    stamp = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        moment = datetime.fromisoformat(stamp)
+        if moment.utcoffset() is None:
+            return False
+        moment.astimezone(timezone(timedelta(0)))
+    except (ValueError, OverflowError):
+        return False
+    return True
 
 
 def _valid_hold_flag(entry):
     if not isinstance(entry, dict):
         return False
     if not all(isinstance(entry.get(name), str) for name in _HOLD_STR_FIELDS):
+        return False
+    if "opened_at" not in entry or not _hold_stamp(entry["opened_at"]):
+        return False
+    if not all(_hold_stamp(entry.get(name)) for name in _HOLD_STAMP_FIELDS):
         return False
     if entry.get("state") not in ("open", "closed"):
         return False

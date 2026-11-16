@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import logging
 import math
-import time
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
 from typing import TypeVar
 
 from fastapi import HTTPException, status
@@ -167,7 +167,7 @@ def authorize_manual_write(
             target,
             {channel: (value, value) for channel, value in channels.items()},
             steps=1,
-            expires_at_ns=time.time_ns() + int(LEASE_S * 1e9),
+            expires_at=datetime.now(UTC) + timedelta(seconds=LEASE_S),
             lease_s=LEASE_S,
             label=label,
             owner=owner,

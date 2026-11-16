@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -249,6 +250,9 @@ def test_get_flags_reports_enabled_and_the_record(client, root):
     assert flag["watchdog"] == "wd"
     assert flag["stop_unconfirmed"] is False
     assert flag["started"] == []
+    # Served as the record stores it: ISO-8601 in UTC with ``+00:00``, never ``Z``.
+    assert flag["opened_at"].endswith("+00:00")
+    assert datetime.fromisoformat(flag["opened_at"]).utcoffset() == timedelta(0)
 
 
 def test_get_flags_refuses_a_key_that_is_no_path_segment(client):
@@ -388,6 +392,8 @@ def test_a_corrupt_record_shows_the_synthetic_flag_and_answering_rewrites_it(cli
 
     body = client.get("/api/watchdog/flags", params={"session_key": KEY}).json()
     assert [flag["flag_id"] for flag in body["flags"]] == [UNREADABLE_FLAG_ID]
+    # No one opened the synthetic flag: it is served with no stamp.
+    assert body["flags"][0]["opened_at"] is None
     assert is_held(KEY, root=root)
 
     assert _answer(client, [UNREADABLE_FLAG_ID]).json()["released"] == [UNREADABLE_FLAG_ID]

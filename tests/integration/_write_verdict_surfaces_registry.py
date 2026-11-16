@@ -434,8 +434,8 @@ def _approve_card_lock(staged: Staged) -> Any:
     same verdict with the pin ignored, for the login the terminal acts as.
     """
     import json
-    import time
     import uuid
+    from datetime import UTC, datetime, timedelta
 
     case = staged.case
     if not _login_pin_ignored(case) or not _str_target(case):
@@ -457,8 +457,8 @@ def _approve_card_lock(staged: Staged) -> Any:
         "target": case.target,
         "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
         "steps": 1,
-        "requested_at_ns": time.time_ns(),
-        "expires_at_ns": time.time_ns() + 3600 * 10**9,
+        "requested_at": datetime.now(UTC).isoformat(),
+        "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
         "lease_s": 30.0,
         "label": "",
         "completion": "none",

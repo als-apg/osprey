@@ -221,6 +221,10 @@ def test_hold_record_has_the_keys_the_writer_writes(tmp_path: Path) -> None:
     assert sorted(example) == sorted(written)
     assert example["schema"] == session_hold._SCHEMA_VERSION
     assert sorted(example["flags"][0]) == sorted(written["flags"][0])
+    # The stamp the page shows has the writer's spelling: ``+00:00``, to the second.
+    for flag in (example["flags"][0], written["flags"][0]):
+        assert flag["opened_at"].endswith("+00:00")
+        assert "." not in flag["opened_at"]
 
 
 def test_hold_record_is_read_as_a_held_session(tmp_path: Path) -> None:

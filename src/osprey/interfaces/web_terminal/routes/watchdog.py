@@ -239,7 +239,7 @@ async def get_flags(
     flags = await asyncio.to_thread(open_flags, key, root=root)
     return {
         "enabled": True,
-        "flags": [{**flag.model_dump(), "watchdog": flag.source} for flag in flags],
+        "flags": [{**flag.model_dump(mode="json"), "watchdog": flag.source} for flag in flags],
     }
 
 

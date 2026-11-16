@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -386,8 +387,8 @@ def test_write_authorizations_counts_live_grants(tmp_path: Path) -> None:
     config, build = _users_config(tmp_path)
     directory = _record(build.parent, "alice", {"va": "asked"}) / "authorizations"
     directory.mkdir()
-    now = time.time_ns()
-    for i, expires in enumerate((now + 10**12, now - 10**9)):
+    now = datetime.now(UTC)
+    for i, expires in enumerate((now + timedelta(seconds=1000), now - timedelta(seconds=1))):
         grant_id = f"{i:032x}"
         grant = {
             "schema": 1,
@@ -398,10 +399,14 @@ def test_write_authorizations_counts_live_grants(tmp_path: Path) -> None:
             "switch_epoch": 1,
             "channels": {"SR:A:SP": {"min": 0.0, "max": 1.0}},
             "steps": 3,
-            "issued_at_ns": now - 10**10,
-            "expires_at_ns": expires,
+            "issued_at": (now - timedelta(seconds=10)).isoformat(),
+            "expires_at": expires.isoformat(),
             "lease_s": 30.0,
-            "approver": {"identity": "alice", "surface": "chip", "at_ns": now - 10**10},
+            "approver": {
+                "identity": "alice",
+                "surface": "chip",
+                "approved_at": (now - timedelta(seconds=10)).isoformat(),
+            },
             "label": "",
             "revoked": None,
         }

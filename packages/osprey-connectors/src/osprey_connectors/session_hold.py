@@ -55,7 +55,7 @@ from typing import Annotated, Final, Literal, TypeGuard
 from pydantic import ConfigDict, JsonValue, Strict, TypeAdapter, ValidationError
 
 from osprey_connectors.errors import StateLockedError
-from osprey_connectors.model import FrozenModel, MutableModel
+from osprey_connectors.model import FrozenModel, Instant, MutableModel
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
@@ -119,9 +119,13 @@ class _FlagEntry(MutableModel):
 
     The nine fields every flag carries are checked, each of its type; a flag
     missing one, or holding one of another type, makes the record unreadable.
-    The five an answer or a stop adds are kept as read, whatever they hold, and
-    so is a key this version does not know: a rewrite writes back every key it
-    read, and only those it read or set (``model_dump(exclude_unset=True)``).
+    Every stamp is an ISO-8601 instant that states its offset, or ``null``
+    (``opened_at`` of the synthetic flag, which was opened by no one); a stamp
+    of any other shape makes the record unreadable too. The other three fields
+    an answer or a stop adds are kept as read, whatever they hold, and so is a
+    key this version does not know: a rewrite writes back every key it read,
+    and only those it read or set (``model_dump(exclude_unset=True)``), each
+    stamp in UTC with ``+00:00``.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -131,16 +135,16 @@ class _FlagEntry(MutableModel):
     reason: str
     prompt_ref: str
     prompt_excerpt: str
-    opened_at: str
+    opened_at: Instant | None
     state: Literal["open", "closed"]
     stop_unconfirmed: bool
     started: list[str]
     #: ``"stop"`` or ``"continue"`` as this version writes it.
     answer: JsonValue = None
     operator: JsonValue = None
-    answered_at: JsonValue = None
+    answered_at: Instant | None = None
     stop_operator: JsonValue = None
-    stop_marked_at: JsonValue = None
+    stop_marked_at: Instant | None = None
 
 
 #: A record's ``flags``: a list, strictly, of flag entries.
@@ -148,14 +152,19 @@ _FLAGS: Final[TypeAdapter[list[_FlagEntry]]] = TypeAdapter(Annotated[list[_FlagE
 
 
 class HoldFlag(FrozenModel):
-    """One open flag on a session, as :func:`open_flags` reports it."""
+    """One open flag on a session, as :func:`open_flags` reports it.
+
+    ``opened_at`` is when the flag was opened, an aware ``datetime`` in UTC;
+    ``None`` for the synthetic :data:`UNREADABLE_FLAG_ID` flag, which no one
+    opened.
+    """
 
     flag_id: str
     source: str
     reason: str
     prompt_ref: str
     prompt_excerpt: str
-    opened_at: str
+    opened_at: Instant | None
     stop_unconfirmed: bool = False
     started: tuple[str, ...] = ()
 
@@ -182,8 +191,9 @@ def _checked_key(session_key: object) -> str:
     return session_key
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+def _now() -> datetime:
+    """The module's one clock: aware, in UTC, to the second, as a hold record stamps it."""
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 # -- reading ---------------------------------------------------------------------
@@ -250,7 +260,7 @@ _SYNTHETIC: Final = HoldFlag(
     reason=_UNREADABLE_REASON,
     prompt_ref="",
     prompt_excerpt="",
-    opened_at="",
+    opened_at=None,
 )
 
 
@@ -368,7 +378,7 @@ def _locked(root: Path, session_key: str) -> Iterator[Path]:
 
 
 def _write(path: Path, session_key: str, flags: list[_FlagEntry]) -> None:
-    entries = [entry.model_dump(exclude_unset=True) for entry in flags]
+    entries = [entry.model_dump(mode="json", exclude_unset=True) for entry in flags]
     payload = {"schema": _SCHEMA_VERSION, "session_key": session_key, "flags": entries}
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     atomic_replace(path, data, mode=_RECORD_MODE)
@@ -387,7 +397,7 @@ def _open_entry(
     reason: str,
     prompt_ref: str,
     prompt_excerpt: str,
-    opened_at: str,
+    opened_at: datetime | None,
 ) -> _FlagEntry:
     """A new flag's record entry, with the nine fields every flag carries."""
     return _FlagEntry(
@@ -480,7 +490,9 @@ def open_flag(
     return True
 
 
-def _close(entry: _FlagEntry, answer: Literal["stop", "continue"], operator: str, at: str) -> None:
+def _close(
+    entry: _FlagEntry, answer: Literal["stop", "continue"], operator: str, at: datetime
+) -> None:
     """Mark *entry* closed with *answer*, by *operator*, at *at*."""
     entry.state = "closed"
     entry.answer = answer

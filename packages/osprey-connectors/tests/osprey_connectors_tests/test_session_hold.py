@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -150,7 +151,9 @@ def test_open_then_answer_by_flag_ids_releases(root):
         "ref-f1",
     )
     assert flag.prompt_excerpt == "prompt for f1"
-    assert flag.opened_at
+    assert isinstance(flag.opened_at, datetime)
+    assert flag.opened_at.tzinfo is UTC
+    assert flag.opened_at.microsecond == 0
     assert flag.stop_unconfirmed is False
     assert flag.started == ()
 
@@ -193,7 +196,11 @@ def test_answers_record_operator_and_time_and_closed_flags_stay(root):
     assert entry["state"] == "closed"
     assert entry["answer"] == "continue"
     assert entry["operator"] == "alice"
-    assert entry["answered_at"]
+    # Stored to the second, in UTC with ``+00:00``, never ``Z``.
+    for name in ("opened_at", "answered_at"):
+        assert entry[name].endswith("+00:00")
+        assert "." not in entry[name]
+        assert datetime.fromisoformat(entry[name]).tzinfo is not None
 
 
 def test_answering_a_closed_id_again_releases_nothing_and_keeps_the_first_answer(root):
@@ -309,6 +316,18 @@ def test_a_corrupt_record_holds_and_answering_its_synthetic_flag_rewrites_it(roo
     [entry] = payload["flags"]
     assert entry["flag_id"] == session_hold.UNREADABLE_FLAG_ID
     assert (entry["state"], entry["operator"]) == ("closed", "alice")
+    # No one opened the synthetic flag: its stamp is ``null``, as the flag reports it.
+    assert entry["opened_at"] is None
+    assert entry["answered_at"].endswith("+00:00")
+
+
+def test_the_synthetic_flag_was_opened_at_no_time(root):
+    (root / KEY).mkdir()
+    _record_path(root).write_text("garbage", encoding="utf-8")
+    [flag] = session_hold.open_flags(KEY, root=root)
+    assert flag.flag_id == session_hold.UNREADABLE_FLAG_ID
+    assert flag.opened_at is None
+    assert flag.model_dump(mode="json")["opened_at"] is None
 
 
 def test_the_synthetic_id_on_a_readable_record_is_ignored(root):
@@ -324,6 +343,47 @@ def test_the_synthetic_id_on_a_readable_record_is_ignored(root):
     assert _record_path(root).read_bytes() == before
 
 
+def _closed_flag(*, drop: bool = False, **overrides) -> dict:
+    """An answered flag, readable as written; *overrides* replace or add keys, *drop* removes them."""
+    flag = {
+        "flag_id": "f1",
+        "source": "watchdog:a",
+        "reason": "r",
+        "prompt_ref": "p1",
+        "prompt_excerpt": "e",
+        "opened_at": "2026-01-01T00:00:00+00:00",
+        "state": "closed",
+        "stop_unconfirmed": False,
+        "started": [],
+        "answer": "continue",
+        "operator": "op",
+        "answered_at": "2026-01-01T00:01:00+00:00",
+    }
+    if drop:
+        return {key: value for key, value in flag.items() if key not in overrides}
+    return {**flag, **overrides}
+
+
+@pytest.mark.parametrize(
+    "stamps",
+    [
+        {},
+        {"opened_at": "2026-01-01T00:00:00Z", "answered_at": "2026-01-01T00:01:00Z"},
+        {"opened_at": "2025-12-31T17:00:00-07:00"},
+        {"opened_at": None},
+        {"answered_at": None, "stop_marked_at": None},
+        {"stop_marked_at": "2026-01-01T00:02:00.5+00:00"},
+    ],
+    ids=["offset", "zulu", "other-zone", "null-opened-at", "null-stamps", "stop-marked"],
+)
+def test_a_closed_flag_with_readable_stamps_releases(root, stamps):
+    (root / KEY).mkdir()
+    payload = {"schema": 1, "session_key": KEY, "flags": [_closed_flag(**stamps)]}
+    _record_path(root).write_text(json.dumps(payload), encoding="utf-8")
+    assert session_hold.is_held(KEY, root=root) is False
+    assert session_hold.open_flags(KEY, root=root) == []
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -333,8 +393,33 @@ def test_the_synthetic_id_on_a_readable_record_is_ignored(root):
         {"schema": 1, "session_key": KEY, "flags": [{"flag_id": "f1"}]},
         {"schema": 1, "session_key": KEY, "flags": "nope"},
         [],
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(opened_at="")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(opened_at="t")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(opened_at="2026-01-01T00:00:00")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(opened_at=1767225600)]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(opened_at=None, drop=True)]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(answered_at="t")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(answered_at="2026-01-01")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(stop_marked_at="")]},
+        {"schema": 1, "session_key": KEY, "flags": [_closed_flag(stop_marked_at=0)]},
     ],
-    ids=["other-schema", "no-schema", "other-key", "bad-flag", "bad-flags", "not-a-mapping"],
+    ids=[
+        "other-schema",
+        "no-schema",
+        "other-key",
+        "bad-flag",
+        "bad-flags",
+        "not-a-mapping",
+        "empty-opened-at",
+        "text-opened-at",
+        "naive-opened-at",
+        "int-opened-at",
+        "no-opened-at",
+        "text-answered-at",
+        "naive-answered-at",
+        "empty-stop-marked-at",
+        "int-stop-marked-at",
+    ],
 )
 def test_a_malformed_record_holds(root, payload):
     (root / KEY).mkdir()
@@ -526,7 +611,11 @@ def test_has_no_record_refuses_an_unsafe_key(root):
 
 
 def test_a_rewrite_keeps_every_key_it_read_byte_for_byte(root):
-    """Keys a flag carries beyond the nine, and keys this version does not know, survive."""
+    """Keys a flag carries beyond the nine, and keys this version does not know, survive.
+
+    Each stamp is rewritten as the instant it states, in UTC with ``+00:00``:
+    one read as ``Z`` is written back with ``+00:00``.
+    """
     flags = [
         {
             "flag_id": "f1",
@@ -564,8 +653,13 @@ def test_a_rewrite_keeps_every_key_it_read_byte_for_byte(root):
     ) == ("f1",)
 
     stamp = _payload(root)["flags"][0]["stop_marked_at"]
+    assert stamp.endswith("+00:00")
     flags[0].update(
         stop_unconfirmed=True, started=["cmd"], stop_operator="op2", stop_marked_at=stamp
     )
+    for flag in flags:
+        for name in ("opened_at", "answered_at"):
+            if name in flag:
+                flag[name] = flag[name].replace("Z", "+00:00")
     expected = {"schema": 1, "session_key": KEY, "flags": flags}
     assert path.read_bytes() == (json.dumps(expected, indent=2, sort_keys=True) + "\n").encode()

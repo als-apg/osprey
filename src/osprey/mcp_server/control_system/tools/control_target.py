@@ -618,7 +618,7 @@ def _terminus(
     *,
     request_id: str,
     wanted: str,
-    requested_at: str,
+    requested_at: datetime,
     status: str,
     reason: str | None,
     detail: str,
@@ -675,7 +675,7 @@ async def _apply_here(
         return await _refuse_switch_in_progress(record, wanted, reports)
 
     request_id = uuid.uuid4().hex
-    requested_at = _now_iso()
+    requested_at = datetime.now(UTC)
     verdict = _gate(context, record, wanted, reports)
 
     if not verdict.allowed:

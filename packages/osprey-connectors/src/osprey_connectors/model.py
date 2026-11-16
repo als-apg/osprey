@@ -33,6 +33,11 @@ mutable form on input — a list, a dict — because that is what JSON and the
 connector-host IPC decode to, and the record holds the frozen form from then
 on.
 
+An instant a record holds is an :data:`Instant`: a timezone-aware
+``datetime``, held in UTC, read from an ISO-8601 string that states its offset
+(:func:`parse_instant`) and written with an explicit ``+00:00``. A naive
+``datetime`` is refused, never given a zone.
+
 The module imports only pydantic, typing_extensions and the standard library,
 and nothing from the package.
 """
@@ -40,13 +45,16 @@ and nothing from the package.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Annotated, NoReturn, Self, TypeAlias, TypeVar
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
+    PlainSerializer,
     SerializerFunctionWrapHandler,
     WrapSerializer,
 )
@@ -55,10 +63,12 @@ from typing_extensions import override
 __all__ = [
     "FrozenModel",
     "FrozenTuple",
+    "Instant",
     "MutableModel",
     "ReadOnlyMapping",
     "empty_mapping",
     "evolve",
+    "parse_instant",
 ]
 
 _T = TypeVar("_T")
@@ -121,6 +131,57 @@ FrozenTuple: TypeAlias = Annotated[tuple[_T, ...], BeforeValidator(_as_tuple)]
 #: own type says so (``ReadOnlyMapping[str, ReadOnlyMapping[str, int]]``).
 ReadOnlyMapping: TypeAlias = Annotated[
     Mapping[_K, _V], AfterValidator(_frozen), WrapSerializer(_as_dict)
+]
+
+
+def parse_instant(text: str) -> datetime:
+    """*text*, an ISO-8601 instant that states its UTC offset, as an aware ``datetime`` in UTC.
+
+    ``Z`` and a numeric offset (``+00:00``, ``-07:00``) are both read. A stamp
+    that states no offset is refused rather than given a zone: a reader in
+    another zone would place it somewhere else. Every reader of a stored
+    instant parses through this, and the stdlib hook twins restate it, ``Z``
+    rewritten first because Python 3.9's :meth:`datetime.fromisoformat` does
+    not read it.
+
+    Raises:
+        ValueError: *text* is not an ISO-8601 instant with an offset.
+    """
+    stamp = text[:-1] + "+00:00" if text.endswith("Z") else text
+    moment = datetime.fromisoformat(stamp)
+    if moment.utcoffset() is None:
+        raise ValueError(f"{text!r} states no UTC offset")
+    try:
+        return moment.astimezone(UTC)
+    except OverflowError:
+        raise ValueError(f"{text!r} is outside the years a datetime holds in UTC") from None
+
+
+def _instant_from_text(value: object) -> object:
+    """A stored stamp as the instant it states; any other value as it is, for the field to judge."""
+    return parse_instant(value) if isinstance(value, str) else value
+
+
+def _in_utc(value: datetime) -> datetime:
+    return value.astimezone(UTC)
+
+
+def _stored_instant(value: datetime) -> str:
+    """An instant as a file stores it: ISO-8601 with an explicit ``+00:00``, never ``Z``."""
+    return value.astimezone(UTC).isoformat()
+
+
+#: An instant field: a timezone-aware ``datetime`` (a naive one is refused), held
+#: in UTC. A string is read through :func:`parse_instant`, so a record read from
+#: a file takes the ISO-8601 stamp the file stores; any other value, a number
+#: among them, is refused. JSON mode writes it as ISO-8601 with ``+00:00``
+#: (``2026-11-16T12:00:00.250000+00:00``), which Python 3.9's
+#: :meth:`datetime.fromisoformat` reads.
+Instant: TypeAlias = Annotated[
+    AwareDatetime,
+    BeforeValidator(_instant_from_text),
+    AfterValidator(_in_utc),
+    PlainSerializer(_stored_instant, when_used="json"),
 ]
 
 

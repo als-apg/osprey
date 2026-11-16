@@ -62,7 +62,9 @@ on safely:
   degraded switch can only refuse. :func:`switch_position` is the one reader of
   the map.
 * ``switch_epoch`` → ``None``, a record written before epochs existed. An
-  epoch is a ``time.time_ns()`` stamp that only moves forward; the person who
+  epoch is a compare-and-swap token, not an instant: minted from
+  ``time.time_ns()`` and only ever moved forward, it is compared for equality
+  and order and never read as a time. The person who
   widens a switch names the epoch they saw, so a stop or a lost record in
   between makes their gesture stale. ``None`` is never "older" than anything.
 
@@ -146,9 +148,21 @@ from typing import Final, Generic, Literal, TypeVar, get_args
 from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer
 
 from osprey_connectors import posture_store
-from osprey_connectors.errors import ConnectorsError, StateLockedError, StateUnavailableError
+from osprey_connectors.errors import (
+    ConnectorsError,
+    StateLockedError,
+    StateUnavailableError,
+    require_aware,
+)
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping, evolve
+from osprey_connectors.model import (
+    FrozenModel,
+    Instant,
+    ReadOnlyMapping,
+    empty_mapping,
+    evolve,
+    parse_instant,
+)
 from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import (
@@ -343,9 +357,11 @@ class ControlContext(FrozenModel):
             validation error, and the legacy ``"on"`` is ``"asked"``. Keys are
             any string, not only a :data:`~osprey_connectors.types.ControlTarget`:
             a key no target names is kept so a stop of every machine clears it.
-        switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
-            of the record, or ``None`` for a record written before epochs
-            existed. Kept by :func:`write_record` like ``switch``.
+        switch_epoch: A compare-and-swap token moved by every stop or loss of
+            the record, or ``None`` for a record written before epochs
+            existed. Minted from ``time.time_ns()`` and only moved forward, it
+            is not an instant: it is compared for equality and order, never
+            read as a time. Kept by :func:`write_record` like ``switch``.
     """
 
     target: ControlTarget
@@ -1378,7 +1394,7 @@ def terminus(
     *,
     request_id: str,
     target: str,
-    requested_at: object,
+    requested_at: datetime | None,
     requested_by: str,
     status: str,
     reason: str | None,
@@ -1397,13 +1413,18 @@ def terminus(
     what makes the answer a refusal: a refusal moves neither target nor
     generation, and its block names no binding because there is none.
 
+    Raises:
+        NaiveDatetimeError: *requested_at* names no zone.
+
     Args:
         record: The record being answered against. Not modified.
         request_id: The id the requester is waiting on.
         target: The target that was asked for — recorded whether or not the
             deployment went there, because a refusal has to say what it
             refused.
-        requested_at: The request's own stamp, copied verbatim.
+        requested_at: When the request was made, as its own stamp states it,
+            or ``None`` when it states none that reads. Stored as ISO-8601 in
+            UTC with ``+00:00``.
         requested_by: Who to name in the block: an audit session where the
             requester has one, ``pid:<n>`` where it does not.
         status: :data:`SWITCH_APPLIED` or :data:`SWITCH_REFUSED`.
@@ -1413,6 +1434,9 @@ def terminus(
             a refusal.
     """
     moved = generation is not None
+    stamp = (
+        None if requested_at is None else _stored(require_aware(requested_at, name="requested_at"))
+    )
     return evolve(
         record,
         target=target if moved else record.target,
@@ -1420,7 +1444,7 @@ def terminus(
         last_switch={
             "request_id": request_id,
             "target": target,
-            "requested_at": requested_at,
+            "requested_at": stamp,
             "requested_by": requested_by,
             "status": status,
             "reason": reason,
@@ -1491,7 +1515,9 @@ class ServerReport(FrozenModel):
             process could compute — or ``None``.
         last_posture_realign: Its last posture realignment, or ``None``.
         targets: Per-target display metadata, ``{}`` when it has none.
-        updated_at: When it last wrote, ISO-8601, or ``None``.
+        updated_at: When it last wrote, an aware ``datetime`` in UTC, or
+            ``None`` when the file states no stamp that reads (an ISO-8601
+            instant with its offset; a stamp with none states no moment).
         statement: The machine statement a process that displays the machine
             (a panel backend) writes in place of controlling it, ``None`` on a
             controls server's report. ``{"reachable": ..., "writes": ...}``,
@@ -1500,6 +1526,13 @@ class ServerReport(FrozenModel):
             :data:`_REACHABLE_STATES`, and ``writes`` is :func:`write_statement`
             of the session's execution verdict. A statement that does not have
             this shape states nothing, and the report is then an ordinary one.
+
+    The publication blocks (``reachability``, ``last_switch``,
+    ``last_posture_realign``, ``statement``) are their writers' JSON, kept as
+    the file states it and served whole; their stamps (``at``,
+    ``expires_at``, ``since``, ``probed_at``) are ISO-8601 text, which a
+    reader that judges one parses with
+    :func:`~osprey_connectors.model.parse_instant` (:func:`_switch_bound`).
     """
 
     server_pid: int
@@ -1511,7 +1544,7 @@ class ServerReport(FrozenModel):
     last_switch: ReadOnlyMapping[str, object] | None = None
     last_posture_realign: ReadOnlyMapping[str, object] | None = None
     targets: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
-    updated_at: str | None = None
+    updated_at: Instant | None = None
     statement: ReadOnlyMapping[str, ReadOnlyMapping[str, object] | None] | None = None
 
     @property
@@ -1565,6 +1598,21 @@ def _child_pids(value: object) -> tuple[int, ...]:
         if pid is not None and pid not in pids:
             pids.append(pid)
     return tuple(pids)
+
+
+def _instant(value: object) -> datetime | None:
+    """*value* as the instant an ISO-8601 stamp with its offset states, or ``None``."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return parse_instant(value)
+    except ValueError:
+        return None
+
+
+def _stored(moment: datetime) -> str:
+    """*moment* as the record stores a stamp: ISO-8601 in UTC with ``+00:00``."""
+    return moment.astimezone(UTC).isoformat()
 
 
 def _mapping(value: object) -> dict[str, object]:
@@ -1683,7 +1731,7 @@ def _parse_report(raw: object) -> ServerReport | None:
         last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
         last_posture_realign=dict(last_realign) if isinstance(last_realign, dict) else None,
         targets=_mapping(raw.get("targets")),
-        updated_at=_text(raw.get("updated_at")),
+        updated_at=_instant(raw.get("updated_at")),
         statement=_statement(raw.get("statement")),
     )
 
@@ -1870,29 +1918,20 @@ def _switch_at(report: ServerReport, generation: int) -> Mapping[str, object] | 
     return block
 
 
-def _bound_epoch(block: Mapping[str, object]) -> float | None:
-    """The ``expires_at`` of *block* as epoch seconds, or ``None`` for no bound.
+def _switch_bound(block: Mapping[str, object]) -> datetime | None:
+    """The ``expires_at`` of *block* as an aware instant, or ``None`` for no bound.
 
     The bound is a wall clock the publishing server computed from its own
     spawn, probe and drain timeouts — the only process that knows them — so
-    this reader parses it and does not derive one. A naive stamp is read as
-    UTC, the same rule the in-flight markers use, because the writer and the
-    reader share a host even when they do not share a spelling.
+    this reader parses it (:func:`~osprey_connectors.model.parse_instant`) and
+    does not derive one. A stamp that states no offset states no moment, and
+    reads as no bound.
 
     ``None`` is "no bound", which keeps blocking rather than expiring
     immediately: an unreadable deadline is not a reason to decide a swap
     finished.
     """
-    stamp = block.get("expires_at")
-    if not isinstance(stamp, str) or not stamp:
-        return None
-    try:
-        moment = datetime.fromisoformat(stamp)
-        if moment.tzinfo is None:
-            moment = moment.replace(tzinfo=UTC)
-        return moment.timestamp()
-    except (ValueError, OSError, OverflowError):
-        return None
+    return _instant(block.get("expires_at"))
 
 
 def _bound_off_record(report: ServerReport, record: ControlContext) -> bool:
@@ -1932,7 +1971,7 @@ def blocking_pids(
     reports: Iterable[ServerReport],
     session: str | None,
     *,
-    now: float | None = None,
+    now: datetime | None = None,
 ) -> tuple[int, ...]:
     """The controls servers that stop *session* acting on *record*, PID order.
 
@@ -1953,17 +1992,20 @@ def blocking_pids(
             empty string) for a reader that owns no report — a bare ``claude``,
             a notebook kernel's ``kernel:<id>``, and the owner asking whether
             the fleet as a whole has settled.
-        now: Epoch seconds to age the ``applying`` bounds against; the wall
-            clock when omitted.
+        now: The aware instant to age the ``applying`` bounds against; the
+            wall clock when omitted. A swap still blocks at its bound.
+
+    Raises:
+        NaiveDatetimeError: *now* names no zone.
     """
     fleet = tuple(reports)
-    reference = datetime.now(UTC).timestamp() if now is None else float(now)
+    reference = datetime.now(UTC) if now is None else require_aware(now, name="now")
     blocked: set[int] = set()
     for report in fleet:
         block = _switch_at(report, record.generation) or {}
         status = block.get("status")
         if status == REPORT_APPLYING and not _holds_no_connector(report):
-            bound = _bound_epoch(block)
+            bound = _switch_bound(block)
             if bound is None or reference <= bound:
                 # A swap in flight: nobody launches anywhere until it lands,
                 # because the server holding the connector is between two
@@ -1985,7 +2027,7 @@ def converged(
     reports: Iterable[ServerReport],
     session: str | None,
     *,
-    now: float | None = None,
+    now: datetime | None = None,
 ) -> bool:
     """Whether *session* may act on *record* — rule 6 of the module contract.
 

@@ -72,7 +72,7 @@ Both fail closed. A stop that lands after a write call's verdict and before
 its put does not reach that one call, which goes out as judged; the next call
 is refused. The switch's own verdict has the same window.
 
-**5. The lease.** The holder renews ``lease_until_ns``; a lease that lapses
+**5. The lease.** The holder renews ``lease_expires_at``; a lease that lapses
 ends the authorization for good — :func:`renew_lease` refuses once it has
 lapsed. Where the reader shares the holder's PID namespace, the holder's PID,
 its start time and its state are also asked (:func:`_pid_namespace`,
@@ -139,6 +139,7 @@ import time
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final, Literal, NoReturn, Self, TypeVar, get_args
 
@@ -160,9 +161,10 @@ from osprey_connectors.errors import (
     ConnectorsError,
     StateLockedError,
     StateUnavailableError,
+    require_aware,
 )
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, ReadOnlyMapping, evolve
+from osprey_connectors.model import FrozenModel, Instant, ReadOnlyMapping, evolve
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
@@ -238,12 +240,12 @@ MAX_EXPIRES_S: Final = 24 * 3600.0
 #: The longest one renewal of a lease may last: ten times the optimizer's
 #: minute, so a holder gone unseen (from another PID namespace) is found
 #: lapsed within ten minutes by the verdict, and by the overlap check a
-#: :data:`_LEASE_SKEW_GRACE_NS` later.
+#: :data:`_LEASE_SKEW_GRACE` later.
 _MAX_LEASE_S: Final = 600.0
 #: How long past a ledger's lease end the overlap check still counts its grant:
 #: the holder writes the lease end from its own clock, and the approver compares
 #: it against its own.
-_LEASE_SKEW_GRACE_NS: Final = 60 * 1_000_000_000
+_LEASE_SKEW_GRACE: Final = timedelta(seconds=60)
 
 #: The surfaces a person approves from: the web terminal's chip or the CLI.
 ApprovalSurface = Literal["chip", "cli"]
@@ -287,9 +289,14 @@ _UNSAFE_SEGMENT: Final = frozenset({"/", "\\", "\x00"})
 _Status = Literal["ok", "absent", "unreadable"]
 
 
-def _now_ns() -> int:
-    """The time every term is judged at: one clock, the record's epoch's."""
-    return time.time_ns()
+#: The earliest instant a file may state, and the lease end a lapse writes:
+#: a lease that ended at the epoch has ended for good.
+_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _now() -> datetime:
+    """The time every term is judged at: the module's one clock, aware and in UTC."""
+    return datetime.now(UTC)
 
 
 # -- the formats --------------------------------------------------------------
@@ -324,6 +331,13 @@ def _named(value: str, info: ValidationInfo[object]) -> str:
 def _at_least(value: int, minimum: int, info: ValidationInfo[object]) -> int:
     if _from_file(info) and value < minimum:
         raise ValueError(f"is not an integer of at least {minimum}")
+    return value
+
+
+def _stamp(value: datetime, info: ValidationInfo[object]) -> datetime:
+    """An instant read from a file must not be before the epoch."""
+    if _from_file(info) and value < _EPOCH:
+        raise ValueError("is before 1970-01-01T00:00:00+00:00")
     return value
 
 
@@ -422,29 +436,29 @@ class Approver(FrozenModel):
 
     identity: str
     surface: ApproverSurface
-    at_ns: int
+    approved_at: Instant
 
     @field_validator("identity")
     @classmethod
     def _identity(cls, value: str, info: ValidationInfo[object]) -> str:
         return _named(value, info)
 
-    @field_validator("at_ns")
+    @field_validator("approved_at")
     @classmethod
-    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
+    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
 
 class Revocation(FrozenModel):
     """A stop that ended a grant: when, and whose gesture."""
 
-    at_ns: int
+    revoked_at: Instant
     by: str
 
-    @field_validator("at_ns")
+    @field_validator("revoked_at")
     @classmethod
-    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
+    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
     @field_validator("by")
     @classmethod
@@ -469,12 +483,13 @@ class Grant(_StoredRecord):
         owner: The login whose switch the grant stands in for.
         holder: The acting identity that may write under it.
         target: The control target it covers.
-        switch_epoch: The owner's record's ``switch_epoch`` at issue; a record
-            whose epoch has moved since (a stop of every machine) ends it.
+        switch_epoch: The owner's record's ``switch_epoch`` at issue, a
+            token compared only for equality; a record whose epoch has moved
+            since (a stop of every machine) ends it.
         channels: ``{address: ChannelRange}``, at least one.
         steps: How many write calls it allows, at least one.
-        issued_at_ns: When it was written.
-        expires_at_ns: When it ends whatever else happens.
+        issued_at: When it was written.
+        expires_at: When it ends whatever else happens.
         lease_s: How long one renewal of the holder's lease lasts.
         approver: Who approved it.
         label: The run it was approved for, free text.
@@ -488,16 +503,20 @@ class Grant(_StoredRecord):
     switch_epoch: int
     channels: ReadOnlyMapping[str, ChannelRange]
     steps: int
-    issued_at_ns: int
-    expires_at_ns: int
+    issued_at: Instant
+    expires_at: Instant
     lease_s: float
     approver: Approver
     label: str = ""
     revoked: Revocation | None = None
 
-    def live_at(self, now_ns: int) -> bool:
-        """Not revoked and not expired at *now_ns*. The lease is the ledger's."""
-        return self.revoked is None and now_ns < self.expires_at_ns
+    def live_at(self, now: datetime) -> bool:
+        """Not revoked and not expired at *now*; at its expiry it is expired. The lease is the ledger's.
+
+        Raises:
+            NaiveDatetimeError: *now* names no zone.
+        """
+        return self.revoked is None and require_aware(now, name="now") < self.expires_at
 
     @field_validator("id")
     @classmethod
@@ -509,10 +528,15 @@ class Grant(_StoredRecord):
     def _names(cls, value: str, info: ValidationInfo[object]) -> str:
         return _named(value, info)
 
-    @field_validator("switch_epoch", "issued_at_ns", "expires_at_ns")
+    @field_validator("switch_epoch")
     @classmethod
-    def _stamps(cls, value: int, info: ValidationInfo[object]) -> int:
+    def _epoch(cls, value: int, info: ValidationInfo[object]) -> int:
         return _at_least(value, 0, info)
+
+    @field_validator("issued_at", "expires_at")
+    @classmethod
+    def _stamps(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
     @field_validator("steps")
     @classmethod
@@ -537,7 +561,7 @@ class Grant(_StoredRecord):
 
     @model_validator(mode="after")
     def _expiry(self, info: ValidationInfo[object]) -> Self:
-        if _from_file(info) and self.expires_at_ns <= self.issued_at_ns:
+        if _from_file(info) and self.expires_at <= self.issued_at:
             raise ValueError("the grant expires before it was issued")
         return self
 
@@ -546,7 +570,7 @@ class LedgerStep(FrozenModel):
     """One write call spent: its number, when, and the channels it named."""
 
     n: int
-    at_ns: int
+    spent_at: Instant
     channels: tuple[str, ...] = Field(strict=False)
 
     @field_validator("n")
@@ -554,10 +578,10 @@ class LedgerStep(FrozenModel):
     def _number(cls, value: int, info: ValidationInfo[object]) -> int:
         return _at_least(value, 1, info)
 
-    @field_validator("at_ns")
+    @field_validator("spent_at")
     @classmethod
-    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
+    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
     @field_validator("channels")
     @classmethod
@@ -576,9 +600,13 @@ class Ledger(_StoredRecord):
             to rely on the lease time alone.
         holder_start: That process's start time as the kernel states it, so a
             reused PID is not taken for it; ``None`` where nothing states it.
+            A token, not an instant: it is in the kernel's own units and only
+            ever compared for equality with itself.
         pid_ns: That process's PID namespace (:func:`_pid_namespace`), so a
-            reader in another namespace does not look its PID up.
-        lease_until_ns: When the lease lapses unless renewed first.
+            reader in another namespace does not look its PID up. A token
+            compared for equality, not a time.
+        lease_expires_at: When the lease lapses unless renewed first; the
+            epoch once it has lapsed for good.
         steps: Every write call spent, in order, numbered from 1.
     """
 
@@ -586,7 +614,7 @@ class Ledger(_StoredRecord):
     holder_pid: int | None
     holder_start: str | None
     pid_ns: str | None
-    lease_until_ns: int
+    lease_expires_at: Instant
     steps: tuple[LedgerStep, ...] = Field(default=(), strict=False)
 
     @field_validator("authorization")
@@ -599,10 +627,10 @@ class Ledger(_StoredRecord):
     def _pid(cls, value: int | None, info: ValidationInfo[object]) -> int | None:
         return None if value is None else _at_least(value, 1, info)
 
-    @field_validator("lease_until_ns")
+    @field_validator("lease_expires_at")
     @classmethod
-    def _stamp(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
+    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
     @model_validator(mode="after")
     def _numbered(self, info: ValidationInfo[object]) -> Self:
@@ -687,10 +715,11 @@ def _parse_stored(model: type[_Stored], raw: str | bytes | bytearray, what: str)
     return record
 
 
-def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float) -> None:
+def _within_ceilings(steps: int, start_at: datetime, expires_at: datetime, lease_s: float) -> None:
     """Refuse a budget, an expiry or a lease past its ceiling.
 
-    The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_ns*,
+    The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_at*
+    (an expiry exactly that far away is within it),
     and :data:`_MAX_LEASE_S`. Every new grant and request is written through
     this (:func:`_issue_grant`, :func:`write_request`), so an approval and a
     self-issue meet the same ceilings. Reading does not apply them: a file
@@ -699,7 +728,7 @@ def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float)
     """
     if steps > MAX_STEPS:
         raise ValueError(f"steps {steps} is above the ceiling of {MAX_STEPS}")
-    if expires_ns - start_ns > int(MAX_EXPIRES_S * 1e9):
+    if expires_at - start_at > timedelta(seconds=MAX_EXPIRES_S):
         raise ValueError(f"the expiry is more than {MAX_EXPIRES_S:g} s away")
     if lease_s > _MAX_LEASE_S:
         raise ValueError(f"lease_s {lease_s:g} is above the ceiling of {_MAX_LEASE_S:g}")
@@ -1023,8 +1052,9 @@ def _holder_live(ledger: Ledger) -> bool:
     return state != "Z" and (ledger.holder_start is None or start == ledger.holder_start)
 
 
-def _lease_live(ledger: Ledger, now_ns: int) -> bool:
-    return now_ns < ledger.lease_until_ns and _holder_live(ledger)
+def _lease_live(ledger: Ledger, now: datetime) -> bool:
+    """Whether the lease holds at *now*: at its end it has lapsed."""
+    return now < ledger.lease_expires_at and _holder_live(ledger)
 
 
 # -- the verdict --------------------------------------------------------------
@@ -1088,7 +1118,7 @@ def _judge(
     operations: object,
     authorization: object,
     owner: str | NoOwner | None,
-    now_ns: int,
+    now: datetime,
     basis: _Basis | None = None,
 ) -> _Judgement:
     """The verdict's terms in order (module rule 3). May raise; callers refuse on it.
@@ -1147,7 +1177,7 @@ def _judge(
         return refuse("auth_revoked", f"Stopped by {grant.revoked.by}.")
     if record is None or record.switch_epoch != grant.switch_epoch:
         return refuse("auth_revoked", "The switch record has moved past its approval.")
-    if now_ns >= grant.expires_at_ns:
+    if now >= grant.expires_at:
         return refuse("auth_expired")
     if grant.approver.surface == SELF_ISSUE_SURFACE:
         # The pin was judged first, so the switch verdict that honoured it and
@@ -1181,7 +1211,7 @@ def _judge(
         return refuse("auth_lease_lapsed", "The holder never started its lease.")
     if ledger_status != "ok" or ledger is None:
         return refuse("auth_unreadable", "The write ledger cannot be read.")
-    if not _lease_live(ledger, now_ns):
+    if not _lease_live(ledger, now):
         return refuse("auth_lease_lapsed")
     if len(ledger.steps) >= grant.steps:
         return refuse("auth_exhausted", f"{grant.steps} of {grant.steps} writes used.")
@@ -1265,7 +1295,7 @@ def _verdict(
         ``auth_unreadable``.
     """
     try:
-        return _judge(section, target, operations, authorization, owner, _now_ns(), basis).verdict
+        return _judge(section, target, operations, authorization, owner, _now(), basis).verdict
     except Exception:  # a verdict that cannot be reached refuses; it never raises
         return _unreachable(target, authorization, "read")
 
@@ -1361,8 +1391,8 @@ def _checked_ledger_place(authorization: str, *, create: bool = False) -> _Place
 def _lapse(place: _Place, authorization: str) -> None:
     """End the lease now, for good. The caller holds the ledger's lock."""
     status, ledger = _read_ledger_at(place, authorization)
-    if status == "ok" and ledger is not None and ledger.lease_until_ns > 0:
-        lapsed = evolve(ledger, lease_until_ns=0)
+    if status == "ok" and ledger is not None and ledger.lease_expires_at > _EPOCH:
+        lapsed = evolve(ledger, lease_expires_at=_EPOCH)
         _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", lapsed.model_dump(mode="json"))
 
 
@@ -1403,7 +1433,7 @@ def _spend(
         # Taken once: a one-shot iterable is judged and recorded as the same batch.
         batch = _operations(operations)
         with _locked(_ledger_lock_path(place, authorization_id)):
-            now = _now_ns()
+            now = _now()
             judged = _judge(section, target, batch, authorization_id, owner, now, basis)
             if judged.ends:
                 _lapse(place, authorization_id)
@@ -1411,7 +1441,7 @@ def _spend(
                 return judged.verdict
             ledger = judged.ledger
             channels = tuple(str(address) for address, _value in batch or ())
-            step = LedgerStep(n=len(ledger.steps) + 1, at_ns=now, channels=channels)
+            step = LedgerStep(n=len(ledger.steps) + 1, spent_at=now, channels=channels)
             _write_json(
                 place.path / f"{authorization_id}{_LEDGER_SUFFIX}",
                 evolve(ledger, steps=(*ledger.steps, step)).model_dump(mode="json"),
@@ -1507,7 +1537,7 @@ def authorized_write_verdict(
 # -- the lease ----------------------------------------------------------------
 
 
-def _live_grant(owner: str | NoOwner | None, authorization: str, now_ns: int) -> Grant:
+def _live_grant(owner: str | NoOwner | None, authorization: str, now: datetime) -> Grant:
     """The grant this process holds, still in force (not revoked, epoch, expiry).
 
     Raises:
@@ -1528,7 +1558,7 @@ def _live_grant(owner: str | NoOwner | None, authorization: str, now_ns: int) ->
         raise AuthorizationRefusedError("auth_holder")
     if grant.revoked is not None or record is None or record.switch_epoch != grant.switch_epoch:
         raise AuthorizationRefusedError("auth_revoked")
-    if now_ns >= grant.expires_at_ns:
+    if now >= grant.expires_at:
         raise AuthorizationRefusedError("auth_expired")
     return grant
 
@@ -1553,7 +1583,7 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
     """
     place = _checked_ledger_place(authorization, create=True)
     with _locked(_ledger_lock_path(place, authorization)):
-        now = _now_ns()
+        now = _now()
         grant = _live_grant(owner, authorization, now)
         status, _ledger = _read_ledger_at(place, authorization)
         if status != "absent":
@@ -1564,7 +1594,7 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
             holder_pid=pid,
             holder_start=_process_start_time(pid),
             pid_ns=_pid_namespace(),
-            lease_until_ns=now + int(grant.lease_s * 1e9),
+            lease_expires_at=now + timedelta(seconds=grant.lease_s),
         )
         _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", ledger.model_dump(mode="json"))
     return ledger
@@ -1581,7 +1611,7 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bo
     try:
         place = _checked_ledger_place(authorization)
         with _locked(_ledger_lock_path(place, authorization)):
-            now = _now_ns()
+            now = _now()
             status, ledger = _read_ledger_at(place, authorization)
             if status != "ok" or ledger is None:
                 return False
@@ -1590,7 +1620,7 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bo
             if not _lease_live(ledger, now):
                 return False
             grant = _live_grant(owner, authorization, now)
-            renewed = evolve(ledger, lease_until_ns=now + int(grant.lease_s * 1e9))
+            renewed = evolve(ledger, lease_expires_at=now + timedelta(seconds=grant.lease_s))
             _write_json(
                 place.path / f"{authorization}{_LEDGER_SUFFIX}", renewed.model_dump(mode="json")
             )
@@ -1651,13 +1681,14 @@ def list_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     return tuple(grants), tuple(unreadable)
 
 
-def _lease_ended(grant: Grant, ledger_dirs: Iterable[Path], now_ns: int) -> bool:
+def _lease_ended(grant: Grant, ledger_dirs: Iterable[Path], now: datetime) -> bool:
     """Whether every ledger of *grant* in *ledger_dirs* shows its lease time passed.
 
     The clock alone decides, as :func:`grant_standing` does: the holder's PID,
     judged from the approver's process, may name another host's process. A
-    lease counts as passed only :data:`_LEASE_SKEW_GRACE_NS` after its end, so
-    an approver's clock ahead of the holder's does not free a live grant. At
+    lease counts as passed only once more than :data:`_LEASE_SKEW_GRACE` has
+    gone since its end (exactly that much still blocks), so an approver's
+    clock ahead of the holder's does not free a live grant. At
     least one ledger must be found, and each must agree, so a stale or planted
     one in a directory searched first cannot free another's live grant. A
     ledger found nowhere is a lease not started yet, or one out of this
@@ -1670,8 +1701,7 @@ def _lease_ended(grant: Grant, ledger_dirs: Iterable[Path], now_ns: int) -> bool
     """
     found = list(_ledgers_of(grant.id, ledger_dirs))
     return bool(found) and all(
-        ledger is not None and now_ns >= ledger.lease_until_ns + _LEASE_SKEW_GRACE_NS
-        for ledger in found
+        ledger is not None and now > ledger.lease_expires_at + _LEASE_SKEW_GRACE for ledger in found
     )
 
 
@@ -1679,7 +1709,7 @@ def _auth_overlap(
     candidate: Grant,
     existing: Iterable[Grant],
     *,
-    now_ns: int | None = None,
+    now: datetime | None = None,
     ledger_dirs: Iterable[Path] = (),
 ) -> Grant | None:
     """The first grant in *existing* that *candidate* must not be issued beside, or ``None``.
@@ -1693,7 +1723,7 @@ def _auth_overlap(
     program runs one job at a time and is judged by its own budget. A
     person's own writes are never blocked by a grant.
     """
-    now = _now_ns() if now_ns is None else now_ns
+    now = _now() if now is None else require_aware(now, name="now")
     directories = tuple(ledger_dirs)
     for grant in existing:
         if grant.id == candidate.id or not grant.live_at(now):
@@ -1766,7 +1796,7 @@ def _issue_grant(
     """
     payload = grant.model_dump(mode="json")
     _parse_grant(json.dumps(payload))  # what is written must read back
-    _within_ceilings(grant.steps, grant.issued_at_ns, grant.expires_at_ns, grant.lease_s)
+    _within_ceilings(grant.steps, grant.issued_at, grant.expires_at, grant.lease_s)
     target_dir = _grant_directory(directory, grant.owner)
     _prepare_directory(target_dir)
     path = target_dir / f"{grant.id}{_GRANT_SUFFIX}"
@@ -1803,7 +1833,7 @@ def revoke_grants(
 
     The stop's half in the grants directory: *targets* ``None`` is every
     machine. *ids*, when given, narrows the mark to those grants: a person
-    revoking one authorization from a list. The mark is ``{"at_ns", "by"}`` and is never removed, so the next
+    revoking one authorization from a list. The mark is ``{"revoked_at", "by"}`` and is never removed, so the next
     write under any of these refuses ``auth_revoked``. A grant file that cannot
     be read is left as it is — it already refuses every write. *directory*
     defaults to this process's own authorizations directory.
@@ -1820,7 +1850,7 @@ def revoke_grants(
     marked: list[str] = []
     wanted = None if ids is None else frozenset(ids)
     with _locked(target_dir / _DIRECTORY_LOCK_NAME):
-        now = _now_ns()
+        now = _now()
         existing, _unreadable = list_grants(target_dir)
         for grant in existing:
             if grant.revoked is not None:
@@ -1829,7 +1859,7 @@ def revoke_grants(
                 continue
             if wanted is not None and grant.id not in wanted:
                 continue
-            stopped = evolve(grant, revoked=Revocation(at_ns=now, by=by))
+            stopped = evolve(grant, revoked=Revocation(revoked_at=now, by=by))
             _write_json(target_dir / f"{grant.id}{_GRANT_SUFFIX}", stopped.model_dump(mode="json"))
             marked.append(grant.id)
     return tuple(marked)
@@ -1855,7 +1885,7 @@ def self_issue(
     channels: Mapping[str, ChannelRange | tuple[float, float]],
     *,
     steps: int,
-    expires_at_ns: int,
+    expires_at: datetime,
     lease_s: float,
     label: str = "",
     owner: str | NoOwner | None = None,
@@ -1870,9 +1900,14 @@ def self_issue(
     honoured afterwards only while the position stays ``allowed``; the first
     write after it leaves ``allowed`` ends it for good (:func:`_spend`).
 
+    *expires_at* is an aware instant (any zone; the grant stores it in UTC),
+    at most :data:`MAX_EXPIRES_S` after now.
+
     Raises:
         ValueError: The channels, steps, expiry or lease are malformed, or
-            past a ceiling (:func:`_within_ceilings`).
+            past a ceiling (:func:`_within_ceilings`); a
+            :class:`~osprey_connectors.errors.NaiveDatetimeError` for a naive
+            *expires_at*.
         AuthorizationRefusedError: The switch verdict's reason; ``auth_revoked``
             when it allows below ``allowed`` or moved during the issue;
             ``record_unavailable`` for a record with no epoch;
@@ -1880,6 +1915,7 @@ def self_issue(
         StateLockedError: The lock was not acquired in time.
         OSError: The write failed.
     """
+    require_aware(expires_at, name="expires_at")
     resolved = _resolved_owner(owner)
     if resolved is None:
         raise AuthorizationRefusedError("owner_unknown")
@@ -1900,10 +1936,10 @@ def self_issue(
     epoch = epoch_at_allowed()
     if not is_control_target(target):  # the verdict refused it already; said for the type
         raise AuthorizationRefusedError("target_unknown")
-    now = _now_ns()
+    now = _now()
     holder = acting_identity()
     ranges = _channel_ranges(channels)
-    approver = Approver(identity=holder, surface=SELF_ISSUE_SURFACE, at_ns=now)
+    approver = Approver(identity=holder, surface=SELF_ISSUE_SURFACE, approved_at=now)
     authorization = uuid.uuid4().hex
     # The ledger directory before the grant is built: a grant its fields refuse
     # is refused after a missing ledger directory is, as when the issue's
@@ -1917,8 +1953,8 @@ def self_issue(
         switch_epoch=epoch,
         channels=ranges,
         steps=steps,
-        issued_at_ns=now,
-        expires_at_ns=expires_at_ns,
+        issued_at=now,
+        expires_at=expires_at,
         lease_s=lease_s,
         approver=approver,
         label=label,
@@ -1979,7 +2015,7 @@ def _self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path,
 
 
 def _grant_in_force(
-    grant: Grant, record: control_context.ControlContext | None, *, now_ns: int | None = None
+    grant: Grant, record: control_context.ControlContext | None, *, now: datetime | None = None
 ) -> bool:
     """Whether *grant* still stands against its owner's *record*: what a chip shows as live.
 
@@ -1988,7 +2024,7 @@ def _grant_in_force(
     needs the record's switch for its machine at ``allowed``: once it has left,
     the holder's next write ends it for good, so it is not shown standing.
     """
-    now = _now_ns() if now_ns is None else now_ns
+    now = _now() if now is None else now
     if not (
         grant.live_at(now) and record is not None and record.switch_epoch == grant.switch_epoch
     ):
@@ -2004,17 +2040,19 @@ def _grant_in_force(
 _PRUNE_AFTER_S: Final = 3600.0
 
 
-def _ended_at(grant: Grant) -> int:
+def _ended_at(grant: Grant) -> datetime:
     """When *grant* stopped standing for good: its stop or its expiry, the earlier."""
     if grant.revoked is None:
-        return grant.expires_at_ns
-    return min(grant.revoked.at_ns, grant.expires_at_ns)
+        return grant.expires_at
+    return min(grant.revoked.revoked_at, grant.expires_at)
 
 
 def prune_grants(
-    directory: Path, *, now_ns: int | None = None, after_s: float = _PRUNE_AFTER_S
+    directory: Path, *, now: datetime | None = None, after_s: float = _PRUNE_AFTER_S
 ) -> tuple[str, ...]:
-    """Remove the grants in *directory* that ended more than *after_s* ago; the ids removed.
+    """Remove the grants in *directory* that ended *after_s* or more ago; the ids removed.
+
+    *now* is the aware instant to judge at, the module's clock when omitted.
 
     A grant has ended once it is revoked or expired; a grant still in force,
     and one that cannot be read, are left alone (an unreadable file refuses
@@ -2023,20 +2061,21 @@ def prune_grants(
     none. Never removes a ledger, which is the holder's.
 
     Raises:
+        NaiveDatetimeError: *now* names no zone.
         StateLockedError: The lock was not acquired in time.
         OSError: The directory is not a plain directory, or a removal failed.
     """
+    now = _now() if now is None else require_aware(now, name="now")
     directory = Path(directory)
     if not os.path.lexists(directory):
         return ()
     _prepare_directory(directory)
-    now = _now_ns() if now_ns is None else now_ns
-    cutoff = now - int(after_s * 1e9)
+    cutoff = now - timedelta(seconds=after_s)
     removed: list[str] = []
     with _locked(directory / _DIRECTORY_LOCK_NAME):
         existing, _unreadable = list_grants(directory)
         for grant in existing:
-            if grant.revoked is None and now < grant.expires_at_ns:
+            if grant.revoked is None and now < grant.expires_at:
                 continue
             if _ended_at(grant) <= cutoff:
                 with contextlib.suppress(FileNotFoundError):
@@ -2082,22 +2121,27 @@ def grant_standing(
     record: control_context.ControlContext | None,
     ledger_dirs: Iterable[Path],
     *,
-    now_ns: int | None = None,
+    now: datetime | None = None,
 ) -> GrantStanding:
     """Whether *grant* still stands for a listing, its holder's ledger asked.
 
     The ledger is the first one found in *ledger_dirs* (the holder's ledger
     directory as this process sees it); a directory that is not there is
     skipped. Every surface that lists grants — the chip, its listing, the CLI
-    and ``osprey status`` — answers through this, so they agree.
+    and ``osprey status`` — answers through this, so they agree. *now* is the
+    aware instant to judge at, the module's clock when omitted; a lease is
+    ended at its end.
+
+    Raises:
+        NaiveDatetimeError: *now* names no zone.
     """
-    now = _now_ns() if now_ns is None else now_ns
-    in_force = _grant_in_force(grant, record, now_ns=now)
+    now = _now() if now is None else require_aware(now, name="now")
+    in_force = _grant_in_force(grant, record, now=now)
     for ledger in _ledgers_of(grant.id, ledger_dirs):
         if ledger is None:
             return GrantStanding(grant=grant, in_force=in_force, used=None, ledger=None)
         used = len(ledger.steps)
-        ended = now >= ledger.lease_until_ns or used >= grant.steps
+        ended = now >= ledger.lease_expires_at or used >= grant.steps
         return GrantStanding(grant=grant, in_force=in_force and not ended, used=used, ledger=ledger)
     return GrantStanding(grant=grant, in_force=in_force, used=0, ledger=None)
 
@@ -2150,7 +2194,7 @@ def approved_grant(authorization: str, *, owner: str | NoOwner | None = None) ->
     """
     _authorization_id(authorization)
     try:
-        return _live_grant(owner, authorization, _now_ns())
+        return _live_grant(owner, authorization, _now())
     except AuthorizationRefusedError as refused:
         if refused.reason == "switch_off":
             return None
@@ -2185,8 +2229,8 @@ class WriteRequest(_StoredRecord):
         channels: ``{address: ChannelRange}``, each address spelled exactly as
             the holder will write it.
         steps: The write calls the run will make, its completion's included.
-        requested_at_ns: When the request was written.
-        expires_at_ns: When the authorization is to end whatever happens.
+        requested_at: When the request was written.
+        expires_at: When the authorization is to end whatever happens.
         lease_s: How long one renewal of the holder's lease lasts.
         label: The run, free text.
         completion: What the run does once its evaluations are done, each a
@@ -2200,13 +2244,13 @@ class WriteRequest(_StoredRecord):
     target: ControlTarget
     channels: ReadOnlyMapping[str, ChannelRange]
     steps: int
-    requested_at_ns: int
-    expires_at_ns: int
+    requested_at: Instant
+    expires_at: Instant
     lease_s: float
     label: str = ""
     completion: RunCompletion = "none"
 
-    def grant(self, *, switch_epoch: int, approver: Approver, issued_at_ns: int) -> Grant:
+    def grant(self, *, switch_epoch: int, approver: Approver, issued_at: datetime) -> Grant:
         """The grant approving this request exactly as asked, under its id."""
         return Grant(
             id=self.id,
@@ -2216,8 +2260,8 @@ class WriteRequest(_StoredRecord):
             switch_epoch=switch_epoch,
             channels=dict(self.channels),
             steps=self.steps,
-            issued_at_ns=issued_at_ns,
-            expires_at_ns=self.expires_at_ns,
+            issued_at=issued_at,
+            expires_at=self.expires_at,
             lease_s=self.lease_s,
             approver=approver,
             label=self.label,
@@ -2233,10 +2277,10 @@ class WriteRequest(_StoredRecord):
     def _names(cls, value: str, info: ValidationInfo[object]) -> str:
         return _named(value, info)
 
-    @field_validator("requested_at_ns", "expires_at_ns")
+    @field_validator("requested_at", "expires_at")
     @classmethod
-    def _stamps(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
+    def _stamps(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
+        return _stamp(value, info)
 
     @field_validator("steps")
     @classmethod
@@ -2261,7 +2305,7 @@ class WriteRequest(_StoredRecord):
 
     @model_validator(mode="after")
     def _expiry(self, info: ValidationInfo[object]) -> Self:
-        if _from_file(info) and self.expires_at_ns <= self.requested_at_ns:
+        if _from_file(info) and self.expires_at <= self.requested_at:
             raise ValueError("the request expires before it was made")
         return self
 
@@ -2349,7 +2393,7 @@ def write_request(
     channels: Mapping[str, ChannelRange | tuple[float, float]],
     *,
     steps: int,
-    expires_at_ns: int,
+    expires_at: datetime,
     lease_s: float,
     label: str = "",
     completion: RunCompletion = "none",
@@ -2363,16 +2407,21 @@ def write_request(
     there when absent. Nothing is approved by writing it: a person approves it
     from the chip or the CLI, which issues the grant under the same id
     (:func:`approved_grant` waits for it), or the holder self-issues at
-    ``allowed`` (:func:`self_issue`).
+    ``allowed`` (:func:`self_issue`). *expires_at* is an aware instant (any
+    zone; the request stores it in UTC), at most :data:`MAX_EXPIRES_S` after
+    now; the request is stamped with the module's clock.
 
     Raises:
         ValueError: The target, channels, steps, expiry, lease or completion are
             malformed, or the steps, expiry or lease are past a ceiling
-            (:func:`_within_ceilings`); nothing is written.
+            (:func:`_within_ceilings`); nothing is written. A
+            :class:`~osprey_connectors.errors.NaiveDatetimeError` for a naive
+            *expires_at*.
         AuthorizationRefusedError: ``owner_unknown``; ``auth_unreadable`` for no
             usable ledger directory.
         OSError: The write failed.
     """
+    require_aware(expires_at, name="expires_at")
     resolved = _resolved_owner(owner)
     if resolved is None:
         raise AuthorizationRefusedError("owner_unknown")
@@ -2385,15 +2434,15 @@ def write_request(
         target=target,
         channels=_channel_ranges(channels),
         steps=steps,
-        requested_at_ns=_now_ns(),
-        expires_at_ns=expires_at_ns,
+        requested_at=_now(),
+        expires_at=expires_at,
         lease_s=lease_s,
         label=label,
         completion=completion,
     )
     payload = request.model_dump(mode="json")
     _parse_request(json.dumps(payload))  # what is written must read back
-    _within_ceilings(request.steps, request.requested_at_ns, request.expires_at_ns, request.lease_s)
+    _within_ceilings(request.steps, request.requested_at, request.expires_at, request.lease_s)
     place = _checked_ledger_place(request.id, create=True)
     directory = place.path / REQUESTS_DIR_NAME
     _prepare_directory(directory)
@@ -2490,13 +2539,13 @@ def approve_request(
     directory = record_file.parent / AUTHORIZATIONS_DIR_NAME
     try:
         with control_context.held_epoch(record_file, request.target) as epoch:
-            now = _now_ns()
-            if now >= request.expires_at_ns:
+            now = _now()
+            if now >= request.expires_at:
                 raise AuthorizationRefusedError("auth_expired", "The request's expiry has passed.")
             grant = request.grant(
                 switch_epoch=epoch,
-                approver=Approver(identity=identity, surface=surface, at_ns=now),
-                issued_at_ns=now,
+                approver=Approver(identity=identity, surface=surface, approved_at=now),
+                issued_at=now,
             )
             _issue_grant(
                 grant,

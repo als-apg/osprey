@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import math
 import numbers
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -202,8 +201,14 @@ def refusal(checks: list[ChannelCheck]) -> ApprovalRefused | None:
     )
 
 
-def _clock(at_ns: int) -> str:
-    return datetime.fromtimestamp(at_ns / 1e9, tz=UTC).isoformat(timespec="seconds")
+def _clock(moment: datetime) -> str:
+    """*moment* as a surface shows it: ISO-8601 in UTC, to the second."""
+    return moment.astimezone(UTC).isoformat(timespec="seconds")
+
+
+def _left_s(until: datetime, now: datetime) -> float:
+    """Seconds from *now* until *until*, to a tenth, never below zero."""
+    return max(0.0, round((until - now).total_seconds(), 1))
 
 
 def card(
@@ -211,16 +216,17 @@ def card(
     checks: list[ChannelCheck],
     *,
     current: Mapping[str, Any] | None = None,
-    now_ns: int | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """What a person approving *request* is shown, as JSON.
 
     Channels with ranges, limits bounds, current values (``None`` where none
     was read) and problems; steps, expiry, lease, holder, owner, label,
     completion; whether it can be approved and, if not, why; and
-    :data:`LIMITS_COST_SENTENCE`.
+    :data:`LIMITS_COST_SENTENCE`. *now* is the instant to judge the expiry at,
+    the wall clock when omitted; at its expiry a request is not approvable.
     """
-    now = time.time_ns() if now_ns is None else now_ns
+    now = datetime.now(UTC) if now is None else now
     refused = refusal(checks)
     channels = []
     for check in checks:
@@ -236,11 +242,11 @@ def card(
         "completion": request.completion,
         "steps": request.steps,
         "lease_s": request.lease_s,
-        "requested_at": _clock(request.requested_at_ns),
-        "expires_at": _clock(request.expires_at_ns),
-        "expires_in_s": max(0.0, round((request.expires_at_ns - now) / 1e9, 1)),
+        "requested_at": _clock(request.requested_at),
+        "expires_at": _clock(request.expires_at),
+        "expires_in_s": _left_s(request.expires_at, now),
         "channels": channels,
-        "approvable": refused is None and now < request.expires_at_ns,
+        "approvable": refused is None and now < request.expires_at,
         "refusal": None
         if refused is None
         else {"reason": refused.reason, "phrase": refused.detail},
@@ -249,13 +255,15 @@ def card(
 
 
 def grant_summary(
-    grant: Grant, *, used: int | None = None, now_ns: int | None = None
+    grant: Grant, *, used: int | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
     """One grant as a surface lists it: who holds it, on what, how much is left, until when.
 
     *used* is the steps spent, where the surface can read the holder's ledger.
+    *now* is the instant the time left is counted from, the wall clock when
+    omitted.
     """
-    now = time.time_ns() if now_ns is None else now_ns
+    now = datetime.now(UTC) if now is None else now
     return {
         "id": grant.id,
         "owner": grant.owner,
@@ -265,8 +273,8 @@ def grant_summary(
         "steps": grant.steps,
         "used": used,
         "lease_s": grant.lease_s,
-        "expires_at": _clock(grant.expires_at_ns),
-        "expires_in_s": max(0.0, round((grant.expires_at_ns - now) / 1e9, 1)),
+        "expires_at": _clock(grant.expires_at),
+        "expires_in_s": _left_s(grant.expires_at, now),
         "approver": {"identity": grant.approver.identity, "surface": grant.approver.surface},
         "channels": {
             address: {"min": bound.min, "max": bound.max}
@@ -274,5 +282,5 @@ def grant_summary(
         },
         "revoked": None
         if grant.revoked is None
-        else {"by": grant.revoked.by, "at": _clock(grant.revoked.at_ns)},
+        else {"by": grant.revoked.by, "at": _clock(grant.revoked.revoked_at)},
     }

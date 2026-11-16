@@ -22,6 +22,9 @@ digits, ``.``, ``_`` and ``-``, and runs to 128 characters.
 
 A session is held while any flag's ``state`` is ``open``. A flag closes only by an answer that
 names it, and stays in the record, closed, with ``answer``, ``operator`` and ``answered_at``.
+Every stamp (``opened_at``, ``answered_at``, ``stop_marked_at``) is an ISO-8601 instant in UTC,
+written with ``+00:00`` and read with ``Z`` too; the synthetic flag of an unreadable record has
+an ``opened_at`` of ``null``. A stamp of any other shape makes the record unreadable, so it holds.
 
 The web terminal gives every session it launches the store through
 ``OSPREY_SESSION_HOLD_DIR``, and only when the build has an enabled watchdog. A process without
@@ -124,8 +127,9 @@ unheld. A session with no key is judged and recorded, and never held.
 ---------------------------
 
 ``?session_key=<key>`` answers ``{"enabled": true, "flags": [...]}``. Each flag carries
-``flag_id``, ``source``, ``reason``, ``prompt_ref``, ``prompt_excerpt``, ``opened_at``,
-``stop_unconfirmed`` and ``started``, plus ``watchdog``, which repeats ``source``. In a build
+``flag_id``, ``source``, ``reason``, ``prompt_ref``, ``prompt_excerpt``, ``opened_at`` (ISO-8601
+with ``+00:00``, ``null`` for the synthetic flag), ``stop_unconfirmed`` and ``started``, plus
+``watchdog``, which repeats ``source``. In a build
 with no watchdog it answers ``{"enabled": false, "flags": []}``. A key that is not a safe path
 segment is 400 ``invalid_session_id``.
 

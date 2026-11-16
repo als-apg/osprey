@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 import os
-import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,11 @@ SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
 OPS = [("A:SP", 5.0)]
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
+#: A fixed instant for a stamp whose value does not matter.
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+#: The smallest step an instant takes.
+TICK = timedelta(microseconds=1)
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +97,7 @@ def own_dir() -> Path:
 
 
 def make_grant(**fields: Any) -> Grant:
-    now = time.time_ns()
+    now = datetime.now(UTC)
     values: dict[str, Any] = {
         "id": uuid.uuid4().hex,
         "owner": ME,
@@ -102,10 +106,10 @@ def make_grant(**fields: Any) -> Grant:
         "switch_epoch": epoch(),
         "channels": {"A:SP": ChannelRange(min=0.0, max=10.0)},
         "steps": 3,
-        "issued_at_ns": now,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "issued_at": now,
+        "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
-        "approver": Approver(identity="alice", surface="chip", at_ns=now),
+        "approver": Approver(identity="alice", surface="chip", approved_at=now),
         "label": "run-1",
         "revoked": None,
     }
@@ -116,7 +120,7 @@ def make_grant(**fields: Any) -> Grant:
 def ask(**fields: Any) -> WriteRequest:
     values: dict[str, Any] = {
         "steps": 3,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
         "label": "run-1",
         "completion": "apply_best",
@@ -127,6 +131,7 @@ def ask(**fields: Any) -> WriteRequest:
 
 
 def request_payload(**fields: Any) -> dict[str, Any]:
+    """A request file's object; a ``datetime`` in *fields* is written as the file stores it."""
     payload: dict[str, Any] = {
         "schema": 1,
         "id": uuid.uuid4().hex,
@@ -135,13 +140,15 @@ def request_payload(**fields: Any) -> dict[str, Any]:
         "target": TARGET,
         "channels": {"A:SP": {"min": 0.0, "max": 10.0}},
         "steps": 4,
-        "requested_at_ns": time.time_ns(),
-        "expires_at_ns": FAR_FUTURE_NS,
+        "requested_at": datetime.now(UTC).isoformat(),
+        "expires_at": FAR_FUTURE.isoformat(),
         "lease_s": 30.0,
         "label": "run-7",
         "completion": "restore",
     }
-    payload.update(fields)
+    payload.update(
+        {key: v.isoformat() if isinstance(v, datetime) else v for key, v in fields.items()}
+    )
     return payload
 
 
@@ -266,7 +273,9 @@ class TestRequestFormat:
             {"completion": "apply_worst"},
             {"steps": 0},
             {"lease_s": 0},
-            {"expires_at_ns": 1},
+            {"expires_at": (wa._EPOCH + TICK).isoformat()},
+            {"requested_at": "2026-01-01T00:00:00"},
+            {"requested_at_ns": 1},
             {"channels": {}},
             {"channels": {"A:SP": {"min": 2, "max": 1}}},
             {"channels": {"A:SP": {"min": 0, "max": "1"}}},
@@ -285,7 +294,7 @@ class TestRequestFormat:
         [
             {"steps": wa.MAX_STEPS + 1},
             {"lease_s": wa._MAX_LEASE_S + 1},
-            {"expires_at_ns": time.time_ns() + 2 * int(wa.MAX_EXPIRES_S * 1e9)},
+            {"expires_at": datetime.now(UTC) + 2 * timedelta(seconds=wa.MAX_EXPIRES_S)},
         ],
         ids=lambda change: next(iter(change)),
     )
@@ -408,8 +417,8 @@ class TestApproval:
         assert list_grants(own_dir()) == ((), ())
 
     def test_an_expired_request_refuses(self, monkeypatch):
-        request = ask(expires_at_ns=time.time_ns() + 10**9)
-        monkeypatch.setattr(wa, "_now_ns", lambda: request.expires_at_ns)
+        request = ask(expires_at=datetime.now(UTC) + timedelta(seconds=1))
+        monkeypatch.setattr(wa, "_now", lambda: request.expires_at)
         with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(request, surface="chip")
         assert refused.value.reason == "auth_expired"
@@ -482,7 +491,7 @@ class TestOverlap:
         [
             {"holder": "bluesky", "channels": {"Z:SP": ChannelRange(min=0, max=1)}},
             {"holder": "bluesky", "target": "live"},
-            {"holder": "bluesky", "revoked": Revocation(at_ns=1, by="bob")},
+            {"holder": "bluesky", "revoked": Revocation(revoked_at=T0, by="bob")},
             {"holder": ME},
         ],
         ids=["other-channel", "other-machine", "revoked", "same-holder"],
@@ -517,7 +526,7 @@ class TestOverlap:
         ledgers = tmp_path / "write_ledger"
         held = make_grant(
             holder="tuning-scripts",
-            approver=Approver(identity="tuning-scripts", surface="write_switch", at_ns=1),
+            approver=Approver(identity="tuning-scripts", surface="write_switch", approved_at=T0),
         )
         _issue_grant(held, directory=ledgers)
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
@@ -530,8 +539,8 @@ class TestOverlap:
 
     def test_only_a_switch_approval_is_a_self_issued_grant(self, tmp_path):
         ledgers = tmp_path / "write_ledger"
-        own = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
-        planted = make_grant(approver=Approver(identity=ME, surface="chip", at_ns=1))
+        own = make_grant(approver=Approver(identity=ME, surface="write_switch", approved_at=T0))
+        planted = make_grant(approver=Approver(identity=ME, surface="chip", approved_at=T0))
         _issue_grant(own, directory=ledgers)
         _issue_grant(planted, directory=ledgers, peers=())
         assert [g.id for g in _self_issued_grants(ledgers)[0]] == [own.id]
@@ -540,14 +549,14 @@ class TestOverlap:
         _issue_grant(
             make_grant(
                 holder="bluesky",
-                approver=Approver(identity="bluesky", surface="write_switch", at_ns=1),
+                approver=Approver(identity="bluesky", surface="write_switch", approved_at=T0),
             ),
             directory=own_dir(),
         )
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
         with pytest.raises(AuthorizationRefusedError) as refused:
             self_issue(
-                SECTION, TARGET, {"A:SP": (0.0, 1.0)}, steps=1, expires_at_ns=FAR_FUTURE_NS,
+                SECTION, TARGET, {"A:SP": (0.0, 1.0)}, steps=1, expires_at=FAR_FUTURE,
                 lease_s=30.0,
             )  # fmt: skip
         assert refused.value.reason == "auth_overlap"
@@ -558,17 +567,17 @@ class TestOverlap:
 
 class TestPruneAndShow:
     def test_prune_removes_only_what_ended_long_enough_ago(self):
-        now = time.time_ns()
-        hour = 3600 * 10**9
+        now = datetime.now(UTC)
+        hour = timedelta(hours=1)
         live = make_grant()
-        stopped_long_ago = make_grant(revoked=Revocation(at_ns=now - 2 * hour, by="bob"))
-        stopped_now = make_grant(revoked=Revocation(at_ns=now, by="bob"))
-        expired_long_ago = make_grant(issued_at_ns=now - 3 * hour, expires_at_ns=now - 2 * hour)
+        stopped_long_ago = make_grant(revoked=Revocation(revoked_at=now - 2 * hour, by="bob"))
+        stopped_now = make_grant(revoked=Revocation(revoked_at=now, by="bob"))
+        expired_long_ago = make_grant(issued_at=now - 3 * hour, expires_at=now - 2 * hour)
         for grant in (live, stopped_long_ago, stopped_now, expired_long_ago):
             _issue_grant(grant, directory=own_dir())
         broken = own_dir() / f"{uuid.uuid4().hex}.json"
         broken.write_text("{")
-        removed = prune_grants(own_dir(), now_ns=now)
+        removed = prune_grants(own_dir(), now=now)
         assert set(removed) == {stopped_long_ago.id, expired_long_ago.id}
         assert {g.id for g in list_grants(own_dir())[0]} == {live.id, stopped_now.id}
         assert broken.exists()
@@ -589,13 +598,13 @@ class TestPruneAndShow:
         record = control_context.read_record()
         assert _grant_in_force(grant, record)
         assert not _grant_in_force(grant, None)
-        assert not _grant_in_force(grant, record, now_ns=FAR_FUTURE_NS)
+        assert not _grant_in_force(grant, record, now=FAR_FUTURE)
         stale = make_grant(switch_epoch=grant.switch_epoch - 1)
         assert not _grant_in_force(stale, record)
 
     def test_a_self_issued_grant_is_in_force_only_at_allowed(self):
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
-        grant = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
+        grant = make_grant(approver=Approver(identity=ME, surface="write_switch", approved_at=T0))
         control_context.invalidate_cache()
         assert _grant_in_force(grant, control_context.read_record())
         control_context.set_switch([TARGET], "asked")
@@ -625,7 +634,7 @@ class TestPruneAndShow:
         control_context.invalidate_cache()
         record = control_context.read_record()
         assert wa.grant_standing(grant, record, [own_dir()]).in_force
-        later = wa.grant_standing(grant, record, [own_dir()], now_ns=FAR_FUTURE_NS - 1)
+        later = wa.grant_standing(grant, record, [own_dir()], now=FAR_FUTURE - TICK)
         assert later.in_force is False and later.used == 0
 
     def test_an_unreadable_ledger_counts_nothing(self):
@@ -640,8 +649,8 @@ class TestPruneAndShow:
         mine = make_grant()
         _issue_grant(mine)
         ledgers = tmp_path / "write_ledger"
-        own = make_grant(approver=Approver(identity=ME, surface="write_switch", at_ns=1))
-        planted = make_grant(approver=Approver(identity=ME, surface="chip", at_ns=1))
+        own = make_grant(approver=Approver(identity=ME, surface="write_switch", approved_at=T0))
+        planted = make_grant(approver=Approver(identity=ME, surface="chip", approved_at=T0))
         _issue_grant(own, directory=ledgers)
         _issue_grant(planted, directory=ledgers, peers=())
         broken = ledgers / f"{uuid.uuid4().hex}.json"

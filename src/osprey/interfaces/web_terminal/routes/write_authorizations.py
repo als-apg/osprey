@@ -48,8 +48,8 @@ import asyncio
 import logging
 import os
 import re
-import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -334,12 +334,12 @@ def _check_ids(session_id: str | None, request_id: str) -> None:
 def _listing() -> dict[str, Any]:
     """Pending requests for this login, and this login's grants. BLOCKING."""
     login = acting_identity()
-    now = time.time_ns()
+    now = datetime.now(UTC)
     record, _status = control_context.read_record_status()
     own = wa.authorizations_dir()
     if own is not None:
         try:
-            wa.prune_grants(own, now_ns=now)
+            wa.prune_grants(own, now=now)
         except Exception:  # a listing that could not prune still lists
             logger.warning("Could not prune the authorizations in %s", own, exc_info=True)
     # This login's own grants, and the holders' self-issued grants naming it,
@@ -353,8 +353,8 @@ def _listing() -> dict[str, Any]:
     for grant, found_in in found:
         if grant.owner != login:
             continue
-        standing = wa.grant_standing(grant, record, ledgers, now_ns=now)
-        row = approval.grant_summary(grant, used=standing.used, now_ns=now)
+        standing = wa.grant_standing(grant, record, ledgers, now=now)
+        row = approval.grant_summary(grant, used=standing.used, now=now)
         row["in_force"] = standing.in_force
         row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
         row["revocable"] = found_in == own
@@ -368,10 +368,10 @@ def _listing() -> dict[str, Any]:
             requests, broken = (), (directory,)
         unreadable += len(broken)
         for request in requests:
-            if request.owner != login or request.id in approved or now >= request.expires_at_ns:
+            if request.owner != login or request.id in approved or now >= request.expires_at:
                 continue
             approved.add(request.id)
-            pending.append(approval.card(request, [], now_ns=now) | {"channels": [
+            pending.append(approval.card(request, [], now=now) | {"channels": [
                 {"address": address, "min": bound.min, "max": bound.max}
                 for address, bound in request.channels.items()
             ]})  # fmt: skip

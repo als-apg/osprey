@@ -1357,18 +1357,10 @@ REPORT_FRESH_S = 90.0
 
 
 def _stamp_age_s(stamp, now):
-    """Seconds since the ISO-8601 *stamp*, or ``None`` when it cannot be read."""
-    from datetime import datetime
-
-    if not isinstance(stamp, str) or not stamp:
+    """Seconds since the aware instant *stamp*, or ``None`` when there is none."""
+    if stamp is None:
         return None
-    try:
-        moment = datetime.fromisoformat(stamp)
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        return None
-    return (now - moment).total_seconds()
+    return (now - stamp).total_seconds()
 
 
 def _fresh_standin_kind(state_dir, now):
@@ -1452,14 +1444,14 @@ LEASE_NOT_STARTED = "not started"
 LEASE_UNREADABLE = "ledger unreadable"
 
 
-def _lease_cell(ledger, grant, now_ns):
+def _lease_cell(ledger, grant, now):
     """The lease column of a grant in force: seconds left, or not started."""
     if ledger is None:
         return LEASE_NOT_STARTED
-    return f"{(ledger.lease_until_ns - now_ns) / 1e9:.0f}s left of {grant.lease_s:g}s"
+    return f"{(ledger.lease_expires_at - now).total_seconds():.0f}s left of {grant.lease_s:g}s"
 
 
-def authorization_rows(config, repo_root, *, now_ns=None):
+def authorization_rows(config, repo_root, *, now=None):
     """The programs' write authorizations in force: one row each, all strings.
 
     ``(owner, holder, target, steps, expires, lease)``: *steps* is
@@ -1472,9 +1464,10 @@ def authorization_rows(config, repo_root, *, now_ns=None):
     lease not lapsed nor every step spent. Read from every login's
     ``authorizations`` directory in the control-context tree, and from the
     write ledger for self-issued grants. Nothing is written and nothing
-    pruned; a directory or grant that cannot be read is skipped.
+    pruned; a directory or grant that cannot be read is skipped. *now* is the
+    aware instant to judge at, the wall clock when omitted.
     """
-    import time
+    from datetime import UTC, datetime
 
     from osprey.deployment.compose_generator import (
         control_target_tree_dir,
@@ -1483,7 +1476,7 @@ def authorization_rows(config, repo_root, *, now_ns=None):
     from osprey_connectors import write_authorization as wa
     from osprey_connectors.control_context import RECORD_FILENAME, read_record_status
 
-    now = time.time_ns() if now_ns is None else now_ns
+    now = datetime.now(UTC) if now is None else now
     try:
         tree = control_target_tree_dir(config, repo_root)
     except Exception:
@@ -1499,14 +1492,14 @@ def authorization_rows(config, repo_root, *, now_ns=None):
         if status == "unreadable":
             continue
         own = tree / grant.owner / wa.AUTHORIZATIONS_DIR_NAME
-        standing = wa.grant_standing(grant, record, [*ledgers, own], now_ns=now)
+        standing = wa.grant_standing(grant, record, [*ledgers, own], now=now)
         if not standing.in_force:
             continue
         if standing.used is None:
             used, lease = "?", LEASE_UNREADABLE
         else:
             used, lease = str(standing.used), _lease_cell(standing.ledger, grant, now)
-        left = max(0.0, (grant.expires_at_ns - now) / 1e9)
+        left = max(0.0, (grant.expires_at - now).total_seconds())
         holder = grant.holder
         if grant.approver.surface == wa.SELF_ISSUE_SURFACE:
             holder = f"{holder} (self-issued)"

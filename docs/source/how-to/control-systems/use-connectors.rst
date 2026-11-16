@@ -551,8 +551,9 @@ person would:
    :end-before: # docs: ask ends
    :dedent: 4
 
-The holder is the program's acting identity; the owner is the login the run
-stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
+``expires_at`` is a timezone-aware ``datetime``, at most a day away; a naive
+one raises ``NaiveDatetimeError``. The holder is the program's acting
+identity; the owner is the login the run stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
 needs both that variable and ``OSPREY_WRITE_LEDGER_DIR`` bound writable: the
 program opens and renews its lease there, and its connector child spends the
 steps there. ``self_issue()`` is
