@@ -1581,7 +1581,12 @@ own port.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.panels</span></code></p></td>
 <td><p>Panel name to <code class="docutils literal notranslate"><span class="pre">.bob</span></code> path, one dotted line per display. A relative
-path resolves against the directory of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+path resolves against the directory of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. A parameterised
+display is written in the long form instead:
+<code class="docutils literal notranslate"><span class="pre">phoebus.panels.&lt;name&gt;.file</span></code> is the path and
+<code class="docutils literal notranslate"><span class="pre">phoebus.panels.&lt;name&gt;.macros</span></code> the list of macro names
+<code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> may pass to it. A panel that lists none, and
+every panel in the short form, takes no macros.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.require_handle</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> refuses the implicit <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> display, so callers pass a
