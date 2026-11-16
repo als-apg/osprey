@@ -33,6 +33,7 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
     ModelSurface,
 )
 from osprey.services.virtual_accelerator.serving.runner_config import periodic_addresses
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import DEFAULT_TICK_S, archive
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
@@ -660,7 +661,9 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    with archive.build(tmp_path / "simulator", ["nominal"]) as seeded_archive:
+    with archive.build(
+        tmp_path / "simulator", ["nominal"], tz=get_facility_timezone()
+    ) as seeded_archive:
         seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]

@@ -86,12 +86,20 @@ CHANNELS = {
 
 
 def event_window(events: list[dict], *args, **kwargs) -> tuple[float, float]:
-    """:func:`osprey.simulation.apply.event_window` of events stated as the view states them."""
+    """:func:`osprey.simulation.apply.event_window` of events stated as the view states them.
+
+    In the facility zone unless a case names its own, as the rewrite places them.
+    """
+    kwargs.setdefault("tz", get_facility_timezone())
     return apply.event_window([ArchiverEvent.model_validate(e) for e in events], *args, **kwargs)
 
 
 def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, float]]:
-    """:func:`osprey.simulation.apply.event_subwindows` of events stated as the view states them."""
+    """:func:`osprey.simulation.apply.event_subwindows` of events stated as the view states them.
+
+    In the facility zone unless a case names its own, as the rewrite places them.
+    """
+    kwargs.setdefault("tz", get_facility_timezone())
     return apply.event_subwindows(
         [ArchiverEvent.model_validate(e) for e in events], *args, **kwargs
     )
