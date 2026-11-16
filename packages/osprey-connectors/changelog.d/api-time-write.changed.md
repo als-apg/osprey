@@ -1,5 +1,5 @@
-Every instant on the write path is a timezone-aware `datetime` in UTC, named
-`*_at`. In `osprey_connectors.write_authorization`: `Approver.approved_at`,
+Every instant on the write path is in UTC. In
+`osprey_connectors.write_authorization`: `Approver.approved_at`,
 `Revocation.revoked_at`, `LedgerStep.spent_at`, `Grant.issued_at` and
 `expires_at`, `WriteRequest.requested_at` and `expires_at`, and
 `Ledger.lease_expires_at` replace the `*_at_ns` / `lease_until_ns` integers.
@@ -11,11 +11,6 @@ and `grant_standing()`, `prune_grants()`, `Grant.live_at()`,
 `session_hold.HoldFlag.opened_at` (`None` for the unreadable-record flag),
 `control_context.ServerReport.updated_at` and the `requested_at` that
 `control_context.terminus()` takes are `datetime` too.
-
-A naive `datetime` is refused with the new
-`osprey_connectors.errors.NaiveDatetimeError` (a `ValueError`); no zone is
-guessed. `osprey_connectors.model.Instant` is the field type and
-`parse_instant()` the reader (`Z` or a numeric offset).
 
 Files store ISO-8601 with `+00:00`. A grant, ledger or request written by an
 earlier version (integer nanoseconds) can no longer be read, so it refuses
