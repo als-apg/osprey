@@ -153,6 +153,8 @@ def test_every_tolerance_holds_its_readbacks_envelope() -> None:
 
 
 def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenario() -> None:
+    from osprey.facility.build import build_facility
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.sources import load_sources
     from osprey.facility.validate import _motion_record
     from osprey_connectors.simulation.envelope import active_envelopes
@@ -160,8 +162,9 @@ def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenari
 
     result = load_sources(TREE)
     assert result.errors == []
+    records = FacilityRecords(build_facility(TREE, project_name="example"))
     scenarios = {
-        scenario["name"]: _motion_record(scenario) for scenario in result.sources.scenarios
+        scenario["name"]: _motion_record(records, scenario) for scenario in result.sources.scenarios
     }
     seeds = {address: SeedRecord.model_validate(seed) for address, seed in generated().items()}
     assert scenarios
