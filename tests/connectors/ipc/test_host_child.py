@@ -1371,36 +1371,6 @@ def _child_limits_policy(section: dict, config_file: str, target: str) -> dict:
     return asyncio.run(build())
 
 
-def test_child_lookups_keep_answering_from_the_config_it_was_handed(
-    limits_deployment, tmp_path, monkeypatch
-):
-    """The child inherits the parent's ``OSPREY_CONFIG`` and cwd but is handed
-    ``config_file``; a data-root lookup made afterwards must not repoint its
-    unqualified lookups at the inherited file."""
-    from osprey_connectors.config import get_config_value
-    from osprey_connectors.workspace import resolve_config_path, resolve_shared_data_root
-
-    section, _ = limits_deployment
-    handed = tmp_path / "handed.yml"
-    handed.write_text(yaml.safe_dump({"control_system": section, "probe": "handed"}))
-    inherited = tmp_path / "inherited.yml"
-    inherited.write_text(yaml.safe_dump({"control_system": section, "probe": "inherited"}))
-    monkeypatch.setenv("OSPREY_CONFIG", str(inherited))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
-
-    async def build():
-        connector, _report = await host._build_connector(
-            {"control_system": section, "target": "live", "config_file": str(handed)}
-        )
-        await connector.disconnect()
-
-    asyncio.run(build())
-    resolve_shared_data_root()
-
-    assert get_config_value("probe") == "handed"
-    assert resolve_config_path() == handed
-
-
 def test_child_limits_posture_comes_from_the_block_for_the_target_it_serves(limits_deployment):
     section, config_file = limits_deployment
 

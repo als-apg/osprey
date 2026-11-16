@@ -246,3 +246,26 @@ async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, 
 
     assert isinstance(connector, Mock)
     assert built == [{}]
+
+
+def test_a_host_child_keeps_answering_from_the_config_it_was_handed(project, monkeypatch):
+    """The connector-host child inherits the parent's ``OSPREY_CONFIG`` but is
+    handed ``config_file``: a data-root lookup made afterwards must not repoint
+    its unqualified lookups at the inherited file."""
+    import asyncio
+
+    from osprey_connectors.ipc import _host
+
+    handed = write_config(project / "handed.yml", types.EPICS_ARCHIVER)
+    inherited = write_config(project / "inherited.yml", types.MOCK_ARCHIVER)
+    monkeypatch.setenv("OSPREY_CONFIG", str(inherited))
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    # The child applies the payload's environment before it resolves the
+    # target, so a payload naming no target stops right after the hand-off.
+    with pytest.raises(ValueError):
+        asyncio.run(_host._build_connector({"control_system": {}, "config_file": str(handed)}))
+
+    resolve_shared_data_root()
+
+    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert resolve_config_path() == handed
