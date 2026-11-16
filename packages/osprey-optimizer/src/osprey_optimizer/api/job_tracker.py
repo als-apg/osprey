@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import traceback
+from enum import Enum
 from types import TracebackType
 
 from pydantic import BaseModel, ValidationError
@@ -20,6 +21,7 @@ from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
     all_meta_scan_pattern,
     config_key,
+    heartbeat_key,
     job_scan_pattern,
     meta_key,
     state_prefix,
@@ -73,6 +75,48 @@ end
 return 0
 """
 
+# A spawned worker registers itself, in one step: only while its job still holds
+# the active slot and its record still exists. KEYS: ACTIVE_JOB_KEY, meta_key,
+# heartbeat_key. ARGV: job_id, running-meta JSON, ttl seconds. Returns 0 when
+# the slot does not name the job, -1 when its record is gone (its keys lapsed
+# before the worker started), else writes the RUNNING meta and the heartbeat key,
+# which hands the keys' upkeep from the launcher to the worker's heartbeat, and
+# returns 1. Never re-creates a lost record and never writes the slot.
+_REGISTER_WORKER_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+if redis.call('EXISTS', KEYS[2]) == 0 then
+    return -1
+end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+redis.call('SET', KEYS[3], '1', 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
+# The launcher's keep-alive of a job whose worker has not registered yet.
+# KEYS[1]=meta_key, KEYS[2]=heartbeat_key, KEYS[3..]=every key the job owns.
+# ARGV[1]=ttl seconds, ARGV[2]=the RUNNING status value. Returns 0 when the
+# worker's heartbeat has taken over or the job is no longer running (a late tick
+# never shortens the terminal TTL), -1 when the record is gone, else re-applies
+# the running TTL to every key of the job and returns 1.
+_KEEP_CLAIM_ALIVE_LUA = """
+if redis.call('EXISTS', KEYS[2]) == 1 then
+    return 0
+end
+local meta = redis.call('GET', KEYS[1])
+if not meta then
+    return -1
+end
+if cjson.decode(meta)['status'] ~= ARGV[2] then
+    return 0
+end
+for i = 3, #KEYS do
+    redis.call('EXPIRE', KEYS[i], tonumber(ARGV[1]))
+end
+return 1
+"""
+
 # Start a job that has just claimed the slot: CREATED -> RUNNING only while its
 # stored config is still the exact JSON the start checked. KEYS[1]=the job's
 # pickled status key, KEYS[2]=its config key, KEYS[3]=ACTIVE_JOB_KEY,
@@ -101,12 +145,26 @@ return 0
 # (SIGKILL/OOM/redeploy) it stops refreshing, every key expires, and
 # get_active_job() self-heals the otherwise-permanently-wedged active slot — and
 # no state/cancel key leaks. The 6x margin (10s beat / 60s TTL) tolerates a brief
-# Redis blip without freeing a slot out from under a live job.
+# Redis blip without freeing a slot out from under a live job. Until the worker
+# registers, the launcher keeps the keys alive on the same interval (see
+# job_control.keep_launch_alive).
 HEARTBEAT_INTERVAL_SECONDS = 10
 
 
 class JobSlotLostError(RuntimeError):
     """A spawned job found that it no longer holds the single active slot."""
+
+
+class JobRecordLostError(RuntimeError):
+    """A spawned job found its job record gone before it started."""
+
+
+class WorkerRegistration(Enum):
+    """The outcome of a spawned worker registering itself."""
+
+    REGISTERED = "registered"
+    SLOT_LOST = "slot_lost"
+    RECORD_LOST = "record_lost"
 
 
 class JobMeta(BaseModel):
@@ -165,10 +223,10 @@ class JobTracker:
     def register_job(self, job_id: str, pid: int) -> bool:
         """Record the real PID of a job that holds the active slot.
 
-        Used for in-place updates of an already-claimed job (writing the PID
-        after spawn, and again from the worker itself). It never takes the slot:
-        to claim it for a brand-new job, use :meth:`claim_active_job`, which is
-        atomic against concurrent starts.
+        Used by the launcher for an in-place update of an already-claimed job
+        (writing the PID after spawn). It never takes the slot: to claim it for
+        a brand-new job, use :meth:`claim_active_job`, which is atomic against
+        concurrent starts. The worker registers through :meth:`register_worker`.
 
         Args:
             job_id: Unique job identifier
@@ -195,6 +253,47 @@ class JobTracker:
             return False
         logger.info("Registered job %s with PID %s", job_id, pid)
         return True
+
+    def register_worker(self, job_id: str, pid: int) -> WorkerRegistration:
+        """Register a spawned worker, only while its job holds the slot and has a record.
+
+        On success the RUNNING meta carries the worker's PID and the heartbeat
+        key is set, so the launcher's keep-alive hands over to the worker's
+        heartbeat. A job that lost the slot, or whose record lapsed before the
+        worker started, is refused and nothing is written.
+        """
+        result = self._script(_REGISTER_WORKER_LUA)(
+            keys=[ACTIVE_JOB_KEY, meta_key(job_id), heartbeat_key(job_id)],
+            args=[
+                job_id,
+                _meta_json(job_id, pid, JobStatus.RUNNING),
+                RUNNING_STATE_TTL_SECONDS,
+            ],
+        )
+        if result == 1:
+            logger.info("Registered job %s with PID %s", job_id, pid)
+            return WorkerRegistration.REGISTERED
+        if result == -1:
+            logger.warning("Job %s has no job record; worker PID %s not registered", job_id, pid)
+            return WorkerRegistration.RECORD_LOST
+        logger.warning("Job %s does not hold the active slot; PID %s not registered", job_id, pid)
+        return WorkerRegistration.SLOT_LOST
+
+    def keep_claim_alive(self, job_id: str) -> bool:
+        """Re-apply the running TTL to a launched job's keys until its worker registers.
+
+        Returns True while the keys are still the launcher's to keep; False once
+        the worker's heartbeat has taken over, the job is no longer running, or
+        its record is gone. Atomic against :meth:`mark_completed`, so a late call
+        never shortens the terminal TTL.
+        """
+        redis = self._get_redis()
+        keys = list(redis.scan_iter(match=job_scan_pattern(job_id)))
+        kept = self._script(_KEEP_CLAIM_ALIVE_LUA)(
+            keys=[meta_key(job_id), heartbeat_key(job_id), *keys],
+            args=[RUNNING_STATE_TTL_SECONDS, JobStatus.RUNNING.value],
+        )
+        return bool(kept == 1)
 
     def register_created_job(self, job_id: str) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
@@ -451,9 +550,12 @@ class JobLifecycle:
         Raises:
             JobSlotLostError: The job no longer holds the active slot, so another
                 job may be driving the machine; this one must not start.
+            JobRecordLostError: The job's record lapsed before the worker
+                started, so the panel no longer tracks it; this one must not start.
         """
         self.writer = get_optimization_writer(self.job_id)
-        if not self.tracker.register_job(self.job_id, os.getpid()):
+        registration = self.tracker.register_worker(self.job_id, os.getpid())
+        if registration is WorkerRegistration.SLOT_LOST:
             message = (
                 f"Job {self.job_id} lost the active-job slot before it started; "
                 "it wrote nothing to the machine."
@@ -462,6 +564,17 @@ class JobLifecycle:
             self.writer.set_error_message(message)
             self.tracker.expire_job(self.job_id, TERMINAL_STATE_TTL_SECONDS)
             raise JobSlotLostError(message)
+        if registration is WorkerRegistration.RECORD_LOST:
+            message = (
+                f"Job {self.job_id} lost its job record before it started; "
+                "it wrote nothing to the machine."
+            )
+            self.writer.set_status(JobStatus.ERROR)
+            self.writer.set_error_message(message)
+            # Sweeps the job's keys under the terminal TTL and releases the slot
+            # that still names this job.
+            self.tracker.mark_completed(self.job_id)
+            raise JobRecordLostError(message)
         self._heartbeat.start()
 
         logger.info(
