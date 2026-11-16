@@ -43,7 +43,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -136,6 +136,33 @@ _runs: dict[str, dict[str, Any]] = {}
 
 # SSE event queues: run_id -> asyncio.Queue
 _queues: dict[str, asyncio.Queue] = {}
+
+#: Called with ``(run_id, event)`` for every event a run produces, beside its
+#: SSE queue, when set: the bus adapter forwards each one to the dispatcher.
+#: Never raises into the run — a tap that fails is logged and the run goes on.
+event_tap: Callable[[str, dict[str, Any]], None] | None = None
+
+
+class _RunEventQueue(asyncio.Queue):
+    """A run's event queue that also hands each event to :data:`event_tap`.
+
+    ``asyncio.Queue.put`` ends in ``put_nowait``, so overriding that one method
+    sees every event, whether ``sdk_runner`` produced it or the run task did.
+    """
+
+    def __init__(self, run_id: str) -> None:
+        super().__init__()
+        self._run_id = run_id
+
+    def put_nowait(self, item: Any) -> None:
+        super().put_nowait(item)
+        tap = event_tap
+        if tap is not None:
+            try:
+                tap(self._run_id, item)
+            except Exception:
+                logger.exception("Dispatch %s: the event tap failed", self._run_id)
+
 
 # Running background tasks: run_id -> asyncio.Task (used for cancellation)
 _tasks: dict[str, asyncio.Task] = {}
@@ -987,7 +1014,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
     # The record dispatch() wrote, taken before the first await so every terminal
     # record is built on it even if the sweep or the store cap replaces the entry.
     accepted = dict(_runs.get(run_id) or {})
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, Any]] = _RunEventQueue(run_id)
     _queues[run_id] = queue
 
     logger.info(
