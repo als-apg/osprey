@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-page-ready="pending">
 <head>
 <meta charset="UTF-8">
 <!--
@@ -409,6 +409,7 @@
   import { wireDisclosures } from '/design-system/js/components/disclosure.js';
   import { wireSegmented } from '/design-system/js/components/segmented.js';
   import '/design-system/js/components/osprey-machine-map.js';
+  import { markPageReady } from '/design-system/js/page-ready.js';
 
   document.querySelectorAll('[data-demo-seg]').forEach((seg) => wireSegmented(seg, () => {}));
   wireDisclosures(document.body);
@@ -451,6 +452,8 @@
     document.getElementById('demo-sector').textContent = `Sector ${event.detail.region}`;
   });
   render(1);
+  // The markup declares the mark pending; the specimens are drawn, so the page can be driven.
+  markPageReady();
 </script>
 </body>
 </html>
