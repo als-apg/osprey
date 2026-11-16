@@ -17,3 +17,11 @@ and `ScenarioLogEntry.extra`). A list or dict is still accepted on input. The
 new `osprey_connectors.model.FrozenTuple[T]` and `ReadOnlyMapping[K, V]`
 aliases, with `empty_mapping()` as a default, are what these fields are typed
 with, and the simulator view's records use them too.
+
+A record's JSON form is `model_dump(mode="json")`: `to_payload()` is gone from
+`Owner`, `ControlContext`, `ServerReport`, `Grant`, `Ledger` and `WriteRequest`,
+and `as_dict()` from `Endpoint` and `Verification`. Where a file needs more than
+the fields, the dump says so itself: a `ControlContext` carries `schema` and
+the `posture` mirror of its switch, a `ServerReport` leaves `statement` out
+unless it has one, and a grant, ledger or request carries `schema`. The files
+written are byte-for-byte what they were.

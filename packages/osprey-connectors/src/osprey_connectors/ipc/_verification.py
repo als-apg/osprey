@@ -113,9 +113,6 @@ class Endpoint(FrozenModel):
     port: object
     mode: str
 
-    def as_dict(self) -> dict[str, object]:
-        return {"host": self.host, "port": self.port, "mode": self.mode}
-
 
 class TargetDerivation(FrozenModel):
     """What a connector-host child *will* do for a target, derived from config.
@@ -165,15 +162,6 @@ class Verification(FrozenModel):
     expected: object = None
     got: object = None
     detail: str = ""
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "ok": self.ok,
-            "field": self.field,
-            "expected": self.expected,
-            "got": self.got,
-            "detail": self.detail,
-        }
 
 
 def config_section(config: object, name: str) -> dict[str, object]:

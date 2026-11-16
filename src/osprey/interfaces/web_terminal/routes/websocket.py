@@ -2572,11 +2572,11 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     context = _context_state(app)
     if context.owner is not None:
         identity = context.follows if context.follows is not None else context.owner.identity
-        return {**identity.to_payload(), "self": context.follows is None}
+        return {**identity.model_dump(mode="json"), "self": context.follows is None}
     recorded = getattr(record, "owner", None)
     if recorded is None:
         return None
-    return {**recorded.to_payload(), "self": control_context.owned_here(record)}
+    return {**recorded.model_dump(mode="json"), "self": control_context.owned_here(record)}
 
 
 def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:

@@ -149,11 +149,11 @@ def test_write_then_read_round_trips():
 
 @pytest.mark.usefixtures("data_root")
 def test_a_narrowing_input_is_not_stored():
-    """No writer takes a narrowing: ``to_payload`` writes the mirror of the switch."""
+    """No writer takes a narrowing: the JSON form writes the mirror of the switch."""
     record = control_context.ControlContext(
         target="live", generation=1, posture={"va": "sandbox"}, switch={"va": "on"}
     )
-    assert record.to_payload()["posture"] == {"live": "sandbox", "standin": "sandbox"}
+    assert record.model_dump(mode="json")["posture"] == {"live": "sandbox", "standin": "sandbox"}
 
     control_context.write_record(record)
     payload = json.loads(control_context.record_path().read_text(encoding="utf-8"))
@@ -903,8 +903,8 @@ def test_a_report_round_trips_through_its_payload():
     payload = _report_payload(4321)
     report = control_context._parse_report(payload)
     assert report is not None
-    assert report.to_payload() == payload
-    assert control_context._parse_report(report.to_payload()) == report
+    assert report.model_dump(mode="json") == payload
+    assert control_context._parse_report(report.model_dump(mode="json")) == report
 
 
 @pytest.mark.parametrize("value", [None, 0, -1, True, "4321", 4321.0])
@@ -1050,9 +1050,9 @@ def test_a_display_only_report_round_trips_eleven_fields():
 
     assert report.display_only is True
     assert report.statement == _STATEMENT
-    assert report.to_payload() == payload
-    assert len(report.to_payload()) == 11
-    assert control_context._parse_report(report.to_payload()) == report
+    assert report.model_dump(mode="json") == payload
+    assert len(report.model_dump(mode="json")) == 11
+    assert control_context._parse_report(report.model_dump(mode="json")) == report
 
 
 def test_a_controls_server_report_stays_ten_fields_and_not_display_only():
@@ -1060,8 +1060,8 @@ def test_a_controls_server_report_stays_ten_fields_and_not_display_only():
 
     assert report.display_only is False
     assert report.statement is None
-    assert "statement" not in report.to_payload()
-    assert len(report.to_payload()) == 10
+    assert "statement" not in report.model_dump(mode="json")
+    assert len(report.model_dump(mode="json")) == 10
 
 
 @pytest.mark.parametrize(
@@ -1091,8 +1091,8 @@ def test_a_statement_of_another_shape_states_nothing(statement):
     assert report is not None
     assert report.statement is None
     assert report.display_only is False
-    assert "statement" not in report.to_payload()
-    assert control_context._parse_report(report.to_payload()).display_only is False
+    assert "statement" not in report.model_dump(mode="json")
+    assert control_context._parse_report(report.model_dump(mode="json")).display_only is False
 
 
 def test_a_statement_not_yet_stated_on_either_axis_is_well_formed():
@@ -1792,7 +1792,7 @@ def test_the_switch_fields_round_trip_through_the_payload():
     record = control_context.ControlContext(
         target="live", generation=3, switch={"live": "asked"}, switch_epoch=42
     )
-    payload = record.to_payload()
+    payload = record.model_dump(mode="json")
     assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
     mirrored = evolve(record, posture=control_context._posture_mirror(record.switch))
     assert control_context.parse_record(payload) == mirrored

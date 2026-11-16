@@ -124,7 +124,7 @@ def _stage_host_switch(tmp_path, switch):
     """This host's record holding *switch* verbatim: a legacy ``on`` has no writer."""
     payload = control_context.ControlContext(
         target="live", generation=1, switch_epoch=1
-    ).to_payload()
+    ).model_dump(mode="json")
     payload["switch"] = switch
     path = control_context._record_path_under(host_root(tmp_path))
     path.parent.mkdir(parents=True, exist_ok=True)

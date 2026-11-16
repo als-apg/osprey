@@ -270,7 +270,7 @@ class SwitchError(RuntimeError):
             "detail": self.detail,
         }
         if self.verification is not None:
-            payload["verification"] = self.verification.as_dict()
+            payload["verification"] = self.verification.model_dump(mode="json")
         if self.gateway is not None:
             payload["gateway"] = self.gateway
         return payload
@@ -1512,7 +1512,7 @@ class ConnectorHostManager:
             "target_changed": target != previous_target,
             "connector_type": derivation.connector_type,
             "selected_role": derivation.selected_role,
-            "endpoint": endpoint.as_dict() if endpoint is not None else None,
+            "endpoint": endpoint.model_dump(mode="json") if endpoint is not None else None,
             "probe_channel": probe_channel,
             "child_pid": candidate.pid,
             "previous_drained": drained,
@@ -1568,7 +1568,7 @@ class ConnectorHostManager:
             "target_changed": False,
             "connector_type": child.connector_type,
             "selected_role": selected_role,
-            "endpoint": endpoint.as_dict() if endpoint is not None else None,
+            "endpoint": endpoint.model_dump(mode="json") if endpoint is not None else None,
             "probe_channel": child.probe_channel,
             "child_pid": child.pid,
             "previous_drained": True,

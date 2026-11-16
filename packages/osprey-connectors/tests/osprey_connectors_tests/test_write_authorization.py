@@ -220,7 +220,7 @@ def _stage(row: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
         switch(row["switch"])
     grant = make_grant(steps=3)
     if row.get("grant", {}) is not None:
-        payload = grant.to_payload()
+        payload = grant.model_dump(mode="json")
         payload.update(_resolve(row.get("grant", {}), epoch() - 1))
         text = json.dumps(payload, indent=2, sort_keys=True)
         if "grant_text_replace" in row:
@@ -236,7 +236,7 @@ def _stage(row: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
             holder_start=wa._process_start_time(os.getpid()),
             pid_ns=wa._pid_namespace(),
             lease_until_ns=FAR_FUTURE_NS,
-        ).to_payload()
+        ).model_dump(mode="json")
         overrides = dict(row.get("ledger", {}))
         steps = overrides.get("steps")
         if isinstance(steps, str) and steps.startswith("@spent:"):
@@ -299,7 +299,7 @@ def test_spending_answers_as_the_verdict_does(row: dict[str, Any], monkeypatch):
 class TestFormats:
     def test_a_grant_round_trips(self):
         grant = make_grant(revoked=Revocation(at_ns=5, by="bob"))
-        assert _parse_grant(json.dumps(grant.to_payload())) == grant
+        assert _parse_grant(json.dumps(grant.model_dump(mode="json"))) == grant
 
     @pytest.mark.parametrize(
         ("parse", "text"),
@@ -334,7 +334,7 @@ class TestFormats:
         """A file as the writer lays it down reads into its record and writes the same bytes."""
         on_disk = (json.dumps(json.loads(text), indent=2, sort_keys=True) + "\n").encode()
         path = tmp_path / "rewritten.json"
-        wa._write_json(path, parse(on_disk.decode()).to_payload())
+        wa._write_json(path, parse(on_disk.decode()).model_dump(mode="json"))
         assert path.read_bytes() == on_disk
 
     def test_a_ledger_round_trips(self):
@@ -346,7 +346,7 @@ class TestFormats:
             lease_until_ns=9,
             steps=(LedgerStep(n=1, at_ns=3, channels=("A:SP", "B:SP")),),
         )
-        assert _parse_ledger(json.dumps(entry.to_payload())) == entry
+        assert _parse_ledger(json.dumps(entry.model_dump(mode="json"))) == entry
 
     @pytest.mark.parametrize(
         "change",
@@ -389,14 +389,14 @@ class TestFormats:
         ids=repr,
     )
     def test_a_malformed_grant_is_refused(self, change: dict[str, Any]):
-        payload = make_grant().to_payload()
+        payload = make_grant().model_dump(mode="json")
         payload.update(change)
         with pytest.raises(ValueError):
             _parse_grant(json.dumps(payload))
 
     @pytest.mark.parametrize("missing", sorted(["schema", *Grant.model_fields]))
     def test_a_grant_missing_any_field_is_refused(self, missing: str):
-        payload = make_grant().to_payload()
+        payload = make_grant().model_dump(mode="json")
         del payload[missing]
         with pytest.raises(ValueError):
             _parse_grant(json.dumps(payload))
@@ -417,7 +417,9 @@ class TestFormats:
 
     @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
     def test_a_non_finite_bound_is_refused(self, constant: str):
-        text = json.dumps(make_grant().to_payload()).replace('"max": 10.0', f'"max": {constant}')
+        text = json.dumps(make_grant().model_dump(mode="json")).replace(
+            '"max": 10.0', f'"max": {constant}'
+        )
         assert constant in text
         with pytest.raises(ValueError):
             _parse_grant(text)
@@ -443,7 +445,7 @@ class TestFormats:
             lease_s=wa._MAX_LEASE_S,
         )
         grant = evolve(at_ceilings, **change)
-        assert _parse_grant(json.dumps(grant.to_payload())) == grant
+        assert _parse_grant(json.dumps(grant.model_dump(mode="json"))) == grant
         if refused:
             with pytest.raises(ValueError, match="ceiling|more than"):
                 _issue_grant(grant)
@@ -481,7 +483,7 @@ class TestFormats:
     def test_a_malformed_ledger_is_refused(self, change: dict[str, Any]):
         payload = Ledger(
             authorization="a" * 32, holder_pid=1, holder_start=None, pid_ns=None, lease_until_ns=1
-        ).to_payload()
+        ).model_dump(mode="json")
         payload.update(change)
         with pytest.raises(ValueError):
             _parse_ledger(json.dumps(payload))
@@ -531,7 +533,7 @@ class TestFailClosedReads:
 
     def test_an_oversized_grant(self):
         grant = approve()
-        payload = grant.to_payload()
+        payload = grant.model_dump(mode="json")
         payload["label"] = "x" * (wa._GRANT_READ_LIMIT + 1)
         grant_path(grant.id).write_text(json.dumps(payload))
         assert verdict(grant.id).reason == "auth_unreadable"
@@ -1319,7 +1321,7 @@ class TestOverlap:
                     "lapsed": now - wa._LEASE_SKEW_GRACE_NS,
                 }[lease],
             )
-            path.write_text(json.dumps(entry.to_payload()))
+            path.write_text(json.dumps(entry.model_dump(mode="json")))
         held = _auth_overlap(candidate, [existing], now_ns=now, ledger_dirs=dirs)
         assert (held is existing) is blocks
 
@@ -1334,12 +1336,12 @@ class TestOverlap:
             pid_ns=wa._pid_namespace(),
             lease_until_ns=time.time_ns() + 60 * 10**9,
         )
-        ledger_path(held.id).write_text(json.dumps(leased.to_payload()))
+        ledger_path(held.id).write_text(json.dumps(leased.model_dump(mode="json")))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused):
             _issue_grant(candidate)
         lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
-        ledger_path(held.id).write_text(json.dumps(lapsed.to_payload()))
+        ledger_path(held.id).write_text(json.dumps(lapsed.model_dump(mode="json")))
         _issue_grant(candidate)
         assert grant_path(candidate.id).exists()
 
@@ -1347,7 +1349,7 @@ class TestOverlap:
         """Written by an older version, before the ceilings: honoured, so it still blocks."""
         held = make_grant(holder="optimizer", steps=wa.MAX_STEPS + 1)
         grants_dir().mkdir(parents=True, exist_ok=True)
-        grant_path(held.id).write_text(json.dumps(held.to_payload()))
+        grant_path(held.id).write_text(json.dumps(held.model_dump(mode="json")))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused) as refused:
             _issue_grant(candidate)
@@ -1372,7 +1374,9 @@ class TestOverlap:
             pid_ns=None,
             lease_until_ns=time.time_ns() + 60 * 10**9,
         )
-        (elsewhere / f"{held.id}.ledger.json").write_text(json.dumps(leased.to_payload()))
+        (elsewhere / f"{held.id}.ledger.json").write_text(
+            json.dumps(leased.model_dump(mode="json"))
+        )
         if where == "view":
             monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(elsewhere))
 
@@ -1400,7 +1404,9 @@ class TestOverlap:
             approve_candidate()
         assert refused.value.reason == "auth_overlap"
         lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
-        (elsewhere / f"{held.id}.ledger.json").write_text(json.dumps(lapsed.to_payload()))
+        (elsewhere / f"{held.id}.ledger.json").write_text(
+            json.dumps(lapsed.model_dump(mode="json"))
+        )
         assert grant_path(approve_candidate()).exists()
 
     def test_an_unreadable_grant_beside_it_is_left_out_not_a_veto(self):
@@ -1425,7 +1431,7 @@ class TestOverlap:
         go = tmp_path / "go"
         directory = grants_dir()
         directory.mkdir(parents=True, exist_ok=True)
-        payloads = [make_grant(holder=f"holder-{n}").to_payload() for n in range(6)]
+        payloads = [make_grant(holder=f"holder-{n}").model_dump(mode="json") for n in range(6)]
         spawned = [
             subprocess.Popen(
                 [sys.executable, "-c", ISSUER, json.dumps(payload), str(directory), str(go)],
@@ -1472,7 +1478,9 @@ class TestTree:
         tree = tmp_path / "tree"
         (tree / "alice").mkdir(parents=True)
         (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("")
-        payload = control_context.ControlContext(target="live", generation=1).to_payload()
+        payload = control_context.ControlContext(target="live", generation=1).model_dump(
+            mode="json"
+        )
         payload["switch_epoch"] = 1234
         write_payload(tree / "alice" / control_context.RECORD_FILENAME, payload)
         ledgers = tmp_path / "ledgers"

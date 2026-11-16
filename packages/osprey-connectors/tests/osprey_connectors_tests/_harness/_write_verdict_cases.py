@@ -404,7 +404,7 @@ def _tree_payload(record: Mapping[str, Any]) -> dict[str, Any]:
         target="live",
         generation=3,
         switch_epoch=1,
-    ).to_payload()
+    ).model_dump(mode="json")
     # Verbatim, so a degraded value — or an old narrowing — reaches the reader
     # as written rather than as the mirror the writer derives.
     payload["switch"] = dict(record.get("switch") or {})

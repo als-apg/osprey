@@ -450,7 +450,7 @@ class TestWriteServerRecord:
         payload = target_state.read(1234)
         report = control_context.read_report(target_state.report_file_path(1234))
         assert report is not None
-        assert report.to_payload() == payload
+        assert report.model_dump(mode="json") == payload
 
     def test_a_fresh_report_has_reached_nothing(self):
         """Null is not the baseline: this server has launched no child yet, and a
