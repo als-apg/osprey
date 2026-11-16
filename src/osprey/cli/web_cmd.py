@@ -541,6 +541,12 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     from osprey.mcp_env import load_dotenv_from_project
 
     load_dotenv_from_project(include_sensitive=True)
+    # The CLI configured logging before this command knew its deployment. Now
+    # that the render is published, the handler takes its `logging.*` settings
+    # from it; the level stays the one the CLI chose.
+    from osprey_connectors.logger import configure_logging
+
+    configure_logging(logging.getLogger().level)
     # Who the sessions this terminal starts are, to the ledger: the one name
     # the build recorded. A terminal in a container already carries it.
     from osprey.agent_record.credentials import export_built_host_identity
