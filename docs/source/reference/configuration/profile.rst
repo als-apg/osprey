@@ -1105,9 +1105,8 @@ Workers on the dispatch bus
 With ``transport: bus`` the dispatcher binds one ZeroMQ socket at ``bus_port``
 and every worker connects to it. What changes for a deployment:
 
-* **No worker opens a port.** The worker band is not spent, on the host network
-  or anywhere else, and ``worker_port_base`` and ``worker_port_stride`` are
-  not read.
+* **No worker opens a port.** The worker band is not spent even on the host
+  network, and ``worker_port_base`` and ``worker_port_stride`` are not used.
 * **Every worker takes runs.** Over HTTP the dispatcher sends every run to
   worker 1; on the bus it sends each one to the worker with the fewest runs in
   flight.
@@ -1119,10 +1118,10 @@ and every worker connects to it. What changes for a deployment:
 * **Each container has its own key.** ``osprey up`` writes
   ``.env.dispatch-bus.event-dispatcher`` and one
   ``.env.dispatch-bus.dispatch-worker-<n>`` per worker at the repo root (mode
-  0600, outside the shared env chain), and each container reads only its own.
+  0600, outside the env chain), and each container reads only its own.
   An existing key is kept on every start; delete a file to rotate that key, and
-  the next ``osprey up`` mints a new one and recreates the containers it
-  concerns.
+  the next ``osprey up`` mints a new one and recreates the containers whose key
+  files changed.
 * **The chat bridges read runs through the dispatcher.** Their ``WORKER_URL``
   becomes the dispatcher's ``/worker`` routes, which answer from the worker that
   owns the run. The dispatcher's ``/health`` lists the workers it hears.
