@@ -26,6 +26,7 @@ __all__ = [
     "Link",
     "Node",
     "Picture",
+    "Placement",
     "RackUnit",
     "Section",
     "Strip",
@@ -143,6 +144,24 @@ class Light:
 
 
 @dataclass(frozen=True)
+class Placement:
+    """One ``located_in`` claim of a thing, shown under "where".
+
+    Attributes:
+        link: The place (its rack view when it has one, else its card), with
+            the claim's standing and basis.
+        unit: The rack unit the claim names, or ``None``.
+        size_u: The claim's ``size_u`` when it parses as a number, else ``None``.
+        citation: The document the claim cites, or ``None``.
+    """
+
+    link: Link
+    unit: int | None
+    size_u: int | float | None
+    citation: Citation | None
+
+
+@dataclass(frozen=True)
 class Grid:
     """Members by common channel.
 
@@ -235,12 +254,15 @@ class RackUnit:
         lights: One per channel its roll-up reads.
         size_u: The height in units the place relation's ``size_u`` states,
             when it parses as a number; ``None`` otherwise.
+        standing: The unit claim's standing (``accepted`` or ``contested``);
+            ``None`` for an unpositioned device.
     """
 
     position: int | None
     link: Link | Fact
     lights: tuple[Light, ...]
     size_u: int | float | None = None
+    standing: str | None = None
 
 
 @dataclass(frozen=True)
@@ -312,7 +334,18 @@ class Totals:
 
 
 Item = (
-    ValueRow | Light | Link | Fact | Grid | Strip | Picture | Elevation | Node | CheckRow | Totals
+    ValueRow
+    | Light
+    | Link
+    | Fact
+    | Placement
+    | Grid
+    | Strip
+    | Picture
+    | Elevation
+    | Node
+    | CheckRow
+    | Totals
 )
 
 

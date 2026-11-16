@@ -7,6 +7,8 @@
   level: sector
 - id: XR/XR01/RK1
   level: rack
+- id: XR/XR02/RK2
+  level: rack
 - id: XR/XR02/SAFE
   level: enclosure
 - id: XR/XR02/SAFE/CAB1

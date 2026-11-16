@@ -25,6 +25,7 @@ the channels and asks :mod:`~osprey.facility.panels.health` for the states.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import weakref
 from collections.abc import Callable, Iterable, Mapping
@@ -44,6 +45,7 @@ from osprey.facility.panels.view import (
     Link,
     Node,
     Picture,
+    Placement,
     RackUnit,
     Section,
     Strip,
@@ -409,7 +411,8 @@ def _signals(
 
 def _neighbours(graph: PanelGraph, index: _Index, thing: Thing) -> list[tuple[str, list[Item]]]:
     """One section per relation kind and direction present; equal titles share one."""
-    edges = _neighbour_edges(graph, thing)
+    edges = graph.neighbours(thing.id, thing.kind)
+    edges.pop(PLACE_RELATION, None)  # shown under "where" and "within"
     kinds = [kind for kind in RELATION_TITLES if kind in edges]
     kinds += sorted(kind for kind in edges if kind not in RELATION_TITLES)
     found: dict[str, list[Item]] = {}
@@ -429,18 +432,58 @@ def _edge_item(graph: PanelGraph, index: _Index, title: str, edge: Edge) -> Item
     return Fact(title, edge.other, citation=edge.source, standing=edge.standing, basis=edge.basis)
 
 
-def _where(graph: PanelGraph, thing: Thing) -> list[Item]:
+def _placement(graph: PanelGraph, index: _Index, edge: Edge, rack_classes: frozenset[str]) -> Item:
+    """A ``located_in`` claim as a placement: its rack view when there is one, else a card."""
+    target = Target("card", edge.other_kind, edge.other)
+    rack = Target("rack", "place", edge.other)
+    if edge.other_kind == "place" and _has(graph, index, rack, rack_classes):
+        target = rack
+    if not _has(graph, index, target, rack_classes):
+        return Fact(
+            PLACE_RELATION,
+            edge.other,
+            citation=edge.source,
+            standing=edge.standing,
+            basis=edge.basis,
+        )
+    return Placement(
+        Link(edge.other, target, standing=edge.standing, basis=edge.basis),
+        edge.unit,
+        _size(edge.attributes.get("size_u")),
+        edge.source,
+    )
+
+
+def _where(
+    graph: PanelGraph, index: _Index, thing: Thing, rack_classes: frozenset[str]
+) -> list[Item]:
+    """The built place, every ``located_in`` claim of the thing, then its poses."""
     items: list[Item] = []
     if thing.place is not None:
         label = "place" if thing.kind == "device" else "parent"
         items.append(Link(label, Target("card", "place", thing.place)))
-        if thing.kind == "device":
-            for edge in graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ()):
-                if _is_place_edge(graph, thing, edge) and edge.unit is not None:
-                    items.append(Fact("unit", str(edge.unit), citation=edge.source))
-                    break
     if thing.kind != "group":
+        claims = graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
+        items += [_placement(graph, index, e, rack_classes) for e in claims if e.outgoing]
         items += [_pose_fact(pose) for pose in graph.poses(thing.id)]
+    return items
+
+
+def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
+    """A place's direct contents, then what a ``located_in`` claim puts in it besides."""
+    children = graph.within(place.id)
+    items: list[Item] = [_ref(graph, index, child) for child in children]
+    seen = {(child.kind, child.id) for child in children}
+    for edge in graph.neighbours(place.id, "place").get(PLACE_RELATION, ()):
+        key = (edge.other_kind, edge.other)
+        if edge.outgoing or key in seen:
+            continue
+        seen.add(key)
+        ref = _ref(graph, index, graph.thing(edge.other, edge.other_kind))
+        if isinstance(ref, Link):
+            items.append(Link(ref.label, ref.target, standing=edge.standing, basis=edge.basis))
+        else:
+            items.append(dataclasses.replace(ref, standing=edge.standing, basis=edge.basis))
     return items
 
 
@@ -496,10 +539,12 @@ def device_card(
     """The card of a device, a place or a group.
 
     Sections, each left out when empty: ``screens`` (a place's or group's
-    other screens), ``within`` (a place's direct contents), ``members`` (a
-    group's), ``signals``, ``settings``, ``health``, one per relation kind and
-    direction (titled from :data:`RELATION_TITLES`), ``where``, ``picture``,
-    ``sources``.
+    other screens), ``within`` (a place's direct contents, then what a
+    ``located_in`` claim puts in it besides, with the claim's standing),
+    ``members`` (a group's), ``signals``, ``settings``, ``health``, one per
+    relation kind and direction (titled from :data:`RELATION_TITLES`;
+    ``located_in`` is never one), ``picture``, ``where`` (the built place,
+    a :class:`Placement` per ``located_in`` claim, the poses), ``sources``.
 
     Args:
         graph: The panel graph.
@@ -517,7 +562,7 @@ def device_card(
     within: list[Item] = []
     members: list[Item] = []
     if thing.kind == "place":
-        within = [_ref(graph, index, child) for child in graph.within(thing.id)]
+        within = _within(graph, index, thing)
     elif thing.kind == "group":
         members = [_ref(graph, index, member) for member in graph.members(thing.id)]
     health: list[Item] = [
@@ -536,8 +581,8 @@ def device_card(
             ("settings", settings),
             ("health", health),
             *_neighbours(graph, index, thing),
-            ("where", _where(graph, thing)),
             ("picture", _pictures(graph, thing)),
+            ("where", _where(graph, index, thing, rack_classes)),
             ("sources", sources),
         ]
     )
@@ -667,14 +712,6 @@ def place_view(
 # -- rack elevation --------------------------------------------------------------
 
 
-def _rack_claim(graph: PanelGraph, thing: Thing, rack_id: str) -> Edge | None:
-    """The device's place relation into the rack that names a unit, or ``None``."""
-    for edge in graph.neighbours(thing.id, "device").get(PLACE_RELATION, ()):
-        if edge.outgoing and edge.other == rack_id and edge.unit is not None:
-            return edge
-    return None
-
-
 def _size(value: object) -> int | float | None:
     """A ``size_u`` attribute as a number: an integer stays one; text that is no number is ``None``."""
     if isinstance(value, bool):
@@ -695,13 +732,17 @@ def _size(value: object) -> int | float | None:
 
 
 def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
-    """The devices placed directly in a rack, by the rack unit their place relation names.
+    """A rack's devices: those a ``located_in`` claim puts at a unit in it, then the rest.
 
-    Units are listed in :data:`RACK_ORDER` (the highest unit first), ties by
-    id; devices in the rack whose relation names no unit are ``unpositioned``,
-    by id. Each unit links to the device's card, carries the claim's
-    ``size_u`` when it parses as a number, and a :class:`Light` per channel
-    the device's roll-up reads.
+    Every claim into the rack that names a unit gives one unit, whatever the
+    device's built place (a device claimed into two racks is in both, and
+    the build leaves its place empty); a device with two unit claims into
+    one rack appears once, at its first claim in graph order. Units are
+    listed in :data:`RACK_ORDER` (the highest unit first), ties by id, each
+    with the claim's standing and its ``size_u`` when that parses as a
+    number. The devices whose built place is the rack and that no unit claim
+    positions are ``unpositioned``, by id. Each entry links to the device's
+    card and carries a :class:`Light` per channel the device's roll-up reads.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -716,20 +757,23 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
             _ref(graph, index, thing),
             lights,
             _size(claim.attributes.get("size_u")) if claim is not None else None,
+            claim.standing if claim is not None else None,
         )
 
-    positioned: list[tuple[int, str, RackUnit]] = []
-    unpositioned: list[tuple[str, RackUnit]] = []
-    for thing in graph.within(rack_id):
-        if thing.kind != "device":
+    positioned: dict[str, tuple[int, str, RackUnit]] = {}
+    for claim in graph.neighbours(rack_id, "place").get(PLACE_RELATION, ()):
+        if claim.outgoing or claim.other_kind != "device" or claim.unit is None:
             continue
-        claim = _rack_claim(graph, thing, rack_id)
-        if claim is not None and claim.unit is not None:
-            positioned.append((-claim.unit, thing.id, unit(thing, claim)))
-        else:
-            unpositioned.append((thing.id, unit(thing, None)))
+        if claim.other not in positioned:  # a device's first unit claim into the rack
+            thing = graph.thing(claim.other, "device")
+            positioned[claim.other] = (-claim.unit, thing.id, unit(thing, claim))
+    unpositioned = [
+        (thing.id, unit(thing, None))
+        for thing in graph.within(rack_id)
+        if thing.kind == "device" and thing.id not in positioned
+    ]
     elevation = Elevation(
-        tuple(entry[-1] for entry in sorted(positioned, key=lambda e: e[:2])),
+        tuple(entry[-1] for entry in sorted(positioned.values(), key=lambda e: e[:2])),
         tuple(entry[-1] for entry in sorted(unpositioned, key=lambda e: e[0])),
         RACK_ORDER,
     )
@@ -887,7 +931,7 @@ def describe(
     if target.view == "rack":
         return rack_elevation(graph, target.id)
     if target.view == "rollup":
-        return health_rollup(graph, target.id, target.by or "place", system_of=system_of)
+        return health_rollup(graph, target.id, target.by, system_of=system_of)  # type: ignore[arg-type]
     if target.view == "checkout":
         return checkout(graph, target.id)
     raise ValueError(f"no view kind {target.view!r}")

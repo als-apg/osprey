@@ -63,6 +63,8 @@
     version: A
     state: released
     locator: sheet 3
+- id: XR02:CH5
+  class: ElectronicsChassis
 - id: XR02:BLOCK1
   class: Infrastructure
   place: XR/XR02

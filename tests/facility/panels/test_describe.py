@@ -33,6 +33,7 @@ from osprey.facility.panels.view import (
     Link,
     Node,
     Picture,
+    Placement,
     Strip,
     Target,
     Totals,
@@ -40,7 +41,7 @@ from osprey.facility.panels.view import (
     View,
 )
 from osprey.facility.records import FacilityRecords
-from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+from tests.facility.panels._fixture import PANELS_DIR, copy_tables, write_fixture_facility
 
 SECTORS = frozenset({"sector"})  # a level marked as a rack by parameter
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
@@ -192,8 +193,8 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
     assert _titles(device_card(panel_graph, "XR01:QF1")) == [
         "signals",
         "fed by",
-        "where",
         "picture",
+        "where",
         "sources",
     ]
     assert _titles(device_card(panel_graph, "XR01:IP1")) == [
@@ -201,6 +202,37 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
         "health",
         "read out by",
         "where",
+    ]
+
+
+def test_a_card_with_every_section_has_them_in_order(tmp_path):
+    def everything(document: dict[str, Any]) -> None:
+        for device in document["devices"]:
+            if device["id"] == "XR01:QD1":
+                device["citations"] = [{"document": "XR-LAYOUT", "locator": "sheet 2"}]
+        document["relations"].append(
+            {
+                "id": "xr01-qd1-feeds",
+                "type": "powered_by",
+                "subject": {"device": "XR01:IP2"},
+                "object": {"device": "XR01:QD1"},
+            }
+        )
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as health:
+        health.write("XR01:QD1:Current-RB,0,warn,database-severity,stated,xr-ioc,0a1b2c3,m.db:1\n")
+    facility = write_fixture_facility(tmp_path / "facility.json", everything)
+    view = device_card(load_graph(facility, tables), "XR01:QD1")
+    assert _titles(view) == [
+        "signals",
+        "settings",
+        "health",
+        "fed by",
+        "feeds",
+        "picture",
+        "where",
+        "sources",
     ]
 
 
@@ -219,8 +251,29 @@ def test_the_place_relation_is_shown_under_where_with_its_unit(panel_graph):
     assert "located_in" not in _titles(view)
     where = _section(view, "where").items
     assert Link("place", Target("card", "place", "XR/XR01/RK1")) in where
-    (unit,) = [item for item in where if isinstance(item, Fact) and item.label == "unit"]
-    assert (unit.text, unit.citation.document) == ("10", "XR-RACKS")
+    (placed,) = [item for item in where if isinstance(item, Placement)]
+    assert placed.link.target == Target("rack", "place", "XR/XR01/RK1")
+    assert (placed.unit, placed.size_u, placed.citation.document) == (10, 2, "XR-RACKS")
+    assert placed.link.standing == "accepted"
+
+
+def test_unit_claims_show_under_where_without_a_built_place(panel_graph):
+    view = device_card(panel_graph, "XR02:CH5")
+    assert view.crumbs == ()
+    assert _titles(view) == ["where"]  # no raw located_in section
+    where = _section(view, "where").items
+    assert [(p.link.target, p.unit, p.link.standing) for p in where] == [
+        (Target("rack", "place", "XR/XR01/RK1"), 40, "contested"),
+        (Target("rack", "place", "XR/XR02/RK2"), 5, "contested"),
+    ]
+
+
+def test_a_place_card_lists_a_device_claimed_into_it(panel_graph):
+    view = device_card(panel_graph, "XR/XR01/RK1")
+    assert "located_in" not in _titles(view)
+    within = _section(view, "within").items
+    (claimed,) = [item for item in within if item.target == card("XR02:CH5")]
+    assert claimed.standing == "contested"
 
 
 def test_an_excluded_neighbour_never_appears(panel_graph):
@@ -296,6 +349,7 @@ def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
         card("XR01:CH1"),
         card("XR01:CH2"),
         card("XR01:CH3"),
+        card("XR02:CH5"),  # claimed into the rack, no built place
     ]
     assert [row.channel for row in _section(view, "signals").items] == ["XR01:RackTemp-RB"]
     sector = Target("rack", "place", "XR/XR01")
@@ -498,9 +552,10 @@ def test_rack_elevation_orders_units_top_down_and_lists_the_rest(panel_graph):
     (elevation,) = _section(view, "units").items
     assert isinstance(elevation, Elevation)
     assert elevation.order == RACK_ORDER
-    assert [(u.position, u.size_u, u.link.target) for u in elevation.units] == [
-        (20, None, card("XR01:CH2")),
-        (10, 2, card("XR01:CH1")),  # the claim states size_u
+    assert [(u.position, u.size_u, u.standing, u.link.target) for u in elevation.units] == [
+        (40, None, "contested", card("XR02:CH5")),  # no built place: from its claim
+        (20, None, "accepted", card("XR01:CH2")),
+        (10, 2, "accepted", card("XR01:CH1")),  # the claim states size_u
     ]
     assert [(u.position, u.link.target) for u in elevation.unpositioned] == [
         (None, card("XR01:CH3"))
@@ -522,6 +577,22 @@ def test_rack_elevation_lights_are_the_units_roll_up_channels(tmp_path):
     assert pump[0].lights == (Light("XR01:IP1:State-Sts", disagree=True),)
 
 
+def test_a_device_claimed_into_two_racks_is_in_both(panel_graph):
+    assert Target("rack", "place", "XR/XR02/RK2") in targets(panel_graph)
+    (elevation,) = _section(rack_elevation(panel_graph, "XR/XR02/RK2"), "units").items
+    assert [(u.position, u.standing, u.link.target) for u in elevation.units] == [
+        (5, "contested", card("XR02:CH5"))
+    ]
+    assert elevation.unpositioned == ()
+
+
+def test_a_device_is_once_in_an_elevation_its_unit_claim_winning(panel_graph):
+    (elevation,) = _section(rack_elevation(panel_graph, "XR/XR01/RK1"), "units").items
+    every = [u.link.target.id for u in (*elevation.units, *elevation.unpositioned)]
+    assert sorted(every) == sorted(set(every))
+    assert "XR01:CH1" not in [u.link.target.id for u in elevation.unpositioned]
+
+
 def test_a_size_that_does_not_parse_is_left_out(tmp_path):
     def odd_size(document: dict[str, Any]) -> None:
         for claim in document["relations"]:
@@ -531,7 +602,8 @@ def test_a_size_that_does_not_parse_is_left_out(tmp_path):
     (elevation,) = _section(
         rack_elevation(_graph(tmp_path, odd_size), "XR/XR01/RK1"), "units"
     ).items
-    assert [(u.link.target.id, u.size_u) for u in elevation.units][1] == ("XR01:CH1", None)
+    sizes = {u.link.target.id: u.size_u for u in elevation.units}
+    assert sizes["XR01:CH1"] is None
 
 
 # -- health roll-up ---------------------------------------------------------------
@@ -623,6 +695,11 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_source=sum(row.has_source for row in rows.values()),
     )
     assert (totals.channels, totals.typed, totals.has_rule) == (13, 4, 2)
+
+
+def test_describe_refuses_a_rollup_with_no_grouping(panel_graph):
+    with pytest.raises(ValueError, match="by"):
+        describe(panel_graph, Target("rollup", "place", "XR"))
 
 
 def test_describe_refuses_a_view_kind_it_does_not_know(panel_graph):

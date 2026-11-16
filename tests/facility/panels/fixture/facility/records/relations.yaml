@@ -32,6 +32,20 @@
   object:
     place: XR/XR01/RK1
     unit: 20
+- id: xr02-ch5-rack1
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR01/RK1
+    unit: 40
+- id: xr02-ch5-rack2
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR02/RK2
+    unit: 5
 - id: xr01-ip1-readout
   type: read_out_by
   subject:

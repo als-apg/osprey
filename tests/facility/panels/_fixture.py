@@ -19,7 +19,9 @@ ring-frame row and no ``s_m``. The channel
 ``VA:XR:InjectionKnob`` is a simulation-only channel; ``XR01:QF1:Current-SP``
 states a tolerance. The rack ``XR/XR01/RK1`` names units for ``XR01:CH1``
 (10, size 2) and ``XR01:CH2`` (20), none for ``XR01:CH3``; ``XR02:BLOCK1`` has
-a citation and nothing else.
+a citation and nothing else. ``XR02:CH5`` has unit claims into two racks
+(``XR/XR01/RK1`` unit 40, ``XR/XR02/RK2`` unit 5), which the build marks
+contested, so its built place is ``None``.
 """
 
 from __future__ import annotations
