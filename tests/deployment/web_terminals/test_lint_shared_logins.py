@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.web_terminals.lint import lint_profile_config, lint_shared_render
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _FLOOR = {
     "claude_code.permissions.deny": ["mcp__osprey_workspace__setup_patch"],

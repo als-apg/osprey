@@ -18,7 +18,7 @@ from osprey.cli import build_environment
 from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey.deployment.members import WORKSPACE_MEMBERS
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _profile(
@@ -407,7 +407,7 @@ class TestWorkspaceMembersFromSource:
         live, and resolving them by name from PyPI may pick up a different
         project's package. The refusal is part of the plan, so an existing venv
         is left exactly as it was."""
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         existing = tmp_path / ".venv" / "pyvenv.cfg"
         existing.parent.mkdir()

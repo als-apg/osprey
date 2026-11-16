@@ -20,8 +20,8 @@ from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _parse_profile_document, _read_profile_document
 from osprey.cli.build_profile_merge import _judge_shared_posture, render_document
 from osprey.cli.build_profile_resolve import resolve_build_profile
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

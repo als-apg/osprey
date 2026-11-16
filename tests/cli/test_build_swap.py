@@ -28,7 +28,7 @@ from click.testing import CliRunner
 from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
 from osprey.cli.build_environment import _ProjectVenvPlan
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import CI_FLAGS
 
 # A plan with nothing to install, for builds whose environment step is faked.

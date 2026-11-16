@@ -16,9 +16,9 @@ import yaml
 
 from osprey.cli import build_profile_model, output
 from osprey.cli.build_profile import _parse_profile, load_profile
+from osprey.errors import BuildProfileError
 from osprey.services.pv_directory import resolve
 from osprey.services.pv_directory._connectors import DIRECTORY_CONNECTORS_AVAILABLE
-from osprey_connectors.errors import BuildProfileError
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

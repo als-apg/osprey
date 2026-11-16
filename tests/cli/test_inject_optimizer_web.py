@@ -138,7 +138,7 @@ def test_the_block_parses_onto_the_layout_slot(tmp_path: Path) -> None:
 
 
 def test_the_block_is_refused_without_an_optimizer(tmp_path: Path) -> None:
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     (tmp_path / "data").mkdir()
     profile = _profile({"optimizer_web": {}})
@@ -148,7 +148,7 @@ def test_the_block_is_refused_without_an_optimizer(tmp_path: Path) -> None:
 
 
 def test_an_unknown_key_in_the_block_is_refused() -> None:
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     with pytest.raises(BuildProfileError, match="prot"):
         _profile({"optimizer": {}, "optimizer_web": {"prot": 1}})

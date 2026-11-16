@@ -12,6 +12,7 @@ from osprey.cli.build_profile import _parse_profile, load_profile
 from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, ROOT_ONLY_KEYS
 from osprey.cli.profile_conventions import KNOWN_ROOT_ENTRIES, is_protected_key
+from osprey.errors import BuildProfileError
 from osprey.mcp_server.python_executor.executor import (
     PROFILE_SOURCE_ENTRIES,
     resolve_protected_roots,
@@ -23,7 +24,6 @@ from osprey.services.watchdog.config import (
     parse_watchdogs_block,
     watchdog_errors,
 )
-from osprey_connectors.errors import BuildProfileError
 from tests.services.python_executor.test_runtime_guard import _Project, project  # noqa: F401
 
 _OPTIONS = [

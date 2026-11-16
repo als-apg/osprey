@@ -500,8 +500,8 @@ def _read_profile(repo_root: Path) -> dict:
 
 def _served_models(repo_root: Path, provider: str) -> list[str]:
     """The model ids the catalog entry for *provider* lists; empty when it lists none."""
+    from osprey.errors import BuildProfileError
     from osprey.profiles.providers import load_provider_catalog
-    from osprey_connectors.errors import BuildProfileError
 
     try:
         entry = load_provider_catalog(repo_root).entries.get(provider) or {}
@@ -665,7 +665,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     from ruamel.yaml.error import YAMLError
 
     from osprey.deployment.staleness import check_drift
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     from .build_profile import write_back_cli_overrides
 

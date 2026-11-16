@@ -40,7 +40,6 @@ if TYPE_CHECKING:
 __all__ = [
     "NOT_A_CHANNEL",
     "RAW_CLIENT_WRITE_MARKER",
-    "BuildProfileError",
     "ChannelError",
     "ChannelLimitsViolationError",
     "ChannelNotFoundError",
@@ -54,7 +53,6 @@ __all__ = [
     "ConnectorUnavailableError",
     "RecoveryRecord",
     "RefusalReason",
-    "RegistryError",
     "raw_client_write_message",
 ]
 
@@ -496,21 +494,9 @@ class ConnectorInternalError(RuntimeError):
         super().__init__(message)
 
 
-class RegistryError(Exception):
-    """Exception for registry-related errors.
-
-    Raised when issues occur with component registration, lookup, or
-    management within the framework's registry system.
-    """
-
-
 class ConfigurationError(Exception):
     """Exception for configuration-related errors.
 
     Raised when configuration files are invalid, missing required settings,
     or contain incompatible values that prevent proper system operation.
     """
-
-
-class BuildProfileError(ConfigurationError):
-    """Raised when a build profile is invalid or missing required files."""

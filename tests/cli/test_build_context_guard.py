@@ -17,7 +17,7 @@ import pytest
 
 from osprey.cli.build_persistence import _apply_conventions
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
 
 CONTEXT_DIR = "docker/web-terminal-context"

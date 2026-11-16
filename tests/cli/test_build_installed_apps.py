@@ -12,7 +12,7 @@ import yaml
 from osprey.apps.origin import AppOrigin
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.wheel_build import refuse_unshipped_apps
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.apps import _installed
 from tests.apps._installed import DIRECTORY, DIST, NAME, VERSION, entry_point
 from tests.cli._lifecycle_build import invoke_build_in, profile_hash, rendered_config

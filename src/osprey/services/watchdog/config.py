@@ -44,7 +44,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 #: The profile key, and the top-level key of the rendered ``config.yml``.
 WATCHDOGS_BLOCK = "watchdogs"

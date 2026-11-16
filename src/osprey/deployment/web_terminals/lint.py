@@ -1704,8 +1704,8 @@ def _profile_composed_layers(
     try:
         from osprey.cli.build_profile_document import _read_profile_document
         from osprey.cli.build_profile_merge import _resolve_extends, render_document
+        from osprey.errors import BuildProfileError
         from osprey.utils.workspace import PROFILE_FILENAME
-        from osprey_connectors.errors import BuildProfileError
 
         app_raw = _read_profile_document(app_file, build_profile)
         if not isinstance(app_raw, dict):

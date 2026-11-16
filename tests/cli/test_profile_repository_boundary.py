@@ -30,8 +30,8 @@ from osprey.cli.build_profile_merge import (
 )
 from osprey.cli.build_profile_presets import bundled_service_template, bundled_services_dir
 from osprey.cli.main import cli
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import PROFILE_FILENAME
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import init_project, run_build
 

@@ -17,7 +17,7 @@ import yaml
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_document import _WARNED_RETIRED_KEYS, normalize_retired_web_keys
 from osprey.cli.build_profile_resolve import cli_edit_layer
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

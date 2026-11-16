@@ -80,6 +80,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, overload
 
+from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
     NoConnectorHostError,
@@ -91,7 +92,7 @@ from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.control_system import ControlSystemConnector
-from osprey_connectors.errors import ConfigurationError, ConnectorUnavailableError
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.errors import RecoveryRecord as Recovery
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.model import evolve

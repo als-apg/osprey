@@ -17,8 +17,8 @@ Extracted from :mod:`osprey.registry.manager` (RF-010).
 import importlib
 from typing import Any
 
+from osprey.errors import RegistryError
 from osprey_connectors.config import get_config_value
-from osprey_connectors.errors import RegistryError
 from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig

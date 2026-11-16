@@ -914,7 +914,7 @@ def build_deployment_packages(
             ``.env``.
     """
     from osprey.apps.rules import deployment_packages, local_path
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     # Each local-path entry stands for the package at its path, an application
     # package included, so the entry is spelled as that package in place and no
@@ -989,7 +989,7 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
     import sys
     import tempfile
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     uv = os.environ.get("UV") or shutil.which("uv")
     env = _wheel_build_env()
@@ -1030,7 +1030,7 @@ def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path, stated: 
     """
     from packaging.tags import compatible_tags, cpython_tags
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     abi = f"cp{IMAGE_PYTHON[0]}{IMAGE_PYTHON[1]}"
     runs_on_python = {
@@ -1068,7 +1068,7 @@ def _refuse_secrets_in_wheel(wheel: Path, source: Path) -> None:
     """Refuse a wheel holding a ``.env``: a sweep of the image tree cannot open a wheel."""
     import zipfile
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     with zipfile.ZipFile(wheel) as archive:
         members = [
@@ -1125,7 +1125,7 @@ def refuse_named_twice(packages: Sequence[DeploymentPackage], requirements: Iter
     from packaging.requirements import InvalidRequirement, Requirement
     from packaging.utils import canonicalize_name
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     by_name: dict[str, DeploymentPackage] = {}
     pairs: list[str] = []
@@ -1168,7 +1168,7 @@ def refuse_unshipped_apps(
     """
     from packaging.utils import canonicalize_name
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     shipped = _shipped_distributions(requirements)
     refused = [
@@ -1221,7 +1221,7 @@ def refuse_unshipped_kinds(
     """
     from packaging.utils import canonicalize_name
 
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     shipped = _shipped_distributions(requirements)
     refused = []

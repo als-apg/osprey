@@ -28,7 +28,7 @@ from osprey.cli.build_profile import (
     _parse_profile,
 )
 from osprey.cli.profile_card import card_rows
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _TRIGGERS_YAML = """\
 dispatcher:

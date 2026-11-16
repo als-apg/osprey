@@ -81,6 +81,7 @@ from osprey.cli.build_profile_load import (
     _KNOWN_VA_KEYS,
 )
 from osprey.cli.build_profile_schema import ServiceDef
+from osprey.errors import ConfigurationError
 from osprey.facility.layers.mml.mapping import _TOP_OPTIONAL as _MML_TOP_OPTIONAL
 from osprey.facility.layers.mml.mapping import _TOP_REQUIRED as _MML_TOP_REQUIRED
 from osprey.health.config import parse_health_config
@@ -91,7 +92,6 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
 from osprey.services.watchdog.config import _AGENT_KEYS as _WATCHDOG_AGENT_KEYS
 from osprey.services.watchdog.config import _COMMON_KEYS as _WATCHDOG_COMMON_KEYS
 from osprey.services.watchdog.config import _DECISION_KEYS as _WATCHDOG_DECISION_KEYS
-from osprey_connectors.errors import ConfigurationError
 from tests.docs.test_connector_config_examples import _declared_spelling, _leaves
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -1898,7 +1898,7 @@ def test_build_refuses_an_unselected_write_gate(tmp_path):
     at a script the manifest gate had not installed — a write gate that was
     silently not there.
     """
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     with pytest.raises(BuildProfileError) as excinfo:
         _project_with_hooks(

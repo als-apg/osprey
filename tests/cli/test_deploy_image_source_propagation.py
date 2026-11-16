@@ -24,7 +24,7 @@ from osprey.cli.build_profile_deploy import (
     deploy_config_overrides,
     parse_deploy_block,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 DEPLOY_BLOCK: dict[str, Any] = {

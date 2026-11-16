@@ -20,7 +20,7 @@ from osprey.cli.build_profile_merge import (
     resolve_profile_document,
 )
 from osprey.deployment.staleness import profile_fingerprint
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 _APP_YML = """\
 name: knob

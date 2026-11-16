@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIR_KINDS,
@@ -25,7 +26,6 @@ from osprey.utils.workspace import (
     RETIRED_LAYER_DIRS,
     RUNTIME_DATA_DIR_NAME,
 )
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,

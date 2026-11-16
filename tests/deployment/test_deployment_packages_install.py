@@ -50,8 +50,8 @@ from osprey.deployment.wheel_build import (
     DeploymentPackage,
     build_deployment_packages,
 )
+from osprey.errors import BuildProfileError
 from osprey.utils.workspace import IMAGE_DIR_NAME
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 APP_PYPROJECT = """\

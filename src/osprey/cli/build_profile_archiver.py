@@ -35,9 +35,9 @@ import difflib
 from dataclasses import dataclass, fields
 from typing import Any
 
+from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
 from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 

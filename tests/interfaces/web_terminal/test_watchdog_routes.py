@@ -16,6 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.errors import BuildProfileError
 from osprey.interfaces.common_middleware import WebAuthMiddleware
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
 from osprey.interfaces.web_terminal.app import create_app
@@ -34,7 +35,6 @@ from osprey.services.watchdog.config import ENGINE_DECISION, WatchdogDefinition
 from osprey.services.watchdog.history import SessionNodes
 from osprey.services.watchdog.runner import WatchdogRunner
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG, Verdict, make_prompt_ref
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.session_hold import (
     HOLD_DIR_ENV_VAR,
     RECORD_NAME,

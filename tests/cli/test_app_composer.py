@@ -26,8 +26,8 @@ from osprey.cli.build_profile_merge import resolve_profile_document
 from osprey.cli.build_profile_presets import _presets_dir, preset_data_bundle
 from osprey.cli.templates.claude_code import _graphdb_configured, _pv_directory_context
 from osprey.deployment.web_terminals.lint import lint_shared_render
+from osprey.errors import BuildProfileError
 from osprey.registry.mcp import resolve_servers
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import configured_targets
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"

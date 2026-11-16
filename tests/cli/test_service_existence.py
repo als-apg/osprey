@@ -29,7 +29,7 @@ from osprey.cli.build_profile_presets import (
     resolve_service_template,
 )
 from osprey.cli.init_cmd import init
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build
 
 

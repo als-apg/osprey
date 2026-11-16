@@ -234,7 +234,7 @@ class TestTheLoaderRejectsUnknownProfileKeys:
 
     def test_an_unknown_top_level_key_is_rejected(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import _load_preset_raw, load_profile
-        from osprey_connectors.errors import BuildProfileError
+        from osprey.errors import BuildProfileError
 
         # The preset as a profile layer — `app_template:` already consumed, the
         # way resolution consumes it. Spelling that key in a repo profile is

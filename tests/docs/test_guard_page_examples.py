@@ -40,11 +40,12 @@ import pytest
 import yaml
 
 from osprey.cli import watchdog_cmd
+from osprey.errors import BuildProfileError
 from osprey.services.python_executor.analysis.safety_checks import check_readonly_imports
 from osprey.services.watchdog.config import INSTRUCTIONS_FILENAME, REFERENCES_DIRNAME
 from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
-from osprey_connectors.errors import BuildProfileError, raw_client_write_message
+from osprey_connectors.errors import raw_client_write_message
 from osprey_connectors.refusals import refusal_text
 from tests._builds import init_project
 from tests._by_path import load_module

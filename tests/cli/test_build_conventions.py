@@ -19,7 +19,7 @@ from osprey.cli.build_persistence import (
     _register_convention_artifacts,
     _resolve_context_roster,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
 
 

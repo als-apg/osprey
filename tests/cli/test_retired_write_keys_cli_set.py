@@ -31,8 +31,8 @@ from osprey.cli.build_profile_resolve import (
     write_back_cli_overrides,
 )
 from osprey.cli.set_cmd import set as set_command
+from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import tier_allows, tier_writes
 
 _LOGGER_NAME = doc.__name__

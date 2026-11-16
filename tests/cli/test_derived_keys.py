@@ -17,7 +17,7 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile
 from osprey.cli.derived_keys import DERIVED_KEYS, derived_key_errors, is_derived_key
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

@@ -50,10 +50,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.errors import ConfigurationError
 from osprey.health.config import DiskThresholds, parse_disk_thresholds
 from osprey.health.derive import in_container
 from osprey.health.models import N_A_IN_CONTAINER, CheckResult, Status
-from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.workspace import agent_data_base_dir
 
 _CATEGORY = "file_system"

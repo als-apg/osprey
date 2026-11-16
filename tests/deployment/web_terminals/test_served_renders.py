@@ -439,7 +439,7 @@ def test_a_seal_refusal_travels_as_the_reason(
     # Arrange
     import osprey.cli.build_profile_merge as merge
     from osprey.deployment.web_terminals import lint
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     (tmp_path / "tiers").mkdir()
     (tmp_path / "tiers" / "logbook.yml").write_text("lists: own\nconfig: {}\n", encoding="utf-8")

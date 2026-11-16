@@ -26,7 +26,7 @@ from osprey.cli.build_profile import (
     _resolve_extends,
     resolve_build_profile,
 )
-from osprey_connectors.errors import BuildProfileError
+from osprey.errors import BuildProfileError
 
 
 def _write(path: Path, text: str) -> Path:

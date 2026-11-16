@@ -13,7 +13,7 @@ Each refusal is pinned by its exact message, because the message is the whole
 deliverable — a refusal an author cannot act on is a build that fails twice.
 The suite also pins the accumulation contract the rest of ``validate`` keeps:
 several stand-in faults arrive in ONE
-:class:`~osprey_connectors.errors.BuildProfileError`, never one rebuild per typo.
+:class:`~osprey.errors.BuildProfileError`, never one rebuild per typo.
 """
 
 from __future__ import annotations

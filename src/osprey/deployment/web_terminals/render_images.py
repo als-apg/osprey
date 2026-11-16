@@ -644,7 +644,7 @@ def _resolve_render_profile(build_profile: str, render_name: str, profile_root: 
     # candidate and the expected directory resolve to the SAME place, so a
     # containment check on the parent passes while the root is still wrong.
     from osprey.cli.profile_root import resolve_profile_root
-    from osprey_connectors.errors import BuildProfileError
+    from osprey.errors import BuildProfileError
 
     try:
         anchored_root, anchored_kind = resolve_profile_root(candidate)
