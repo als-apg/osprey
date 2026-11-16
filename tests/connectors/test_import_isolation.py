@@ -171,7 +171,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
         import asyncio
         import math
         import sys
-        from datetime import datetime
+        from datetime import UTC, datetime
 
 
         class _RefuseOsprey:
@@ -196,9 +196,9 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
             connector = MockArchiverConnector()
             await connector.connect({"simulator_view": sys.argv[1]})
             df = await connector.get_data(
-                addresses=["T:Q1:CUR:SP"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
+                ["T:Q1:CUR:SP"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
             )
             values = df.loc[df["address"] == "T:Q1:CUR:SP", "value"].tolist()
             assert values and all(math.isfinite(v) for v in values), values

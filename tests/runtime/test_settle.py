@@ -75,7 +75,7 @@ class Readbacks:
         del timeout_s
         self.reads.append(address)
         return ChannelValue(
-            value=self.values.get(address), timestamp=datetime.now(UTC), metadata=ChannelMetadata()
+            value=self.values.get(address), sampled_at=datetime.now(UTC), metadata=ChannelMetadata()
         )
 
 

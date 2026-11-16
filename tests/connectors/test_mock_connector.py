@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import textwrap
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -138,19 +138,16 @@ class TestVAInProcessConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_returns_tz_aware_timestamps(self, tmp_path):
-        """Live-read timestamps carry an explicit offset (facility zone), not a
-        naive datetime — guards the connector render sites against silent
-        reversion to ``datetime.now()``."""
+    async def test_read_returns_utc_sampled_at(self, tmp_path):
+        """A live read is stamped as an aware UTC instant, not a naive one —
+        guards the connector against silent reversion to ``datetime.now()``."""
         view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("ANY:CHANNEL")
-            assert result.timestamp.tzinfo is not None
-            assert result.timestamp.utcoffset() is not None
-            assert result.metadata.timestamp.tzinfo is not None
+            assert result.sampled_at.utcoffset() == timedelta(0)
 
             await connector.disconnect()
 
@@ -730,19 +727,17 @@ class TestMockArchiverConnector:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
 
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 1, 0, 0)
+        start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(addresses=channels, start_date=start_date, end_date=end_date)
+        df = await connector.get_data(channels, start_at=start_date, end_at=end_date)
 
         assert df is not None
         assert len(df) > 0
         assert set(df["address"]) == set(channels)
 
         with pytest.raises(ChannelNotFoundError) as refusal:
-            await connector.get_data(
-                addresses=["NOT:SERVED"], start_date=start_date, end_date=end_date
-            )
+            await connector.get_data(["NOT:SERVED"], start_at=start_date, end_at=end_date)
         assert str(refusal.value) == "NOT:SERVED is not a channel of this facility"
 
         await connector.disconnect()
@@ -753,11 +748,11 @@ class TestMockArchiverConnector:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 0, 10, 0)
+        start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 0, 10, 0, tzinfo=UTC)
 
         df = await connector.get_data(
-            addresses=["BEAM:CURRENT"], start_date=start_date, end_date=end_date, precision_ms=1000
+            ["BEAM:CURRENT"], start_at=start_date, end_at=end_date, precision_ms=1000
         )
 
         import pandas as pd
@@ -779,7 +774,11 @@ class TestMockArchiverConnector:
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert metadata.address == "BEAM:CURRENT"
         assert metadata.is_archived is True
-        assert metadata.archival_start is not None
+        assert metadata.first_sample_at is not None
+        # Both bounds are UTC instants, whatever the facility zone.
+        assert metadata.first_sample_at.utcoffset() == timedelta(0)
+        assert metadata.last_sample_at is not None
+        assert metadata.last_sample_at.utcoffset() == timedelta(0)
 
         await connector.disconnect()
 
@@ -805,12 +804,10 @@ class TestMockArchiverConnector:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 1, 0, 0)
+        start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(
-            addresses=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
-        )
+        df = await connector.get_data(["BEAM:CURRENT"], start_at=start_date, end_at=end_date)
 
         # Check that values vary (not all the same)
         values = df.loc[df["address"] == "BEAM:CURRENT", "value"].to_numpy()
@@ -827,14 +824,14 @@ class TestMockArchiverConnector:
             in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT", "MAGNET:VOLTAGE"))
         )
 
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 0, 1, 0)
+        start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 0, 1, 0, tzinfo=UTC)
         channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE"]
 
         df = await connector.get_data(
-            addresses=channels,
-            start_date=start_date,
-            end_date=end_date,
+            channels,
+            start_at=start_date,
+            end_at=end_date,
             precision_ms=1000,
         )
 
@@ -864,21 +861,21 @@ class TestMockArchiverProcessing:
         # Both calls generate the same 10 points (the generator's forced
         # minimum) over this 10s window; the 60s mean bin forces every sample
         # into a single aggregation bin.
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 0, 0, 10)
+        start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 0, 0, 10, tzinfo=UTC)
         pv = "BEAM:CURRENT"
 
         raw_df = await connector.get_data(
-            addresses=[pv],
-            start_date=start_date,
-            end_date=end_date,
+            [pv],
+            start_at=start_date,
+            end_at=end_date,
             precision_ms=1_000,
             processing="raw",
         )
         mean_df = await connector.get_data(
-            addresses=[pv],
-            start_date=start_date,
-            end_date=end_date,
+            [pv],
+            start_at=start_date,
+            end_at=end_date,
             precision_ms=60_000,
             processing="mean",
         )
@@ -895,13 +892,13 @@ class TestMockArchiverProcessing:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
-        start_date = datetime(2024, 1, 1)
+        start_date = datetime(2024, 1, 1, tzinfo=UTC)
         end_date = start_date + timedelta(days=7)
 
         df = await connector.get_data(
-            addresses=["BEAM:CURRENT"],
-            start_date=start_date,
-            end_date=end_date,
+            ["BEAM:CURRENT"],
+            start_at=start_date,
+            end_at=end_date,
             precision_ms=1000,
             processing="mean",
         )
@@ -921,7 +918,10 @@ class TestMockArchiverReproducibility:
     a global random state or a salted ``hash()``.
     """
 
-    _WINDOW = (datetime(2024, 1, 15, 10, 0, 0), datetime(2024, 1, 15, 10, 5, 0))
+    _WINDOW = (
+        datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+        datetime(2024, 1, 15, 10, 5, 0, tzinfo=UTC),
+    )
     _CHANNELS = ("SR:UNKNOWN:PRESSURE", "SR:OTHER:PRESSURE", "SR:BPM01:POSITION")
 
     @pytest.fixture
@@ -932,7 +932,7 @@ class TestMockArchiverReproducibility:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(view))
         start, end = self._WINDOW
-        df = await connector.get_data(addresses=[pv], start_date=start, end_date=end)
+        df = await connector.get_data([pv], start_at=start, end_at=end)
         await connector.disconnect()
         return df["value"].tolist()
 
@@ -956,7 +956,7 @@ class TestMockArchiverReproducibility:
         """
         script = textwrap.dedent("""
             import asyncio, json, sys
-            from datetime import datetime
+            from datetime import UTC, datetime
             from osprey_connectors.archiver._mock_archiver_connector import (
                 MockArchiverConnector,
             )
@@ -965,9 +965,9 @@ class TestMockArchiverReproducibility:
                 c = MockArchiverConnector()
                 await c.connect({"simulator_view": sys.argv[1]})
                 df = await c.get_data(
-                    addresses=["SR:UNKNOWN:PRESSURE"],
-                    start_date=datetime(2024, 1, 15, 10, 0, 0),
-                    end_date=datetime(2024, 1, 15, 10, 5, 0),
+                    ["SR:UNKNOWN:PRESSURE"],
+                    start_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 15, 10, 5, 0, tzinfo=UTC),
                 )
                 await c.disconnect()
                 print(json.dumps(df["value"].tolist()))

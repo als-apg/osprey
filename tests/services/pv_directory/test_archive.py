@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -109,8 +109,8 @@ class _Answers:
 
 class _Extent:
     addresses = ["SR:A", "SR:B"]
-    oldest = datetime(2026, 10, 13)
-    newest = datetime(2026, 11, 12)
+    oldest_at = datetime(2026, 10, 13, tzinfo=UTC)
+    newest_at = datetime(2026, 11, 12, tzinfo=UTC)
     reason = None
 
 
@@ -119,8 +119,8 @@ async def test_an_extent_is_read_as_the_connector_answers_it() -> None:
 
     assert extent == archive.Extent(
         channels=frozenset({"SR:A", "SR:B"}),
-        oldest=datetime(2026, 10, 13),
-        newest=datetime(2026, 11, 12),
+        oldest=datetime(2026, 10, 13, tzinfo=UTC),
+        newest=datetime(2026, 11, 12, tzinfo=UTC),
     )
 
 

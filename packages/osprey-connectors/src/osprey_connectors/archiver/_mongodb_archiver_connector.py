@@ -14,7 +14,7 @@ import asyncio
 import os
 import urllib.parse
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeGuard
 
 import pandas as pd
@@ -94,6 +94,15 @@ _VERIFY_OFF_OPTIONS = frozenset(
 )
 
 _ROUTE_LOGGED = False
+
+
+def _stored_instant(moment: datetime) -> datetime:
+    """A stored ``date`` as the UTC instant it is.
+
+    The store keeps UTC, and pymongo hands it back as a naive ``datetime`` unless
+    the client was opened timezone-aware; either way the answer is aware UTC.
+    """
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
@@ -185,9 +194,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> connector = MongoDBArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     addresses=['BEAM:CURRENT'],
-        >>>     start_date=datetime(2024, 1, 1),
-        >>>     end_date=datetime(2024, 1, 2)
+        >>>     ['BEAM:CURRENT'],
+        >>>     start_at=datetime(2024, 1, 1, tzinfo=UTC),
+        >>>     end_at=datetime(2024, 1, 2, tzinfo=UTC),
         >>> )
     """
 
@@ -479,10 +488,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -491,8 +500,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         Args:
             addresses: Channel addresses to retrieve
-            start_date: Start of time range
-            end_date: End of time range
+            start_at: Start of the time range, timezone-aware.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Time precision in milliseconds (for downsampling)
             timeout_s: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
@@ -508,7 +517,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
             ConnectorUnavailableError: If MongoDB cannot be reached, or the
                 connection is lost mid-query; its supervisor rebuilds the
                 connector
-            TypeError: If start_date or end_date are not datetime objects
+            TypeError: If start_at or end_at is not a datetime
+            NaiveDatetimeError: If start_at or end_at is naive
             ValueError: If channels is empty, data retrieval fails, or a
                 non-raw processing mode is requested for a channel that
                 carries non-numeric values
@@ -517,9 +527,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         self._require_connected()
 
-        # pymongo reads naive datetimes as UTC; normalize so a bare wall-clock
-        # means facility-local, as in every other connector.
-        start_utc, end_utc = utc_window(start_date, end_date)
+        # pymongo reads naive datetimes as UTC, so the bounds go to it in UTC.
+        start_utc, end_utc = utc_window(start_at, end_at)
 
         if not addresses:
             raise ValueError("channels cannot be empty")
@@ -567,7 +576,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                             values[channel].append(value)
 
             if not found:
-                logger.debug(f"No documents found in date range {start_date} to {end_date}")
+                logger.debug(f"No documents found in date range {start_utc} to {end_utc}")
 
             series: dict[str, SampleSeries] = {}
             for channel in addresses:
@@ -618,8 +627,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         Get archiving metadata for a channel.
 
-        ``archival_start`` and ``archival_end`` are the timestamps of the
-        oldest and newest documents actually holding this channel, read from the
+        ``first_sample_at`` and ``last_sample_at`` are the instants, in UTC, of
+        the oldest and newest documents actually holding this channel, read from the
         store — not a declared or assumed coverage window. An agent that asks
         how far back the history goes gets the real answer, so a query outside
         the stored range reads as "not archived that far back" rather than as
@@ -657,9 +666,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     continue
                 newest = store.find_one(query, projection, sort=[("date", -1)])
                 if isinstance(oldest_at := oldest.get("date"), datetime):
-                    firsts.append(oldest_at)
+                    firsts.append(_stored_instant(oldest_at))
                 if isinstance(newest_at := (newest or {}).get("date"), datetime):
-                    lasts.append(newest_at)
+                    lasts.append(_stored_instant(newest_at))
             return min(firsts, default=None), max(lasts, default=None)
 
         try:
@@ -675,8 +684,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
         return ArchiverMetadata(
             address=address,
             is_archived=first is not None,
-            archival_start=first,
-            archival_end=last,
+            first_sample_at=first,
+            last_sample_at=last,
             description=f"MongoDB archived channel: {address}",
         )
 
@@ -724,7 +733,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         ``channels`` is every channel field of the newest documents of the
         snapshot collection and of its waveform sibling (a waveform document
         holds one channel, so every document at the sibling's newest instant is
-        read). ``oldest`` and ``newest`` span both collections. Four or more
+        read). ``oldest_at`` and ``newest_at`` span both collections, in UTC. Four or more
         index-ordered reads on ``date``; never a collection scan.
 
         Returns:
@@ -748,16 +757,16 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 if not isinstance(last_at := last.get("date"), datetime):
                     continue
                 if isinstance(first_at := first.get("date"), datetime):
-                    oldest.append(first_at)
-                newest.append(last_at)
+                    oldest.append(_stored_instant(first_at))
+                newest.append(_stored_instant(last_at))
                 for document in store.find({"date": last_at}):
                     channels.update(
                         _address_of(field) for field in document if field not in _RESERVED_FIELDS
                     )
             return ArchiveExtent(
                 addresses=frozenset(channels),
-                oldest=min(oldest, default=None),
-                newest=max(newest, default=None),
+                oldest_at=min(oldest, default=None),
+                newest_at=max(newest, default=None),
             )
 
         try:

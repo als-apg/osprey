@@ -11,7 +11,7 @@ in-tree :class:`VAInProcessConnector` end to end through a real ``HealthRuntime`
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +41,7 @@ class _SpyConnector:
             raise self._raise_exc
         return ChannelValue(
             value=self._value,
-            timestamp=datetime(2026, 1, 1),
+            sampled_at=datetime(2026, 1, 1, tzinfo=UTC),
             metadata=ChannelMetadata(units=self._units),
         )
 

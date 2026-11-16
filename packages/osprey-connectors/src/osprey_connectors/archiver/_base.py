@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 import pandas as pd
+from pydantic import AwareDatetime
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._timerange import ProcessingMode
@@ -25,12 +26,16 @@ class ArchiverMetadata(FrozenModel):
 
     ``is_archived`` is ``None`` when this archiver cannot say whether it archives
     the channel; ``description`` then says why.
+
+    ``first_sample_at`` and ``last_sample_at`` are the instants of the oldest and
+    newest samples the archiver holds for the channel, in UTC; ``None`` when it
+    cannot say.
     """
 
     address: str
     is_archived: bool | None
-    archival_start: datetime | None = None
-    archival_end: datetime | None = None
+    first_sample_at: AwareDatetime | None = None
+    last_sample_at: AwareDatetime | None = None
     sampling_period: float | None = None
     description: str | None = None
 
@@ -39,13 +44,14 @@ class ArchiveExtent(FrozenModel):
     """What an archive store holds, as far as the archiver can say.
 
     Every field is ``None`` when unknown. ``addresses`` is the set of channel
-    addresses the store records now; ``oldest`` and ``newest`` are the instants
-    of its oldest and newest samples; ``reason`` says why a part is unknown.
+    addresses the store records now; ``oldest_at`` and ``newest_at`` are the
+    instants of its oldest and newest samples, in UTC; ``reason`` says why a part
+    is unknown.
     """
 
     addresses: frozenset[str] | None = None
-    oldest: datetime | None = None
-    newest: datetime | None = None
+    oldest_at: AwareDatetime | None = None
+    newest_at: AwareDatetime | None = None
     reason: str | None = None
 
 
@@ -64,9 +70,9 @@ class ArchiverConnector(ABC):
         >>> connector = await ConnectorFactory.create_archiver_connector()
         >>> try:
         >>>     df = await connector.get_data(
-        >>>         addresses=['BEAM:CURRENT', 'BEAM:LIFETIME'],
-        >>>         start_date=datetime(2024, 1, 1),
-        >>>         end_date=datetime(2024, 1, 2)
+        >>>         ['BEAM:CURRENT', 'BEAM:LIFETIME'],
+        >>>         start_at=datetime(2024, 1, 1, tzinfo=UTC),
+        >>>         end_at=datetime(2024, 1, 2, tzinfo=UTC),
         >>>     )
         >>>     print(df.head())
         >>> finally:
@@ -94,10 +100,10 @@ class ArchiverConnector(ABC):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -108,12 +114,13 @@ class ArchiverConnector(ABC):
             addresses: List of channel addresses to retrieve. Addresses are
                 protocol-agnostic: EPICS PV names, DOOCS property addresses, or
                 whatever the configured backend keys its store by.
-            start_date: Start of time range
-            end_date: End of time range
+            start_at: Start of the time range, timezone-aware. A naive
+                datetime is refused: it names no instant.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
                 resolution. A backend that cannot express the requested width
                 must raise ``ValueError`` rather than serve a different one.
-                Bins are anchored on ``start_date``: the same window and width
+                Bins are anchored on ``start_at``: the same window and width
                 cut the same lattice for every channel in the request and for
                 every processing mode. A backend that bins on a grid of its own
                 is the documented exception — the EPICS Archiver Appliance's
@@ -146,6 +153,9 @@ class ArchiverConnector(ABC):
         Raises:
             ConnectorUnavailableError: If archiver cannot be reached
             TimeoutError: If operation times out
+            TypeError: If ``start_at`` or ``end_at`` is not a ``datetime``
+            NaiveDatetimeError: If ``start_at`` or ``end_at`` is naive (a
+                ``ValueError``)
             ValueError: If time range, channel addresses, or processing mode are
                 invalid, or if a non-"raw" processing mode is requested for a
                 channel whose values are non-numeric or that is a waveform channel
@@ -185,7 +195,7 @@ class ArchiverConnector(ABC):
         """
 
     async def store_extent(self) -> ArchiveExtent:
-        """What the store holds: its channels, oldest and newest sample.
+        """What the store holds: its channels, oldest and newest sample, in UTC.
 
         Optional. The default answers every part unknown, with a reason, so an
         archiver that cannot list its store keeps working unchanged.

@@ -18,13 +18,12 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, Self, TypeAlias, TypeGuard
 
-from pydantic import Field, ValidationInfo, field_validator, model_validator
+from pydantic import AwareDatetime, Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
@@ -108,7 +107,6 @@ class ChannelMetadata(FrozenModel):
     #: which stays distinct from a reported healthy value (``alarm_severity=0``) —
     #: the same convention as :attr:`ChannelWriteResult.alarm_severity`.
     alarm_severity: int | None = None
-    timestamp: datetime | None = None
     description: str | None = None
     display_low: float | None = None
     display_high: float | None = None
@@ -210,10 +208,16 @@ def _writable_flag(value: object) -> bool | None:
 
 
 class ChannelValue(FrozenModel):
-    """Value of a control system channel with metadata."""
+    """Value of a control system channel with metadata.
+
+    ``sampled_at`` is the instant the control system stamped the reading with
+    (the IOC's or device's own time stamp), or the instant the connector read it
+    when the source reported none. Timezone-aware; every built-in connector
+    stamps it in UTC.
+    """
 
     value: ContractAny
-    timestamp: datetime
+    sampled_at: AwareDatetime
     metadata: ChannelMetadata = Field(default_factory=ChannelMetadata)
 
 
@@ -1363,7 +1367,7 @@ class ControlSystemConnector(ABC):
             timeout_s: Optional timeout in seconds
 
         Returns:
-            ChannelValue with current value, timestamp, and metadata
+            ChannelValue with current value, ``sampled_at``, and metadata
 
         Raises:
             ChannelUnreachableError: This channel cannot be reached or did not

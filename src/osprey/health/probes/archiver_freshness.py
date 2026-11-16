@@ -118,8 +118,8 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
         connector = await ctx.runtime.get_archiver(dict(archiver_block))
         frame = await connector.get_data(
             [channel],
-            start,
-            now,
+            start_at=start,
+            end_at=now,
             timeout_s=timeout_s,
         )
     except Exception as exc:  # any archiver failure becomes an error result

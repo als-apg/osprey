@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from types import ModuleType
 from typing import (
     Literal,
@@ -39,7 +39,7 @@ from typing_extensions import Buffer, override
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
-from osprey_connectors.config import config_flag, get_facility_timezone
+from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -1297,7 +1297,7 @@ class EPICSConnector(ControlSystemConnector):
             timeout_s: Timeout in seconds (uses default if None)
 
         Returns:
-            ChannelValue with current value, timestamp, and metadata
+            ChannelValue with current value, ``sampled_at``, and metadata
 
         Raises:
             ChannelUnreachableError: The channel did not connect or did not
@@ -1412,10 +1412,9 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata next to the severity so nothing is lost. The read path and
         the monitor path both come through here, so they cannot drift apart.
         """
-        tz = get_facility_timezone()
         value = _ca_plain(reading)
         stamp = getattr(reading, "timestamp", None)
-        timestamp = datetime.fromtimestamp(stamp, tz) if stamp else datetime.now(tz)
+        sampled_at = datetime.fromtimestamp(stamp, UTC) if stamp else datetime.now(UTC)
         alarm_code = getattr(reading, "status", None)
         severity = getattr(reading, "severity", None)
         pv_type = _ca_type_name(getattr(reading, "datatype", None))
@@ -1429,7 +1428,6 @@ class EPICSConnector(ControlSystemConnector):
             precision=_ctrl_precision(ctrl),
             alarm_status=_alarm_name(alarm_code),
             alarm_severity=_severity_int(severity),
-            timestamp=timestamp,
             enum_labels=labels,
             enum_label=label,
             raw_metadata={
@@ -1440,7 +1438,7 @@ class EPICSConnector(ControlSystemConnector):
             },
             **_ca_ctrl_limits(ctrl, writable),
         )
-        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
 
     @staticmethod
     def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
@@ -1641,7 +1639,7 @@ class EPICSConnector(ControlSystemConnector):
     def _pva_channel_value(self, address: str, value: object) -> ChannelValue:
         """Map a p4p Value onto :class:`ChannelValue` by normative type."""
         type_id = _pva_type_id(value)
-        timestamp = self._pva_timestamp(value)
+        sampled_at = self._pva_sampled_at(value)
         raw_metadata: dict[str, object] = {"nt_id": type_id}
         raw_metadata.update(self._pva_alarm_metadata(value))
 
@@ -1659,18 +1657,16 @@ class EPICSConnector(ControlSystemConnector):
         # not enum-typed.
         metadata = self._pva_metadata(
             value,
-            timestamp,
             raw_metadata,
             enum_labels=payload.get("enum_labels"),
             enum_label=payload.get("enum_label"),
         )
 
-        return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=payload["value"], sampled_at=sampled_at, metadata=metadata)
 
     def _pva_metadata(
         self,
         value: object,
-        timestamp: datetime,
         raw_metadata: dict[str, object],
         *,
         enum_labels: tuple[str, ...] | None = None,
@@ -1714,7 +1710,6 @@ class EPICSConnector(ControlSystemConnector):
             precision=int(precision) if isinstance(precision, int | float) else None,
             alarm_status=alarm_status,
             alarm_severity=_severity_int(raw_metadata.get("severity")),
-            timestamp=timestamp,
             description=str(description) if description else None,
             display_low=display_low,
             display_high=display_high,
@@ -1729,15 +1724,15 @@ class EPICSConnector(ControlSystemConnector):
             raw_metadata=raw_metadata,
         )
 
-    def _pva_timestamp(self, value: object) -> datetime:
-        """Channel timestamp from the NT timeStamp field, else now()."""
+    def _pva_sampled_at(self, value: object) -> datetime:
+        """The reading's instant, in UTC, from the NT timeStamp field, else now."""
         stamp = _pva_field(value, "timeStamp")
         seconds = _pva_field(stamp, "secondsPastEpoch", 0) or 0
         nanoseconds = _pva_field(stamp, "nanoseconds", 0) or 0
         if isinstance(seconds, int | float) and seconds:
             nanos = nanoseconds if isinstance(nanoseconds, int | float) else 0
-            return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
-        return datetime.now(get_facility_timezone())
+            return datetime.fromtimestamp(seconds + nanos * 1e-9, UTC)
+        return datetime.now(UTC)
 
     def _pva_alarm_metadata(self, value: object) -> dict[str, object]:
         """Alarm fields, recorded raw so nothing about the alarm state is lost."""
@@ -2613,7 +2608,7 @@ class EPICSConnector(ControlSystemConnector):
         value = self._pva_get(address, timeout_s, request=_PVA_METADATA_REQUEST)
         raw_metadata: dict[str, object] = {"nt_id": _pva_type_id(value)}
         raw_metadata.update(self._pva_alarm_metadata(value))
-        return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
+        return self._pva_metadata(value, raw_metadata)
 
     @override
     async def get_metadata(self, address: str) -> ChannelMetadata:

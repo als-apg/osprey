@@ -124,9 +124,9 @@ class EPICSArchiverConnector(ArchiverConnector):
         >>> connector = EPICSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     addresses=['BEAM:CURRENT'],
-        >>>     start_date=datetime(2024, 1, 1),
-        >>>     end_date=datetime(2024, 1, 2)
+        >>>     ['BEAM:CURRENT'],
+        >>>     start_at=datetime(2024, 1, 1, tzinfo=UTC),
+        >>>     end_at=datetime(2024, 1, 2, tzinfo=UTC),
         >>> )
     """
 
@@ -279,10 +279,10 @@ class EPICSArchiverConnector(ArchiverConnector):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -291,8 +291,8 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         Args:
             addresses: Channel addresses to retrieve (EPICS PV names)
-            start_date: Start of time range
-            end_date: End of time range
+            start_at: Start of the time range, timezone-aware.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Bin width in milliseconds, applied server-side. Must
                 be a whole number of seconds (the Archiver Appliance's operator
                 syntax takes seconds); a finer width is rejected rather than
@@ -321,7 +321,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         # The retrieval API's ".000Z" wire format is UTC: convert the bounds
         # rather than relabel them.
-        start_utc, end_utc = utc_window(start_date, end_date)
+        start_utc, end_utc = utc_window(start_at, end_at)
         start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 

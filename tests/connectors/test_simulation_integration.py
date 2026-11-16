@@ -6,7 +6,7 @@ channel passes through; the mock archiver serves the same values as history and
 refuses an address the view does not hold.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -123,9 +123,9 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            addresses=["T:Q1:CUR:SP"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 1, 0, 0),
+            ["T:Q1:CUR:SP"],
+            start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
         )
         sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
@@ -140,9 +140,9 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            addresses=["T:Q1:CUR:SP"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 1, 0, 0),
+            ["T:Q1:CUR:SP"],
+            start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
         )
         sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         # Guard against an empty selection making .all() vacuously True.
@@ -153,9 +153,9 @@ class TestMockArchiverSimulation:
             ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
         ):
             await connector.get_data(
-                addresses=["T:Q1:CUR:SP", "UNSERVED:PV"],
-                start_date=datetime(2024, 1, 1, 0, 0, 0),
-                end_date=datetime(2024, 1, 1, 1, 0, 0),
+                ["T:Q1:CUR:SP", "UNSERVED:PV"],
+                start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC),
             )
 
         await connector.disconnect()
@@ -168,9 +168,9 @@ class TestMockArchiverSimulation:
         await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            addresses=["T:Q1:CUR:SP", "T:MODE"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 0, 10, 0),
+            ["T:Q1:CUR:SP", "T:MODE"],
+            start_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            end_at=datetime(2024, 1, 1, 0, 10, 0, tzinfo=UTC),
         )
         sp = df.loc[df["address"] == "T:Q1:CUR:SP", "value"]
         mode = df.loc[df["address"] == "T:MODE", "value"]

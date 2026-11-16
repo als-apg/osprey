@@ -97,7 +97,7 @@ async def _in_process_connector(
 
     def reading(address, *, held):  # noqa: ARG001 - VAInProcessConnector._reading signature
         value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
-        return ChannelValue(value=value, timestamp=datetime.now(UTC))
+        return ChannelValue(value=value, sampled_at=datetime.now(UTC))
 
     monkeypatch.setattr(connector, "_reading", reading)
     return connector
@@ -253,11 +253,11 @@ class _StubConnector:
     async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
         if address not in self.table:
             raise RuntimeError(READ_ERROR)
-        return ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
+        return ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
 
     async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
         return {
-            address: ChannelValue(value=self.table[address], timestamp=datetime.now(UTC))
+            address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
             for address in addresses
             if address in self.table
         }
@@ -342,7 +342,7 @@ async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name)
         position = addresses.index(address)
         if position == FAILING:
             raise asyncio.CancelledError
-        return ChannelValue(value=VALUES[position], timestamp=datetime.now(UTC))
+        return ChannelValue(value=VALUES[position], sampled_at=datetime.now(UTC))
 
     connector.read_channel = read_channel
 
