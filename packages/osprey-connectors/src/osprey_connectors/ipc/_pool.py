@@ -221,7 +221,7 @@ from typing import Protocol, TypeVar
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
-from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
+from osprey_connectors.errors import ConnectorsError, ConnectorUnavailableError, RecoveryRecord
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -535,7 +535,7 @@ class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
 
 
-class ConnectorHostSlowCallError(TimeoutError):
+class ConnectorHostSlowCallError(ConnectorsError, TimeoutError):
     """The child missed a call's deadline but still answered a ping, and was kept.
 
     Not a :class:`ConnectorHostLostError`: the connector is not gone, and the

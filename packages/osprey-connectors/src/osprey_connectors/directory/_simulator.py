@@ -37,7 +37,7 @@ from osprey_connectors.simulation.view import (
     STATUS_SIGNAL,
     UPTIME,
     Channel,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
 )
 
@@ -206,7 +206,7 @@ class SimulatorDirectory(ChannelDirectory):
             return Unavailable(reason="no project directory to find the simulator view under")
         try:
             self._records_read = _read_records(SimulatorView.of_project(self.project_dir))
-        except NoSimulatorView as absent:
+        except NoSimulatorViewError as absent:
             return Unavailable(reason=str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
             return Unavailable(reason=f"the simulator view cannot be read: {failure}")

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal, TypeVar
 
 from osprey_connectors import types
 from osprey_connectors.control_system._base import ControlSystemConnector
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
 
@@ -135,33 +136,42 @@ def _service_class(module_path: str, class_name: str) -> type[_ServiceBackend]:
     )
 
 
-def _dotted_class(connector_type: str, load: Callable[[str, str], _Class]) -> _Class:
+def _dotted_class(
+    connector_type: str, load: Callable[[str, str], _Class], *, key: str | None
+) -> _Class:
     """Import the class a dotted out-of-tree type names, through *load*.
 
+    *key* is the config key the type was read from, or ``None`` when it was
+    handed in rather than read.
+
     Raises:
-        ValueError: The module does not import, has no such class, or the class
-            is not a subclass of the base *load* requires.
+        ConfigurationError: The module does not import, has no such class, or
+            the class is not a subclass of the base *load* requires.
     """
     module_path, class_name = connector_type.rsplit(".", 1)
     try:
         return load(module_path, class_name)
     except ImportError as e:
-        raise ValueError(f"Could not import connector module '{module_path}': {e}") from e
+        raise ConfigurationError(
+            f"Could not import connector module '{module_path}': {e}", key=key
+        ) from e
     except AttributeError as e:
-        raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
+        raise ConfigurationError(
+            f"Module '{module_path}' has no class '{class_name}'", key=key
+        ) from e
     except _NotASubclassError as e:
-        raise ValueError(f"Connector type '{connector_type}': {e}") from e
+        raise ConfigurationError(f"Connector type '{connector_type}': {e}", key=key) from e
 
 
 def _mapping_section(value: object, path: str) -> Mapping[str, object]:
     """*value* as the config mapping read from *path*.
 
     Raises:
-        ValueError: *value* is not a mapping.
+        ConfigurationError: *value* is not a mapping; ``key`` is *path*.
     """
     if isinstance(value, Mapping):
         return value
-    raise ValueError(f"'{path}' must be a mapping, got {type(value).__name__}")
+    raise ConfigurationError(f"'{path}' must be a mapping, got {type(value).__name__}", key=path)
 
 
 class ConnectorFactory:
@@ -269,7 +279,7 @@ class ConnectorFactory:
             derivable from the first, so they travel together.
 
         Raises:
-            ValueError: If connector type is unknown or config is invalid: a
+            ConfigurationError: If connector type is unknown or config is invalid: a
                 dotted type that names no ``ControlSystemConnector`` subclass,
                 or a section, ``connector`` block or type block that is not a
                 mapping.
@@ -313,16 +323,21 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                connector_class = _dotted_class(connector_type, _control_system_class)
+                connector_class = _dotted_class(
+                    connector_type, _control_system_class, key="control_system.type"
+                )
                 cls._control_system_connectors[connector_type] = connector_class
             else:
                 if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
-                    raise ValueError(types.retired_type_message(connector_type))
+                    raise ConfigurationError(
+                        types.retired_type_message(connector_type), key="control_system.type"
+                    )
                 available = list(cls._control_system_connectors.keys())
-                raise ValueError(
+                raise ConfigurationError(
                     f"Unknown control system type: '{connector_type}'. "
                     f"Available types: {available}. "
-                    f"Use a dotted module path for custom connectors."
+                    f"Use a dotted module path for custom connectors.",
+                    key="control_system.type",
                 )
 
         # Create connector instance
@@ -348,9 +363,10 @@ class ConnectorFactory:
         )
         type_config = connector_configs.get(connector_type, {})
         if not isinstance(type_config, dict):
-            raise ValueError(
+            raise ConfigurationError(
                 f"'control_system.connector.{connector_type}' must be a mapping, "
-                f"got {type(type_config).__name__}"
+                f"got {type(type_config).__name__}",
+                key=f"control_system.connector.{connector_type}",
             )
 
         logger.debug(f"Built control system connector: {connector_type}")
@@ -379,7 +395,7 @@ class ConnectorFactory:
             Initialized and connected ControlSystemConnector
 
         Raises:
-            ValueError: If connector type is unknown or config is invalid
+            ConfigurationError: If connector type is unknown or config is invalid
             ConnectionError: If connection fails
 
         Example:
@@ -418,13 +434,13 @@ class ConnectorFactory:
                   config that omits the archiver section stays serviceable.
                 - settings: The selected connector's settings, handed to
                   connect() whole. A short-named connector's own-name block is
-                  read when settings is absent; both at once raise ValueError.
+                  read when settings is absent; both at once raise ConfigurationError.
 
         Returns:
             Initialized and connected ArchiverConnector
 
         Raises:
-            ValueError: If connector type is unknown or config is invalid: a
+            ConfigurationError: If connector type is unknown or config is invalid: a
                 dotted type that names no ``ArchiverConnector`` subclass, or a
                 section that is not a mapping.
             FileNotFoundError: If ``config`` is None and no config is found.
@@ -465,14 +481,17 @@ class ConnectorFactory:
 
         if not connector_class:
             if "." in connector_type:
-                connector_class = _dotted_class(connector_type, _archiver_class)
+                connector_class = _dotted_class(
+                    connector_type, _archiver_class, key="archiver.type"
+                )
                 cls._archiver_connectors[connector_type] = connector_class
             else:
                 available = list(cls._archiver_connectors.keys())
-                raise ValueError(
+                raise ConfigurationError(
                     f"Unknown archiver type: '{connector_type}'. "
                     f"Available types: {available}. "
-                    f"Use a dotted module path for custom connectors."
+                    f"Use a dotted module path for custom connectors.",
+                    key="archiver.type",
                 )
 
         # Create connector instance
@@ -504,9 +523,10 @@ class ConnectorFactory:
             **seams: Test seams, passed on only when not ``None``.
 
         Raises:
-            ValueError: The kind is not one of the four, the type is unknown, or a
-                dotted type does not resolve to a subclass of one of the four
-                service bases.
+            ValueError: The kind is not one of the four.
+            ConfigurationError: The type is unknown, or a dotted type does not
+                resolve to a subclass of one of the four service bases (``key``
+                ``None``: a spec may be written by hand).
         """
         registry = cls._service_backends.get(spec.kind)
         if registry is None:
@@ -515,12 +535,12 @@ class ConnectorFactory:
         backend_class = registry.get(spec.type)
         if backend_class is None:
             if "." not in spec.type:
-                raise ValueError(
+                raise ConfigurationError(
                     f"Unknown {spec.kind} type: '{spec.type}'. "
                     f"Available types: {list(registry)}. "
                     f"Use a dotted module path for custom connectors."
                 )
-            backend_class = _dotted_class(spec.type, _service_class)
+            backend_class = _dotted_class(spec.type, _service_class, key=None)
             registry[spec.type] = backend_class
         given = {name: seam for name, seam in seams.items() if seam is not None}
         backend: _ServiceBackend = backend_class(spec, project_dir=project_dir, **given)

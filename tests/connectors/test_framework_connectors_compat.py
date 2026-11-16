@@ -98,5 +98,5 @@ def test_the_connectors_open_the_view_the_framework_writes(tmp_path: Path) -> No
 
 
 def test_a_render_with_no_view_breaks_the_contract(tmp_path: Path) -> None:
-    with pytest.raises(contracts.ContractError, match="NoSimulatorView"):
+    with pytest.raises(contracts.ContractError, match="NoSimulatorViewError"):
         contracts.check_simulator_view(tmp_path)

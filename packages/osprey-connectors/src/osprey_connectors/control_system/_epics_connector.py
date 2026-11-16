@@ -64,6 +64,7 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    ConnectRefusedError,
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
@@ -988,9 +989,9 @@ class EPICSConnector(ControlSystemConnector):
                 configured and p4p is not installed
             RuntimeError: If this process's Channel Access context already
                 serves different ``EPICS_CA_*`` settings
-            ValueError: If the block still carries ``timeout``, or if
+            ConfigurationError: If the block still carries ``timeout``, or if
                 ``timeout_s`` is not a positive, finite number
-            ConnectionError: If this is a readonly run and the block configures
+            ConnectRefusedError: If this is a readonly run and the block configures
                 a ``write_access`` gateway but no ``read_only`` one
         """
         # Import aioca here to give a clear error if it is not installed. It
@@ -1050,7 +1051,7 @@ class EPICSConnector(ControlSystemConnector):
                 section: object = get_config_value("control_system", {})
             except (FileNotFoundError, RuntimeError):
                 section = {}
-            raise ConnectionError(
+            raise ConnectRefusedError(
                 readonly_gateway_refusal(machine_kind(section, self._control_target))
             )
         if gateway_role == "write_access" and not writes_enabled:

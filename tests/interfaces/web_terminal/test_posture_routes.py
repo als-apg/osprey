@@ -1037,9 +1037,9 @@ class TestNoUsableRecord:
         assert switch_now() == {}
 
     def test_a_record_lost_after_the_status_read_is_still_503(self, client):
-        """``set_switch`` answers no record with ``StoppedSince(epoch=None)``: not a 409."""
+        """``set_switch`` answers no record with ``StoppedSinceError(epoch=None)``: not a 409."""
         with patch.object(
-            control_context, "set_switch", side_effect=control_context.StoppedSince(epoch=None)
+            control_context, "set_switch", side_effect=control_context.StoppedSinceError(epoch=None)
         ):
             assert_envelope(
                 post_switch(client),

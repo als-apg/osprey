@@ -127,6 +127,7 @@ from lume.variables import IntVariable, NDVariable, ScalarVariable, StrVariable,
 from typing_extensions import override
 
 from osprey_connectors.config import default_config_path
+from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
@@ -273,7 +274,11 @@ def _ioc_health_variable(address: str, signal: str) -> Variable:
         return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
     if signal == ENGINEER:
         return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
-    raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
+    raise ViewSchemaError(
+        f"{address} is not an IOC health address: rebuild with osprey build",
+        key="ioc_health",
+        found=address,
+    )
 
 
 def _producers_first(children: Mapping[str, _Child]) -> list[str]:
@@ -324,7 +329,7 @@ class _TimeFunction(Protocol):
     def __call__(self, model: LUMEModel | None, /, *args: object) -> object: ...
 
 
-class WriteRefusedError(ValueError):
+class WriteRefusedError(ConnectorsError, ValueError):
     """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
 
     def __init__(self, message: str, *, address: str | None = None) -> None:
@@ -383,7 +388,7 @@ class Composite(LUMEModel):
 
     Raises:
         ValueError: ``instance`` is not one of :data:`_INSTANCES`.
-        NoSimulatorView: The directory holds no simulator view.
+        NoSimulatorViewError: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
 

@@ -93,6 +93,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
 )
+from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.recovery import _RAISED_BY_CHILD
 
@@ -169,7 +170,7 @@ def _consume_exception(future: asyncio.Future[object]) -> None:
         future.exception()
 
 
-class ChildUnresponsiveError(TimeoutError):
+class ChildUnresponsiveError(ConnectorsError, TimeoutError):
     """The child did not answer a request before the proxy's own deadline.
 
     Distinct from a :class:`TimeoutError` the child reported — that one means

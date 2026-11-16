@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import SupportsFloat, SupportsIndex
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.errors import ChannelError, ChannelReadFailedError
+from osprey_connectors.errors import ChannelError, ChannelReadFailedError, ConnectorsError
 from osprey_connectors.model import FrozenModel
 
 __all__ = [
@@ -112,7 +112,7 @@ class Landing(FrozenModel):
     bound: float
 
 
-class SettleTimeoutError(TimeoutError):
+class SettleTimeoutError(ConnectorsError, TimeoutError):
     """A readback did not come within its bound of the demand in time.
 
     Attributes:

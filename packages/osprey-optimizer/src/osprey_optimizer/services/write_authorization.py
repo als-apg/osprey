@@ -355,7 +355,7 @@ class RunAuthorization:
                 label=plan.label,
                 owner=self._owner,
             )
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             if refused.reason not in ASK_INSTEAD:
                 raise self.end(refused.reason, refused.detail) from refused
             grant = self._ask(plan, expires_at_ns)
@@ -378,7 +378,7 @@ class RunAuthorization:
                 completion=plan.completion,
                 owner=self._owner,
             )
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             raise self.end(refused.reason, refused.detail) from refused
         except Exception as exc:  # a request that could not be written asks nobody
             raise self.end("auth_unreadable", str(exc)) from exc
@@ -398,7 +398,7 @@ class RunAuthorization:
                     self._check_cancellation()
                 try:
                     grant = wa.approved_grant(request.id, owner=self._owner)
-                except wa.AuthorizationRefused as refused:
+                except wa.AuthorizationRefusedError as refused:
                     raise self.end(refused.reason, refused.detail) from refused
                 if grant is not None:
                     return grant
@@ -430,7 +430,7 @@ class RunAuthorization:
         self._issued = grant
         try:
             wa.start_lease(grant.id, owner=self._owner)
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             raise self.end(refused.reason, refused.detail) from refused
         except Exception as exc:  # a lease that could not be opened authorizes nothing
             raise self.end("auth_unreadable", str(exc)) from exc
@@ -469,7 +469,7 @@ class RunAuthorization:
         reason = "auth_lease_lapsed"
         try:
             wa.approved_grant(grant_id, owner=self._owner)
-        except wa.AuthorizationRefused as refused:
+        except wa.AuthorizationRefusedError as refused:
             reason = refused.reason
         except Exception:  # the lease is what failed; that is the reason given
             logger.debug("Could not read why %s lapsed", grant_id, exc_info=True)

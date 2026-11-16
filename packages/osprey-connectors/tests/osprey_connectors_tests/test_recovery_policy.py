@@ -127,6 +127,65 @@ def test_every_failure_class_has_one_step(exc, origin, write_timeout, step):
     assert recovery._step_of(exc, origin, write_timeout=write_timeout) is step
 
 
+_N, _P, _R = _Step.NONE, _Step.PROBE, _Step.REPLACE
+
+#: The step each IPC failure class takes, per origin (child, link, in process)
+#: and write timeout (off, on), as it was before the classes took the package
+#: base. A link timeout is probed or replaced; a lost connector is replaced from
+#: anywhere; a codec error and a timeout outside the link restart nothing.
+_IPC_STEPS = {
+    "FrameDecodeError": (_N, _N, _N, _N, _N, _N),
+    "FrameEncodeError": (_N, _N, _N, _N, _N, _N),
+    "ChildUnresponsiveError": (_N, _N, _P, _R, _N, _N),
+    "ConnectorHostSlowCallError": (_N, _N, _P, _R, _N, _N),
+    "ConnectorHostError": (_R, _R, _R, _R, _R, _R),
+    "ConnectorHostStartError": (_R, _R, _R, _R, _R, _R),
+    "ConnectorHostLostError": (_R, _R, _R, _R, _R, _R),
+    "ConnectorHostUnresponsiveError": (_R, _R, _R, _R, _R, _R),
+    "ConnectorHostWriteTimeoutError": (_R, _R, _R, _R, _R, _R),
+}
+
+
+def _ipc_class(name):
+    from osprey_connectors.ipc import _frames, _pool, _proxy
+
+    return next(
+        getattr(module, name) for module in (_frames, _proxy, _pool) if hasattr(module, name)
+    )
+
+
+@pytest.mark.parametrize("name", list(_IPC_STEPS))
+def test_every_ipc_error_keeps_its_classification(name):
+    from osprey_connectors.errors import ConnectorsError
+
+    cls = _ipc_class(name)
+    exc = cls.__new__(cls)
+    assert isinstance(exc, ConnectorsError)
+    steps = tuple(
+        recovery._step_of(exc, origin, write_timeout=write_timeout)
+        for origin in (recovery._Origin.CHILD, recovery._Origin.LINK, recovery._Origin.IN_PROCESS)
+        for write_timeout in (False, True)
+    )
+    assert steps == _IPC_STEPS[name]
+
+
+def test_a_slow_call_is_never_a_lost_connection():
+    cls = _ipc_class("ConnectorHostSlowCallError")
+    assert issubclass(cls, TimeoutError)
+    assert not issubclass(cls, ConnectionError)
+    assert not issubclass(_ipc_class("ChildUnresponsiveError"), ConnectionError)
+
+
+def test_a_connect_refusal_is_answered_as_a_bare_connection_error():
+    from osprey_connectors.errors import ConnectRefusedError
+
+    for origin in recovery._Origin:
+        for write_timeout in (False, True):
+            assert recovery._step_of(
+                ConnectRefusedError("refused"), origin, write_timeout=write_timeout
+            ) is recovery._step_of(ConnectionError("x"), origin, write_timeout=write_timeout)
+
+
 def test_a_lost_connector_that_is_also_a_timeout_is_decided_by_its_root():
     class Unanswered(ConnectorUnavailableError, TimeoutError):
         pass

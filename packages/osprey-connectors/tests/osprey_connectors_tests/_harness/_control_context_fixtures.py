@@ -261,7 +261,7 @@ def _set_switch_to(path: Path, wanted: Mapping[str, str]) -> None:
         epoch = current.switch_epoch if current is not None else None
         try:
             control_context.set_switch(names, position, epoch=epoch or 0, path=path)
-        except control_context.StoppedSince as stamped:
+        except control_context.StoppedSinceError as stamped:
             # An epoch-less record: the refusal stamped one; retry with it.
             control_context.set_switch(names, position, epoch=stamped.epoch, path=path)
 

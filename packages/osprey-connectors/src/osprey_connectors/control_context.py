@@ -78,7 +78,8 @@ Every file in this directory is written through it, the record
 The record is written only under its lock: an exclusive ``fcntl.flock`` on
 the sibling file ``<record path>.lock``, derived from the path being written
 (so ``path=`` moves the lock with the file), waited on for a bounded time and
-then refused with ``RuntimeError``. Inside the lock :func:`write_record`
+then refused with :class:`~osprey_connectors.errors.StateLockedError`
+(a ``RuntimeError``). Inside the lock :func:`write_record`
 re-reads the file on disk and writes the caller's record with the on-disk
 ``switch`` and ``switch_epoch`` substituted: whatever a caller read earlier,
 no writer but the person's own switch gesture (:func:`set_switch`,
@@ -145,6 +146,7 @@ from typing import Generic, Literal, TypeVar
 from pydantic import Field
 
 from osprey_connectors import posture_store
+from osprey_connectors.errors import ConnectorsError, StateLockedError, StateUnavailableError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.refusals import refusal_phrase
@@ -176,7 +178,7 @@ __all__ = [
     "ControlContext",
     "Owner",
     "ServerReport",
-    "StoppedSince",
+    "StoppedSinceError",
     "applied_detail",
     "blocking_pids",
     "invalidate_cache",
@@ -203,7 +205,7 @@ __all__ = [
     "write_record",
     "write_terminus",
     "held_epoch",
-    "RecordUnavailable",
+    "RecordUnavailableError",
 ]
 
 #: The payload version. There is exactly one, and a payload that does not
@@ -810,7 +812,7 @@ def _record_lock(path: Path) -> Iterator[None]:
     planter's choosing. A link refuses the write.
 
     Raises:
-        RuntimeError: The lock was not acquired in time.
+        StateLockedError: The lock was not acquired in time.
         OSError: A symbolic link sits where the lock file belongs
             (``errno.ELOOP``), or the lock file could not be created or opened.
     """
@@ -824,9 +826,11 @@ def _record_lock(path: Path) -> Iterator[None]:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(
+                    raise StateLockedError(
                         f"The control-context record at {path} stayed locked for "
-                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written"
+                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written",
+                        path=path,
+                        waited_s=_LOCK_TIMEOUT_S,
                     ) from None
                 time.sleep(_LOCK_POLL_S)
         try:
@@ -868,14 +872,14 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
         The path written.
 
     Raises:
-        RuntimeError: The agent-data root does not resolve, so there is
-            nowhere a reader would look for what this call would write; or
-            the record stayed locked past the bounded wait.
+        StateUnavailableError: The agent-data root does not resolve, so there
+            is nowhere a reader would look for what this call would write.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
     target_path = record_path() if path is None else path
     if target_path is None:
-        raise RuntimeError(
+        raise StateUnavailableError(
             "No agent-data root: the control-context record has nowhere to be written"
         )
     with _record_lock(target_path):
@@ -901,7 +905,7 @@ SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = 
 )
 
 
-class StoppedSince(Exception):
+class StoppedSinceError(ConnectorsError):
     """A widening refused because a stop, or a lost record, came after it began.
 
     Rule 3: a person widening a machine names the epoch they saw. A record
@@ -985,7 +989,7 @@ def set_switch(
     * A **widening** (one name moving up off → asked → allowed gates the whole
       call) requires *epoch*, the ``switch_epoch`` the person saw, and succeeds
       only when it equals the record's epoch — a compare-and-swap. It raises
-      :class:`StoppedSince` carrying the on-disk epoch when the two differ
+      :class:`StoppedSinceError` carrying the on-disk epoch when the two differ
       (newer or older) or *epoch* is ``None``, when the record has no epoch
       (one is stamped and ``stamped`` is set, so the retried gesture succeeds),
       or when there is no usable record.
@@ -1034,9 +1038,9 @@ def set_switch(
         ValueError: ``"all"`` with anything but ``"off"``, an unknown *state*,
             malformed *targets*, or an *epoch* that is neither ``None`` nor an
             integer. Nothing is written.
-        StoppedSince: A widening that is stale, as above.
-        RuntimeError: The agent-data root does not resolve, or the record
-            stayed locked past the bounded wait.
+        StoppedSinceError: A widening that is stale, as above.
+        StateUnavailableError: The agent-data root does not resolve.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
     if state == _SWITCH_LEGACY_ON:
@@ -1051,14 +1055,14 @@ def set_switch(
         raise ValueError(f"set_switch epoch must be an integer or None, not {epoch!r}")
     target_path = record_path() if path is None else path
     if target_path is None:
-        raise RuntimeError(
+        raise StateUnavailableError(
             "No agent-data root: the control-context record has nowhere to be written"
         )
     with _record_lock(target_path):
         current, _status = _read(target_path)
         if current is None:
             if state != _SWITCH_OFF:
-                raise StoppedSince(epoch=None)
+                raise StoppedSinceError(epoch=None)
             # No record, no epoch: no grant stands without one, marked or not.
             _try_revoke_on_stop(target_path, names, by)
             return None
@@ -1074,9 +1078,9 @@ def set_switch(
                 if on_disk_epoch is None:
                     stamped = evolve(current, switch_epoch=time.time_ns())
                     _write_record_unlocked(stamped, target_path)
-                    raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
+                    raise StoppedSinceError(epoch=stamped.switch_epoch, stamped=True)
                 if epoch != on_disk_epoch:
-                    raise StoppedSince(epoch=on_disk_epoch)
+                    raise StoppedSinceError(epoch=on_disk_epoch)
             if state == _SWITCH_OFF:
                 switch = {key: value for key, value in current.switch.items() if key not in names}
             else:
@@ -1100,8 +1104,16 @@ def set_switch(
     return stored
 
 
-class RecordUnavailable(Exception):
-    """The record is there and cannot be read, so nothing can be stood on it."""
+class RecordUnavailableError(ConnectorsError):
+    """The record is there and cannot be read, so nothing can be stood on it.
+
+    Attributes:
+        path: The record that cannot be read.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"The control-context record at {path} cannot be read")
 
 
 @contextlib.contextmanager
@@ -1117,14 +1129,14 @@ def held_epoch(path: Path, target: str) -> Iterator[int]:
     an epoch to move past.
 
     Raises:
-        RecordUnavailable: The record is there and cannot be read.
-        RuntimeError: The record stayed locked past the bounded wait.
+        RecordUnavailableError: The record is there and cannot be read.
+        StateLockedError: The record stayed locked past the bounded wait.
         OSError: The stamp could not be written.
     """
     with _record_lock(path):
         current, status = _read(path)
         if status == "unreadable":
-            raise RecordUnavailable(f"The control-context record at {path} cannot be read")
+            raise RecordUnavailableError(path)
         epoch = None if current is None else current.switch_epoch
         if epoch is None:
             epoch = time.time_ns()
@@ -1149,7 +1161,7 @@ def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) 
     which reads this module.
 
     Raises:
-        RuntimeError: The grants directory stayed locked.
+        StateLockedError: The grants directory stayed locked.
         OSError: It is not a plain directory, or a mark could not be written.
     """
     from osprey_connectors import write_authorization

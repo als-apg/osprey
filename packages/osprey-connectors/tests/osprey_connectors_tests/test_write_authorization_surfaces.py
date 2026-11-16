@@ -21,10 +21,11 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve
 from osprey_connectors.write_authorization import (
     Approver,
-    AuthorizationRefused,
+    AuthorizationRefusedError,
     ChannelRange,
     Grant,
     Revocation,
@@ -350,7 +351,7 @@ class TestRequestFormat:
 
     def test_a_holder_with_no_owner_cannot_ask(self, monkeypatch):
         monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             ask()
         assert refused.value.reason == "owner_unknown"
 
@@ -385,8 +386,10 @@ class TestApproval:
     def test_an_approval_is_issued_once(self):
         request = ask()
         approve_request(request, surface="chip")
-        with pytest.raises(FileExistsError):
+        with pytest.raises(AlreadyApprovedError) as caught:
             approve_request(request, surface="chip")
+        assert caught.value.authorization == request.id
+        assert isinstance(caught.value, FileExistsError)
 
     def test_no_record_yet_is_stamped_with_an_epoch(self):
         path = control_context.record_path()
@@ -399,7 +402,7 @@ class TestApproval:
         path = control_context.record_path()
         assert path is not None
         path.write_text("{")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(ask(), surface="cli")
         assert refused.value.reason == "record_unavailable"
         assert list_grants(own_dir()) == ((), ())
@@ -407,20 +410,20 @@ class TestApproval:
     def test_an_expired_request_refuses(self, monkeypatch):
         request = ask(expires_at_ns=time.time_ns() + 10**9)
         monkeypatch.setattr(wa, "_now_ns", lambda: request.expires_at_ns)
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(request, surface="chip")
         assert refused.value.reason == "auth_expired"
 
     def test_another_owners_request_needs_its_record(self):
         request = _parse_request(json.dumps(request_payload(owner="bob")))
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(request, surface="cli")
         assert refused.value.reason == "owner_foreign"
 
     def test_a_stop_after_the_approval_revokes_it(self):
         grant = approve_request(ask(), surface="chip")
         control_context.set_switch([TARGET], "off")
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approved_grant(grant.id)
         assert refused.value.reason == "auth_revoked"
 
@@ -468,7 +471,7 @@ class TestOverlap:
     def test_another_holders_grant_beside_it_on_the_channel_refuses(self):
         held = make_grant(holder="bluesky")
         _issue_grant(held, directory=own_dir())
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(ask(), surface="chip")
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
@@ -519,7 +522,7 @@ class TestOverlap:
         _issue_grant(held, directory=ledgers)
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
         assert ledgers in self_issued_directories()
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             approve_request(ask(), surface="chip")
         assert refused.value.reason == "auth_overlap"
         assert held.id in (refused.value.detail or "")
@@ -542,7 +545,7 @@ class TestOverlap:
             directory=own_dir(),
         )
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
-        with pytest.raises(AuthorizationRefused) as refused:
+        with pytest.raises(AuthorizationRefusedError) as refused:
             self_issue(
                 SECTION, TARGET, {"A:SP": (0.0, 1.0)}, steps=1, expires_at_ns=FAR_FUTURE_NS,
                 lease_s=30.0,

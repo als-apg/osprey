@@ -1334,6 +1334,8 @@ class ControlSystemConnector(ABC):
 
         Raises:
             ConnectorUnavailableError: If connection cannot be established
+            ConnectRefusedError: If policy refuses the connection (a readonly
+                run with no gateway it may use, for instance)
         """
 
     @abstractmethod
@@ -1356,7 +1358,6 @@ class ControlSystemConnector(ABC):
             ChannelUnreachableError: This channel cannot be reached or did not
                 answer in time; the connector stays in place
             ConnectorUnavailableError: The connector's own transport is gone
-            TimeoutError: If operation times out
             ValueError: If channel address is invalid
             ChannelNotFoundError: The address is not a channel of the facility
                 (a connector that holds the facility's address set)

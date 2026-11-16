@@ -3,7 +3,7 @@
 Failures of the framework's configuration, build profiles and registry, which
 the connectors package never raises. The connectors package keeps its own
 vocabulary in :mod:`osprey_connectors.errors`; its
-:class:`~osprey.errors.ConfigurationError` is what the package's config
+:class:`~osprey_connectors.errors.ConfigurationError` is what the package's config
 readers raise, a ``ValueError`` naming the dotted key, and is a different class
 from :class:`ConfigurationError` here, which is no ``ValueError``: an
 ``except ValueError`` around framework code does not swallow a framework

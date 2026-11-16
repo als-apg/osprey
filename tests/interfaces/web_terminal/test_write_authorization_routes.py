@@ -420,7 +420,7 @@ class TestSelfIssued:
         assert record is not None
         epoch = record.switch_epoch
         if epoch is None:
-            with pytest.raises(control_context.StoppedSince) as stamped:
+            with pytest.raises(control_context.StoppedSinceError) as stamped:
                 control_context.set_switch([TARGET], "asked", epoch=None)
             epoch = stamped.value.epoch
         control_context.set_switch([TARGET], "allowed", epoch=epoch)

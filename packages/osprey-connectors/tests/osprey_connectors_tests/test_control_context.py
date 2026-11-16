@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.errors import StateUnavailableError
 from osprey_connectors.model import evolve
 from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
@@ -322,7 +323,7 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
 
 @pytest.mark.usefixtures("rootless")
 def test_write_raises_when_the_record_has_nowhere_to_live():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(StateUnavailableError):
         control_context.write_record(control_context.ControlContext(target="live", generation=0))
 
 

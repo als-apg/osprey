@@ -53,18 +53,16 @@ both are imported by :func:`main`.
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import signal
 from pathlib import Path
 from typing import Any
 
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
     SERVED_MODELS_FILE,
     VARIABLES_FILE,
     VIEW_RELPATH,
-    NoSimulatorView,
+    NoSimulatorViewError,
     SimulatorView,
     ViewSchemaError,
 )
@@ -202,23 +200,19 @@ def _open_view(path: Path) -> SimulatorView:
         SystemExit: A document is absent, is not JSON or is from another
             schema; the message names the file and what to do.
     """
-    current = path / ADDRESSES_FILE
     try:
         view = SimulatorView.open(path)
         for name in (SERVED_MODELS_FILE, VARIABLES_FILE):
-            current = path / name
             view.document(name)
         view.models()
-    except (NoSimulatorView, FileNotFoundError):
+    except NoSimulatorViewError as exc:
         raise SystemExit(
-            f"FATAL: no simulator view file at {current}. Bind-mount the render's data "
+            f"FATAL: no simulator view file at {exc.path}. Bind-mount the render's data "
             f"directory (<project>/build/data) to {DEFAULT_DATA_DIR}, or point "
             f"VA_DATA_DIR at it; `osprey build` writes the view."
         ) from None
     except ViewSchemaError as exc:
         raise SystemExit(f"FATAL: {exc}") from None
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"FATAL: {current} is not JSON: {exc}") from None
     return view
 
 

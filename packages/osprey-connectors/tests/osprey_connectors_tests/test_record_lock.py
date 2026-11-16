@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.errors import StateLockedError
 from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
@@ -143,11 +144,14 @@ def test_a_held_lock_refuses_the_write_after_a_bounded_wait(data_root, monkeypat
     fd = _hold(path.with_name(path.name + ".lock"))
     try:
         started = time.monotonic()
-        with pytest.raises(RuntimeError, match="stayed locked"):
+        with pytest.raises(StateLockedError, match="stayed locked") as caught:
             control_context.write_record(
                 control_context.ControlContext(target="va", generation=4), path=path
             )
         assert time.monotonic() - started >= 0.2
+        assert caught.value.path == path
+        assert caught.value.waited_s == 0.2
+        assert isinstance(caught.value, RuntimeError)
     finally:
         _release(fd)
     assert path.read_bytes() == before

@@ -415,7 +415,7 @@ def _writes_armed() -> Iterator[None]:
         )
         try:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=0, path=path)
-        except control_context.StoppedSince as stamped:
+        except control_context.StoppedSinceError as stamped:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         control_context.invalidate_cache()
         with (
