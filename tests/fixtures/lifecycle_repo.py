@@ -1470,6 +1470,8 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
+# Bundled template rendered as CLAUDE.md, the agent's instructions.
+claude_md_template: CLAUDE.md.j2
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
