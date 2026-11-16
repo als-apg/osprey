@@ -182,7 +182,7 @@ async def test_an_allowed_render_with_the_switch_on_selects_the_write_gateway_an
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
     # Assert
-    assert connector._selected_role == "write_access"
+    assert connector.selected_gateway_role == "write_access"
     assert os.environ["EPICS_CA_ADDR_LIST"] == "wr.example.com"
     assert result.outcome is not WriteOutcome.REFUSED, result.error_message
     assert aioca.puts == [(SP, 2.0, False)]
@@ -204,4 +204,4 @@ async def test_a_readonly_run_on_a_write_gateway_only_block_still_refuses(monkey
 
     assert "no read-only gateway" in str(caught.value)
     assert loop.pointed_at == []
-    assert connector._selected_role is None
+    assert connector.selected_gateway_role is None
