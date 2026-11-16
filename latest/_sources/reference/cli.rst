@@ -375,7 +375,9 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    ``--json`` prints the table as one document in which every cell names the
    file whose line selects the panel and the file whose line hides it.
    ``--html FILE`` writes the table as one self-contained page, where
-   selecting a cell says which file decides it.
+   selecting a cell says which file decides it. A login that selects the
+   ``roster`` panel reads the same page inside the web terminal, as of the
+   last build.
 
 .. code-block:: bash
 

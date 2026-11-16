@@ -595,8 +595,8 @@ CHANNELS, which is why both work out of the box.</p>
 <p>Panels have a row in the sidebar on the left of the window.
 <strong>Sessions</strong> is the first row and has no heading. <strong>Artifacts</strong> has no row: its
 artifacts are in the session tree, and the palette opens the panel.
-<strong>Events</strong> (when the deployment enables it) and <strong>Health</strong> are in the
-<strong>System</strong> section. All other panels are in the <strong>Apps</strong> section, which ends
+<strong>Events</strong> (when the deployment enables it), <strong>Health</strong> and <strong>Roster</strong> (for a
+login that selects it) are in the <strong>System</strong> section. All other panels are in the <strong>Apps</strong> section, which ends
 with <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
 </section>
 <section id="dragging-sidebar-rows">
@@ -832,6 +832,26 @@ section of the tile’s <strong>⋯</strong> menu. An entry can set <code class=
 above it).</p></li>
 </ul>
 <p>Everything else a panel needs goes in its own toolbar, inside the panel.</p>
+</section>
+<section id="the-roster-panel">
+<h2>The Roster panel<a class="headerlink" href="#the-roster-panel" title="Link to this heading">#</a></h2>
+<p><strong>Roster</strong> shows which login opens which panel: one row per panel, one column
+for the deployment’s own profile and for every file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, with the
+logins each column stands for. A cell is the tab the login opens on, a tab, a
+panel reachable from the panel menu only, or nothing. Selecting a cell names
+the file whose line decides it.</p>
+<p>Select it like any other panel:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web_panels</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">roster</span>
+</pre></div>
+</div>
+<p>No bundled login selects it; a deployment adds it to the login its
+maintainers use, typically <code class="docutils literal notranslate"><span class="pre">tiers/admin.yml</span></code>. The panel has no server: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the page into a render that
+selects it, so it shows the deployment as it was last built, which is what the
+running terminals were made from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">panels</span></code> prints the same
+table from the files as they are now (see <a class="reference internal" href="../../reference/cli.html"><span class="doc">CLI Reference</span></a>).</p>
+<p>A profile that already gives a custom panel the id <code class="docutils literal notranslate"><span class="pre">roster</span></code>, with a
+<code class="docutils literal notranslate"><span class="pre">web.panels.roster.url</span></code>, keeps that panel.</p>
 </section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
@@ -1165,6 +1185,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#handing-keyboard-focus-back">Handing keyboard focus back</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#controls-in-the-tile-bar">Controls in the tile bar</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-roster-panel">The Roster panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a><ul class="visible nav section-nav flex-column">
